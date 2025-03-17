@@ -1,14 +1,119 @@
-// Update this page (the content is just a fallback if you fail to update the page)
 
-const Index = () => {
+import React, { useState } from 'react';
+import { Heart, ArrowRight } from 'lucide-react';
+import TabBar from '@/components/TabBar';
+import MatchCard from '@/components/MatchCard';
+import { Button } from '@/components/ui/button';
+import { motion } from 'framer-motion';
+
+// Sample data for matches
+const MATCHES = [
+  {
+    id: '1',
+    name: 'Sarah Chen',
+    image: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=687&q=80',
+    bio: "Music is my escape. I'm a big fan of indie rock and alternative music. Always looking for new artists to discover and concerts to attend!",
+    matchedArtists: ['Kendrick Lamar', 'Anderson .Paak', 'SZA'],
+    genres: ['Hip Hop', 'R&B', 'Jazz Rap'],
+    compatibilityScore: 87,
+    isPremium: true,
+    isThrowback: false,
+  },
+  {
+    id: '2',
+    name: 'Alex Rivera',
+    image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-1.2.1&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=687&q=80',
+    bio: "Vinyl collector and music enthusiast. I play guitar in a local band and love discovering underground artists. Let's talk music!",
+    matchedArtists: ['Tame Impala', 'Arctic Monkeys', 'The Strokes'],
+    genres: ['Indie Rock', 'Psychedelic Rock', 'Alternative'],
+    compatibilityScore: 92,
+    isPremium: true,
+    isThrowback: true,
+  }
+];
+
+const MatchesPage = () => {
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const currentMatch = MATCHES[currentMatchIndex];
+  
+  const goToNextMatch = () => {
+    if (currentMatchIndex < MATCHES.length - 1) {
+      setCurrentMatchIndex(currentMatchIndex + 1);
+    } else {
+      setCurrentMatchIndex(0);
+    }
+  };
+  
+  const MotionHeading = motion.h1;
+  const MotionDiv = motion.div;
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-gray-600">Start building your amazing project here!</p>
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-matchmaker.gray to-white pb-24">
+      {/* Header */}
+      <header className="pt-6 pb-4 px-6">
+        <div className="max-w-md mx-auto">
+          <MotionHeading 
+            className="text-3xl font-bold flex items-center text-matchmaker-darkGray mb-2"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <Heart className="text-matchmaker-teal mr-2 h-7 w-7" />
+            Today's Matches
+          </MotionHeading>
+          
+          <MotionDiv
+            className="flex justify-between items-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2, duration: 0.3 }}
+          >
+            <p className="text-gray-500 text-sm">
+              Find your musical connection
+            </p>
+            
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="text-matchmaker-teal hover:text-matchmaker-darkTeal hover:bg-matchmaker-teal/10"
+              onClick={goToNextMatch}
+            >
+              Next match
+              <ArrowRight className="ml-1 h-4 w-4" />
+            </Button>
+          </MotionDiv>
+        </div>
+      </header>
+      
+      {/* Main Content */}
+      <main className="px-4 pb-6">
+        <div className="max-w-md mx-auto">
+          <MotionDiv
+            key={currentMatch.id}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+            className="w-full"
+          >
+            <MatchCard
+              id={currentMatch.id}
+              name={currentMatch.name}
+              image={currentMatch.image}
+              bio={currentMatch.bio}
+              matchedArtists={currentMatch.matchedArtists}
+              genres={currentMatch.genres}
+              compatibilityScore={currentMatch.compatibilityScore}
+              isPremium={currentMatch.isPremium}
+              isThrowback={currentMatch.isThrowback}
+            />
+          </MotionDiv>
+        </div>
+      </main>
+      
+      {/* Tab Bar */}
+      <TabBar />
     </div>
   );
 };
 
-export default Index;
+export default MatchesPage;
