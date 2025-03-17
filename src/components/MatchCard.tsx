@@ -31,12 +31,12 @@ const MatchCard: React.FC<MatchProps> = ({
   return (
     <div 
       className={cn(
-        "w-full max-w-md mx-auto bg-white rounded-2xl shadow-md overflow-hidden transition-all duration-300 animate-scale-in",
+        "w-full mx-auto bg-white rounded-2xl shadow-md overflow-hidden transition-all duration-300 animate-scale-in",
         "border border-gray-100 hover:shadow-lg"
       )}
     >
       {/* User Image */}
-      <div className="relative w-full h-72 overflow-hidden">
+      <div className="relative w-full h-80 overflow-hidden">
         <img 
           src={image} 
           alt={name} 
@@ -97,23 +97,23 @@ const MatchCard: React.FC<MatchProps> = ({
         
         {/* Actions */}
         <div className="flex items-center justify-between mt-4">
-          <div className="flex space-x-3">
+          <div className="flex space-x-3 w-full">
             <Button 
               size="lg"
               variant="outline" 
-              className="rounded-full bg-red-50 text-red-500 border-red-100 hover:bg-red-100 hover:text-red-600 transition-all duration-200 shadow-sm hover:shadow"
+              className="rounded-full bg-gradient-to-r from-red-400 to-pink-500 text-white border-0 hover:from-red-500 hover:to-pink-600 transition-all duration-300 shadow-md hover:shadow-lg hover:scale-105 active:scale-95 flex-1"
               onClick={() => console.log('Rejected match')}
             >
-              <X className="mr-1 h-4 w-4" />
+              <X className="mr-1 h-5 w-5" />
               Skip
             </Button>
             
             <Button 
               size="lg" 
-              className="rounded-full bg-vybr-midBlue text-white hover:bg-vybr-blue transition-all duration-200 shadow-sm hover:shadow"
+              className="rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 text-white hover:from-purple-600 hover:to-indigo-700 transition-all duration-300 shadow-md hover:shadow-lg hover:scale-105 active:scale-95 flex-1"
               onClick={() => console.log('Accepted match')}
             >
-              <Check className="mr-1 h-4 w-4" />
+              <Check className="mr-1 h-5 w-5" />
               Connect
             </Button>
           </div>
@@ -122,7 +122,7 @@ const MatchCard: React.FC<MatchProps> = ({
             <Button 
               variant="ghost" 
               size="icon" 
-              className="rounded-full h-12 w-12 bg-vybr-midBlue/10 text-vybr-blue hover:bg-vybr-midBlue hover:text-white transition-all duration-300"
+              className="rounded-full h-12 w-12 ml-2 bg-vybr-midBlue/10 text-vybr-blue hover:bg-gradient-to-r hover:from-vybr-midBlue hover:to-vybr-blue hover:text-white transition-all duration-300 shadow-sm hover:shadow-md"
               onClick={() => console.log('Open AI Radio')}
             >
               <Radio className="h-5 w-5" />

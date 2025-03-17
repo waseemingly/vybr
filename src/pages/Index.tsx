@@ -52,24 +52,17 @@ const MatchesPage = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-vybr-blue/5 to-white pb-24">
       {/* Header */}
-      <header className="pt-6 pb-4 px-6 safe-area-top">
-        <div className="max-w-md mx-auto">
-          <div className="flex items-center mb-2">
-            <img 
-              src="/lovable-uploads/d9d63781-f853-48bc-b06e-8074bad2f8cb.png" 
-              alt="Vybr Logo" 
-              className="h-8 mr-3"
-            />
-            <MotionHeading 
-              className="text-2xl font-bold flex items-center text-vybr-blue"
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3 }}
-            >
-              <Heart className="text-vybr-midBlue mr-2 h-6 w-6" />
-              Today's Matches
-            </MotionHeading>
-          </div>
+      <header className="pt-6 pb-4 px-4 safe-area-top">
+        <div className="mx-auto">
+          <MotionHeading 
+            className="text-2xl font-bold flex items-center text-vybr-blue"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <Heart className="text-vybr-midBlue mr-2 h-6 w-6" />
+            Today's Matches
+          </MotionHeading>
           
           <MotionDiv
             className="flex justify-between items-center"
@@ -96,7 +89,7 @@ const MatchesPage = () => {
       
       {/* Main Content */}
       <main className="px-4 pb-6">
-        <div className="max-w-md mx-auto">
+        <div className="mx-auto">
           <MotionDiv
             key={currentMatch.id}
             initial={{ opacity: 0, scale: 0.95 }}

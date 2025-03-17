@@ -17,7 +17,7 @@ const TabBar = () => {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg py-2 px-1 z-50 animate-fade-in safe-area-bottom">
-      <div className="flex justify-between items-center max-w-screen-lg mx-auto">
+      <div className="flex justify-between items-center">
         {tabs.map((tab) => {
           const isActive = location.pathname === tab.path;
           
@@ -33,13 +33,13 @@ const TabBar = () => {
               )}
             >
               <div className={cn(
-                "w-10 h-10 rounded-full flex items-center justify-center mb-1 transition-all duration-300",
+                "w-12 h-12 rounded-full flex items-center justify-center mb-1 transition-all duration-300",
                 isActive 
                   ? "bg-vybr-midBlue/10 text-vybr-blue" 
                   : "text-gray-400 hover:bg-vybr-midBlue/5"
               )}>
                 <tab.icon className={cn(
-                  "w-5 h-5 transition-transform duration-300",
+                  "w-6 h-6 transition-transform duration-300",
                   isActive ? "scale-110" : ""
                 )} />
               </div>
