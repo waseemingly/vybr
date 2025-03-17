@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Star, Radio, Check, X } from 'lucide-react';
+import { Star, Radio, Check, X, Music } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,7 +32,7 @@ const MatchCard: React.FC<MatchProps> = ({
     <div 
       className={cn(
         "w-full max-w-md mx-auto bg-white rounded-2xl shadow-md overflow-hidden transition-all duration-300 animate-scale-in",
-        "border border-gray-100 hover:shadow-lg hover:-translate-y-1"
+        "border border-gray-100 hover:shadow-lg"
       )}
     >
       {/* User Image */}
@@ -50,7 +50,7 @@ const MatchCard: React.FC<MatchProps> = ({
         )}
         
         {isPremium && compatibilityScore && (
-          <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-sm text-matchmaker-teal px-3 py-1 rounded-full flex items-center space-x-1 animate-fade-in">
+          <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-sm text-vybr-blue px-3 py-1 rounded-full flex items-center space-x-1 animate-fade-in">
             <Star className="w-4 h-4 text-yellow-500 animate-floating" />
             <span className="font-medium text-sm">{compatibilityScore}% Match</span>
           </div>
@@ -67,7 +67,7 @@ const MatchCard: React.FC<MatchProps> = ({
                 <Badge 
                   key={index} 
                   variant="outline" 
-                  className="bg-matchmaker-lightTeal/50 text-matchmaker-darkTeal border-none hover:bg-matchmaker-teal hover:text-white transition-colors duration-200 text-xs"
+                  className="bg-vybr-skyBlue/30 text-vybr-darkBlue border-none hover:bg-vybr-midBlue hover:text-white transition-colors duration-200 text-xs"
                 >
                   {genre}
                 </Badge>
@@ -83,8 +83,9 @@ const MatchCard: React.FC<MatchProps> = ({
             {matchedArtists.map((artist, index) => (
               <Badge 
                 key={index} 
-                className="bg-matchmaker-teal/10 text-matchmaker-teal hover:bg-matchmaker-teal hover:text-white transition-colors duration-200"
+                className="bg-vybr-midBlue/10 text-vybr-blue hover:bg-vybr-midBlue hover:text-white transition-colors duration-200"
               >
+                <Music className="w-3 h-3 mr-1" />
                 {artist}
               </Badge>
             ))}
@@ -100,7 +101,7 @@ const MatchCard: React.FC<MatchProps> = ({
             <Button 
               size="lg"
               variant="outline" 
-              className="rounded-full bg-red-50 text-red-500 border-red-100 hover:bg-red-100 hover:text-red-600 transition-all duration-200"
+              className="rounded-full bg-red-50 text-red-500 border-red-100 hover:bg-red-100 hover:text-red-600 transition-all duration-200 shadow-sm hover:shadow"
               onClick={() => console.log('Rejected match')}
             >
               <X className="mr-1 h-4 w-4" />
@@ -109,7 +110,7 @@ const MatchCard: React.FC<MatchProps> = ({
             
             <Button 
               size="lg" 
-              className="rounded-full bg-green-500 text-white hover:bg-green-600 transition-all duration-200"
+              className="rounded-full bg-vybr-midBlue text-white hover:bg-vybr-blue transition-all duration-200 shadow-sm hover:shadow"
               onClick={() => console.log('Accepted match')}
             >
               <Check className="mr-1 h-4 w-4" />
@@ -121,7 +122,7 @@ const MatchCard: React.FC<MatchProps> = ({
             <Button 
               variant="ghost" 
               size="icon" 
-              className="rounded-full h-12 w-12 bg-matchmaker-teal/10 text-matchmaker-teal hover:bg-matchmaker-teal hover:text-white transition-all duration-300"
+              className="rounded-full h-12 w-12 bg-vybr-midBlue/10 text-vybr-blue hover:bg-vybr-midBlue hover:text-white transition-all duration-300"
               onClick={() => console.log('Open AI Radio')}
             >
               <Radio className="h-5 w-5" />

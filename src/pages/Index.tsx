@@ -1,10 +1,11 @@
 
 import React, { useState } from 'react';
-import { Heart, ArrowRight } from 'lucide-react';
+import { Heart, ArrowRight, Music } from 'lucide-react';
 import TabBar from '@/components/TabBar';
 import MatchCard from '@/components/MatchCard';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 // Sample data for matches
 const MATCHES = [
@@ -35,6 +36,7 @@ const MATCHES = [
 const MatchesPage = () => {
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const currentMatch = MATCHES[currentMatchIndex];
+  const isMobile = useIsMobile();
   
   const goToNextMatch = () => {
     if (currentMatchIndex < MATCHES.length - 1) {
@@ -48,19 +50,26 @@ const MatchesPage = () => {
   const MotionDiv = motion.div;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-matchmaker.gray to-white pb-24">
+    <div className="min-h-screen bg-gradient-to-br from-vybr-blue/5 to-white pb-24">
       {/* Header */}
-      <header className="pt-6 pb-4 px-6">
+      <header className="pt-6 pb-4 px-6 safe-area-top">
         <div className="max-w-md mx-auto">
-          <MotionHeading 
-            className="text-3xl font-bold flex items-center text-matchmaker-darkGray mb-2"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-          >
-            <Heart className="text-matchmaker-teal mr-2 h-7 w-7" />
-            Today's Matches
-          </MotionHeading>
+          <div className="flex items-center mb-2">
+            <img 
+              src="/lovable-uploads/d9d63781-f853-48bc-b06e-8074bad2f8cb.png" 
+              alt="Vybr Logo" 
+              className="h-8 mr-3"
+            />
+            <MotionHeading 
+              className="text-2xl font-bold flex items-center text-vybr-blue"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <Heart className="text-vybr-midBlue mr-2 h-6 w-6" />
+              Today's Matches
+            </MotionHeading>
+          </div>
           
           <MotionDiv
             className="flex justify-between items-center"
@@ -75,7 +84,7 @@ const MatchesPage = () => {
             <Button 
               variant="ghost" 
               size="sm" 
-              className="text-matchmaker-teal hover:text-matchmaker-darkTeal hover:bg-matchmaker-teal/10"
+              className="text-vybr-midBlue hover:text-vybr-darkBlue hover:bg-vybr-midBlue/10"
               onClick={goToNextMatch}
             >
               Next match

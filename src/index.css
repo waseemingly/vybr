@@ -16,7 +16,7 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    --primary: 175 77% 56%;
+    --primary: 217 91% 33%;
     --primary-foreground: 210 40% 98%;
 
     --secondary: 210 40% 96%;
@@ -25,15 +25,15 @@
     --muted: 210 40% 96%;
     --muted-foreground: 215 16% 47%;
 
-    --accent: 176 79% 80%;
-    --accent-foreground: 180 91% 27%;
+    --accent: 213 93% 68%;
+    --accent-foreground: 222 47% 11%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 210 40% 98%;
 
     --border: 214 32% 91%;
     --input: 214 32% 91%;
-    --ring: 175 77% 56%;
+    --ring: 221 83% 53%;
 
     --radius: 1rem;
 
@@ -57,7 +57,7 @@
     --popover: 222 47% 11%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 175 77% 56%;
+    --primary: 217 91% 60%;
     --primary-foreground: 222 47% 11%;
 
     --secondary: 217 33% 18%;
@@ -66,15 +66,15 @@
     --muted: 217 33% 18%;
     --muted-foreground: 215 20% 65%;
 
-    --accent: 176 79% 80%;
-    --accent-foreground: 180 91% 27%;
+    --accent: 213 93% 68%;
+    --accent-foreground: 222 47% 11%;
 
     --destructive: 0 63% 31%;
     --destructive-foreground: 210 40% 98%;
 
     --border: 217 33% 18%;
     --input: 217 33% 18%;
-    --ring: 175 77% 56%;
+    --ring: 224 76% 48%;
   }
 }
 
@@ -94,7 +94,7 @@
   
   /* Tag styles */
   .tag {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-matchmaker-lightTeal text-matchmaker-darkTeal transition-all duration-200 hover:bg-matchmaker-teal hover:text-white;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-vybr-skyBlue text-vybr-darkBlue transition-all duration-200 hover:bg-vybr-midBlue hover:text-white;
   }
 
   /* Custom scrollbar */
@@ -108,11 +108,11 @@
   }
   
   ::-webkit-scrollbar-thumb {
-    @apply bg-matchmaker-teal/30 rounded-full;
+    @apply bg-vybr-midBlue/30 rounded-full;
   }
   
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-matchmaker-teal/50;
+    @apply bg-vybr-midBlue/50;
   }
 
   /* Button hover effects */
