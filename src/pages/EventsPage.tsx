@@ -159,9 +159,9 @@ const EventsPage = () => {
               Events
             </h1>
             <img 
-              src="/lovable-uploads/6f793496-9715-4c6c-8b88-fcac27b1a4c2.png" 
+              src="/lovable-uploads/0cc2a209-13f6-490c-bfd1-e35d209b6a89.png" 
               alt="Vybr Logo" 
-              className="h-8 w-auto"
+              className="h-12 w-auto"
             />
           </div>
           <p className="text-gray-500 text-sm mt-1">Discover concerts and music events in Singapore</p>

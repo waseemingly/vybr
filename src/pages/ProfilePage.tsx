@@ -1,12 +1,14 @@
 
 import React from 'react';
 import TabBar from '@/components/TabBar';
-import { User, Music, Heart, Disc, Album, Users, HeadphonesIcon } from 'lucide-react';
+import { User, Music, Heart, Disc, Album, Users, HeadphonesIcon, LayoutDashboard } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
+import { useOrganizerMode } from '@/hooks/useOrganizerMode';
 import { motion } from 'framer-motion';
 
 // Sample user data
@@ -66,6 +68,8 @@ const ProfileSection = ({ title, icon, children }) => {
 };
 
 const ProfilePage = () => {
+  const { isOrganizerMode, toggleOrganizerMode } = useOrganizerMode();
+  
   return (
     <div className="min-h-screen bg-gradient-to-br from-vybr-blue/5 to-white pb-24">
       <header className="pt-6 px-4 safe-area-top">
@@ -76,9 +80,9 @@ const ProfilePage = () => {
               Profile
             </h1>
             <img 
-              src="/lovable-uploads/6f793496-9715-4c6c-8b88-fcac27b1a4c2.png" 
+              src="/lovable-uploads/0cc2a209-13f6-490c-bfd1-e35d209b6a89.png" 
               alt="Vybr Logo" 
-              className="h-8 w-auto"
+              className="h-12 w-auto" 
             />
           </div>
         </div>
@@ -184,6 +188,27 @@ const ProfilePage = () => {
                 ))}
               </Card>
             </ProfileSection>
+            
+            {/* Organizer Mode Toggle */}
+            <div className="mt-8 mb-10">
+              <Card className="overflow-hidden">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <LayoutDashboard className="h-5 w-5 mr-2 text-vybr-midBlue" />
+                      <span className="font-medium">Organizer Mode</span>
+                    </div>
+                    <Switch 
+                      checked={isOrganizerMode} 
+                      onCheckedChange={toggleOrganizerMode} 
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Toggle to switch between user and organizer views
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
           </ScrollArea>
         </div>
       </main>

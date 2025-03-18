@@ -1,8 +1,9 @@
 
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { MessageSquare, User, Search, Calendar, Plus, Home } from 'lucide-react';
+import { MessageSquare, User, Search, Calendar, Plus, Heart, LayoutDashboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useOrganizerMode } from '@/hooks/useOrganizerMode';
 
 // Define the type for tab items
 interface TabItem {
@@ -14,25 +15,31 @@ interface TabItem {
 
 const TabBar = () => {
   const location = useLocation();
+  const { isOrganizerMode } = useOrganizerMode();
   
-  const tabs: TabItem[] = [
-    { icon: Home, label: 'Posts', path: '/' },
-    { icon: Plus, label: 'Create', path: '/create-event', isPrimary: true },
+  // User mode tabs (original design)
+  const userTabs: TabItem[] = [
+    { icon: Heart, label: 'Matches', path: '/' },
+    { icon: MessageSquare, label: 'Chats', path: '/chats' },
+    { icon: Search, label: 'Search', path: '/search' },
+    { icon: Calendar, label: 'Events', path: '/events' },
     { icon: User, label: 'Profile', path: '/profile' },
   ];
 
-  const secondaryTabs: TabItem[] = [
-    { icon: MessageSquare, label: 'Chats', path: '/chats' },
-    { icon: Search, label: 'Search', path: '/search' },
+  // Organizer mode tabs
+  const organizerTabs: TabItem[] = [
+    { icon: LayoutDashboard, label: 'Posts', path: '/organizer/posts' },
+    { icon: Plus, label: 'Create', path: '/create-event', isPrimary: true },
+    { icon: User, label: 'Profile', path: '/organizer/profile' },
   ];
 
-  // Combine tabs for display (3 main tabs + secondary tabs)
-  const allTabs = [...tabs, ...secondaryTabs];
+  // Choose which tabs to display based on mode
+  const tabs = isOrganizerMode ? organizerTabs : userTabs;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg py-2 px-1 z-50 animate-fade-in safe-area-bottom">
       <div className="flex justify-around items-center">
-        {allTabs.map((tab) => {
+        {tabs.map((tab) => {
           const isActive = location.pathname === tab.path;
           const isPrimary = tab.isPrimary;
           

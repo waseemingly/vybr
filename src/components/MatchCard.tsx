@@ -3,7 +3,6 @@ import React from 'react';
 import { Star, Radio, Check, X, Music } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 
 interface MatchProps {
   id: string;
@@ -34,7 +33,7 @@ const MatchCard: React.FC<MatchProps> = ({
         "w-full mx-auto bg-white rounded-xl shadow-md overflow-hidden transition-all duration-300 animate-scale-in",
         "border border-gray-100 hover:shadow-lg",
         "max-w-sm", // Limit max width for better mobile display
-        "max-h-[80vh]" // Limit max height
+        "max-h-[75vh]" // Limit max height - REDUCED HEIGHT
       )}
     >
       {/* User Image */}
@@ -97,36 +96,31 @@ const MatchCard: React.FC<MatchProps> = ({
         {/* Bio - shortened */}
         <p className="text-gray-600 mb-3 text-sm leading-relaxed line-clamp-2">{bio}</p>
         
-        {/* Actions - reverted to previous style */}
-        <div className="flex items-center justify-between mt-3">
-          <Button 
-            size="sm"
-            variant="outline" 
-            className="rounded-full flex-1 relative overflow-hidden group"
+        {/* Actions - Previous vibrant style */}
+        <div className="flex items-center justify-between mt-4">
+          <button 
+            className="flex items-center justify-center rounded-full bg-red-400 text-white px-8 py-2.5 min-w-[110px] font-medium text-sm hover:bg-red-500 transition-colors"
             onClick={() => console.log('Rejected match')}
           >
-            <X className="mr-1 h-4 w-4 text-red-500" />
+            <X className="mr-1.5 h-4 w-4" />
             Skip
-          </Button>
+          </button>
           
-          <Button 
-            size="sm" 
-            className="rounded-full bg-vybr-midBlue text-white flex-1 ml-2 relative overflow-hidden group"
+          <button 
+            className="flex items-center justify-center rounded-full bg-purple-600 text-white px-8 py-2.5 min-w-[110px] font-medium text-sm hover:bg-purple-700 transition-colors"
             onClick={() => console.log('Accepted match')}
           >
-            <Check className="mr-1 h-4 w-4" />
+            <Check className="mr-1.5 h-4 w-4" />
             Connect
-          </Button>
+          </button>
           
           {isPremium && (
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="rounded-full h-8 w-8 ml-2 bg-vybr-midBlue/10 text-vybr-blue"
+            <button 
+              className="rounded-full h-10 w-10 ml-2 bg-vybr-midBlue/10 text-vybr-blue flex items-center justify-center hover:bg-vybr-midBlue/20 transition-colors"
               onClick={() => console.log('Open AI Radio')}
             >
               <Radio className="h-4 w-4" />
-            </Button>
+            </button>
           )}
         </div>
       </div>
