@@ -96,10 +96,10 @@ const MatchCard: React.FC<MatchProps> = ({
         {/* Bio - shortened */}
         <p className="text-gray-600 mb-3 text-sm leading-relaxed line-clamp-2">{bio}</p>
         
-        {/* Actions - Previous vibrant style */}
+        {/* Actions with gradient buttons */}
         <div className="flex items-center justify-between mt-4">
           <button 
-            className="flex items-center justify-center rounded-full bg-red-400 text-white px-8 py-2.5 min-w-[110px] font-medium text-sm hover:bg-red-500 transition-colors"
+            className="flex items-center justify-center rounded-full bg-gradient-to-r from-[#ff719a] to-[#ffa99f] text-white px-8 py-2.5 min-w-[110px] font-medium text-sm hover:shadow-md transition-all"
             onClick={() => console.log('Rejected match')}
           >
             <X className="mr-1.5 h-4 w-4" />
@@ -107,7 +107,7 @@ const MatchCard: React.FC<MatchProps> = ({
           </button>
           
           <button 
-            className="flex items-center justify-center rounded-full bg-purple-600 text-white px-8 py-2.5 min-w-[110px] font-medium text-sm hover:bg-purple-700 transition-colors"
+            className="flex items-center justify-center rounded-full bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white px-8 py-2.5 min-w-[110px] font-medium text-sm hover:shadow-md transition-all"
             onClick={() => console.log('Accepted match')}
           >
             <Check className="mr-1.5 h-4 w-4" />

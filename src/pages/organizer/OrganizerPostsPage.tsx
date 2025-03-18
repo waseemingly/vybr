@@ -8,8 +8,8 @@ import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 
-// Sample event data for organizer
-const ORGANIZER_EVENTS = [
+// Sample event data for organiser
+const ORGANISER_EVENTS = [
   {
     id: '1',
     title: 'Indie Night Live',
@@ -61,12 +61,12 @@ const OrganizerPostsPage = () => {
           <div className="flex items-center justify-between mb-2">
             <h1 className="text-2xl font-bold flex items-center text-vybr-blue">
               <Star className="text-vybr-midBlue mr-2 h-6 w-6" />
-              Your Events
+              Your Posts
             </h1>
             <img 
               src="/lovable-uploads/0cc2a209-13f6-490c-bfd1-e35d209b6a89.png" 
               alt="Vybr Logo" 
-              className="h-12 w-auto" 
+              className="h-16 w-auto" 
             />
           </div>
           <p className="text-gray-500 text-sm">Manage your hosted events and check performance</p>
@@ -80,7 +80,7 @@ const OrganizerPostsPage = () => {
           animate={{ opacity: 1 }}
           transition={{ staggerChildren: 0.1 }}
         >
-          {ORGANIZER_EVENTS.map((event) => (
+          {ORGANISER_EVENTS.map((event) => (
             <motion.div
               key={event.id}
               initial={{ opacity: 0, y: 20 }}
@@ -161,7 +161,7 @@ const OrganizerPostsPage = () => {
                       size="sm"
                       variant="ghost" 
                       className="text-vybr-midBlue hover:text-vybr-darkBlue hover:bg-vybr-midBlue/10"
-                      onClick={() => navigate(`/organizer/event/${event.id}`)}
+                      onClick={() => navigate(`/organiser/event/${event.id}`)}
                     >
                       Details
                       <ArrowRight className="ml-1 h-4 w-4" />

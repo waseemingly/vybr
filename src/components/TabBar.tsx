@@ -26,15 +26,15 @@ const TabBar = () => {
     { icon: User, label: 'Profile', path: '/profile' },
   ];
 
-  // Organizer mode tabs
-  const organizerTabs: TabItem[] = [
-    { icon: LayoutDashboard, label: 'Posts', path: '/organizer/posts' },
+  // Organiser mode tabs
+  const organiserTabs: TabItem[] = [
+    { icon: LayoutDashboard, label: 'Posts', path: '/organiser/posts' },
     { icon: Plus, label: 'Create', path: '/create-event', isPrimary: true },
-    { icon: User, label: 'Profile', path: '/organizer/profile' },
+    { icon: User, label: 'Profile', path: '/organiser/profile' },
   ];
 
   // Choose which tabs to display based on mode
-  const tabs = isOrganizerMode ? organizerTabs : userTabs;
+  const tabs = isOrganizerMode ? organiserTabs : userTabs;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg py-2 px-1 z-50 animate-fade-in safe-area-bottom">

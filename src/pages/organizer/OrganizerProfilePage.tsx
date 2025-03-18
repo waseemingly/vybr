@@ -11,14 +11,14 @@ import { useOrganizerMode } from '@/hooks/useOrganizerMode';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 
-// Sample organizer data
-const ORGANIZER_DATA = {
-  name: "Alex Chen Productions",
-  profilePic: "https://images.unsplash.com/photo-1536104968055-4d61aa56f46a?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80",
-  bio: "Independent music event organizer specializing in indie and electronic music events. Bringing the best underground artists to venues across Singapore.",
-  followers: 1245,
-  email: "alex@chenproductions.com",
-  phone: "+65 9123 4567",
+// Sample organiser data - Using Sundown Jammers info
+const ORGANISER_DATA = {
+  name: "Sundown Jammers",
+  profilePic: "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80",
+  bio: "Sundown Jammers will be wreaking havoc in Singapore with live music entertainment, food gastronomy and pop up events. It is a safe heaven for a unique cutting-edge atmosphere for everyone to relax and party the night away. Watch this space for all our exciting future ventures unfolding in the next few months! We're going to keep you plugged in and on the edge of your seat!",
+  followers: 2815,
+  email: "events@sundownjammers.com",
+  phone: "+65 9876 5432",
   recentEvents: [
     {
       id: '1',
@@ -55,12 +55,12 @@ const OrganizerProfilePage = () => {
           <div className="flex items-center justify-between mb-2">
             <h1 className="text-2xl font-bold flex items-center text-vybr-blue">
               <User className="text-vybr-midBlue mr-2 h-6 w-6" />
-              Organizer Profile
+              Organiser Profile
             </h1>
             <img 
               src="/lovable-uploads/0cc2a209-13f6-490c-bfd1-e35d209b6a89.png" 
               alt="Vybr Logo" 
-              className="h-12 w-auto" 
+              className="h-16 w-auto" 
             />
           </div>
         </div>
@@ -73,25 +73,25 @@ const OrganizerProfilePage = () => {
               <div className="bg-gradient-to-r from-vybr-blue to-vybr-midBlue h-32 relative">
                 <div className="absolute -bottom-16 left-1/2 transform -translate-x-1/2">
                   <Avatar className="h-32 w-32 border-4 border-white shadow-md">
-                    <AvatarImage src={ORGANIZER_DATA.profilePic} alt={ORGANIZER_DATA.name} />
-                    <AvatarFallback>{ORGANIZER_DATA.name.charAt(0)}</AvatarFallback>
+                    <AvatarImage src={ORGANISER_DATA.profilePic} alt={ORGANISER_DATA.name} />
+                    <AvatarFallback>{ORGANISER_DATA.name.charAt(0)}</AvatarFallback>
                   </Avatar>
                 </div>
               </div>
               
               <div className="pt-20 pb-5 px-4 text-center">
-                <h2 className="text-2xl font-bold text-gray-900">{ORGANIZER_DATA.name}</h2>
-                <Badge className="mt-2 bg-vybr-midBlue text-white">Event Organizer</Badge>
+                <h2 className="text-2xl font-bold text-gray-900">{ORGANISER_DATA.name}</h2>
+                <Badge className="mt-2 bg-vybr-midBlue text-white">Event Organiser</Badge>
                 
                 <div className="flex justify-center mt-4">
                   <div className="flex items-center">
                     <Users className="h-5 w-5 text-vybr-midBlue mr-1" />
-                    <p className="font-semibold text-vybr-blue">{ORGANIZER_DATA.followers}</p>
+                    <p className="font-semibold text-vybr-blue">{ORGANISER_DATA.followers}</p>
                     <p className="text-sm text-gray-500 ml-1.5">Followers</p>
                   </div>
                 </div>
                 
-                <p className="text-gray-600 mt-4 text-sm px-4">{ORGANIZER_DATA.bio}</p>
+                <p className="text-gray-600 mt-4 text-sm px-4">{ORGANISER_DATA.bio}</p>
                 
                 <div className="mt-6 flex justify-center space-x-4">
                   <Button 
@@ -123,12 +123,12 @@ const OrganizerProfilePage = () => {
               
               <div className="flex items-center mb-3">
                 <Mail className="h-5 w-5 text-vybr-midBlue mr-3" />
-                <span className="text-sm">{ORGANIZER_DATA.email}</span>
+                <span className="text-sm">{ORGANISER_DATA.email}</span>
               </div>
               
               <div className="flex items-center">
                 <Phone className="h-5 w-5 text-vybr-midBlue mr-3" />
-                <span className="text-sm">{ORGANIZER_DATA.phone}</span>
+                <span className="text-sm">{ORGANISER_DATA.phone}</span>
               </div>
             </CardContent>
           </Card>
@@ -138,21 +138,21 @@ const OrganizerProfilePage = () => {
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-lg flex items-center">
                 <Star className="h-5 w-5 text-vybr-midBlue mr-2" />
-                Recent Events
+                Recent Posts
               </h3>
               
               <Button 
                 variant="ghost" 
                 size="sm" 
                 className="text-vybr-midBlue hover:text-vybr-darkBlue hover:bg-vybr-midBlue/10"
-                onClick={() => navigate('/organizer/posts')}
+                onClick={() => navigate('/organiser/posts')}
               >
                 View All
                 <ArrowRight className="ml-1 h-4 w-4" />
               </Button>
             </div>
             
-            {ORGANIZER_DATA.recentEvents.map((event, index) => (
+            {ORGANISER_DATA.recentEvents.map((event, index) => (
               <motion.div
                 key={event.id}
                 initial={{ opacity: 0, y: 10 }}

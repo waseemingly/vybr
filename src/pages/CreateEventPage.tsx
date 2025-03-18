@@ -1,12 +1,13 @@
 
 import React, { useState } from 'react';
-import { Calendar, MapPin, Music, Users, Clock, Plus, Image, Check } from 'lucide-react';
+import { Calendar, MapPin, Music, Users, Clock, Plus, Image, Check, Tag, FileMusic, Disc } from 'lucide-react';
 import { motion } from 'framer-motion';
 import TabBar from '@/components/TabBar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
 
 const CreateEventPage = () => {
@@ -19,12 +20,53 @@ const CreateEventPage = () => {
     location: '',
     genre: '',
     capacity: '',
-    images: []
+    images: [],
+    artists: [],
+    songs: []
   });
+
+  const [artistInput, setArtistInput] = useState('');
+  const [songInput, setSongInput] = useState('');
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormState((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleAddArtist = () => {
+    if (artistInput.trim()) {
+      setFormState(prev => ({
+        ...prev,
+        artists: [...prev.artists, artistInput.trim()]
+      }));
+      setArtistInput('');
+    }
+  };
+
+  const handleAddSong = () => {
+    if (songInput.trim()) {
+      setFormState(prev => ({
+        ...prev,
+        songs: [...prev.songs, songInput.trim()]
+      }));
+      setSongInput('');
+    }
+  };
+
+  const handleRemoveArtist = (index) => {
+    setFormState(prev => {
+      const newArtists = [...prev.artists];
+      newArtists.splice(index, 1);
+      return { ...prev, artists: newArtists };
+    });
+  };
+
+  const handleRemoveSong = (index) => {
+    setFormState(prev => {
+      const newSongs = [...prev.songs];
+      newSongs.splice(index, 1);
+      return { ...prev, songs: newSongs };
+    });
   };
 
   const handleSubmit = (e) => {
@@ -65,9 +107,9 @@ const CreateEventPage = () => {
           </MotionHeading>
           
           <img 
-            src="/lovable-uploads/d9d63781-f853-48bc-b06e-8074bad2f8cb.png" 
+            src="/lovable-uploads/0cc2a209-13f6-490c-bfd1-e35d209b6a89.png" 
             alt="Vybr Logo" 
-            className="h-10 w-auto"
+            className="h-16 w-auto"
           />
         </div>
         
@@ -212,6 +254,98 @@ const CreateEventPage = () => {
                 />
               </div>
             </div>
+          </div>
+          
+          {/* Featured Artists */}
+          <div>
+            <Label className="text-sm font-medium">Featured Artists</Label>
+            <div className="flex mt-1 mb-2">
+              <div className="relative flex-1">
+                <FileMusic className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  value={artistInput}
+                  onChange={(e) => setArtistInput(e.target.value)}
+                  placeholder="Add artist"
+                  className="pl-9"
+                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddArtist())}
+                />
+              </div>
+              <Button 
+                type="button" 
+                onClick={handleAddArtist}
+                className="ml-2 bg-vybr-midBlue"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            {formState.artists.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {formState.artists.map((artist, index) => (
+                  <Badge 
+                    key={index} 
+                    variant="outline"
+                    className="bg-vybr-midBlue/10 text-vybr-blue flex items-center"
+                  >
+                    <Music className="w-3 h-3 mr-1" />
+                    {artist}
+                    <button
+                      type="button"
+                      className="ml-1 hover:text-red-500"
+                      onClick={() => handleRemoveArtist(index)}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+          
+          {/* Featured Songs */}
+          <div>
+            <Label className="text-sm font-medium">Featured Songs</Label>
+            <div className="flex mt-1 mb-2">
+              <div className="relative flex-1">
+                <Disc className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  value={songInput}
+                  onChange={(e) => setSongInput(e.target.value)}
+                  placeholder="Add song"
+                  className="pl-9"
+                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddSong())}
+                />
+              </div>
+              <Button 
+                type="button" 
+                onClick={handleAddSong}
+                className="ml-2 bg-vybr-midBlue"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            {formState.songs.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {formState.songs.map((song, index) => (
+                  <Badge 
+                    key={index} 
+                    variant="secondary"
+                    className="bg-vybr-skyBlue/30 text-vybr-darkBlue flex items-center"
+                  >
+                    <Disc className="w-3 h-3 mr-1" />
+                    {song}
+                    <button
+                      type="button"
+                      className="ml-1 hover:text-red-500"
+                      onClick={() => handleRemoveSong(index)}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
           
           {/* Submit Button */}

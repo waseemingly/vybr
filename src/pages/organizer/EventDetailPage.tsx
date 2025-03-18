@@ -42,10 +42,10 @@ const EVENT_DETAILS = {
     revenue: 3045,
     notificationsSent: 450,
     reservationBreakdown: [
-      { name: 'Single', value: 42 },
-      { name: 'Couple', value: 18 },
-      { name: 'Group (3-5)', value: 21 },
-      { name: 'Group (6+)', value: 6 },
+      { name: 'Single', value: 42, color: '#3B82F6' },
+      { name: 'Couple', value: 18, color: '#60A5FA' },
+      { name: 'Group (3-5)', value: 21, color: '#93C5FD' },
+      { name: 'Group (6+)', value: 6, color: '#1E3A8A' },
     ],
     monthlyPerformance: [
       { name: 'Jan', impressions: 0, clicks: 0, bookings: 0 },
@@ -63,23 +63,34 @@ const CHART_COLORS = {
   impressions: '#3B82F6', // vybr-midBlue
   clicks: '#60A5FA', // vybr-lightBlue
   bookings: '#1E3A8A', // vybr-blue
-  single: '#3B82F6',
-  couple: '#60A5FA',
-  group1: '#93C5FD',
-  group2: '#1E3A8A',
+};
+
+// Custom pie chart label renderer
+const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, index, name }) => {
+  const RADIAN = Math.PI / 180;
+  const radius = outerRadius * 1.1;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+  return (
+    <text 
+      x={x} 
+      y={y} 
+      fill={EVENT_DETAILS.analytics.reservationBreakdown[index].color}
+      textAnchor={x > cx ? 'start' : 'end'} 
+      dominantBaseline="central"
+      fontSize={12}
+      fontWeight="500"
+    >
+      {`${name}: ${(percent * 100).toFixed(0)}%`}
+    </text>
+  );
 };
 
 const EventDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const event = EVENT_DETAILS; // In a real app, fetch based on id
-  
-  const RESERVATION_COLORS = [
-    CHART_COLORS.single,
-    CHART_COLORS.couple,
-    CHART_COLORS.group1,
-    CHART_COLORS.group2,
-  ];
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-vybr-blue/5 to-white pb-24">
@@ -98,7 +109,7 @@ const EventDetailPage = () => {
             <img 
               src="/lovable-uploads/0cc2a209-13f6-490c-bfd1-e35d209b6a89.png" 
               alt="Vybr Logo" 
-              className="h-12 w-auto" 
+              className="h-16 w-auto" 
             />
           </div>
           
@@ -223,7 +234,7 @@ const EventDetailPage = () => {
               </Card>
             </div>
             
-            {/* Reservation Breakdown (Pie Chart) */}
+            {/* Reservation Breakdown (Pie Chart) - Improved */}
             <Card className="mb-6">
               <CardContent className="p-4">
                 <h3 className="font-semibold mb-4">Reservation Breakdown</h3>
@@ -238,14 +249,19 @@ const EventDetailPage = () => {
                         outerRadius={80}
                         fill="#8884d8"
                         dataKey="value"
-                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                        label={renderCustomizedLabel}
                       >
                         {event.analytics.reservationBreakdown.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={RESERVATION_COLORS[index % RESERVATION_COLORS.length]} />
+                          <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip />
-                      <Legend />
+                      <Tooltip formatter={(value, name) => [`${value} bookings`, name]} />
+                      <Legend 
+                        layout="horizontal" 
+                        verticalAlign="bottom" 
+                        align="center"
+                        iconType="circle"
+                      />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -262,16 +278,17 @@ const EventDetailPage = () => {
                       data={event.analytics.monthlyPerformance}
                       margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
                     >
-                      <CartesianGrid strokeDasharray="3 3" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                       <XAxis dataKey="name" />
                       <YAxis />
                       <Tooltip />
-                      <Legend />
+                      <Legend iconType="circle" />
                       <Line 
                         type="monotone" 
                         dataKey="impressions" 
                         stroke={CHART_COLORS.impressions} 
                         name="Impressions"
+                        strokeWidth={2}
                         activeDot={{ r: 8 }} 
                       />
                       <Line 
@@ -279,12 +296,14 @@ const EventDetailPage = () => {
                         dataKey="clicks" 
                         stroke={CHART_COLORS.clicks} 
                         name="Clicks"
+                        strokeWidth={2}
                       />
                       <Line 
                         type="monotone" 
                         dataKey="bookings" 
                         stroke={CHART_COLORS.bookings} 
                         name="Bookings"
+                        strokeWidth={2}
                       />
                     </LineChart>
                   </ResponsiveContainer>

@@ -68,7 +68,7 @@ const MatchesPage = () => {
             <img 
               src="/lovable-uploads/0cc2a209-13f6-490c-bfd1-e35d209b6a89.png" 
               alt="Vybr Logo" 
-              className="h-12 w-auto"
+              className="h-16 w-auto"
             />
           </div>
           
