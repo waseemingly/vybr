@@ -4,16 +4,24 @@ import { Link, useLocation } from 'react-router-dom';
 import { MessageSquare, User, Search, Calendar, Plus, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+// Define the type for tab items
+interface TabItem {
+  icon: React.ElementType;
+  label: string;
+  path: string;
+  isPrimary?: boolean;
+}
+
 const TabBar = () => {
   const location = useLocation();
   
-  const tabs = [
+  const tabs: TabItem[] = [
     { icon: Home, label: 'Posts', path: '/' },
     { icon: Plus, label: 'Create', path: '/create-event', isPrimary: true },
     { icon: User, label: 'Profile', path: '/profile' },
   ];
 
-  const secondaryTabs = [
+  const secondaryTabs: TabItem[] = [
     { icon: MessageSquare, label: 'Chats', path: '/chats' },
     { icon: Search, label: 'Search', path: '/search' },
   ];
