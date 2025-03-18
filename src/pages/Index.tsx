@@ -68,7 +68,7 @@ const MatchesPage = () => {
             <img 
               src="/lovable-uploads/6f793496-9715-4c6c-8b88-fcac27b1a4c2.png" 
               alt="Vybr Logo" 
-              className="h-8 w-auto"
+              className="h-6 w-auto"
             />
           </div>
           
@@ -97,7 +97,7 @@ const MatchesPage = () => {
       
       {/* Main Content */}
       <main className="px-4 pb-6">
-        <div className="mx-auto">
+        <div className="mx-auto max-w-md">
           <MotionDiv
             key={currentMatch.id}
             initial={{ opacity: 0, scale: 0.95 }}

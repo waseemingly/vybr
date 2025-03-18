@@ -32,7 +32,8 @@ const MatchCard: React.FC<MatchProps> = ({
     <div 
       className={cn(
         "w-full mx-auto bg-white rounded-xl shadow-md overflow-hidden transition-all duration-300 animate-scale-in",
-        "border border-gray-100 hover:shadow-lg"
+        "border border-gray-100 hover:shadow-lg",
+        "max-w-sm" // Limit max width for better mobile display
       )}
     >
       {/* User Image */}
@@ -101,18 +102,20 @@ const MatchCard: React.FC<MatchProps> = ({
             <Button 
               size="lg"
               variant="outline" 
-              className="rounded-full bg-gradient-to-r from-red-400 to-pink-500 text-white border-0 hover:from-red-500 hover:to-pink-600 transition-all duration-300 shadow-md hover:shadow-lg hover:scale-105 active:scale-95 flex-1"
+              className="rounded-full bg-white border-gray-300 text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-all duration-300 shadow-sm hover:shadow-md flex-1 relative overflow-hidden group"
               onClick={() => console.log('Rejected match')}
             >
-              <X className="mr-1 h-5 w-5" />
+              <div className="absolute inset-0 bg-gradient-to-r from-pink-200 to-red-200 opacity-0 group-hover:opacity-20 transition-opacity"></div>
+              <X className="mr-1 h-5 w-5 text-red-500" />
               Skip
             </Button>
             
             <Button 
               size="lg" 
-              className="rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 text-white hover:from-purple-600 hover:to-indigo-700 transition-all duration-300 shadow-md hover:shadow-lg hover:scale-105 active:scale-95 flex-1"
+              className="rounded-full bg-gradient-to-r from-vybr-lightBlue to-vybr-midBlue text-white hover:from-vybr-midBlue hover:to-vybr-blue transition-all duration-300 shadow-md hover:shadow-lg flex-1 relative overflow-hidden group"
               onClick={() => console.log('Accepted match')}
             >
+              <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
               <Check className="mr-1 h-5 w-5" />
               Connect
             </Button>
