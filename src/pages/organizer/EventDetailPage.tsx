@@ -8,7 +8,21 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ChartContainer, ChartTooltip } from '@/components/ui/chart';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { BarChart, LineChart, PieChart, Pie, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { 
+  BarChart, 
+  LineChart, 
+  PieChart, 
+  Pie, 
+  Line, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer,
+  Cell 
+} from 'recharts';
 import TabBar from '@/components/TabBar';
 
 // Sample event details with analytics data
