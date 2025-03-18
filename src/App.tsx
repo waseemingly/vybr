@@ -9,6 +9,7 @@ import ChatsPage from "./pages/ChatsPage";
 import SearchPage from "./pages/SearchPage";
 import EventsPage from "./pages/EventsPage";
 import ProfilePage from "./pages/ProfilePage";
+import CreateEventPage from "./pages/CreateEventPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -25,6 +26,7 @@ const App = () => (
           <Route path="/search" element={<SearchPage />} />
           <Route path="/events" element={<EventsPage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/create-event" element={<CreateEventPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

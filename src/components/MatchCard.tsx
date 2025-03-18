@@ -33,7 +33,8 @@ const MatchCard: React.FC<MatchProps> = ({
       className={cn(
         "w-full mx-auto bg-white rounded-xl shadow-md overflow-hidden transition-all duration-300 animate-scale-in",
         "border border-gray-100 hover:shadow-lg",
-        "max-w-sm" // Limit max width for better mobile display
+        "max-w-sm", // Limit max width for better mobile display
+        "max-h-[80vh]" // Limit max height
       )}
     >
       {/* User Image */}
@@ -60,10 +61,10 @@ const MatchCard: React.FC<MatchProps> = ({
       
       {/* Content */}
       <div className="p-5">
-        <div className="flex justify-between items-start mb-3">
+        <div className="flex justify-between items-start mb-2">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">{name}</h2>
-            <div className="flex flex-wrap gap-2 mt-2">
+            <h2 className="text-xl font-bold text-gray-900">{name}</h2>
+            <div className="flex flex-wrap gap-2 mt-1">
               {genres.map((genre, index) => (
                 <Badge 
                   key={index} 
@@ -78,8 +79,8 @@ const MatchCard: React.FC<MatchProps> = ({
         </div>
         
         {/* Matched Artists */}
-        <div className="mb-4">
-          <p className="text-sm text-gray-500 mb-2">Common Artists</p>
+        <div className="mb-3">
+          <p className="text-sm text-gray-500 mb-1">Common Artists</p>
           <div className="flex flex-wrap gap-2">
             {matchedArtists.map((artist, index) => (
               <Badge 
@@ -93,42 +94,38 @@ const MatchCard: React.FC<MatchProps> = ({
           </div>
         </div>
         
-        {/* Bio */}
-        <p className="text-gray-600 mb-6 text-sm leading-relaxed">{bio}</p>
+        {/* Bio - shortened */}
+        <p className="text-gray-600 mb-3 text-sm leading-relaxed line-clamp-2">{bio}</p>
         
-        {/* Actions */}
-        <div className="flex items-center justify-between mt-4">
-          <div className="flex space-x-3 w-full">
-            <Button 
-              size="lg"
-              variant="outline" 
-              className="rounded-full bg-white border-gray-300 text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-all duration-300 shadow-sm hover:shadow-md flex-1 relative overflow-hidden group"
-              onClick={() => console.log('Rejected match')}
-            >
-              <div className="absolute inset-0 bg-gradient-to-r from-pink-200 to-red-200 opacity-0 group-hover:opacity-20 transition-opacity"></div>
-              <X className="mr-1 h-5 w-5 text-red-500" />
-              Skip
-            </Button>
-            
-            <Button 
-              size="lg" 
-              className="rounded-full bg-gradient-to-r from-vybr-lightBlue to-vybr-midBlue text-white hover:from-vybr-midBlue hover:to-vybr-blue transition-all duration-300 shadow-md hover:shadow-lg flex-1 relative overflow-hidden group"
-              onClick={() => console.log('Accepted match')}
-            >
-              <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
-              <Check className="mr-1 h-5 w-5" />
-              Connect
-            </Button>
-          </div>
+        {/* Actions - reverted to previous style */}
+        <div className="flex items-center justify-between mt-3">
+          <Button 
+            size="sm"
+            variant="outline" 
+            className="rounded-full flex-1 relative overflow-hidden group"
+            onClick={() => console.log('Rejected match')}
+          >
+            <X className="mr-1 h-4 w-4 text-red-500" />
+            Skip
+          </Button>
+          
+          <Button 
+            size="sm" 
+            className="rounded-full bg-vybr-midBlue text-white flex-1 ml-2 relative overflow-hidden group"
+            onClick={() => console.log('Accepted match')}
+          >
+            <Check className="mr-1 h-4 w-4" />
+            Connect
+          </Button>
           
           {isPremium && (
             <Button 
               variant="ghost" 
               size="icon" 
-              className="rounded-full h-12 w-12 ml-2 bg-vybr-midBlue/10 text-vybr-blue hover:bg-gradient-to-r hover:from-vybr-midBlue hover:to-vybr-blue hover:text-white transition-all duration-300 shadow-sm hover:shadow-md"
+              className="rounded-full h-8 w-8 ml-2 bg-vybr-midBlue/10 text-vybr-blue"
               onClick={() => console.log('Open AI Radio')}
             >
-              <Radio className="h-5 w-5" />
+              <Radio className="h-4 w-4" />
             </Button>
           )}
         </div>

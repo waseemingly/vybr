@@ -66,9 +66,9 @@ const MatchesPage = () => {
             </MotionHeading>
             
             <img 
-              src="/lovable-uploads/6f793496-9715-4c6c-8b88-fcac27b1a4c2.png" 
+              src="/lovable-uploads/d9d63781-f853-48bc-b06e-8074bad2f8cb.png" 
               alt="Vybr Logo" 
-              className="h-6 w-auto"
+              className="h-10 w-auto"
             />
           </div>
           

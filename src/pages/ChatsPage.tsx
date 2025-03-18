@@ -102,9 +102,9 @@ const ChatsPage = () => {
           </MotionHeading>
           
           <img 
-            src="/lovable-uploads/6f793496-9715-4c6c-8b88-fcac27b1a4c2.png" 
+            src="/lovable-uploads/d9d63781-f853-48bc-b06e-8074bad2f8cb.png" 
             alt="Vybr Logo" 
-            className="h-6 w-auto"
+            className="h-10 w-auto"
           />
         </div>
         
@@ -157,7 +157,7 @@ const ChatsPage = () => {
         </div>
         
         {/* Tabs */}
-        <Tabs defaultValue="individual" className="w-full" value={activeTab} onValueChange={setActiveTab}>
+        <Tabs defaultValue="individual" className="w-full">
           <TabsList className="grid grid-cols-2 w-full bg-vybr-skyBlue/30 rounded-lg p-1">
             <TabsTrigger 
               value="individual" 
@@ -174,13 +174,9 @@ const ChatsPage = () => {
               Groups
             </TabsTrigger>
           </TabsList>
-        </Tabs>
-      </header>
-      
-      {/* Main Content */}
-      <main className="px-4 pb-6">
-        <div className="mx-auto">
-          <TabsContent value="individual" className="mt-0">
+
+          {/* Individual Chats Content */}
+          <TabsContent value="individual" className="mt-2">
             <ScrollArea className="h-[calc(100vh-230px)]">
               <div className="space-y-3 pr-3 pt-3">
                 {INDIVIDUAL_CHATS.map(chat => (
@@ -196,7 +192,8 @@ const ChatsPage = () => {
             </ScrollArea>
           </TabsContent>
           
-          <TabsContent value="groups" className="mt-0">
+          {/* Group Chats Content */}
+          <TabsContent value="groups" className="mt-2">
             <ScrollArea className="h-[calc(100vh-230px)]">
               <div className="space-y-3 pr-3 pt-3">
                 {GROUP_CHATS.map(chat => (
@@ -211,59 +208,62 @@ const ChatsPage = () => {
               </div>
             </ScrollArea>
           </TabsContent>
-        </div>
-      </main>
+        </Tabs>
+      </header>
       
-      {/* Profile Sheet */}
-      {selectedChat && (
-        <Sheet>
-          <SheetContent side="right" className="w-full sm:max-w-md">
-            <div className="flex flex-col items-center p-4">
-              <Avatar className="h-20 w-20 mb-4">
-                <AvatarImage src={selectedChat.image} alt={selectedChat.name} />
-                <AvatarFallback className="text-xl">{selectedChat.name.charAt(0)}</AvatarFallback>
-              </Avatar>
-              
-              <h2 className="text-xl font-bold">{selectedChat.name}</h2>
-              
-              {selectedChat.commonArtists && (
-                <div className="mt-4 w-full">
-                  <h3 className="text-sm font-medium text-gray-500 mb-2">Common Artists</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedChat.commonArtists.map((artist, i) => (
-                      <Badge key={i} variant="outline" className="bg-vybr-skyBlue/30 text-vybr-darkBlue">
-                        {artist}
-                      </Badge>
-                    ))}
+      {/* Main Content - Empty since tabs are in header */}
+      <main className="px-4 pb-6">
+        {/* Profile Sheet */}
+        {selectedChat && (
+          <Sheet>
+            <SheetContent side="right" className="w-full sm:max-w-md">
+              <div className="flex flex-col items-center p-4">
+                <Avatar className="h-20 w-20 mb-4">
+                  <AvatarImage src={selectedChat.image} alt={selectedChat.name} />
+                  <AvatarFallback className="text-xl">{selectedChat.name.charAt(0)}</AvatarFallback>
+                </Avatar>
+                
+                <h2 className="text-xl font-bold">{selectedChat.name}</h2>
+                
+                {selectedChat.commonArtists && (
+                  <div className="mt-4 w-full">
+                    <h3 className="text-sm font-medium text-gray-500 mb-2">Common Artists</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedChat.commonArtists.map((artist, i) => (
+                        <Badge key={i} variant="outline" className="bg-vybr-skyBlue/30 text-vybr-darkBlue">
+                          {artist}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
-              
-              {selectedChat.commonGenres && (
-                <div className="mt-4 w-full">
-                  <h3 className="text-sm font-medium text-gray-500 mb-2">Common Genres</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedChat.commonGenres.map((genre, i) => (
-                      <Badge key={i} variant="outline" className="bg-vybr-midBlue/10 text-vybr-blue">
-                        {genre}
-                      </Badge>
-                    ))}
+                )}
+                
+                {selectedChat.commonGenres && (
+                  <div className="mt-4 w-full">
+                    <h3 className="text-sm font-medium text-gray-500 mb-2">Common Genres</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedChat.commonGenres.map((genre, i) => (
+                        <Badge key={i} variant="outline" className="bg-vybr-midBlue/10 text-vybr-blue">
+                          {genre}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
-              
-              <Button className="mt-6 w-full" size="lg">
-                Message
-              </Button>
-              
-              <Button variant="outline" className="mt-3 w-full text-red-500 hover:text-red-600 hover:bg-red-50" size="lg">
-                <Flag className="mr-2 h-4 w-4" />
-                Report User
-              </Button>
-            </div>
-          </SheetContent>
-        </Sheet>
-      )}
+                )}
+                
+                <Button className="mt-6 w-full" size="lg">
+                  Message
+                </Button>
+                
+                <Button variant="outline" className="mt-3 w-full text-red-500 hover:text-red-600 hover:bg-red-50" size="lg">
+                  <Flag className="mr-2 h-4 w-4" />
+                  Report User
+                </Button>
+              </div>
+            </SheetContent>
+          </Sheet>
+        )}
+      </main>
       
       {/* Tab Bar */}
       <TabBar />
