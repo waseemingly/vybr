@@ -31,12 +31,12 @@ const MatchCard: React.FC<MatchProps> = ({
   return (
     <div 
       className={cn(
-        "w-full mx-auto bg-white rounded-2xl shadow-md overflow-hidden transition-all duration-300 animate-scale-in",
+        "w-full mx-auto bg-white rounded-xl shadow-md overflow-hidden transition-all duration-300 animate-scale-in",
         "border border-gray-100 hover:shadow-lg"
       )}
     >
       {/* User Image */}
-      <div className="relative w-full h-80 overflow-hidden">
+      <div className="relative w-full aspect-square overflow-hidden">
         <img 
           src={image} 
           alt={name} 

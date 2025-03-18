@@ -54,15 +54,23 @@ const MatchesPage = () => {
       {/* Header */}
       <header className="pt-6 pb-4 px-4 safe-area-top">
         <div className="mx-auto">
-          <MotionHeading 
-            className="text-2xl font-bold flex items-center text-vybr-blue"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-          >
-            <Heart className="text-vybr-midBlue mr-2 h-6 w-6" />
-            Today's Matches
-          </MotionHeading>
+          <div className="flex items-center justify-between mb-2">
+            <MotionHeading 
+              className="text-2xl font-bold flex items-center text-vybr-blue"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <Heart className="text-vybr-midBlue mr-2 h-6 w-6" />
+              Today's Matches
+            </MotionHeading>
+            
+            <img 
+              src="/lovable-uploads/6f793496-9715-4c6c-8b88-fcac27b1a4c2.png" 
+              alt="Vybr Logo" 
+              className="h-8 w-auto"
+            />
+          </div>
           
           <MotionDiv
             className="flex justify-between items-center"
