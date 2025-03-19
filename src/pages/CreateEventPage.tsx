@@ -1,6 +1,5 @@
-
 import React, { useState } from 'react';
-import { Calendar, MapPin, Music, Users, Clock, Plus, Image, Check, Tag, FileMusic, Disc } from 'lucide-react';
+import { Calendar, MapPin, Music, Users, Clock, Plus, Image, Check, Tag, FileMusic, Disc, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import TabBar from '@/components/TabBar';
 import { Button } from '@/components/ui/button';
@@ -71,7 +70,6 @@ const CreateEventPage = () => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    // In a real app, this would send the data to a backend
     console.log('Form submitted:', formState);
     toast({
       title: "Event Created!",
@@ -81,7 +79,6 @@ const CreateEventPage = () => {
   };
 
   const handleImageUpload = () => {
-    // Simulate image selection - in a real app this would connect to device camera/gallery
     const mockImages = [
       'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?ixlib=rb-1.2.1&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=1170&q=80',
       'https://images.unsplash.com/photo-1429962714451-bb934ecdc4ec?ixlib=rb-1.2.1&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=1170&q=80'
@@ -93,7 +90,6 @@ const CreateEventPage = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-vybr-blue/5 to-white pb-24">
-      {/* Header */}
       <header className="pt-6 pb-4 px-4 safe-area-top">
         <div className="flex items-center justify-between mb-2">
           <MotionHeading 
@@ -123,10 +119,8 @@ const CreateEventPage = () => {
         </motion.p>
       </header>
       
-      {/* Main Content */}
       <main className="px-4 pb-6">
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Event Images */}
           <div>
             <Label className="text-sm font-medium mb-2 block">Event Images</Label>
             <div className="flex overflow-x-auto gap-3 py-2 no-scrollbar">
@@ -149,7 +143,6 @@ const CreateEventPage = () => {
             </div>
           </div>
           
-          {/* Event Title */}
           <div>
             <Label htmlFor="title" className="text-sm font-medium">Event Title</Label>
             <Input 
@@ -162,7 +155,6 @@ const CreateEventPage = () => {
             />
           </div>
           
-          {/* Event Description */}
           <div>
             <Label htmlFor="description" className="text-sm font-medium">Description</Label>
             <Textarea 
@@ -175,7 +167,6 @@ const CreateEventPage = () => {
             />
           </div>
           
-          {/* Event Date & Time */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="date" className="text-sm font-medium">Date</Label>
@@ -207,7 +198,6 @@ const CreateEventPage = () => {
             </div>
           </div>
           
-          {/* Event Location */}
           <div>
             <Label htmlFor="location" className="text-sm font-medium">Location</Label>
             <div className="relative mt-1">
@@ -223,7 +213,6 @@ const CreateEventPage = () => {
             </div>
           </div>
           
-          {/* Event Genre & Capacity */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="genre" className="text-sm font-medium">Music Genre</Label>
@@ -256,7 +245,6 @@ const CreateEventPage = () => {
             </div>
           </div>
           
-          {/* Featured Artists */}
           <div>
             <Label className="text-sm font-medium">Featured Artists</Label>
             <div className="flex mt-1 mb-2">
@@ -302,7 +290,6 @@ const CreateEventPage = () => {
             )}
           </div>
           
-          {/* Featured Songs */}
           <div>
             <Label className="text-sm font-medium">Featured Songs</Label>
             <div className="flex mt-1 mb-2">
@@ -348,7 +335,6 @@ const CreateEventPage = () => {
             )}
           </div>
           
-          {/* Submit Button */}
           <Button 
             type="submit" 
             className="w-full bg-vybr-midBlue hover:bg-vybr-blue text-white py-3 rounded-lg flex items-center justify-center gap-2 mt-6"
@@ -360,7 +346,6 @@ const CreateEventPage = () => {
         </form>
       </main>
       
-      {/* Tab Bar */}
       <TabBar />
     </div>
   );
