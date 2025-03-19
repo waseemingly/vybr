@@ -30,6 +30,7 @@ const MatchCard: React.FC<MatchProps> = ({
   index
 }) => {
   // Only show throwback tag if it's the first match and isThrowback is true
+  // Changed condition to hide the tag for index 1 (which is the second match)
   const showThrowbackTag = isThrowback && index !== 1;
 
   return (

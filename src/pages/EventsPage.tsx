@@ -198,7 +198,7 @@ const EventCard = ({ event }) => {
       transition={{ duration: 0.4 }}
     >
       <Card className="overflow-hidden mb-4 border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300">
-        <div className="relative w-full">
+        <div className="w-full">
           <AspectRatio ratio={1 / 1}>
             <Carousel className="w-full h-full">
               <CarouselContent className="h-full">
