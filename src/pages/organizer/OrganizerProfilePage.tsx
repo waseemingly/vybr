@@ -1,12 +1,13 @@
 
 import React from 'react';
 import TabBar from '@/components/TabBar';
-import { User, Mail, Phone, Star, Users, ArrowRight, Calendar } from 'lucide-react';
+import { User, Mail, Phone, Star, Users, ArrowRight, Calendar, LayoutDashboard } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
 import { useOrganizerMode } from '@/hooks/useOrganizerMode';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
@@ -46,7 +47,7 @@ const ORGANISER_DATA = {
 
 const OrganizerProfilePage = () => {
   const navigate = useNavigate();
-  const { toggleOrganizerMode } = useOrganizerMode();
+  const { isOrganizerMode, toggleOrganizerMode } = useOrganizerMode();
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-vybr-blue/5 to-white pb-24">
@@ -60,7 +61,7 @@ const OrganizerProfilePage = () => {
             <img 
               src="/lovable-uploads/0cc2a209-13f6-490c-bfd1-e35d209b6a89.png" 
               alt="Vybr Logo" 
-              className="h-16 w-auto" 
+              className="h-12 w-auto" 
             />
           </div>
         </div>
@@ -92,26 +93,6 @@ const OrganizerProfilePage = () => {
                 </div>
                 
                 <p className="text-gray-600 mt-4 text-sm px-4">{ORGANISER_DATA.bio}</p>
-                
-                <div className="mt-6 flex justify-center space-x-4">
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    className="rounded-full border-vybr-midBlue text-vybr-blue"
-                  >
-                    <Mail className="mr-1.5 h-4 w-4" />
-                    Contact
-                  </Button>
-                  
-                  <Button 
-                    size="sm"
-                    className="rounded-full bg-vybr-midBlue text-white"
-                    onClick={() => toggleOrganizerMode()}
-                  >
-                    <User className="mr-1.5 h-4 w-4" />
-                    Switch to User
-                  </Button>
-                </div>
               </div>
             </CardContent>
           </Card>
@@ -145,7 +126,7 @@ const OrganizerProfilePage = () => {
                 variant="ghost" 
                 size="sm" 
                 className="text-vybr-midBlue hover:text-vybr-darkBlue hover:bg-vybr-midBlue/10"
-                onClick={() => navigate('/organiser/posts')}
+                onClick={() => navigate('/organizer/posts')}
               >
                 View All
                 <ArrowRight className="ml-1 h-4 w-4" />
@@ -159,7 +140,10 @@ const OrganizerProfilePage = () => {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, delay: index * 0.1 }}
               >
-                <Card className="mb-3 overflow-hidden border border-gray-100 hover:shadow-md transition-all duration-300">
+                <Card 
+                  className="mb-3 overflow-hidden border border-gray-100 hover:shadow-md transition-all duration-300 cursor-pointer"
+                  onClick={() => navigate(`/organizer/event/${event.id}`)}
+                >
                   <div className="flex">
                     <div className="w-24 h-24">
                       <img 
@@ -185,6 +169,27 @@ const OrganizerProfilePage = () => {
                 </Card>
               </motion.div>
             ))}
+          </div>
+          
+          {/* Organizer Mode Toggle */}
+          <div className="mt-8 mb-10">
+            <Card className="overflow-hidden">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <LayoutDashboard className="h-5 w-5 mr-2 text-vybr-midBlue" />
+                    <span className="font-medium">Organiser Mode</span>
+                  </div>
+                  <Switch 
+                    checked={isOrganizerMode} 
+                    onCheckedChange={toggleOrganizerMode} 
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Toggle to switch between organiser and user views
+                </p>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </main>

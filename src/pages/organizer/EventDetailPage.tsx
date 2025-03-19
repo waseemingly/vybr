@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { ChartContainer, ChartTooltip } from '@/components/ui/chart';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
   BarChart, 
@@ -65,10 +64,9 @@ const CHART_COLORS = {
   bookings: '#1E3A8A', // vybr-blue
 };
 
-// Custom pie chart label renderer
-const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, index, name }) => {
-  const RADIAN = Math.PI / 180;
-  const radius = outerRadius * 1.1;
+const RADIAN = Math.PI / 180;
+const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, index, name, value }) => {
+  const radius = outerRadius * 0.8;
   const x = cx + radius * Math.cos(-midAngle * RADIAN);
   const y = cy + radius * Math.sin(-midAngle * RADIAN);
 
@@ -76,13 +74,13 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
     <text 
       x={x} 
       y={y} 
-      fill={EVENT_DETAILS.analytics.reservationBreakdown[index].color}
+      fill="#ffffff"
       textAnchor={x > cx ? 'start' : 'end'} 
       dominantBaseline="central"
       fontSize={12}
       fontWeight="500"
     >
-      {`${name}: ${(percent * 100).toFixed(0)}%`}
+      {`${name} (${value})`}
     </text>
   );
 };
@@ -101,7 +99,7 @@ const EventDetailPage = () => {
               variant="ghost" 
               size="sm"
               className="flex items-center text-vybr-blue hover:text-vybr-darkBlue"
-              onClick={() => navigate(-1)}
+              onClick={() => navigate("/organizer/posts")}
             >
               <ArrowLeft className="mr-1 h-5 w-5" />
               Back
@@ -109,7 +107,7 @@ const EventDetailPage = () => {
             <img 
               src="/lovable-uploads/0cc2a209-13f6-490c-bfd1-e35d209b6a89.png" 
               alt="Vybr Logo" 
-              className="h-16 w-auto" 
+              className="h-12 w-auto" 
             />
           </div>
           
@@ -238,7 +236,7 @@ const EventDetailPage = () => {
             <Card className="mb-6">
               <CardContent className="p-4">
                 <h3 className="font-semibold mb-4">Reservation Breakdown</h3>
-                <div className="h-64">
+                <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -252,15 +250,19 @@ const EventDetailPage = () => {
                         label={renderCustomizedLabel}
                       >
                         {event.analytics.reservationBreakdown.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
+                          <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(value, name) => [`${value} bookings`, name]} />
+                      <Tooltip 
+                        formatter={(value, name) => [`${value} bookings`, name]} 
+                        contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)' }}
+                      />
                       <Legend 
                         layout="horizontal" 
                         verticalAlign="bottom" 
                         align="center"
                         iconType="circle"
+                        wrapperStyle={{ paddingTop: '20px' }}
                       />
                     </PieChart>
                   </ResponsiveContainer>
@@ -272,17 +274,27 @@ const EventDetailPage = () => {
             <Card className="mb-6">
               <CardContent className="p-4">
                 <h3 className="font-semibold mb-4">Ad Performance (Monthly)</h3>
-                <div className="h-64">
+                <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart
                       data={event.analytics.monthlyPerformance}
-                      margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+                      margin={{ top: 10, right: 10, left: 0, bottom: 20 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                       <XAxis dataKey="name" />
                       <YAxis />
-                      <Tooltip />
-                      <Legend iconType="circle" />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: 'rgba(255, 255, 255, 0.9)', 
+                          borderRadius: '8px', 
+                          border: 'none', 
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+                        }}
+                      />
+                      <Legend 
+                        iconType="circle" 
+                        wrapperStyle={{ paddingTop: '10px' }}
+                      />
                       <Line 
                         type="monotone" 
                         dataKey="impressions" 
