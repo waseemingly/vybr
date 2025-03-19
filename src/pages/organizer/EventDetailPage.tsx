@@ -268,7 +268,7 @@ const EventDetailPage = () => {
                         ))}
                       </Pie>
                       <Tooltip 
-                        formatter={(value, name) => [`${value} bookings (${(value / totalReservations * 100).toFixed(0)}%)`, name]} 
+                        formatter={(value) => [`${value} bookings (${Math.round((value as number / totalReservations) * 100)}%)`, 'Bookings']} 
                         contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)' }}
                       />
                       <Legend 
@@ -344,7 +344,7 @@ const EventDetailPage = () => {
                   <span className="font-medium">Switch to User Mode</span>
                   <Switch 
                     checked={!isOrganizerMode}
-                    onCheckedChange={() => toggleOrganizerMode(!isOrganizerMode)}
+                    onCheckedChange={toggleOrganizerMode}
                   />
                 </div>
               </CardContent>
