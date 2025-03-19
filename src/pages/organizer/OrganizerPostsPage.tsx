@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { ArrowRight, Calendar, Edit, MapPin, Tag, Trash, Users, Activity, Star } from 'lucide-react';
 import TabBar from '@/components/TabBar';
@@ -161,7 +160,7 @@ const OrganizerPostsPage = () => {
                       size="sm"
                       variant="ghost" 
                       className="text-vybr-midBlue hover:text-vybr-darkBlue hover:bg-vybr-midBlue/10"
-                      onClick={() => navigate(`/organiser/event/${event.id}`)}
+                      onClick={() => navigate(`/organizer/event/${event.id}`)}
                     >
                       Details
                       <ArrowRight className="ml-1 h-4 w-4" />
