@@ -28,9 +28,9 @@ const TabBar = () => {
 
   // Organiser mode tabs
   const organiserTabs: TabItem[] = [
-    { icon: LayoutDashboard, label: 'Posts', path: '/organiser/posts' },
+    { icon: LayoutDashboard, label: 'Posts', path: '/organizer/posts' },
     { icon: Plus, label: 'Create', path: '/create-event', isPrimary: true },
-    { icon: User, label: 'Profile', path: '/organiser/profile' },
+    { icon: User, label: 'Profile', path: '/organizer/profile' },
   ];
 
   // Choose which tabs to display based on mode

@@ -34,17 +34,57 @@ const USER_DATA = {
     "FKA Twigs"
   ],
   songs: [
-    { title: "The Less I Know The Better", artist: "Tame Impala" },
-    { title: "Self Control", artist: "Frank Ocean" },
-    { title: "DNA", artist: "Kendrick Lamar" },
-    { title: "Chamber of Reflection", artist: "Mac DeMarco" },
-    { title: "Cellophane", artist: "FKA Twigs" }
+    { 
+      title: "The Less I Know The Better", 
+      artist: "Tame Impala",
+      image: "https://images.unsplash.com/photo-1500462918059-b1a0cb512f1d?ixlib=rb-1.2.1&auto=format&fit=crop&w=300&q=80" 
+    },
+    { 
+      title: "Self Control", 
+      artist: "Frank Ocean",
+      image: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?ixlib=rb-1.2.1&auto=format&fit=crop&w=300&q=80" 
+    },
+    { 
+      title: "DNA", 
+      artist: "Kendrick Lamar",
+      image: "https://images.unsplash.com/photo-1482546344685-b5c468594cff?ixlib=rb-1.2.1&auto=format&fit=crop&w=300&q=80" 
+    },
+    { 
+      title: "Chamber of Reflection", 
+      artist: "Mac DeMarco",
+      image: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?ixlib=rb-1.2.1&auto=format&fit=crop&w=300&q=80" 
+    },
+    { 
+      title: "Cellophane", 
+      artist: "FKA Twigs",
+      image: "https://images.unsplash.com/photo-1619983081563-430f63602796?ixlib=rb-1.2.1&auto=format&fit=crop&w=300&q=80" 
+    }
   ],
   albums: [
-    { title: "Currents", artist: "Tame Impala", year: 2015 },
-    { title: "Blonde", artist: "Frank Ocean", year: 2016 },
-    { title: "DAMN.", artist: "Kendrick Lamar", year: 2017 },
-    { title: "Salad Days", artist: "Mac DeMarco", year: 2014 }
+    { 
+      title: "Currents", 
+      artist: "Tame Impala", 
+      year: 2015,
+      image: "https://images.unsplash.com/photo-1605425083477-a0e640acf7ca?ixlib=rb-1.2.1&auto=format&fit=crop&w=300&q=80" 
+    },
+    { 
+      title: "Blonde", 
+      artist: "Frank Ocean", 
+      year: 2016,
+      image: "https://images.unsplash.com/photo-1513267048331-5611cad62e41?ixlib=rb-1.2.1&auto=format&fit=crop&w=300&q=80" 
+    },
+    { 
+      title: "DAMN.", 
+      artist: "Kendrick Lamar", 
+      year: 2017,
+      image: "https://images.unsplash.com/photo-1619962990062-e8c269510ce9?ixlib=rb-1.2.1&auto=format&fit=crop&w=300&q=80" 
+    },
+    { 
+      title: "Salad Days", 
+      artist: "Mac DeMarco", 
+      year: 2014,
+      image: "https://images.unsplash.com/photo-1514924962522-d8764da95667?ixlib=rb-1.2.1&auto=format&fit=crop&w=300&q=80" 
+    }
   ]
 };
 
@@ -123,7 +163,7 @@ const ProfilePage = () => {
           </Card>
           
           <ScrollArea className="h-[calc(100vh-460px)]">
-            <ProfileSection title="Favorite Genres" icon={Music}>
+            <ProfileSection title="Favourite Genres" icon={Music}>
               <div className="flex flex-wrap gap-2">
                 {USER_DATA.genres.map((genre, index) => (
                   <Badge 
@@ -136,7 +176,7 @@ const ProfilePage = () => {
               </div>
             </ProfileSection>
             
-            <ProfileSection title="Favorite Artists" icon={HeadphonesIcon}>
+            <ProfileSection title="Favourite Artists" icon={HeadphonesIcon}>
               <div className="flex flex-wrap gap-2">
                 {USER_DATA.artists.map((artist, index) => (
                   <Badge 
@@ -151,42 +191,59 @@ const ProfilePage = () => {
               </div>
             </ProfileSection>
             
-            <ProfileSection title="Favorite Songs" icon={Disc}>
-              <Card>
+            <ProfileSection title="Favourite Songs" icon={Disc}>
+              <div className="grid grid-cols-1 gap-3">
                 {USER_DATA.songs.map((song, index) => (
-                  <React.Fragment key={index}>
-                    <div className="p-3 flex items-center">
-                      <div className="h-8 w-8 rounded-full bg-vybr-midBlue/10 flex items-center justify-center mr-3">
-                        <Music className="h-4 w-4 text-vybr-blue" />
+                  <motion.div
+                    key={index}
+                    whileHover={{ scale: 1.02 }}
+                    className="bg-white rounded-lg shadow-sm overflow-hidden"
+                  >
+                    <div className="flex items-center">
+                      <div className="w-16 h-16 relative shrink-0">
+                        <img 
+                          src={song.image} 
+                          alt={song.title}
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-r from-black/30 to-transparent"></div>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Disc className="h-6 w-6 text-white drop-shadow-md" />
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium text-gray-800">{song.title}</p>
+                      <div className="flex-1 p-3">
+                        <h3 className="font-semibold text-gray-800">{song.title}</h3>
                         <p className="text-xs text-gray-500">{song.artist}</p>
                       </div>
                     </div>
-                    {index < USER_DATA.songs.length - 1 && <Separator />}
-                  </React.Fragment>
+                  </motion.div>
                 ))}
-              </Card>
+              </div>
             </ProfileSection>
             
-            <ProfileSection title="Favorite Albums" icon={Album}>
-              <Card>
+            <ProfileSection title="Favourite Albums" icon={Album}>
+              <div className="grid grid-cols-2 gap-3">
                 {USER_DATA.albums.map((album, index) => (
-                  <React.Fragment key={index}>
-                    <div className="p-3 flex items-center">
-                      <div className="h-9 w-9 rounded-md bg-vybr-midBlue/10 flex items-center justify-center mr-3">
-                        <Album className="h-5 w-5 text-vybr-blue" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-800">{album.title}</p>
-                        <p className="text-xs text-gray-500">{album.artist} • {album.year}</p>
+                  <motion.div
+                    key={index}
+                    whileHover={{ scale: 1.03 }}
+                    className="bg-white rounded-lg shadow-sm overflow-hidden"
+                  >
+                    <div className="aspect-square w-full relative">
+                      <img 
+                        src={album.image} 
+                        alt={album.title}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+                      <div className="absolute bottom-0 left-0 right-0 p-2 text-white">
+                        <h3 className="font-bold text-sm truncate">{album.title}</h3>
+                        <p className="text-xs truncate text-white/90">{album.artist} • {album.year}</p>
                       </div>
                     </div>
-                    {index < USER_DATA.albums.length - 1 && <Separator />}
-                  </React.Fragment>
+                  </motion.div>
                 ))}
-              </Card>
+              </div>
             </ProfileSection>
             
             {/* Organizer Mode Toggle */}
@@ -196,7 +253,7 @@ const ProfilePage = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center">
                       <LayoutDashboard className="h-5 w-5 mr-2 text-vybr-midBlue" />
-                      <span className="font-medium">Organizer Mode</span>
+                      <span className="font-medium">Organiser Mode</span>
                     </div>
                     <Switch 
                       checked={isOrganizerMode} 
@@ -204,7 +261,7 @@ const ProfilePage = () => {
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-2">
-                    Toggle to switch between user and organizer views
+                    Toggle to switch between user and organiser views
                   </p>
                 </CardContent>
               </Card>

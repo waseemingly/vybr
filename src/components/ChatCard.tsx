@@ -31,7 +31,7 @@ const ChatCard: React.FC<ChatCardProps> = ({
   return (
     <motion.div
       className={cn(
-        "relative bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden",
+        "relative bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden max-w-full",
         chat.isPinned && "border-l-4 border-l-vybr-midBlue",
         chat.unread > 0 && "bg-vybr-skyBlue/10"
       )}
@@ -43,22 +43,22 @@ const ChatCard: React.FC<ChatCardProps> = ({
       <div className="flex items-center p-3" onClick={() => onChatOpen(chat)}>
         <Sheet>
           <SheetTrigger asChild>
-            <Avatar className="h-14 w-14 mr-3 cursor-pointer" onClick={(e) => {
+            <Avatar className="h-12 w-12 mr-3 cursor-pointer shrink-0" onClick={(e) => {
               e.stopPropagation();
               onProfileOpen(chat);
             }}>
               <AvatarImage src={chat.image} alt={chat.name} />
               <AvatarFallback className="bg-vybr-midBlue/10 text-vybr-blue">
-                {type === 'group' ? <Users className="h-6 w-6" /> : chat.name.charAt(0)}
+                {type === 'group' ? <Users className="h-5 w-5" /> : chat.name.charAt(0)}
               </AvatarFallback>
             </Avatar>
           </SheetTrigger>
         </Sheet>
         
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 overflow-hidden">
           <div className="flex justify-between items-start">
-            <h3 className="font-semibold truncate">{chat.name}</h3>
-            <span className="text-xs text-gray-500 whitespace-nowrap ml-2">{chat.time}</span>
+            <h3 className="font-semibold truncate max-w-[70%]">{chat.name}</h3>
+            <span className="text-xs text-gray-500 whitespace-nowrap ml-2 shrink-0">{chat.time}</span>
           </div>
           
           <p className="text-sm text-gray-600 mt-1 truncate">
@@ -67,7 +67,7 @@ const ChatCard: React.FC<ChatCardProps> = ({
           
           {type === 'group' && (
             <div className="flex items-center mt-1">
-              <p className="text-xs text-gray-500 truncate">
+              <p className="text-xs text-gray-500 truncate max-w-full">
                 {chat.members.join(', ')}
               </p>
             </div>
@@ -75,7 +75,7 @@ const ChatCard: React.FC<ChatCardProps> = ({
         </div>
         
         {chat.unread > 0 && (
-          <Badge className="ml-2 bg-vybr-midBlue text-white font-medium">
+          <Badge className="ml-2 bg-vybr-midBlue text-white font-medium shrink-0">
             {chat.unread}
           </Badge>
         )}
