@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Calendar, MapPin, Music, Users, Clock, Plus, Image, Check, Tag, FileMusic, Disc, X } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -17,15 +18,15 @@ const CreateEventPage = () => {
     date: '',
     time: '',
     location: '',
-    genre: '',
-    capacity: '',
     images: [],
     artists: [],
-    songs: []
+    songs: [],
+    genres: []
   });
 
   const [artistInput, setArtistInput] = useState('');
   const [songInput, setSongInput] = useState('');
+  const [genreInput, setGenreInput] = useState('');
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -51,6 +52,16 @@ const CreateEventPage = () => {
       setSongInput('');
     }
   };
+  
+  const handleAddGenre = () => {
+    if (genreInput.trim()) {
+      setFormState(prev => ({
+        ...prev,
+        genres: [...prev.genres, genreInput.trim()]
+      }));
+      setGenreInput('');
+    }
+  };
 
   const handleRemoveArtist = (index) => {
     setFormState(prev => {
@@ -65,6 +76,14 @@ const CreateEventPage = () => {
       const newSongs = [...prev.songs];
       newSongs.splice(index, 1);
       return { ...prev, songs: newSongs };
+    });
+  };
+  
+  const handleRemoveGenre = (index) => {
+    setFormState(prev => {
+      const newGenres = [...prev.genres];
+      newGenres.splice(index, 1);
+      return { ...prev, genres: newGenres };
     });
   };
 
@@ -213,36 +232,48 @@ const CreateEventPage = () => {
             </div>
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="genre" className="text-sm font-medium">Music Genre</Label>
-              <div className="relative mt-1">
+          <div>
+            <Label className="text-sm font-medium">Music Genres</Label>
+            <div className="flex mt-1 mb-2">
+              <div className="relative flex-1">
                 <Music className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input 
-                  id="genre" 
-                  name="genre" 
-                  value={formState.genre} 
-                  onChange={handleChange} 
-                  placeholder="Genre"
-                  className="pl-9" 
+                <Input
+                  value={genreInput}
+                  onChange={(e) => setGenreInput(e.target.value)}
+                  placeholder="Add genre"
+                  className="pl-9"
+                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddGenre())}
                 />
               </div>
+              <Button 
+                type="button" 
+                onClick={handleAddGenre}
+                className="ml-2 bg-vybr-midBlue"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
             </div>
-            <div>
-              <Label htmlFor="capacity" className="text-sm font-medium">Capacity</Label>
-              <div className="relative mt-1">
-                <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input 
-                  id="capacity" 
-                  name="capacity" 
-                  type="number" 
-                  value={formState.capacity} 
-                  onChange={handleChange} 
-                  placeholder="# of people"
-                  className="pl-9" 
-                />
+            
+            {formState.genres.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {formState.genres.map((genre, index) => (
+                  <Badge 
+                    key={index} 
+                    className="bg-vybr-skyBlue/30 text-vybr-darkBlue flex items-center"
+                  >
+                    <Tag className="w-3 h-3 mr-1" />
+                    {genre}
+                    <button
+                      type="button"
+                      className="ml-1 hover:text-red-500"
+                      onClick={() => handleRemoveGenre(index)}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                ))}
               </div>
-            </div>
+            )}
           </div>
           
           <div>

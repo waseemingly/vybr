@@ -14,6 +14,7 @@ interface MatchProps {
   compatibilityScore?: number;
   isPremium?: boolean;
   isThrowback?: boolean;
+  index?: number; // Added to identify specific matches
 }
 
 const MatchCard: React.FC<MatchProps> = ({
@@ -26,7 +27,11 @@ const MatchCard: React.FC<MatchProps> = ({
   compatibilityScore,
   isPremium = false,
   isThrowback = false,
+  index
 }) => {
+  // Only show throwback tag if it's the first match and isThrowback is true
+  const showThrowbackTag = isThrowback && index !== 1;
+
   return (
     <div 
       className={cn(
@@ -44,7 +49,7 @@ const MatchCard: React.FC<MatchProps> = ({
           className="w-full h-full object-cover transition-transform duration-700 hover:scale-105" 
         />
         
-        {isThrowback && (
+        {showThrowbackTag && (
           <div className="absolute top-4 left-4 bg-yellow-500 text-white px-3 py-1 rounded-full text-xs font-medium animate-pulse-soft">
             Throwback Match
           </div>

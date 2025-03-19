@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { ArrowRight, Calendar, Edit, MapPin, Tag, Trash, Users, Activity, Star } from 'lucide-react';
 import TabBar from '@/components/TabBar';
@@ -6,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { AspectRatio } from '@/components/ui/aspect-ratio';
 
 // Sample event data for organiser
 const ORGANISER_EVENTS = [
@@ -88,12 +90,14 @@ const OrganizerPostsPage = () => {
               className="w-full"
             >
               <Card className="overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300">
-                <div className="relative h-44 w-full">
-                  <img 
-                    src={event.image} 
-                    alt={event.title} 
-                    className="h-full w-full object-cover"
-                  />
+                <div className="w-full">
+                  <AspectRatio ratio={1 / 1}>
+                    <img 
+                      src={event.image} 
+                      alt={event.title} 
+                      className="h-full w-full object-cover"
+                    />
+                  </AspectRatio>
                 </div>
                 
                 <CardContent className="p-4">

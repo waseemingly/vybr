@@ -1,7 +1,7 @@
 
 import React from 'react';
 import TabBar from '@/components/TabBar';
-import { User, Music, Heart, Disc, Album, Users, HeadphonesIcon, LayoutDashboard } from 'lucide-react';
+import { User, Music, Heart, Disc, Album, Users, HeadphonesIcon, LayoutDashboard, Crown, Star } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,6 +19,7 @@ const USER_DATA = {
   bio: "Music lover and concert enthusiast. Always looking for new artists and genres to explore. Let's connect and share playlists!",
   friends: 124,
   following: 56,
+  isPremium: true,
   genres: [
     "Alternative Rock", 
     "Indie Pop", 
@@ -133,7 +134,15 @@ const ProfilePage = () => {
               </div>
               
               <div className="pt-20 pb-5 px-4 text-center">
-                <h2 className="text-2xl font-bold text-gray-900">{USER_DATA.name}</h2>
+                <div className="flex items-center justify-center gap-2">
+                  <h2 className="text-2xl font-bold text-gray-900">{USER_DATA.name}</h2>
+                  {USER_DATA.isPremium && (
+                    <div className="bg-gradient-to-r from-[#9b87f5] to-[#6E59A5] text-white px-3 py-1 rounded-full text-xs flex items-center">
+                      <Crown className="w-3 h-3 mr-1 text-yellow-300" />
+                      Premium
+                    </div>
+                  )}
+                </div>
                 <p className="text-gray-500 mt-1">{USER_DATA.age} years old</p>
                 
                 <div className="flex justify-center space-x-8 mt-4">

@@ -23,6 +23,8 @@ import {
   Cell 
 } from 'recharts';
 import TabBar from '@/components/TabBar';
+import { Switch } from '@/components/ui/switch';
+import { useOrganizerMode } from '@/hooks/useOrganizerMode';
 
 // Sample event details with analytics data
 const EVENT_DETAILS = {
@@ -65,8 +67,8 @@ const CHART_COLORS = {
 };
 
 const RADIAN = Math.PI / 180;
-const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, index, name, value }) => {
-  const radius = outerRadius * 0.8;
+const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+  const radius = outerRadius * 0.6;
   const x = cx + radius * Math.cos(-midAngle * RADIAN);
   const y = cy + radius * Math.sin(-midAngle * RADIAN);
 
@@ -75,12 +77,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
       x={x} 
       y={y} 
       fill="#ffffff"
-      textAnchor={x > cx ? 'start' : 'end'} 
+      textAnchor="middle" 
       dominantBaseline="central"
       fontSize={12}
       fontWeight="500"
     >
-      {`${name} (${value})`}
+      {`${(percent * 100).toFixed(0)}%`}
     </text>
   );
 };
@@ -89,6 +91,18 @@ const EventDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const event = EVENT_DETAILS; // In a real app, fetch based on id
+  const { isOrganizerMode, toggleOrganizerMode } = useOrganizerMode();
+  
+  // Calculate total reservations for percentages
+  const totalReservations = event.analytics.reservationBreakdown.reduce(
+    (total, item) => total + item.value, 0
+  );
+  
+  // Add percent to each item for the pie chart
+  const reservationBreakdownWithPercent = event.analytics.reservationBreakdown.map(item => ({
+    ...item,
+    percent: item.value / totalReservations
+  }));
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-vybr-blue/5 to-white pb-24">
@@ -140,7 +154,7 @@ const EventDetailPage = () => {
         <ScrollArea className="h-[calc(100vh-180px)]">
           <div className="mx-auto">
             {/* Event Image */}
-            <div className="relative h-48 w-full rounded-lg overflow-hidden mb-4">
+            <div className="relative w-full aspect-square rounded-lg overflow-hidden mb-4">
               <img 
                 src={event.image} 
                 alt={event.title} 
@@ -240,7 +254,7 @@ const EventDetailPage = () => {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={event.analytics.reservationBreakdown}
+                        data={reservationBreakdownWithPercent}
                         cx="50%"
                         cy="50%"
                         labelLine={false}
@@ -249,12 +263,12 @@ const EventDetailPage = () => {
                         dataKey="value"
                         label={renderCustomizedLabel}
                       >
-                        {event.analytics.reservationBreakdown.map((entry, index) => (
+                        {reservationBreakdownWithPercent.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
                         ))}
                       </Pie>
                       <Tooltip 
-                        formatter={(value, name) => [`${value} bookings`, name]} 
+                        formatter={(value, name) => [`${value} bookings (${(value / totalReservations * 100).toFixed(0)}%)`, name]} 
                         contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)' }}
                       />
                       <Legend 
@@ -319,6 +333,19 @@ const EventDetailPage = () => {
                       />
                     </LineChart>
                   </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Organizer Mode Toggle */}
+            <Card className="mb-6">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Switch to User Mode</span>
+                  <Switch 
+                    checked={!isOrganizerMode}
+                    onCheckedChange={() => toggleOrganizerMode(!isOrganizerMode)}
+                  />
                 </div>
               </CardContent>
             </Card>
