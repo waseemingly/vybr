@@ -1,6 +1,5 @@
-
 import React, { useState } from 'react';
-import { MessageCircle, Users, Pin, Archive, Trash2, Bell, UserPlus, ChevronRight, Info, Flag } from 'lucide-react';
+import { MessageCircle, Users, Pin, Archive, Trash2, Bell, UserPlus, ChevronRight, Info, Flag, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 import TabBar from '@/components/TabBar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -10,8 +9,8 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import ChatCard from '@/components/ChatCard';
+import { Card, CardContent } from '@/components/ui/card';
 
-// Sample data for chats
 const INDIVIDUAL_CHATS = [
   {
     id: '1',
@@ -23,6 +22,11 @@ const INDIVIDUAL_CHATS = [
     isPinned: true,
     commonArtists: ['Kendrick Lamar', 'SZA'],
     commonGenres: ['Hip Hop', 'R&B'],
+    conversationStarters: [
+      "What did you think of Kendrick's latest album?",
+      "Have you seen SZA perform live before?",
+      "What's your favorite track from DAMN.?"
+    ]
   },
   {
     id: '2',
@@ -34,6 +38,11 @@ const INDIVIDUAL_CHATS = [
     isPinned: false,
     commonArtists: ['Tame Impala', 'Arctic Monkeys'],
     commonGenres: ['Indie Rock'],
+    conversationStarters: [
+      "What's your favorite track from Currents?",
+      "Have you seen Arctic Monkeys live?",
+      "Which Tame Impala era do you prefer?"
+    ]
   },
   {
     id: '3',
@@ -45,6 +54,11 @@ const INDIVIDUAL_CHATS = [
     isPinned: false,
     commonArtists: ['Daft Punk', 'Justice'],
     commonGenres: ['Electronic', 'House'],
+    conversationStarters: [
+      "What are your thoughts on Daft Punk's split?",
+      "Which electronic artists are you currently into?",
+      "What's your favorite house track right now?"
+    ]
   }
 ];
 
@@ -71,6 +85,26 @@ const GROUP_CHATS = [
   }
 ];
 
+const ConversationStarters = ({ starters }) => {
+  return (
+    <div className="mt-4 w-full">
+      <h3 className="text-sm font-medium text-gray-500 mb-2 flex items-center">
+        <Sparkles className="h-4 w-4 mr-1 text-yellow-500" />
+        AI Conversation Starters
+      </h3>
+      <div className="space-y-2">
+        {starters.map((starter, index) => (
+          <Card key={index} className="bg-vybr-skyBlue/10 border-vybr-skyBlue/30">
+            <CardContent className="p-3 text-sm">
+              <p className="text-vybr-darkBlue">{starter}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const ChatsPage = () => {
   const [activeTab, setActiveTab] = useState('individual');
   const [selectedChat, setSelectedChat] = useState(null);
@@ -82,13 +116,11 @@ const ChatsPage = () => {
   };
   
   const handleProfileOpen = (chat) => {
-    // In a real app, this would open a profile view
     console.log('Open profile for:', chat.name);
   };
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-vybr-blue/5 to-white pb-24">
-      {/* Header */}
       <header className="pt-6 pb-4 px-4 safe-area-top">
         <div className="flex items-center justify-between mb-2">
           <MotionHeading 
@@ -108,7 +140,6 @@ const ChatsPage = () => {
           />
         </div>
         
-        {/* Create Group Chat Button */}
         <div className="flex justify-between items-center mt-2 mb-4">
           <p className="text-gray-500 text-sm">
             Connect with your matches
@@ -129,7 +160,6 @@ const ChatsPage = () => {
                 <h3 className="text-lg font-bold mb-4">Create a Group</h3>
                 <p className="text-sm text-gray-500 mb-4">Select friends to add to your new group</p>
                 
-                {/* Group creation UI would go here */}
                 <div className="space-y-2">
                   {INDIVIDUAL_CHATS.map(chat => (
                     <div key={chat.id} className="flex items-center p-2 rounded-lg hover:bg-gray-100">
@@ -156,7 +186,6 @@ const ChatsPage = () => {
           </Sheet>
         </div>
         
-        {/* Tabs */}
         <Tabs defaultValue="individual" className="w-full">
           <TabsList className="grid grid-cols-2 w-full bg-vybr-skyBlue/30 rounded-lg p-1">
             <TabsTrigger 
@@ -175,7 +204,6 @@ const ChatsPage = () => {
             </TabsTrigger>
           </TabsList>
 
-          {/* Individual Chats Content */}
           <TabsContent value="individual" className="mt-2">
             <ScrollArea className="h-[calc(100vh-230px)]">
               <div className="space-y-3 pr-3 pt-3">
@@ -192,7 +220,6 @@ const ChatsPage = () => {
             </ScrollArea>
           </TabsContent>
           
-          {/* Group Chats Content */}
           <TabsContent value="groups" className="mt-2">
             <ScrollArea className="h-[calc(100vh-230px)]">
               <div className="space-y-3 pr-3 pt-3">
@@ -211,9 +238,7 @@ const ChatsPage = () => {
         </Tabs>
       </header>
       
-      {/* Main Content - Empty since tabs are in header */}
       <main className="px-4 pb-6">
-        {/* Profile Sheet */}
         {selectedChat && (
           <Sheet>
             <SheetContent side="right" className="w-full sm:max-w-md">
@@ -251,6 +276,10 @@ const ChatsPage = () => {
                   </div>
                 )}
                 
+                {selectedChat.conversationStarters && (
+                  <ConversationStarters starters={selectedChat.conversationStarters} />
+                )}
+                
                 <Button className="mt-6 w-full" size="lg">
                   Message
                 </Button>
@@ -265,7 +294,6 @@ const ChatsPage = () => {
         )}
       </main>
       
-      {/* Tab Bar */}
       <TabBar />
     </div>
   );

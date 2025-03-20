@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import TabBar from '@/components/TabBar';
 import { Calendar, MapPin, Music, Tag, Clock, Ticket, ArrowLeft, User, Heart, Send } from 'lucide-react';
@@ -200,24 +199,11 @@ const EventCard = ({ event }) => {
       <Card className="overflow-hidden mb-4 border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300">
         <div className="w-full">
           <AspectRatio ratio={1 / 1}>
-            <Carousel className="w-full h-full">
-              <CarouselContent className="h-full">
-                {event.images.map((image, index) => (
-                  <CarouselItem key={index} className="p-0 h-full">
-                    <div className="w-full h-full relative">
-                      <img 
-                        src={image} 
-                        alt={`${event.title} - Image ${index + 1}`} 
-                        className="h-full w-full object-cover"
-                      />
-                    </div>
-                  </CarouselItem>
-                ))}
-              </CarouselContent>
-              <CarouselPrevious className="absolute left-2 top-1/2 -translate-y-1/2 h-8 w-8 bg-white/70 backdrop-blur-sm border-0" />
-              <CarouselNext className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 bg-white/70 backdrop-blur-sm border-0" />
-            </Carousel>
-            
+            <img 
+              src={event.images[0]} 
+              alt={event.title} 
+              className="h-full w-full object-cover"
+            />
             {event.matchesUserTaste && (
               <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-sm text-vybr-blue px-3 py-1 rounded-full flex items-center space-x-1 z-10">
                 <Music className="w-4 h-4 text-vybr-midBlue" />
