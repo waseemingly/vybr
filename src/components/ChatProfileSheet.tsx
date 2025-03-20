@@ -17,7 +17,7 @@ const ChatProfileSheet: React.FC<ChatProfileSheetProps> = ({
   musicStarters 
 }) => {
   return (
-    <SheetContent side="right" className="w-full sm:max-w-md">
+    <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
       <div className="flex flex-col items-center p-4">
         <Avatar className="h-20 w-20 mb-4">
           <AvatarImage src={chat.image} alt={chat.name} />

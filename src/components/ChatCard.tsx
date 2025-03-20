@@ -31,7 +31,7 @@ const ChatCard: React.FC<ChatCardProps> = ({
   return (
     <motion.div
       className={cn(
-        "relative bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden max-w-full",
+        "relative bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden max-w-full cursor-pointer",
         chat.isPinned && "border-l-4 border-l-vybr-midBlue",
         chat.unread > 0 && "bg-vybr-skyBlue/10"
       )}
@@ -39,8 +39,9 @@ const ChatCard: React.FC<ChatCardProps> = ({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
+      onClick={() => onChatOpen(chat)}
     >
-      <div className="flex items-center p-3" onClick={() => onChatOpen(chat)}>
+      <div className="flex items-center p-3">
         <Sheet>
           <SheetTrigger asChild>
             <Avatar className="h-12 w-12 mr-3 cursor-pointer shrink-0" onClick={(e) => {
