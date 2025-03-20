@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { MessageCircle, Users, Pin, Archive, Trash2, Bell, UserPlus, ChevronRight, Info, Flag, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { MessageCircle, Users, Pin, Archive, Trash2, Bell, UserPlus, ChevronRight, Info, Flag, Sparkles, Music } from 'lucide-react';
 import { motion } from 'framer-motion';
 import TabBar from '@/components/TabBar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import ChatCard from '@/components/ChatCard';
 import { Card, CardContent } from '@/components/ui/card';
+import { toast } from "@/hooks/use-toast";
 
 const INDIVIDUAL_CHATS = [
   {
@@ -85,7 +86,7 @@ const GROUP_CHATS = [
   }
 ];
 
-const ConversationStarters = ({ starters }) => {
+const ConversationStarters = ({ starters, musicStarters }) => {
   return (
     <div className="mt-4 w-full">
       <h3 className="text-sm font-medium text-gray-500 mb-2 flex items-center">
@@ -101,23 +102,99 @@ const ConversationStarters = ({ starters }) => {
           </Card>
         ))}
       </div>
+      
+      {musicStarters && musicStarters.length > 0 && (
+        <>
+          <h3 className="text-sm font-medium text-gray-500 mt-4 mb-2 flex items-center">
+            <Music className="h-4 w-4 mr-1 text-vybr-midBlue" />
+            Music Conversation Starters
+          </h3>
+          <div className="space-y-2">
+            {musicStarters.map((starter, index) => (
+              <Card 
+                key={`music-${index}`} 
+                className="bg-vybr-midBlue/10 border-vybr-midBlue/30 cursor-pointer hover:bg-vybr-midBlue/20 transition-colors"
+                onClick={() => {
+                  toast({
+                    title: "Message Ready",
+                    description: "Tap to send: " + starter,
+                  });
+                }}
+              >
+                <CardContent className="p-3 text-sm">
+                  <p className="text-vybr-blue">{starter}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
+};
+
+const generateMusicConversationStarters = (commonArtists, commonGenres) => {
+  const starters = [];
+  
+  if (commonArtists && commonArtists.length > 0) {
+    commonArtists.forEach(artist => {
+      starters.push(`What's your favorite song by ${artist}?`);
+      starters.push(`Have you seen ${artist} perform live before?`);
+    });
+  }
+  
+  if (commonGenres && commonGenres.length > 0) {
+    commonGenres.forEach(genre => {
+      starters.push(`Who are your top artists in the ${genre} genre?`);
+      starters.push(`What ${genre} festivals or events have you been to?`);
+    });
+  }
+  
+  const generalStarters = [
+    "What music have you been listening to lately?",
+    "What's the last concert you went to?",
+    "Do you prefer discovering new music or sticking with your favorites?",
+    "What music helps you concentrate or relax?",
+    "Which artist would you love to see collaborate?"
+  ];
+  
+  while (starters.length < 3 && generalStarters.length > 0) {
+    starters.push(generalStarters.pop());
+  }
+  
+  return starters.length > 4 ? starters.sort(() => 0.5 - Math.random()).slice(0, 4) : starters;
 };
 
 const ChatsPage = () => {
   const [activeTab, setActiveTab] = useState('individual');
   const [selectedChat, setSelectedChat] = useState(null);
+  const [musicStarters, setMusicStarters] = useState([]);
   
   const MotionHeading = motion.h1;
   
   const handleChatOpen = (chat) => {
     setSelectedChat(chat);
+    
+    if (chat.commonArtists || chat.commonGenres) {
+      const generatedStarters = generateMusicConversationStarters(
+        chat.commonArtists,
+        chat.commonGenres
+      );
+      setMusicStarters(generatedStarters);
+    } else {
+      setMusicStarters([]);
+    }
   };
   
   const handleProfileOpen = (chat) => {
     console.log('Open profile for:', chat.name);
   };
+  
+  useEffect(() => {
+    if (!selectedChat) {
+      setMusicStarters([]);
+    }
+  }, [selectedChat]);
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-vybr-blue/5 to-white pb-24">
@@ -277,7 +354,10 @@ const ChatsPage = () => {
                 )}
                 
                 {selectedChat.conversationStarters && (
-                  <ConversationStarters starters={selectedChat.conversationStarters} />
+                  <ConversationStarters 
+                    starters={selectedChat.conversationStarters} 
+                    musicStarters={musicStarters}
+                  />
                 )}
                 
                 <Button className="mt-6 w-full" size="lg">
