@@ -1,4 +1,3 @@
-
 export interface IndividualChat {
   id: string;
   name: string;

@@ -1,123 +1,177 @@
-
-import React from 'react';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { motion } from 'framer-motion';
-import { Sheet, SheetTrigger } from '@/components/ui/sheet';
-import { Pin, Archive, Trash2, X, Users, Bell } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
+import React from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
+import { Feather } from "@expo/vector-icons";
+import { Chat, GroupChat, IndividualChat } from "@/types/chat";
 
 interface ChatCardProps {
-  chat: any;
-  onChatOpen: (chat: any) => void;
-  onProfileOpen: (chat: any) => void;
-  type: 'individual' | 'group';
+  chat: Chat;
+  onChatOpen: (chat: IndividualChat | GroupChat) => void;
+  onProfileOpen: (chat: IndividualChat | GroupChat) => void;
+  type: "individual" | "group";
 }
 
-const ChatCard: React.FC<ChatCardProps> = ({ 
-  chat, 
-  onChatOpen, 
+const ChatCard: React.FC<ChatCardProps> = ({
+  chat,
+  onChatOpen,
   onProfileOpen,
-  type
+  type,
 }) => {
-  const handleLeftSwipe = (action: 'pin' | 'unread') => {
-    console.log(`Left swipe ${action} for chat:`, chat.id);
-  };
-  
-  const handleRightSwipe = (action: 'archive' | 'delete' | 'leave') => {
-    console.log(`Right swipe ${action} for chat:`, chat.id);
-  };
-  
   return (
-    <motion.div
-      className={cn(
-        "relative bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden max-w-full cursor-pointer",
-        chat.isPinned && "border-l-4 border-l-vybr-midBlue",
-        chat.unread > 0 && "bg-vybr-skyBlue/10"
-      )}
-      whileTap={{ scale: 0.98 }}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      onClick={() => onChatOpen(chat)}
+    <TouchableOpacity
+      style={[
+        styles.container,
+        chat.isPinned && styles.pinned,
+        chat.unread > 0 && styles.unread,
+      ]}
+      activeOpacity={0.7}
+      onPress={() => onChatOpen(chat)}
     >
-      <div className="flex items-center p-3">
-        <Sheet>
-          <SheetTrigger asChild>
-            <Avatar className="h-12 w-12 mr-3 cursor-pointer shrink-0" onClick={(e) => {
-              e.stopPropagation();
-              onProfileOpen(chat);
-            }}>
-              <AvatarImage src={chat.image} alt={chat.name} />
-              <AvatarFallback className="bg-vybr-midBlue/10 text-vybr-blue">
-                {type === 'group' ? <Users className="h-5 w-5" /> : chat.name.charAt(0)}
-              </AvatarFallback>
-            </Avatar>
-          </SheetTrigger>
-        </Sheet>
-        
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <div className="flex justify-between items-start">
-            <h3 className="font-semibold truncate max-w-[70%]">{chat.name}</h3>
-            <span className="text-xs text-gray-500 whitespace-nowrap ml-2 shrink-0">{chat.time}</span>
-          </div>
-          
-          <p className="text-sm text-gray-600 mt-1 truncate">
-            {chat.lastMessage}
-          </p>
-          
-          {type === 'group' && (
-            <div className="flex items-center mt-1">
-              <p className="text-xs text-gray-500 truncate max-w-full">
-                {chat.members.join(', ')}
-              </p>
-            </div>
+      <View style={styles.content}>
+        <TouchableOpacity
+          style={styles.avatarContainer}
+          onPress={(e) => {
+            // Prevent triggering parent's onPress
+            e.stopPropagation();
+            onProfileOpen(chat);
+          }}
+        >
+          {chat.image ? (
+            <Image source={{ uri: chat.image }} style={styles.avatar} />
+          ) : (
+            <View style={styles.avatarFallback}>
+              {type === "group" ? (
+                <Feather name="users" size={20} color="#3B82F6" />
+              ) : (
+                <Text style={styles.avatarText}>{chat.name.charAt(0)}</Text>
+              )}
+            </View>
           )}
-        </div>
-        
+        </TouchableOpacity>
+
+        <View style={styles.chatInfo}>
+          <View style={styles.nameTimeRow}>
+            <Text style={styles.name} numberOfLines={1}>
+              {chat.name}
+            </Text>
+            <Text style={styles.time}>{chat.time}</Text>
+          </View>
+
+          <Text style={styles.message} numberOfLines={1}>
+            {chat.lastMessage}
+          </Text>
+
+          {type === "group" && (
+            <View style={styles.membersRow}>
+              <Text style={styles.members} numberOfLines={1}>
+                {(chat as GroupChat).members.join(", ")}
+              </Text>
+            </View>
+          )}
+        </View>
+
         {chat.unread > 0 && (
-          <Badge className="ml-2 bg-vybr-midBlue text-white font-medium shrink-0">
-            {chat.unread}
-          </Badge>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{chat.unread}</Text>
+          </View>
         )}
-      </div>
-      
-      {/* Swipe Actions - These would be implemented with a gesture library in a real app */}
-      <div className="absolute right-0 top-0 bottom-0 hidden">
-        <div className="h-full flex flex-col justify-center gap-2 px-2">
-          <button 
-            className="p-2 bg-amber-500 rounded-full text-white"
-            onClick={() => handleRightSwipe('archive')}
-          >
-            <Archive className="h-5 w-5" />
-          </button>
-          <button 
-            className="p-2 bg-red-500 rounded-full text-white"
-            onClick={() => handleRightSwipe(type === 'group' ? 'leave' : 'delete')}
-          >
-            {type === 'group' ? <X className="h-5 w-5" /> : <Trash2 className="h-5 w-5" />}
-          </button>
-        </div>
-      </div>
-      
-      <div className="absolute left-0 top-0 bottom-0 hidden">
-        <div className="h-full flex flex-col justify-center gap-2 px-2">
-          <button 
-            className="p-2 bg-vybr-blue rounded-full text-white"
-            onClick={() => handleLeftSwipe('pin')}
-          >
-            <Pin className="h-5 w-5" />
-          </button>
-          <button 
-            className="p-2 bg-vybr-midBlue rounded-full text-white"
-            onClick={() => handleLeftSwipe('unread')}
-          >
-            <Bell className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
-    </motion.div>
+      </View>
+    </TouchableOpacity>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    backgroundColor: "white",
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
+  },
+  pinned: {
+    borderLeftWidth: 4,
+    borderLeftColor: "#60A5FA",
+  },
+  unread: {
+    backgroundColor: "rgba(59, 130, 246, 0.05)",
+  },
+  content: {
+    flexDirection: "row",
+    padding: 12,
+    alignItems: "center",
+  },
+  avatarContainer: {
+    marginRight: 12,
+  },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  avatarFallback: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#3B82F6",
+  },
+  chatInfo: {
+    flex: 1,
+  },
+  nameTimeRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  name: {
+    fontWeight: "600",
+    fontSize: 16,
+    color: "#1F2937",
+    flex: 1,
+  },
+  time: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginLeft: 8,
+  },
+  message: {
+    fontSize: 14,
+    color: "#4B5563",
+    marginTop: 2,
+  },
+  membersRow: {
+    marginTop: 4,
+  },
+  members: {
+    fontSize: 12,
+    color: "#6B7280",
+  },
+  badge: {
+    backgroundColor: "#60A5FA",
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+    marginLeft: 8,
+  },
+  badgeText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+});
 
 export default ChatCard;

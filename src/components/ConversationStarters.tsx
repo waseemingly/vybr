@@ -1,62 +1,113 @@
-
-import React from 'react';
-import { Sparkles, Music } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { toast } from "@/hooks/use-toast";
+import React from "react";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { Feather } from "@expo/vector-icons";
 
 interface ConversationStartersProps {
   starters: string[];
   musicStarters?: string[];
+  onSelect?: (starter: string) => void;
 }
 
-const ConversationStarters: React.FC<ConversationStartersProps> = ({ 
-  starters, 
-  musicStarters 
+const ConversationStarters: React.FC<ConversationStartersProps> = ({
+  starters,
+  musicStarters,
+  onSelect,
 }) => {
   return (
-    <div className="mt-4 w-full">
-      <h3 className="text-sm font-medium text-gray-500 mb-2 flex items-center">
-        <Sparkles className="h-4 w-4 mr-1 text-yellow-500" />
-        AI Conversation Starters
-      </h3>
-      <div className="space-y-2">
+    <View style={styles.container}>
+      <View style={styles.section}>
+        <View style={styles.headerContainer}>
+          <Feather name="star" size={14} color="#EAB308" style={styles.icon} />
+          <Text style={styles.sectionHeader}>AI Conversation Starters</Text>
+        </View>
+
         {starters.map((starter, index) => (
-          <Card key={index} className="bg-vybr-skyBlue/10 border-vybr-skyBlue/30">
-            <CardContent className="p-3 text-sm">
-              <p className="text-vybr-darkBlue">{starter}</p>
-            </CardContent>
-          </Card>
+          <TouchableOpacity
+            key={index}
+            style={styles.starterCard}
+            onPress={() => onSelect && onSelect(starter)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.starterText}>{starter}</Text>
+          </TouchableOpacity>
         ))}
-      </div>
-      
+      </View>
+
       {musicStarters && musicStarters.length > 0 && (
-        <>
-          <h3 className="text-sm font-medium text-gray-500 mt-4 mb-2 flex items-center">
-            <Music className="h-4 w-4 mr-1 text-vybr-midBlue" />
-            Music Conversation Starters
-          </h3>
-          <div className="space-y-2">
-            {musicStarters.map((starter, index) => (
-              <Card 
-                key={`music-${index}`} 
-                className="bg-vybr-midBlue/10 border-vybr-midBlue/30 cursor-pointer hover:bg-vybr-midBlue/20 transition-colors"
-                onClick={() => {
-                  toast({
-                    title: "Message Ready",
-                    description: "Tap to send: " + starter,
-                  });
-                }}
-              >
-                <CardContent className="p-3 text-sm">
-                  <p className="text-vybr-blue">{starter}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </>
+        <View style={styles.section}>
+          <View style={styles.headerContainer}>
+            <Feather
+              name="music"
+              size={14}
+              color="#3B82F6"
+              style={styles.icon}
+            />
+            <Text style={styles.sectionHeader}>
+              Music Conversation Starters
+            </Text>
+          </View>
+
+          {musicStarters.map((starter, index) => (
+            <TouchableOpacity
+              key={`music-${index}`}
+              style={styles.musicStarterCard}
+              onPress={() => onSelect && onSelect(starter)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.musicStarterText}>{starter}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       )}
-    </div>
+    </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    marginTop: 16,
+    width: "100%",
+  },
+  section: {
+    marginBottom: 16,
+  },
+  headerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  icon: {
+    marginRight: 4,
+  },
+  sectionHeader: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#6B7280",
+  },
+  starterCard: {
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "rgba(59, 130, 246, 0.2)",
+  },
+  starterText: {
+    fontSize: 14,
+    color: "#1E3A8A",
+  },
+  musicStarterCard: {
+    backgroundColor: "rgba(96, 165, 250, 0.1)",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "rgba(96, 165, 250, 0.2)",
+  },
+  musicStarterText: {
+    fontSize: 14,
+    color: "#3B82F6",
+  },
+});
 
 export default ConversationStarters;

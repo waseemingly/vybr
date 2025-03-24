@@ -1,31 +1,42 @@
-
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useState, useContext, ReactNode } from "react";
 
 interface OrganizerModeContextType {
   isOrganizerMode: boolean;
   toggleOrganizerMode: () => void;
 }
 
-const OrganizerModeContext = createContext<OrganizerModeContextType | undefined>(undefined);
+const OrganizerModeContext = createContext<
+  OrganizerModeContextType | undefined
+>(undefined);
 
-export const OrganizerModeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+interface OrganizerModeProviderProps {
+  children: ReactNode;
+}
+
+export const OrganizerModeProvider = ({
+  children,
+}: OrganizerModeProviderProps) => {
   const [isOrganizerMode, setIsOrganizerMode] = useState(false);
 
   const toggleOrganizerMode = () => {
-    setIsOrganizerMode(prev => !prev);
+    setIsOrganizerMode((prevMode) => !prevMode);
   };
 
   return (
-    <OrganizerModeContext.Provider value={{ isOrganizerMode, toggleOrganizerMode }}>
+    <OrganizerModeContext.Provider
+      value={{ isOrganizerMode, toggleOrganizerMode }}
+    >
       {children}
     </OrganizerModeContext.Provider>
   );
 };
 
-export const useOrganizerMode = () => {
+export const useOrganizerMode = (): OrganizerModeContextType => {
   const context = useContext(OrganizerModeContext);
   if (context === undefined) {
-    throw new Error('useOrganizerMode must be used within an OrganizerModeProvider');
+    throw new Error(
+      "useOrganizerMode must be used within an OrganizerModeProvider"
+    );
   }
   return context;
 };
