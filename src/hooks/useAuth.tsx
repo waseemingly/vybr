@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import { supabase, UserTypes, SignUpCredentials, LoginCredentials, UserSession } from '@/lib/supabase';
+import { supabase, UserTypes, SignUpCredentials, LoginCredentials, UserSession } from '../lib/supabase';
 import { useOrganizerMode } from './useOrganizerMode';
 import { APP_CONSTANTS } from '@/config/constants';
 
@@ -7,12 +7,38 @@ import { APP_CONSTANTS } from '@/config/constants';
 const AuthContext = createContext<{
   session: UserSession | null;
   loading: boolean;
-  signUp: (credentials: SignUpCredentials) => Promise<{ error: any } | { user: any, verificationSent: boolean }>;
+  signUp: (credentials: SignUpCredentials) => Promise<{ error: any } | { user: any }>;
   login: (credentials: LoginCredentials) => Promise<{ error: any } | { user: any }>;
   logout: () => Promise<void>;
   checkSession: () => Promise<void>;
-  checkEmailVerification: (userId: string) => Promise<boolean>;
-  resendVerificationEmail: (email: string) => Promise<{ error: any } | { success: boolean }>;
+  createMusicLoverProfile: (profileData: {
+    userId: string;
+    firstName: string;
+    lastName: string;
+    username: string;
+    email: string;
+    age: string;
+    profilePicture?: string;
+    musicPlatform?: string;
+    bio?: {
+      firstSong?: string;
+      goToSong?: string;
+      mustListenAlbum?: string;
+      dreamConcert?: string;
+      musicTaste?: string;
+    };
+    isPremium?: boolean;
+  }) => Promise<{ error: any } | { success: boolean }>;
+  createOrganizerProfile: (profileData: {
+    userId: string;
+    companyName: string;
+    email: string;
+    logo?: string;
+    phoneNumber?: string;
+    businessType?: string;
+    bio?: string;
+    website?: string;
+  }) => Promise<{ error: any } | { success: boolean }>;
 }>({
   session: null,
   loading: true,
@@ -20,8 +46,8 @@ const AuthContext = createContext<{
   login: async () => ({ error: null }),
   logout: async () => {},
   checkSession: async () => {},
-  checkEmailVerification: async () => false,
-  resendVerificationEmail: async () => ({ error: null }),
+  createMusicLoverProfile: async () => ({ error: null }),
+  createOrganizerProfile: async () => ({ error: null }),
 });
 
 // Create provider component
@@ -67,11 +93,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('user_types')
         .select('type')
         .eq('user_id', authSession.user.id)
-        .single();
+        .maybeSingle(); // Use maybeSingle instead of single to handle no rows case
 
-      if (userTypeError || !userTypeData) {
+      if (userTypeError) {
         console.error('Error fetching user type:', userTypeError);
         setSession(null);
+        return;
+      }
+
+      // If no user type found, try to get it from auth metadata
+      if (!userTypeData) {
+        const userType = authSession.user.user_metadata?.user_type as UserTypes;
+        if (!userType) {
+          console.error('No user type found in metadata');
+          setSession(null);
+          return;
+        }
+
+        // Try to insert the user type into the database
+        const { error: insertError } = await supabase
+          .from('user_types')
+          .insert({
+            user_id: authSession.user.id,
+            type: userType
+          })
+          .select()
+          .maybeSingle(); // Use maybeSingle to handle the case where it already exists
+
+        if (insertError) {
+          // If it's a duplicate key error, we can ignore it as the user type already exists
+          if (insertError.code !== '23505') {
+            console.error('Error inserting user type:', insertError);
+            setSession(null);
+            return;
+          }
+        }
+
+        // Set session with basic info
+        let userSession: UserSession = {
+          user: {
+            id: authSession.user.id,
+            email: authSession.user.email!,
+          },
+          userType,
+        };
+
+        // Update organizer mode if needed
+        setIsOrganizerMode(userType === 'organizer');
+
+        setSession(userSession);
         return;
       }
 
@@ -146,113 +216,153 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Sign up a new user
   const signUp = async (credentials: SignUpCredentials) => {
     try {
-      const { email, password, userType, senderEmail } = credentials;
+      const { email, password, userType } = credentials;
       
-      // Create auth user
+      // Create auth user without email verification
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: APP_CONSTANTS.API.AUTH_REDIRECT_URL,
           data: {
-            user_type: userType  // Store user type in auth metadata
+            user_type: userType,  // Store user type in auth metadata
+            email_confirmed_at: new Date().toISOString() // Mark email as confirmed
           }
         }
       });
 
       if (error || !data.user) {
+        console.error('Error creating auth user:', error);
         return { error };
       }
 
-      // Add user type to user_types table
-      await supabase.from('user_types').insert({
-        user_id: data.user.id,
-        type: userType
-      });
+      // Check if user type already exists
+      const { data: existingUserType, error: checkError } = await supabase
+        .from('user_types')
+        .select('type')
+        .eq('user_id', data.user.id)
+        .maybeSingle();
 
-      // Create profile based on user type
-      if (userType === 'music_lover') {
-        const { firstName, lastName, username } = credentials;
-        await supabase.from('music_lover_profiles').insert({
-          user_id: data.user.id,
-          first_name: firstName,
-          last_name: lastName,
-          username,
-          email,
-        });
-      } else if (userType === 'organizer') {
-        const { companyName } = credentials;
-        await supabase.from('organizer_profiles').insert({
-          user_id: data.user.id,
-          company_name: companyName,
-          email,
-        });
+      if (checkError) {
+        console.error('Error checking existing user type:', checkError);
+        await supabase.auth.signOut();
+        return { error: checkError };
       }
 
-      return { 
-        user: data.user,
-        verificationSent: true
-      };
+      // Only insert if user type doesn't exist
+      if (!existingUserType) {
+        const { error: userTypeError } = await supabase
+          .from('user_types')
+          .insert({
+            user_id: data.user.id,
+            type: userType
+          });
+
+        if (userTypeError) {
+          console.error('Error inserting user type:', userTypeError);
+          await supabase.auth.signOut();
+          return { error: userTypeError };
+        }
+      }
+
+      // Sign in the user immediately
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (signInError) {
+        console.error('Error signing in after signup:', signInError);
+        return { error: signInError };
+      }
+
+      return { user: signInData.user };
     } catch (error) {
       console.error('Error during sign up:', error);
       return { error };
     }
   };
 
-  // Check if user's email is verified
-  const checkEmailVerification = async (userId: string): Promise<boolean> => {
+  // Create music lover profile
+  const createMusicLoverProfile = async (profileData: {
+    userId: string;
+    firstName: string;
+    lastName: string;
+    username: string;
+    email: string;
+    age: string;
+    profilePicture?: string;
+    musicPlatform?: string;
+    bio?: {
+      firstSong?: string;
+      goToSong?: string;
+      mustListenAlbum?: string;
+      dreamConcert?: string;
+      musicTaste?: string;
+    };
+    isPremium?: boolean;
+  }) => {
     try {
-      // Get the current session
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        console.log('No active session found');
-        return false;
+      const { error: profileError } = await supabase
+        .from('music_lover_profiles')
+        .insert({
+          user_id: profileData.userId,
+          first_name: profileData.firstName,
+          last_name: profileData.lastName,
+          username: profileData.username,
+          email: profileData.email,
+          age: parseInt(profileData.age),
+          profile_picture: profileData.profilePicture || null,
+          music_platform: profileData.musicPlatform || null,
+          bio: profileData.bio || null,
+          is_premium: profileData.isPremium || false,
+          music_data: null
+        });
+
+      if (profileError) {
+        console.error('Error creating music lover profile:', profileError);
+        return { error: profileError };
       }
-      
-      // For security, only allow checking verification status of the currently signed-in user
-      if (session.user.id !== userId) {
-        console.log('User ID mismatch');
-        return false;
-      }
-      
-      // The presence of a valid session after email verification means the user is verified
-      // We also check email_confirmed_at if available in user metadata
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        console.log('No user data available');
-        return false;
-      }
-      
-      console.log('User verification status:', user.email_confirmed_at !== null);
-      
-      // If email_confirmed_at exists and is not null, the email is verified
-      return user.email_confirmed_at !== null;
-    } catch (error) {
-      console.error('Error checking email verification:', error);
-      return false;
-    }
-  };
-  
-  // Resend verification email
-  const resendVerificationEmail = async (email: string) => {
-    try {
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email: email,
-        options: {
-          emailRedirectTo: APP_CONSTANTS.API.AUTH_REDIRECT_URL,
-        }
-      });
-      
-      if (error) {
-        return { error };
-      }
-      
+
       return { success: true };
     } catch (error) {
-      console.error('Error resending verification email:', error);
+      console.error('Error creating music lover profile:', error);
+      return { error };
+    }
+  };
+
+  // Create organizer profile
+  const createOrganizerProfile = async (profileData: {
+    userId: string;
+    companyName: string;
+    email: string;
+    logo?: string;
+    phoneNumber?: string;
+    businessType?: string;
+    bio?: string;
+    website?: string;
+  }) => {
+    try {
+      const { error: profileError } = await supabase
+        .from('organizer_profiles')
+        .insert({
+          user_id: profileData.userId,
+          company_name: profileData.companyName,
+          email: profileData.email,
+          logo: profileData.logo || null,
+          phone_number: profileData.phoneNumber || null,
+          business_type: profileData.businessType || null,
+          bio: profileData.bio || null,
+          website: profileData.website || null
+        });
+
+      if (profileError) {
+        console.error('Error creating organizer profile:', profileError);
+        return { error: profileError };
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error creating organizer profile:', error);
       return { error };
     }
   };
@@ -314,8 +424,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       login, 
       logout, 
       checkSession,
-      checkEmailVerification,
-      resendVerificationEmail
+      createMusicLoverProfile,
+      createOrganizerProfile
     }}>
       {children}
     </AuthContext.Provider>

@@ -1,31 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/useAuth';
 import { authorizeSpotify, generateMusicProfile } from '@/services/spotify';
 import { APP_CONSTANTS } from '@/config/constants';
 import { EMAIL_CONFIG, formatEmailDetails } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
+import * as ImagePicker from 'expo-image-picker';
 
 // Step types for the signup flow
 type Step = 
   | 'name' 
   | 'username-email' 
   | 'password' 
-  | 'verification' 
-  | 'profile-picture' 
-  | 'age' 
-  | 'location' 
-  | 'connect-music' 
-  | 'ai-analysis' 
-  | 'bio' 
+  | 'profile-picture'
+  | 'age'
+  | 'connect-music'
+  | 'bio'
   | 'premium';
 
 const MusicLoverSignUpFlow = () => {
   const navigation = useNavigation();
-  const { signUp, checkEmailVerification, resendVerificationEmail } = useAuth();
+  const { signUp, createMusicLoverProfile } = useAuth();
   
   // State for all form data across steps
   const [formData, setFormData] = useState({
@@ -38,23 +37,22 @@ const MusicLoverSignUpFlow = () => {
     termsAccepted: false,
     profilePicture: '',
     age: '',
-    country: '',
-    city: '',
-    bio: '',
+    musicPlatform: '',
+    bio: {
+      firstSong: '',
+      goToSong: '',
+      mustListenAlbum: '',
+      dreamConcert: '',
+      musicTaste: ''
+    },
     isPremium: false,
-    musicData: null,
   });
-  
-  // New state for verification
-  const [userId, setUserId] = useState<string | null>(null);
-  const [verificationStatus, setVerificationStatus] = useState<'pending' | 'verified' | 'failed'>('pending');
-  const [resendLoading, setResendLoading] = useState(false);
-  const [verificationCheckInterval, setVerificationCheckInterval] = useState<NodeJS.Timeout | null>(null);
   
   // Current step state
   const [currentStep, setCurrentStep] = useState<Step>('name');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [uploading, setUploading] = useState(false);
   
   // Animation value for transitions
   const [slideAnim] = useState(new Animated.Value(0));
@@ -86,7 +84,7 @@ const MusicLoverSignUpFlow = () => {
     });
   };
   
-  // Check for validation errors in the name step
+  // Validation functions
   const validateNameStep = () => {
     if (!formData.firstName || !formData.lastName) {
       setError('Please enter both your first and last name');
@@ -95,7 +93,6 @@ const MusicLoverSignUpFlow = () => {
     return true;
   };
   
-  // Check for validation errors in the username-email step
   const validateUsernameEmailStep = () => {
     if (!formData.username) {
       setError('Please enter a username');
@@ -117,7 +114,6 @@ const MusicLoverSignUpFlow = () => {
     return true;
   };
   
-  // Validate password step
   const validatePasswordStep = () => {
     if (!formData.password) {
       setError('Please enter a password');
@@ -141,7 +137,7 @@ const MusicLoverSignUpFlow = () => {
     
     return true;
   };
-
+  
   // Show terms and conditions
   const showTermsAndConditions = () => {
     Alert.alert(
@@ -158,102 +154,50 @@ const MusicLoverSignUpFlow = () => {
     );
   };
   
-  // Check verification status
-  const checkVerification = async (userId: string) => {
+  // Handle profile picture upload
+  const handleProfilePictureUpload = async () => {
     try {
-      const isVerified = await checkEmailVerification(userId);
-      
-      if (isVerified) {
-        setVerificationStatus('verified');
-        // Clear any existing interval
-        if (verificationCheckInterval) {
-          clearInterval(verificationCheckInterval);
-          setVerificationCheckInterval(null);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled) {
+        setUploading(true);
+        const file = result.assets[0];
+        const fileExt = file.uri.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `${fileName}`;
+
+        const response = await fetch(file.uri);
+        const blob = await response.blob();
+
+        const { error: uploadError } = await supabase.storage
+          .from('profile-pictures')
+          .upload(filePath, blob);
+
+        if (uploadError) {
+          throw uploadError;
         }
-        // Automatically continue after verification is confirmed
-        setTimeout(() => {
-          handleContinueAfterVerification();
-        }, 1500);
-      } else {
-        setVerificationStatus('pending');
-        Alert.alert(
-          'Not Verified',
-          'Your email has not been verified yet. Please check your email and click the verification link.',
-          [{ text: 'OK' }]
-        );
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('profile-pictures')
+          .getPublicUrl(filePath);
+
+        setFormData(prev => ({ ...prev, profilePicture: publicUrl }));
+        setUploading(false);
       }
     } catch (error) {
-      console.error('Error checking verification:', error);
-      setVerificationStatus('failed');
-    }
-  };
-  
-  // Start automatic verification checking
-  const startVerificationChecking = (userId: string) => {
-    // Clear any existing interval first
-    if (verificationCheckInterval) {
-      clearInterval(verificationCheckInterval);
-    }
-    
-    // Check immediately
-    checkVerification(userId);
-    
-    // Set up periodic checking (every 15 seconds)
-    const interval = setInterval(() => {
-      checkVerification(userId);
-    }, 15000);
-    
-    setVerificationCheckInterval(interval);
-  };
-  
-  // Clean up interval on unmount
-  useEffect(() => {
-    return () => {
-      if (verificationCheckInterval) {
-        clearInterval(verificationCheckInterval);
-      }
-    };
-  }, [verificationCheckInterval]);
-  
-  // Handle continuing after verification
-  const handleContinueAfterVerification = () => {
-    // Navigate to the login screen after successful verification
-    Alert.alert(
-      'Verification Complete', 
-      'Your email has been verified successfully! You can now log in to your account.',
-      [
-        { 
-          text: 'Continue to Login', 
-          onPress: () => navigation.navigate('MusicLoverLogin' as never)
-        }
-      ]
-    );
-  };
-  
-  // Handle resending verification email
-  const handleResendVerification = async () => {
-    if (!formData.email) return;
-    
-    setResendLoading(true);
-    
-    try {
-      const result = await resendVerificationEmail(formData.email);
-      
-      if ('error' in result && result.error) {
-        Alert.alert('Error', `Failed to resend verification email: ${result.error.message}`);
-      } else {
-        Alert.alert('Verification Email', 'A new verification email has been sent to your inbox from vybr.connect@gmail.com.');
-      }
-    } catch (error) {
-      console.error('Error resending verification:', error);
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-    } finally {
-      setResendLoading(false);
+      console.error('Error uploading profile picture:', error);
+      setError('Failed to upload profile picture. Please try again.');
+      setUploading(false);
     }
   };
   
   // Handle submission of each step
-  const handleStepSubmit = () => {
+  const handleStepSubmit = async () => {
     setError('');
     
     switch (currentStep) {
@@ -272,42 +216,94 @@ const MusicLoverSignUpFlow = () => {
       case 'password':
         if (validatePasswordStep()) {
           setIsLoading(true);
-          signUp({
-            email: formData.email,
-            password: formData.password,
-            firstName: formData.firstName,
-            lastName: formData.lastName,
-            username: formData.username,
-            userType: 'music_lover',
-          })
-          .then(result => {
-            setIsLoading(false);
+          try {
+            const result = await signUp({
+              email: formData.email,
+              password: formData.password,
+              firstName: formData.firstName,
+              lastName: formData.lastName,
+              username: formData.username,
+              userType: 'music_lover',
+            });
+
             if ('error' in result && result.error) {
               setError(result.error.message);
             } else if ('user' in result && result.user) {
-              // Store user ID for verification checks
-              if (result.user.id) {
-                setUserId(result.user.id);
-                
-                // Start periodic verification checking
-                startVerificationChecking(result.user.id);
-              }
-              
-              goToNextStep('verification');
+              // After successful signup, proceed to profile setup
+              setCurrentStep('profile-picture');
             }
-          })
-          .catch(err => {
-            setIsLoading(false);
+          } catch (err) {
             setError('An error occurred during signup. Please try again.');
             console.error(err);
-          });
+          } finally {
+            setIsLoading(false);
+          }
         }
         break;
-        
-      case 'verification':
-        // Manually trigger verification check if user is waiting
-        if (userId && verificationStatus === 'pending') {
-          checkVerification(userId);
+
+      case 'profile-picture':
+        goToNextStep('age');
+        break;
+
+      case 'age':
+        if (formData.age && parseInt(formData.age) >= 18) {
+          goToNextStep('connect-music');
+        } else {
+          setError('You must be 18 or older to use this app.');
+        }
+        break;
+
+      case 'connect-music':
+        if (formData.musicPlatform) {
+          goToNextStep('bio');
+        } else {
+          setError('Please select a music platform.');
+        }
+        break;
+
+      case 'bio':
+        // Bio is optional, so we can proceed without validation
+        goToNextStep('premium');
+        break;
+
+      case 'premium':
+        setIsLoading(true);
+        try {
+          // Get the current user's ID
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) {
+            throw new Error('No user found');
+          }
+
+          // Create the music lover profile
+          const result = await createMusicLoverProfile({
+            userId: user.id,
+            firstName: formData.firstName,
+            lastName: formData.lastName,
+            username: formData.username,
+            email: formData.email,
+            age: formData.age,
+            profilePicture: formData.profilePicture,
+            musicPlatform: formData.musicPlatform,
+            bio: formData.bio,
+            isPremium: formData.isPremium
+          });
+
+          if ('error' in result && result.error) {
+            setError(result.error.message);
+          } else if ('success' in result && result.success) {
+            // Navigate based on premium choice
+            if (formData.isPremium) {
+              navigation.navigate('Transaction' as never);
+            } else {
+              navigation.navigate('MusicLoverDashboard' as never);
+            }
+          }
+        } catch (err) {
+          setError('An error occurred while creating your profile. Please try again.');
+          console.error(err);
+        } finally {
+          setIsLoading(false);
         }
         break;
     }
@@ -481,73 +477,192 @@ const MusicLoverSignUpFlow = () => {
     </View>
   );
   
-  // Render the verification step
-  const renderVerificationStep = () => {
-    // Helper to determine if verification is completed
-    const isVerified = verificationStatus === 'verified';
-    
-    return (
-      <View style={styles.stepContainer}>
-        <Text style={styles.stepTitle}>Email Verification</Text>
-        
-        {isVerified ? (
-          // Verified state
-          <View style={styles.verificationSuccess}>
-            <Text style={styles.verificationSuccessText}>Email successfully verified!</Text>
-            <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} />
-            <Text style={styles.redirectingText}>Taking you to the login screen...</Text>
-          </View>
+  // Render profile picture step
+  const renderProfilePictureStep = () => (
+    <View style={styles.stepContainer}>
+      <Text style={styles.stepTitle}>Profile Picture</Text>
+      <Text style={styles.stepDescription}>Add a profile picture to help others recognize you</Text>
+      
+      <View style={styles.profilePictureContainer}>
+        {formData.profilePicture ? (
+          <Image 
+            source={{ uri: formData.profilePicture }} 
+            style={styles.profilePicture}
+          />
         ) : (
-          // Pending or failed verification
-          <>
-            <Text style={styles.verificationText}>
-              We've sent a verification email to <Text style={styles.emailHighlight}>{formData.email}</Text>
-            </Text>
-            
-            <View style={styles.verificationInstructions}>
-              <Text style={styles.instructionTitle}>Please follow these steps:</Text>
-              <Text style={styles.instructionStep}>1. Open your email app</Text>
-              <Text style={styles.instructionStep}>2. Look for an email from {EMAIL_CONFIG.SENDER_NAME} ({EMAIL_CONFIG.SENDER_EMAIL})</Text>
-              <Text style={styles.instructionStep}>3. Subject: {EMAIL_CONFIG.EMAIL_SUBJECTS.VERIFICATION}</Text>
-              <Text style={styles.instructionStep}>4. Click the verification link in the email</Text>
-              <Text style={styles.instructionStep}>5. Return to this app</Text>
-            </View>
-            
-            <Text style={styles.verificationStatusText}>
-              Status: {verificationStatus === 'pending' ? 'Waiting for verification' : 'Verification failed'}
-              {verificationStatus === 'pending' && (
-                <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={styles.inlineLoader} />
-              )}
-            </Text>
-            
-            <View style={styles.verificationActionsContainer}>
-              <TouchableOpacity 
-                style={styles.verificationButton}
-                onPress={() => userId && checkVerification(userId)}
-                disabled={!userId || isVerified}
-              >
-                <Text style={styles.verificationButtonText}>Check Verification Status</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.resendButton}
-                onPress={handleResendVerification}
-                disabled={resendLoading || !userId}
-              >
-                {resendLoading ? (
-                  <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.WHITE} />
-                ) : (
-                  <Text style={styles.resendButtonText}>Resend Verification Email</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </>
+          <View style={styles.profilePicturePlaceholder}>
+            <MaterialIcons name="person" size={50} color={APP_CONSTANTS.COLORS.PRIMARY} />
+          </View>
         )}
+        
+        <TouchableOpacity 
+          style={styles.uploadButton}
+          onPress={handleProfilePictureUpload}
+          disabled={uploading}
+        >
+          {uploading ? (
+            <ActivityIndicator color={APP_CONSTANTS.COLORS.WHITE} />
+          ) : (
+            <Text style={styles.uploadButtonText}>Upload Picture</Text>
+          )}
+        </TouchableOpacity>
       </View>
-    );
-  };
+    </View>
+  );
+
+  // Render age verification step
+  const renderAgeStep = () => (
+    <View style={styles.stepContainer}>
+      <Text style={styles.stepTitle}>Age Verification</Text>
+      <Text style={styles.stepDescription}>Please enter your age to verify you're 18 or older</Text>
+      
+      <TextInput
+        style={styles.input}
+        placeholder="Enter your age"
+        keyboardType="numeric"
+        value={formData.age}
+        onChangeText={(text) => setFormData(prev => ({ ...prev, age: text }))}
+        maxLength={2}
+      />
+    </View>
+  );
+
+  // Render music platform selection step
+  const renderConnectMusicStep = () => (
+    <View style={styles.stepContainer}>
+      <Text style={styles.stepTitle}>Connect Music Services</Text>
+      <Text style={styles.stepDescription}>Select your preferred music platform</Text>
+      
+      <View style={styles.musicPlatformsContainer}>
+        {['Spotify', 'Apple Music', 'Tidal', 'Bandcamp', 'YouTube Music', 'SoundCloud'].map((platform) => (
+          <TouchableOpacity
+            key={platform}
+            style={[
+              styles.platformButton,
+              formData.musicPlatform === platform && styles.platformButtonSelected
+            ]}
+            onPress={() => setFormData(prev => ({ ...prev, musicPlatform: platform }))}
+          >
+            <Text style={[
+              styles.platformButtonText,
+              formData.musicPlatform === platform && styles.platformButtonTextSelected
+            ]}>
+              {platform}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+
+  // Render bio step
+  const renderBioStep = () => (
+    <View style={styles.stepContainer}>
+      <Text style={styles.stepTitle}>Tell Us About Your Music Taste</Text>
+      <Text style={styles.stepDescription}>Answer these questions to help us understand your music preferences</Text>
+      
+      <ScrollView style={styles.bioScrollView}>
+        <View style={styles.bioQuestionContainer}>
+          <Text style={styles.bioQuestion}>What was the first song you remember loving?</Text>
+          <TextInput
+            style={styles.bioInput}
+            value={formData.bio.firstSong}
+            onChangeText={(text) => setFormData(prev => ({
+              ...prev,
+              bio: { ...prev.bio, firstSong: text }
+            }))}
+            placeholder="Your answer..."
+          />
+        </View>
+
+        <View style={styles.bioQuestionContainer}>
+          <Text style={styles.bioQuestion}>What's your go-to song when you're feeling down?</Text>
+          <TextInput
+            style={styles.bioInput}
+            value={formData.bio.goToSong}
+            onChangeText={(text) => setFormData(prev => ({
+              ...prev,
+              bio: { ...prev.bio, goToSong: text }
+            }))}
+            placeholder="Your answer..."
+          />
+        </View>
+
+        <View style={styles.bioQuestionContainer}>
+          <Text style={styles.bioQuestion}>What's one album you think everyone should listen to at least once?</Text>
+          <TextInput
+            style={styles.bioInput}
+            value={formData.bio.mustListenAlbum}
+            onChangeText={(text) => setFormData(prev => ({
+              ...prev,
+              bio: { ...prev.bio, mustListenAlbum: text }
+            }))}
+            placeholder="Your answer..."
+          />
+        </View>
+
+        <View style={styles.bioQuestionContainer}>
+          <Text style={styles.bioQuestion}>If you could attend any concert in history, which would it be?</Text>
+          <TextInput
+            style={styles.bioInput}
+            value={formData.bio.dreamConcert}
+            onChangeText={(text) => setFormData(prev => ({
+              ...prev,
+              bio: { ...prev.bio, dreamConcert: text }
+            }))}
+            placeholder="Your answer..."
+          />
+        </View>
+
+        <View style={styles.bioQuestionContainer}>
+          <Text style={styles.bioQuestion}>Describe your music taste in one sentence.</Text>
+          <TextInput
+            style={styles.bioInput}
+            value={formData.bio.musicTaste}
+            onChangeText={(text) => setFormData(prev => ({
+              ...prev,
+              bio: { ...prev.bio, musicTaste: text }
+            }))}
+            placeholder="Your answer..."
+          />
+        </View>
+      </ScrollView>
+    </View>
+  );
+
+  // Render premium choice step
+  const renderPremiumStep = () => (
+    <View style={styles.stepContainer}>
+      <Text style={styles.stepTitle}>Choose Your Plan</Text>
+      <Text style={styles.stepDescription}>Select a plan that best suits your needs</Text>
+      
+      <View style={styles.premiumOptionsContainer}>
+        <TouchableOpacity
+          style={[
+            styles.premiumOption,
+            !formData.isPremium && styles.premiumOptionSelected
+          ]}
+          onPress={() => setFormData(prev => ({ ...prev, isPremium: false }))}
+        >
+          <Text style={styles.premiumOptionTitle}>Free</Text>
+          <Text style={styles.premiumOptionDescription}>Basic features for music lovers</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.premiumOption,
+            formData.isPremium && styles.premiumOptionSelected
+          ]}
+          onPress={() => setFormData(prev => ({ ...prev, isPremium: true }))}
+        >
+          <Text style={styles.premiumOptionTitle}>Premium</Text>
+          <Text style={styles.premiumOptionDescription}>Enhanced features and exclusive content</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
   
-  // Update the renderCurrentStep to include verification step
+  // Update the renderCurrentStep to include all steps
   const renderCurrentStep = () => {
     switch (currentStep) {
       case 'name':
@@ -556,34 +671,94 @@ const MusicLoverSignUpFlow = () => {
         return renderUsernameEmailStep();
       case 'password':
         return renderPasswordStep();
-      case 'verification':
-        return renderVerificationStep();
-      // Additional cases will be added for other steps
+      case 'profile-picture':
+        return (
+          <View style={styles.stepContainer}>
+            {renderProfilePictureStep()}
+            <TouchableOpacity
+              style={[styles.continueButton, isLoading && styles.continueButtonDisabled]}
+              onPress={handleStepSubmit}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color={APP_CONSTANTS.COLORS.WHITE} size="small" />
+              ) : (
+                <Text style={styles.continueButtonText}>Continue</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        );
+      case 'age':
+        return (
+          <View style={styles.stepContainer}>
+            {renderAgeStep()}
+            <TouchableOpacity
+              style={[styles.continueButton, isLoading && styles.continueButtonDisabled]}
+              onPress={handleStepSubmit}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color={APP_CONSTANTS.COLORS.WHITE} size="small" />
+              ) : (
+                <Text style={styles.continueButtonText}>Continue</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        );
+      case 'connect-music':
+        return (
+          <View style={styles.stepContainer}>
+            {renderConnectMusicStep()}
+            <TouchableOpacity
+              style={[styles.continueButton, isLoading && styles.continueButtonDisabled]}
+              onPress={handleStepSubmit}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color={APP_CONSTANTS.COLORS.WHITE} size="small" />
+              ) : (
+                <Text style={styles.continueButtonText}>Continue</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        );
+      case 'bio':
+        return (
+          <View style={styles.stepContainer}>
+            {renderBioStep()}
+            <TouchableOpacity
+              style={[styles.continueButton, isLoading && styles.continueButtonDisabled]}
+              onPress={handleStepSubmit}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color={APP_CONSTANTS.COLORS.WHITE} size="small" />
+              ) : (
+                <Text style={styles.continueButtonText}>Continue</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        );
+      case 'premium':
+        return (
+          <View style={styles.stepContainer}>
+            {renderPremiumStep()}
+            <TouchableOpacity
+              style={[styles.continueButton, isLoading && styles.continueButtonDisabled]}
+              onPress={handleStepSubmit}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color={APP_CONSTANTS.COLORS.WHITE} size="small" />
+              ) : (
+                <Text style={styles.continueButtonText}>Complete Profile</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        );
       default:
         return null;
     }
-  };
-  
-  // Render continue button
-  const renderContinueButton = () => {
-    // Helper for checking verified status
-    const isVerified = verificationStatus === 'verified';
-    
-    return (
-      <TouchableOpacity
-        style={[styles.continueButton, (isLoading || (currentStep === 'verification' && isVerified)) && styles.continueButtonDisabled]}
-        onPress={handleStepSubmit}
-        disabled={isLoading || (currentStep === 'verification' && isVerified)}
-      >
-        {isLoading ? (
-          <ActivityIndicator color={APP_CONSTANTS.COLORS.WHITE} size="small" />
-        ) : (
-          <Text style={styles.continueButtonText}>
-            {currentStep === 'verification' ? 'Check Verification' : 'Continue'}
-          </Text>
-        )}
-      </TouchableOpacity>
-    );
   };
   
   return (
@@ -599,8 +774,12 @@ const MusicLoverSignUpFlow = () => {
               if (currentStep === 'name') {
                 navigation.goBack();
               } else {
-                // Go back to previous step (logic to be implemented)
-                setCurrentStep('name');
+                // Go back to previous step
+                const steps: Step[] = ['name', 'username-email', 'password', 'profile-picture', 'age', 'connect-music', 'bio', 'premium'];
+                const currentIndex = steps.indexOf(currentStep);
+                if (currentIndex > 0) {
+                  setCurrentStep(steps[currentIndex - 1]);
+                }
               }
             }}
           >
@@ -623,16 +802,39 @@ const MusicLoverSignUpFlow = () => {
             <View 
               style={[
                 styles.stepIndicator, 
-                currentStep === 'password' || currentStep === 'verification' ? styles.stepIndicatorActive : {}
+                currentStep === 'password' ? styles.stepIndicatorActive : {}
               ]} 
             />
             <View 
               style={[
                 styles.stepIndicator, 
-                currentStep === 'verification' ? styles.stepIndicatorActive : {}
+                currentStep === 'profile-picture' ? styles.stepIndicatorActive : {}
               ]} 
             />
-            <View style={styles.stepIndicator} />
+            <View 
+              style={[
+                styles.stepIndicator, 
+                currentStep === 'age' ? styles.stepIndicatorActive : {}
+              ]} 
+            />
+            <View 
+              style={[
+                styles.stepIndicator, 
+                currentStep === 'connect-music' ? styles.stepIndicatorActive : {}
+              ]} 
+            />
+            <View 
+              style={[
+                styles.stepIndicator, 
+                currentStep === 'bio' ? styles.stepIndicatorActive : {}
+              ]} 
+            />
+            <View 
+              style={[
+                styles.stepIndicator, 
+                currentStep === 'premium' ? styles.stepIndicatorActive : {}
+              ]} 
+            />
           </View>
         </View>
         
@@ -905,6 +1107,113 @@ const styles = StyleSheet.create({
   resendButtonText: {
     color: APP_CONSTANTS.COLORS.WHITE,
     fontWeight: '600',
+  },
+  profilePictureContainer: {
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  profilePicture: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    marginBottom: 20,
+  },
+  profilePicturePlaceholder: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}20`,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  uploadButton: {
+    backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  uploadButtonText: {
+    color: APP_CONSTANTS.COLORS.WHITE,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  musicPlatformsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 20,
+  },
+  platformButton: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}20`,
+    justifyContent: 'center',
+    alignItems: 'center',
+    margin: 5,
+  },
+  platformButtonSelected: {
+    backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+  },
+  platformButtonText: {
+    color: APP_CONSTANTS.COLORS.PRIMARY,
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  platformButtonTextSelected: {
+    color: APP_CONSTANTS.COLORS.WHITE,
+  },
+  bioScrollView: {
+    flex: 1,
+    marginTop: 20,
+  },
+  bioQuestionContainer: {
+    marginBottom: 20,
+  },
+  bioQuestion: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: APP_CONSTANTS.COLORS.PRIMARY,
+    marginBottom: 8,
+  },
+  bioInput: {
+    borderWidth: 1,
+    borderColor: `${APP_CONSTANTS.COLORS.PRIMARY}40`,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+  premiumOptionsContainer: {
+    marginTop: 20,
+    gap: 15,
+  },
+  premiumOption: {
+    padding: 20,
+    borderRadius: 12,
+    backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}20`,
+  },
+  premiumOptionSelected: {
+    backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+  },
+  premiumOptionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: APP_CONSTANTS.COLORS.PRIMARY,
+    marginBottom: 8,
+  },
+  premiumOptionDescription: {
+    fontSize: 14,
+    color: APP_CONSTANTS.COLORS.PRIMARY,
+  },
+  stepDescription: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+    marginBottom: 20,
   },
 });
 
