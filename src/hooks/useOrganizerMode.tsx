@@ -3,6 +3,7 @@ import React, { createContext, useState, useContext, ReactNode } from "react";
 interface OrganizerModeContextType {
   isOrganizerMode: boolean;
   toggleOrganizerMode: () => void;
+  setIsOrganizerMode: (value: boolean) => void;
 }
 
 const OrganizerModeContext = createContext<
@@ -24,7 +25,7 @@ export const OrganizerModeProvider = ({
 
   return (
     <OrganizerModeContext.Provider
-      value={{ isOrganizerMode, toggleOrganizerMode }}
+      value={{ isOrganizerMode, toggleOrganizerMode, setIsOrganizerMode }}
     >
       {children}
     </OrganizerModeContext.Provider>

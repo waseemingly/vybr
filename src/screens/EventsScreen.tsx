@@ -325,11 +325,6 @@ const EventsScreen: React.FC = () => {
               />
               <Text style={styles.title}>Events</Text>
             </View>
-
-            <Image
-              source={{ uri: "https://yourappurl.com/logo.png" }}
-              style={styles.logo}
-            />
           </View>
           <Text style={styles.subtitle}>
             Discover concerts and music events in Singapore
@@ -405,11 +400,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#6B7280",
     marginTop: 4,
-  },
-  logo: {
-    height: 36,
-    width: 36,
-    resizeMode: "contain",
   },
   eventsList: {
     padding: 16,

@@ -1,8 +1,10 @@
 import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { Feather, Ionicons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { useOrganizerMode } from "@/hooks/useOrganizerMode";
+import { useAuth } from "@/hooks/useAuth";
+import { APP_CONSTANTS } from "@/config/constants";
 
 // Import screens
 import MatchesScreen from "@/screens/MatchesScreen";
@@ -16,9 +18,43 @@ import OrganizerPostsScreen from "@/screens/organizer/OrganizerPostsScreen";
 import OrganizerProfileScreen from "@/screens/organizer/OrganizerProfileScreen";
 import EventDetailScreen from "@/screens/organizer/EventDetailScreen";
 
+// Import auth screens
+import LandingScreen from "../screens/auth/LandingScreen";
+import LoginScreen from "../screens/auth/LoginScreen";
+import SignUpScreen from "../screens/auth/SignUpScreen";
+import OrganizerSignUpScreen from "../screens/auth/OrganizerSignUpScreen";
+import MusicLoverSignUpFlow from "../screens/auth/MusicLoverSignUpFlow";
+import OrganizerSignUpFlow from "../screens/auth/OrganizerSignUpFlow";
+
 // Create stack navigators
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+const AuthStack = createNativeStackNavigator();
+
+// Auth navigator
+const AuthNavigator = () => {
+  return (
+    <AuthStack.Navigator screenOptions={{ headerShown: false }}>
+      <AuthStack.Screen name="Landing" component={LandingScreen} />
+      <AuthStack.Screen 
+        name="MusicLoverLogin" 
+        options={{ headerShown: false }}
+      >
+        {props => <LoginScreen {...props} userType="music_lover" />}
+      </AuthStack.Screen>
+      <AuthStack.Screen 
+        name="OrganizerLogin" 
+        options={{ headerShown: false }}
+      >
+        {props => <LoginScreen {...props} userType="organizer" />}
+      </AuthStack.Screen>
+      <AuthStack.Screen name="MusicLoverSignUp" component={SignUpScreen} />
+      <AuthStack.Screen name="OrganizerSignUp" component={OrganizerSignUpScreen} />
+      <AuthStack.Screen name="MusicLoverSignUpFlow" component={MusicLoverSignUpFlow} />
+      <AuthStack.Screen name="OrganizerSignUpFlow" component={OrganizerSignUpFlow} />
+    </AuthStack.Navigator>
+  );
+};
 
 // Tab navigator for user mode
 const UserTabs = () => {
@@ -40,11 +76,13 @@ const UserTabs = () => {
             return <Feather name="user" size={size} color={color} />;
           }
         },
-        tabBarActiveTintColor: "#3B82F6", // vybr-blue
-        tabBarInactiveTintColor: "gray",
+        tabBarActiveTintColor: APP_CONSTANTS.COLORS.PRIMARY,
+        tabBarInactiveTintColor: APP_CONSTANTS.COLORS.DISABLED,
         tabBarStyle: {
           height: 60,
           paddingBottom: 5,
+          backgroundColor: 'white',
+          borderTopColor: APP_CONSTANTS.COLORS.BORDER,
         },
         headerShown: false,
       })}
@@ -72,11 +110,13 @@ const OrganizerTabs = () => {
             return <Feather name="user" size={size} color={color} />;
           }
         },
-        tabBarActiveTintColor: "#3B82F6", // vybr-blue
-        tabBarInactiveTintColor: "gray",
+        tabBarActiveTintColor: APP_CONSTANTS.COLORS.PRIMARY,
+        tabBarInactiveTintColor: APP_CONSTANTS.COLORS.DISABLED,
         tabBarStyle: {
           height: 60,
           paddingBottom: 5,
+          backgroundColor: 'white',
+          borderTopColor: APP_CONSTANTS.COLORS.BORDER,
         },
         headerShown: false,
       })}
@@ -92,7 +132,7 @@ const OrganizerTabs = () => {
         options={{
           title: "Create",
           tabBarLabelStyle: { fontWeight: "bold" },
-          tabBarItemStyle: { backgroundColor: "#60A5FA" }, // vybr-midBlue
+          tabBarItemStyle: { backgroundColor: APP_CONSTANTS.COLORS.SECONDARY },
         }}
       />
       <Tab.Screen
@@ -107,19 +147,33 @@ const OrganizerTabs = () => {
 // Main navigator
 const AppNavigator = () => {
   const { isOrganizerMode } = useOrganizerMode();
+  const { session, loading } = useAuth();
+
+  // If still loading auth state, render nothing or a loading screen
+  if (loading) {
+    return null; // You can replace this with a splash/loading screen
+  }
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {isOrganizerMode ? (
-        <>
-          <Stack.Screen name="OrganizerTabs" component={OrganizerTabs} />
-          <Stack.Screen name="EventDetail" component={EventDetailScreen} />
-        </>
+      {session ? (
+        // User is logged in, show main app screens
+        isOrganizerMode ? (
+          // Organizer mode screens
+          <>
+            <Stack.Screen name="OrganizerTabs" component={OrganizerTabs} />
+            <Stack.Screen name="EventDetail" component={EventDetailScreen} />
+          </>
+        ) : (
+          // Music lover mode screens
+          <>
+            <Stack.Screen name="UserTabs" component={UserTabs} />
+            <Stack.Screen name="CreateEvent" component={CreateEventScreen} />
+          </>
+        )
       ) : (
-        <>
-          <Stack.Screen name="UserTabs" component={UserTabs} />
-          <Stack.Screen name="CreateEvent" component={CreateEventScreen} />
-        </>
+        // User is not logged in, show authentication screens
+        <Stack.Screen name="Auth" component={AuthNavigator} />
       )}
       <Stack.Screen name="NotFound" component={NotFoundScreen} />
     </Stack.Navigator>

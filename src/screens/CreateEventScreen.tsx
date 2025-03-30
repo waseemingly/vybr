@@ -149,18 +149,13 @@ const CreateEventScreen: React.FC = () => {
           <View style={styles.headerTitleRow}>
             <View style={styles.titleContainer}>
               <Feather
-                name="calendar"
+                name="plus-circle"
                 size={22}
                 color="#60A5FA"
                 style={styles.headerIcon}
               />
               <Text style={styles.title}>Create Event</Text>
             </View>
-
-            <Image
-              source={{ uri: "https://yourappurl.com/logo.png" }}
-              style={styles.logo}
-            />
           </View>
           <Text style={styles.subtitle}>Host your own music event</Text>
         </View>
@@ -184,10 +179,10 @@ const CreateEventScreen: React.FC = () => {
               {formState.images.length > 0
                 ? formState.images.map((img, index) => (
                     <View key={index} style={styles.imagePreview}>
-                      <Image
-                        source={{ uri: img }}
-                        style={styles.previewImage}
-                      />
+                      <View style={styles.previewImagePlaceholder}>
+                        <Feather name="image" size={24} color="#9CA3AF" />
+                        <Text style={styles.placeholderText}>Image {index + 1}</Text>
+                      </View>
                     </View>
                   ))
                 : null}
@@ -456,11 +451,6 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     marginTop: 4,
   },
-  logo: {
-    height: 36,
-    width: 36,
-    resizeMode: "contain",
-  },
   content: {
     flex: 1,
   },
@@ -561,9 +551,18 @@ const styles = StyleSheet.create({
     marginRight: 12,
     overflow: "hidden",
   },
-  previewImage: {
-    width: "100%",
-    height: "100%",
+  previewImagePlaceholder: {
+    width: 100,
+    height: 100,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderText: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    marginTop: 4,
   },
   addImageButton: {
     width: 120,
