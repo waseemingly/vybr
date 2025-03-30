@@ -47,7 +47,7 @@ interface UserData {
 
 // Sample user data
 const USER_DATA: UserData = {
-  name: "Alex Chen",
+  name: "Alex",
   age: 28,
   profilePic:
     "https://images.unsplash.com/photo-1536104968055-4d61aa56f46a?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80",
