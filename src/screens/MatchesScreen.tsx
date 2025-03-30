@@ -73,16 +73,10 @@ const MatchesScreen = () => {
                     name="heart"
                     size={22}
                     color="#60A5FA"
-                    style={styles.heartIcon}
+                    style={styles.headerIcon}
                   />
-                  <Text style={styles.title}>Today's Matches</Text>
+                  <Text style={styles.title}>Matches</Text>
                 </View>
-
-                <Image
-                  source={{ uri: "https://yourappurl.com/logo.png" }}
-                  style={styles.logo}
-                  // Replace with actual logo or remove if not available
-                />
               </View>
 
               <View style={styles.headerSubtitleRow}>
@@ -152,7 +146,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  heartIcon: {
+  headerIcon: {
     marginRight: 8,
   },
   title: {
@@ -160,19 +154,10 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#3B82F6",
   },
-  logo: {
-    height: 40,
-    width: 40,
-    resizeMode: "contain",
-  },
-  headerSubtitleRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
   subtitle: {
     fontSize: 14,
     color: "#6B7280",
+    marginTop: 4,
   },
   nextButton: {
     flexDirection: "row",

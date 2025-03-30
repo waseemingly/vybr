@@ -1,69 +1,113 @@
-# Welcome to your Lovable project
+# Vybr - Connect through music
 
-## Project info
+Vybr is a mobile application that connects music lovers with event organizers based on musical taste and preferences. This app provides personalized event recommendations using Spotify integration and offers organizers insights to create more targeted events.
 
-**URL**: https://lovable.dev/projects/3189b455-24fd-4fc8-af63-d0e4a63bad8b
+## Features
 
-## How can I edit this code?
+### For Music Lovers:
+- Spotify integration to analyze musical preferences
+- Personalized event recommendations
+- User profile with musical taste visualization
+- Event discovery and ticket purchases
+- In-app communication with other users and organizers
 
-There are several ways of editing your application.
+### For Organizers:
+- Event creation and management
+- Analytics dashboard for audience insights
+- Targeted advertising to relevant music lovers
+- Revenue tracking for tickets and reservations
+- Business profile with upcoming and past events
 
-**Use Lovable**
+## Tech Stack
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/3189b455-24fd-4fc8-af63-d0e4a63bad8b) and start prompting.
+- **Frontend**: React Native, Expo
+- **Backend**: Supabase
+- **Authentication**: Supabase Auth
+- **Database**: PostgreSQL (via Supabase)
+- **API Integration**: Spotify API
 
-Changes made via Lovable will be committed automatically to this repo.
+## Getting Started
 
-**Use your preferred IDE**
+### Prerequisites
+- Node.js (v18+)
+- npm or yarn
+- Expo CLI
+- Supabase account
+- Spotify Developer account
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Installation
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+1. Clone the repository
+```bash
+git clone https://github.com/yourusername/vybr.git
+cd vybr
 ```
 
-**Edit a file directly in GitHub**
+2. Install dependencies
+```bash
+npm install
+# or
+yarn install
+```
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+3. Configure environment variables
+   Edit `app.json` and update the `extra` section with your API keys:
+   ```json
+   "extra": {
+     "SUPABASE_URL": "your-supabase-url",
+     "SUPABASE_KEY": "your-supabase-anon-key",
+     "SPOTIFY_CLIENT_ID": "your-spotify-client-id",
+     "SPOTIFY_CLIENT_SECRET": "your-spotify-client-secret"
+   }
+   ```
 
-**Use GitHub Codespaces**
+4. Start the development server
+```bash
+expo start
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Project Structure
 
-## What technologies are used for this project?
+```
+vybr/
+├── assets/             # Images, fonts, etc.
+├── src/
+│   ├── components/     # Reusable UI components
+│   ├── config/         # Configuration files and constants
+│   ├── hooks/          # Custom React hooks
+│   ├── lib/            # Library code and API clients
+│   ├── navigation/     # Navigation configuration
+│   ├── screens/        # Screen components
+│   │   ├── auth/       # Authentication screens
+│   │   ├── organizer/  # Organizer-specific screens
+│   │   └── ...         # Other screens
+│   └── services/       # External service integrations
+├── App.tsx             # App entry point
+└── app.json            # Expo configuration
+```
 
-This project is built with .
+## Authentication Flow
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+The app provides authentication for two user types:
+1. **Music Lovers** - Can connect their Spotify accounts and receive personalized recommendations
+2. **Organizers** - Can create events and manage their business profiles
 
-## How can I deploy this project?
+Both user types follow a multi-step signup flow with verification.
 
-Simply open [Lovable](https://lovable.dev/projects/3189b455-24fd-4fc8-af63-d0e4a63bad8b) and click on Share -> Publish.
+## Environment Variables
 
-## I want to use a custom domain - is that possible?
+The application uses the following environment variables:
+- `SUPABASE_URL`: Your Supabase project URL
+- `SUPABASE_KEY`: Your Supabase anonymous key
+- `SPOTIFY_CLIENT_ID`: Your Spotify API client ID
+- `SPOTIFY_CLIENT_SECRET`: Your Spotify API client secret
 
-We don't support custom domains (yet). If you want to deploy your project under your own domain then we recommend using Netlify. Visit our docs for more details: [Custom domains](https://docs.lovable.dev/tips-tricks/custom-domain/)
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgements
+
+- Spotify API for music data
+- Supabase for backend services
+- Expo for making React Native development easier

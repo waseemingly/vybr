@@ -1,0 +1,19 @@
+export const APP_CONSTANTS = {
+  COLORS: {
+    PRIMARY: '#4C6FFF',
+    SECONDARY: '#3F51B5',
+    TERTIARY: '#7986CB',
+    BACKGROUND: '#FFFFFF',
+    BACKGROUND_LIGHT: '#F5F7FA',
+    TEXT_PRIMARY: '#1D2343',
+    TEXT_SECONDARY: '#6B7280',
+    TEXT_TERTIARY: '#9CA3AF',
+    BORDER: '#E5E7EB',
+    ERROR: '#EF4444',
+    SUCCESS: '#10B981',
+    WARNING: '#F59E0B',
+    DISABLED: '#9CA3AF',
+    WHITE: '#FFFFFF',
+  },
+  // ... existing code ...
+}; 

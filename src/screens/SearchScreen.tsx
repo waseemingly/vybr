@@ -170,11 +170,6 @@ const SearchScreen = () => {
             />
             <Text style={styles.title}>Search</Text>
           </View>
-
-          <Image
-            source={{ uri: "https://yourappurl.com/logo.png" }}
-            style={styles.logo}
-          />
         </View>
 
         <Text style={styles.subtitle}>Find music lovers near you</Text>
@@ -276,11 +271,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#6B7280",
     marginTop: 4,
-  },
-  logo: {
-    height: 36,
-    width: 36,
-    resizeMode: "contain",
   },
   content: {
     flex: 1,

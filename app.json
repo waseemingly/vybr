@@ -1,30 +1,40 @@
 {
   "expo": {
-    "name": "Explore Matchmaker",
-    "slug": "explore-matchmaker",
+    "name": "vybr",
+    "slug": "vybr",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./public/icon.png",
+    "icon": null,
+    "newArchEnabled": true,
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./public/splash.png",
+      "image": null,
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.explorematchmaker"
+      "bundleIdentifier": "com.vybr.app"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./public/adaptive-icon.png",
+        "foregroundImage": null,
         "backgroundColor": "#ffffff"
       },
-      "package": "com.yourcompany.explorematchmaker"
+      "package": "com.vybr.app"
     },
     "web": {
-      "favicon": "./public/favicon.png"
+      "favicon": null
+    },
+    "scheme": "vybr",
+    "extra": {
+      "SUPABASE_URL": "https://fqfgueshwuhpckszyrsj.supabase.co",
+      "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxZmd1ZXNod3VocGNrc3p5cnNqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMyNjQ1NzcsImV4cCI6MjA1ODg0MDU3N30.URSa8s4NeNpGJjD29i-UBAn_PZ4d3Xumhk4Iqz6fKkQ",
+      "SPOTIFY_CLIENT_ID": "your-spotify-client-id",
+      "SPOTIFY_CLIENT_SECRET": "your-spotify-client-secret"
     }
   }
 }

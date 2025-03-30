@@ -14,6 +14,16 @@ module.exports = function (api) {
         },
       ],
       "react-native-reanimated/plugin",
+      // Add the dotenv plugin here
+      [
+        "module:react-native-dotenv", 
+        {
+          "moduleName": "@env",
+          "path": ".env",
+          "safe": true,
+          "allowUndefined": false
+        }
+      ]
     ],
   };
 };

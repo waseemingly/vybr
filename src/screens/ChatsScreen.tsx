@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { IndividualChat, GroupChat } from "@/types/chat";
@@ -61,11 +61,6 @@ const ChatsScreen = () => {
             />
             <Text style={styles.title}>Chats</Text>
           </View>
-
-          <Image
-            source={{ uri: "https://yourappurl.com/logo.png" }}
-            style={styles.logo}
-          />
         </View>
 
         <View style={styles.headerSubRow}>
@@ -155,11 +150,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#3B82F6",
   },
-  logo: {
-    height: 36,
-    width: 36,
-    resizeMode: "contain",
-  },
   headerSubRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -169,6 +159,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14,
     color: "#6B7280",
+    marginTop: 4,
   },
   createGroupButton: {
     width: 36,

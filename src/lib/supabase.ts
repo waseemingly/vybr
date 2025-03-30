@@ -1,0 +1,114 @@
+import { createClient } from '@supabase/supabase-js';
+import Constants from 'expo-constants';
+
+// Access environment variables
+const supabaseUrl = process.env.SUPABASE_URL || Constants.expoConfig?.extra?.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY || Constants.expoConfig?.extra?.SUPABASE_KEY;
+
+// If environment variables are not available, fail gracefully with error message
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Supabase URL and/or key is missing. Please check your environment variables.');
+}
+
+export const supabase = createClient(
+  supabaseUrl as string, 
+  supabaseKey as string
+);
+
+export type UserTypes = 'music_lover' | 'organizer';
+
+export interface SignUpCredentials {
+  email: string;
+  password: string;
+  firstName?: string;
+  lastName?: string;
+  username?: string;
+  userType: UserTypes;
+  companyName?: string;
+  senderEmail?: string;
+}
+
+export interface LoginCredentials {
+  email: string;
+  password: string;
+  userType: UserTypes;
+}
+
+export interface SpotifyData {
+  genres: string[];
+  artists: string[];
+  songs: { title: string; artist: string }[];
+  albums: { title: string; artist: string; year: number }[];
+}
+
+export interface MusicLoverProfile {
+  id: string;
+  firstName: string;
+  lastName: string;
+  username: string;
+  email: string;
+  age?: number;
+  profilePicture?: string;
+  bio?: string;
+  country?: string;
+  city?: string;
+  isPremium?: boolean;
+  musicData?: SpotifyData;
+}
+
+export interface OrganizerProfile {
+  id: string;
+  companyName: string;
+  email: string;
+  phoneNumber?: string;
+  logo?: string;
+  businessType?: 'f&b' | 'party_collective' | 'club';
+  bio?: string;
+  website?: string;
+}
+
+export interface UserSession {
+  user: {
+    id: string;
+    email: string;
+  } | null;
+  userType: UserTypes | null;
+  musicLoverProfile?: MusicLoverProfile | null;
+  organizerProfile?: OrganizerProfile | null;
+}
+
+// Custom sender email configuration 
+// This should match what is configured in Supabase
+export const EMAIL_CONFIG = {
+  SENDER_NAME: 'Vybr Connect',
+  SENDER_EMAIL: 'vybr.connect@gmail.com',
+  REPLY_TO: 'support@vybr.com',
+  EMAIL_SUBJECTS: {
+    VERIFICATION: 'Confirm your email address for vybr',
+    PASSWORD_RESET: 'Reset your password for vybr',
+    WELCOME: 'Welcome to vybr!',
+  },
+};
+
+// Function to format email details (for display purposes only)
+export const formatEmailDetails = (type: 'verification' | 'password_reset' | 'welcome') => {
+  let subject = '';
+  
+  switch (type) {
+    case 'verification':
+      subject = EMAIL_CONFIG.EMAIL_SUBJECTS.VERIFICATION;
+      break;
+    case 'password_reset':
+      subject = EMAIL_CONFIG.EMAIL_SUBJECTS.PASSWORD_RESET;
+      break;
+    case 'welcome':
+      subject = EMAIL_CONFIG.EMAIL_SUBJECTS.WELCOME;
+      break;
+  }
+  
+  return {
+    from: `${EMAIL_CONFIG.SENDER_NAME} <${EMAIL_CONFIG.SENDER_EMAIL}>`,
+    subject,
+    replyTo: EMAIL_CONFIG.REPLY_TO,
+  };
+}; 
