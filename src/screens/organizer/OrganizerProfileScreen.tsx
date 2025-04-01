@@ -12,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useOrganizerMode } from "@/hooks/useOrganizerMode";
 import { LinearGradient } from "expo-linear-gradient";
+import { useAuth } from "@/hooks/useAuth";
 
 // Sample organizer data
 const ORGANIZER_DATA = {
@@ -86,6 +87,7 @@ const Section: React.FC<SectionProps> = ({ title, icon, children }) => {
 
 const OrganizerProfileScreen: React.FC = () => {
   const { toggleOrganizerMode } = useOrganizerMode();
+  const { logout } = useAuth();
 
   return (
     <SafeAreaView edges={["top"]} style={styles.container}>
@@ -238,6 +240,15 @@ const OrganizerProfileScreen: React.FC = () => {
             </View>
           </View>
         </Section>
+
+        {/* Logout Button */}
+        <TouchableOpacity
+          style={styles.logoutButton}
+          onPress={logout}
+        >
+          <Feather name="log-out" size={18} color="#FFF" />
+          <Text style={styles.logoutButtonText}>Logout</Text>
+        </TouchableOpacity>
 
         {/* Switch to User Mode Button */}
         <TouchableOpacity
@@ -503,6 +514,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#6B7280",
     marginTop: 2,
+  },
+  logoutButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EF4444", // Red color for logout
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  logoutButtonText: {
+    color: "white",
+    fontWeight: "600",
+    fontSize: 16,
+    marginLeft: 8,
   },
   modeButton: {
     flexDirection: "row",

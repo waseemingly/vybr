@@ -11,7 +11,7 @@ import MatchesScreen from "@/screens/MatchesScreen";
 import ChatsScreen from "@/screens/ChatsScreen";
 import SearchScreen from "@/screens/SearchScreen";
 import EventsScreen from "@/screens/EventsScreen";
-import ProfileScreen from "@/screens/ProfileScreen";
+import ProfileScreen from "../screens/ProfileScreen";
 import CreateEventScreen from "@/screens/CreateEventScreen";
 import NotFoundScreen from "@/screens/NotFoundScreen";
 import OrganizerPostsScreen from "@/screens/organizer/OrganizerPostsScreen";
@@ -149,31 +149,66 @@ const AppNavigator = () => {
   const { isOrganizerMode } = useOrganizerMode();
   const { session, loading } = useAuth();
 
+  // Add logging to diagnose session state issues
+  console.log('[AppNavigator] Current auth state:', 
+    loading ? 'Loading' : (session ? `Authenticated as ${session.userType}` : 'Not authenticated'));
+  
+  if (session) {
+    console.log('[AppNavigator] User ID:', session.user?.id);
+    console.log('[AppNavigator] User type:', session.userType);
+    console.log('[AppNavigator] Organizer mode:', isOrganizerMode);
+  }
+
   // If still loading auth state, render nothing or a loading screen
   if (loading) {
+    console.log('[AppNavigator] Auth state is loading, showing loading screen');
     return null; // You can replace this with a splash/loading screen
   }
 
+  // Log which screens we're rendering
+  if (session) {
+    console.log('[AppNavigator] Rendering authenticated screens');
+  } else {
+    console.log('[AppNavigator] Rendering authentication screens');
+  }
+  
+  // In React Native mobile app, we prioritize signup screens for authenticated users
+  // This prevents redirection to the main app during multi-step signup process
+  
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       {session ? (
-        // User is logged in, show main app screens
-        isOrganizerMode ? (
-          // Organizer mode screens
-          <>
-            <Stack.Screen name="OrganizerTabs" component={OrganizerTabs} />
-            <Stack.Screen name="EventDetail" component={EventDetailScreen} />
-          </>
-        ) : (
-          // Music lover mode screens
-          <>
-            <Stack.Screen name="UserTabs" component={UserTabs} />
-            <Stack.Screen name="CreateEvent" component={CreateEventScreen} />
-          </>
-        )
+        // User is logged in, show main app screens 
+        // But also allow access to signup flow screens for completing registration
+        <>
+          {/* First allow signup flow screens to be accessible during the multi-step process
+              This ensures they take priority if the user is in the middle of signup */}
+          <Stack.Screen name="MusicLoverSignUpFlow" component={MusicLoverSignUpFlow} />
+          <Stack.Screen name="OrganizerSignUpFlow" component={OrganizerSignUpFlow} />
+        
+          {/* Then add main app screens */}
+          {isOrganizerMode ? (
+            // Organizer mode screens
+            <>
+              <Stack.Screen name="OrganizerTabs" component={OrganizerTabs} />
+              <Stack.Screen name="EventDetail" component={EventDetailScreen} />
+            </>
+          ) : (
+            // Music lover mode screens
+            <>
+              <Stack.Screen name="UserTabs" component={UserTabs} />
+              <Stack.Screen name="CreateEvent" component={CreateEventScreen} />
+            </>
+          )}
+        </>
       ) : (
         // User is not logged in, show authentication screens
-        <Stack.Screen name="Auth" component={AuthNavigator} />
+        <>
+          <Stack.Screen name="Auth" component={AuthNavigator} />
+          {/* Also enable direct navigation to signup flows even when not authenticated */}
+          <Stack.Screen name="MusicLoverSignUpFlow" component={MusicLoverSignUpFlow} />
+          <Stack.Screen name="OrganizerSignUpFlow" component={OrganizerSignUpFlow} />
+        </>
       )}
       <Stack.Screen name="NotFound" component={NotFoundScreen} />
     </Stack.Navigator>

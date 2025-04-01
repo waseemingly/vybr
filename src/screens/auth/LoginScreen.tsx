@@ -97,6 +97,10 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
   const getTitle = () => {
     return userType === 'music_lover' ? 'Music Lover Login' : 'Organizer Login';
   };
+
+  const getEmailLabel = () => {
+    return userType === 'music_lover' ? 'Username or Email Address' : 'Company Email Address';
+  };
   
   return (
     <SafeAreaView style={styles.container}>
@@ -117,15 +121,19 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
             </TouchableOpacity>
           </View>
           
+          <View style={styles.logoContainer}>
+            <Text style={styles.logoText}>vybr</Text>
+          </View>
+          
           <View style={styles.contentContainer}>
             <Text style={styles.title}>{getTitle()}</Text>
             
             <View style={styles.formContainer}>
               <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Email</Text>
+                <Text style={styles.inputLabel}>{getEmailLabel()}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter your email"
+                  placeholder={`Enter your ${userType === 'music_lover' ? 'username or email' : 'company email'}`}
                   value={formData.email}
                   onChangeText={(text) => handleChange('email', text)}
                   keyboardType="email-address"
@@ -211,6 +219,16 @@ const styles = StyleSheet.create({
   },
   backButton: {
     padding: 4,
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  logoText: {
+    fontSize: 42,
+    fontWeight: 'bold',
+    color: APP_CONSTANTS.COLORS.PRIMARY,
+    fontFamily: 'SF Pro Display, Inter, sans-serif',
   },
   contentContainer: {
     flex: 1,

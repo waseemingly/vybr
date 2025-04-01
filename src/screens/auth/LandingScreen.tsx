@@ -32,7 +32,7 @@ const LandingScreen = () => {
               color={APP_CONSTANTS.COLORS.PRIMARY} 
               style={styles.buttonIcon} 
             />
-            <Text style={styles.buttonText}>I'm a Music Lover</Text>
+            <Text style={styles.buttonText}>Log in as Music Lover</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
@@ -45,7 +45,7 @@ const LandingScreen = () => {
               color={APP_CONSTANTS.COLORS.PRIMARY} 
               style={styles.buttonIcon} 
             />
-            <Text style={styles.buttonText}>I'm an Organizer</Text>
+            <Text style={styles.buttonText}>Log in as Organiser</Text>
           </TouchableOpacity>
         </View>
 
@@ -53,13 +53,13 @@ const LandingScreen = () => {
           <TouchableOpacity 
             onPress={() => navigation.navigate('MusicLoverSignUp')}
           >
-            <Text style={styles.signupLink}>Create a music lover account</Text>
+            <Text style={styles.signupLink}>Sign up as music lover</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
             onPress={() => navigation.navigate('OrganizerSignUp')}
           >
-            <Text style={styles.signupLink}>Create an organizer account</Text>
+            <Text style={styles.signupLink}>Sign up as organiser</Text>
           </TouchableOpacity>
         </View>
       </LinearGradient>
