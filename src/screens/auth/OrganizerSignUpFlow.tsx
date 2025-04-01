@@ -1,22 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/useAuth';
 import { APP_CONSTANTS } from '@/config/constants';
-import { EMAIL_CONFIG, formatEmailDetails } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
+import * as ImagePicker from 'expo-image-picker';
 
-// Step types for the signup flow
-type Step = 'company-details' | 'verification' | 'contact-branding' | 'payment';
+// Step types for the signup flow - removed verification step
+type Step = 'company-details' | 'contact-branding' | 'payment';
 
 // Business type options
-type BusinessType = 'f&b' | 'party_collective' | 'club';
+type BusinessType = 'venue' | 'promoter' | 'artist_management' | 'festival_organizer' | 'other';
 
 const OrganizerSignUpFlow = () => {
   const navigation = useNavigation();
-  const { signUp, checkEmailVerification, resendVerificationEmail } = useAuth();
+  const { signUp, createOrganizerProfile } = useAuth();
   
   // State for all form data across steps
   const [formData, setFormData] = useState({
@@ -38,23 +39,19 @@ const OrganizerSignUpFlow = () => {
     },
   });
   
-  // New state for verification
-  const [userId, setUserId] = useState<string | null>(null);
-  const [verificationStatus, setVerificationStatus] = useState<'pending' | 'verified' | 'failed'>('pending');
-  const [resendLoading, setResendLoading] = useState(false);
-  const [verificationCheckInterval, setVerificationCheckInterval] = useState<NodeJS.Timeout | null>(null);
-  
   // Current step state
   const [currentStep, setCurrentStep] = useState<Step>('company-details');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [uploading, setUploading] = useState(false);
   
   // Animation value for transitions
   const [slideAnim] = useState(new Animated.Value(0));
   
   // Handle form field changes
-  const handleChange = (field: string, value: string | boolean) => {
+  const handleChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    setError('');
   };
   
   // Show terms and conditions
@@ -94,14 +91,14 @@ const OrganizerSignUpFlow = () => {
     });
   };
   
-  // Check for validation errors in the company details step
+  // Validation functions
   const validateCompanyDetailsStep = () => {
-    if (!formData.companyName) {
+    if (!formData.companyName.trim()) {
       setError('Please enter your company name');
       return false;
     }
     
-    if (!formData.email) {
+    if (!formData.email.trim()) {
       setError('Please enter your company email');
       return false;
     }
@@ -114,7 +111,7 @@ const OrganizerSignUpFlow = () => {
     }
     
     if (!formData.password) {
-      setError('Please create a password');
+      setError('Please enter a password');
       return false;
     }
     
@@ -136,145 +133,175 @@ const OrganizerSignUpFlow = () => {
     return true;
   };
   
-  // Check verification status
-  const checkVerification = async (userId: string) => {
+  // Validate contact and branding step
+  const validateContactBrandingStep = () => {
+    // Phone number is optional, so we don't validate it
+    
+    if (!formData.businessType) {
+      setError('Please select your business type');
+      return false;
+    }
+    
+    // Bio and website are optional
+    
+    return true;
+  };
+  
+  // Validate payment step
+  const validatePaymentStep = () => {
+    const { cardNumber, expiry, cvv, name } = formData.paymentInfo;
+    
+    if (!cardNumber.trim()) {
+      setError('Please enter your card number');
+      return false;
+    }
+    
+    if (!expiry.trim()) {
+      setError('Please enter the card expiry date');
+      return false;
+    }
+    
+    if (!cvv.trim()) {
+      setError('Please enter the CVV');
+      return false;
+    }
+    
+    if (!name.trim()) {
+      setError('Please enter the cardholder name');
+      return false;
+    }
+    
+    return true;
+  };
+
+  // Handle logo upload
+  const handleLogoUpload = async () => {
     try {
-      const isVerified = await checkEmailVerification(userId);
-      
-      if (isVerified) {
-        setVerificationStatus('verified');
-        // Clear any existing interval
-        if (verificationCheckInterval) {
-          clearInterval(verificationCheckInterval);
-          setVerificationCheckInterval(null);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled) {
+        setUploading(true);
+        const file = result.assets[0];
+        const fileExt = file.uri.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `${fileName}`;
+
+        const response = await fetch(file.uri);
+        const blob = await response.blob();
+
+        const { error: uploadError } = await supabase.storage
+          .from('profile-pictures')
+          .upload(filePath, blob);
+
+        if (uploadError) {
+          throw uploadError;
         }
-        // Automatically continue after verification is confirmed
-        setTimeout(() => {
-          handleContinueAfterVerification();
-        }, 1500);
-      } else {
-        setVerificationStatus('pending');
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('profile-pictures')
+          .getPublicUrl(filePath);
+
+        setFormData(prev => ({ ...prev, logo: publicUrl }));
+        setUploading(false);
       }
     } catch (error) {
-      console.error('Error checking verification:', error);
-      setVerificationStatus('failed');
+      console.error('Error uploading logo:', error);
+      setError('Failed to upload logo. Please try again.');
+      setUploading(false);
     }
   };
   
-  // Start automatic verification checking
-  const startVerificationChecking = (userId: string) => {
-    // Clear any existing interval first
-    if (verificationCheckInterval) {
-      clearInterval(verificationCheckInterval);
-    }
-    
-    // Check immediately
-    checkVerification(userId);
-    
-    // Set up periodic checking (every 15 seconds)
-    const interval = setInterval(() => {
-      checkVerification(userId);
-    }, 15000);
-    
-    setVerificationCheckInterval(interval);
-  };
-  
-  // Clean up interval on unmount
-  useEffect(() => {
-    return () => {
-      if (verificationCheckInterval) {
-        clearInterval(verificationCheckInterval);
-      }
-    };
-  }, [verificationCheckInterval]);
-  
-  // Handle continuing after verification
-  const handleContinueAfterVerification = () => {
-    // Navigate to the login screen after successful verification
-    Alert.alert(
-      'Verification Complete', 
-      'Your email has been verified successfully! You can now log in to your account.',
-      [
-        { 
-          text: 'Continue to Login', 
-          onPress: () => navigation.navigate('OrganizerLogin' as never)
-        }
-      ]
-    );
-  };
-  
-  // Handle resending verification email
-  const handleResendVerification = async () => {
-    if (!formData.email) return;
-    
-    setResendLoading(true);
-    
+  // Complete signup process
+  const handleCompleteSignup = async () => {
+    setIsLoading(true);
     try {
-      const result = await resendVerificationEmail(formData.email);
-      
+      // Sign up with Supabase
+      const result = await signUp({
+        email: formData.email,
+        password: formData.password,
+        userType: 'organizer',
+        companyName: formData.companyName,
+      });
+
       if ('error' in result && result.error) {
-        Alert.alert('Error', `Failed to resend verification email: ${result.error.message}`);
-      } else {
-        Alert.alert('Verification Email', 'A new verification email has been sent to your inbox from vybr.connect@gmail.com.');
+        setError(result.error.message);
+        setIsLoading(false);
+        return;
       }
-    } catch (error) {
-      console.error('Error resending verification:', error);
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+
+      if (!('user' in result) || !result.user) {
+        setError('Failed to create user account.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Create organizer profile
+      const profileResult = await createOrganizerProfile({
+        userId: result.user.id,
+        companyName: formData.companyName,
+        email: formData.email,
+        logo: formData.logo,
+        phoneNumber: formData.phoneNumber,
+        businessType: formData.businessType,
+        bio: formData.bio,
+        website: formData.website,
+      });
+
+      if ('error' in profileResult && profileResult.error) {
+        setError(profileResult.error.message);
+        setIsLoading(false);
+        return;
+      }
+
+      // Log in the user to complete the signup flow
+      await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password
+      });
+
+      // Navigate to dashboard
+      navigation.navigate('OrganizerTabs' as never);
+    } catch (err) {
+      console.error('Error completing signup:', err);
+      setError('An error occurred while completing signup. Please try again.');
     } finally {
-      setResendLoading(false);
+      setIsLoading(false);
     }
   };
   
   // Handle submission of each step
-  const handleStepSubmit = () => {
+  const handleStepSubmit = async () => {
     setError('');
     
     switch (currentStep) {
       case 'company-details':
         if (validateCompanyDetailsStep()) {
-          setIsLoading(true);
-          signUp({
-            email: formData.email,
-            password: formData.password,
-            companyName: formData.companyName,
-            userType: 'organizer',
-          })
-          .then(result => {
-            setIsLoading(false);
-            if ('error' in result && result.error) {
-              setError(result.error.message);
-            } else if ('user' in result && result.user) {
-              // Store user ID for verification checks
-              if (result.user.id) {
-                setUserId(result.user.id);
-                
-                // Start periodic verification checking
-                startVerificationChecking(result.user.id);
-              }
-              
-              goToNextStep('verification');
-            }
-          })
-          .catch(err => {
-            setIsLoading(false);
-            setError('An error occurred during signup. Please try again.');
-            console.error(err);
-          });
+          goToNextStep('contact-branding');
+        }
+        break;
+      
+      case 'contact-branding':
+        if (validateContactBrandingStep()) {
+          goToNextStep('payment');
         }
         break;
         
-      case 'verification':
-        // Manually trigger verification check if user is waiting
-        if (userId && verificationStatus === 'pending') {
-          checkVerification(userId);
+      case 'payment':
+        if (validatePaymentStep()) {
+          await handleCompleteSignup();
         }
         break;
     }
   };
   
-  // Render the company details step
+  // Render company details step
   const renderCompanyDetailsStep = () => (
-    <View style={styles.stepContainer}>
+    <View style={styles.stepContent}>
       <Text style={styles.stepTitle}>Company Details</Text>
       
       <View style={styles.inputContainer}>
@@ -284,7 +311,6 @@ const OrganizerSignUpFlow = () => {
           placeholder="Enter your company name"
           value={formData.companyName}
           onChangeText={(text) => handleChange('companyName', text)}
-          autoCapitalize="words"
         />
       </View>
       
@@ -297,15 +323,14 @@ const OrganizerSignUpFlow = () => {
           onChangeText={(text) => handleChange('email', text)}
           keyboardType="email-address"
           autoCapitalize="none"
-          autoCorrect={false}
         />
       </View>
       
       <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Create Password</Text>
+        <Text style={styles.inputLabel}>Password</Text>
         <TextInput
           style={styles.input}
-          placeholder="Create a secure password"
+          placeholder="Create a password (min. 8 characters)"
           value={formData.password}
           onChangeText={(text) => handleChange('password', text)}
           secureTextEntry
@@ -326,167 +351,263 @@ const OrganizerSignUpFlow = () => {
       </View>
       
       <View style={styles.termsContainer}>
-        <TouchableOpacity 
-          style={styles.checkbox}
+        <TouchableOpacity
+          style={[
+            styles.checkbox,
+            formData.termsAccepted && styles.checkboxChecked
+          ]}
           onPress={() => handleChange('termsAccepted', !formData.termsAccepted)}
         >
-          {formData.termsAccepted ? (
-            <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-          ) : null}
+          {formData.termsAccepted && (
+            <Feather name="check" size={14} color="white" />
+          )}
         </TouchableOpacity>
-        <View style={styles.termsTextContainer}>
-          <Text style={styles.termsText}>
-            I agree to the{' '}
-            <Text 
-              style={styles.termsLink}
-              onPress={showTermsAndConditions}
-            >
-              Terms and Conditions
-            </Text>
+        <Text style={styles.termsText}>
+          I agree to the{' '}
+          <Text style={styles.termsLink} onPress={showTermsAndConditions}>
+            Terms and Conditions
           </Text>
+        </Text>
+      </View>
+      
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    </View>
+  );
+  
+  // Render contact and branding step
+  const renderContactBrandingStep = () => (
+    <View style={styles.stepContent}>
+      <Text style={styles.stepTitle}>Contact & Branding</Text>
+      
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Phone Number (Optional)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter your phone number"
+          value={formData.phoneNumber}
+          onChangeText={(text) => handleChange('phoneNumber', text)}
+          keyboardType="phone-pad"
+        />
+      </View>
+      
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Business Type</Text>
+        <View style={styles.businessTypeContainer}>
+          {['venue', 'promoter', 'artist_management', 'festival_organizer', 'other'].map((type) => (
+            <TouchableOpacity
+              key={type}
+              style={[
+                styles.businessTypeOption,
+                formData.businessType === type && styles.businessTypeSelected
+              ]}
+              onPress={() => handleChange('businessType', type)}
+            >
+              <Text style={[
+                styles.businessTypeText,
+                formData.businessType === type && styles.businessTypeTextSelected
+              ]}>
+                {type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+      
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Website (Optional)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter your website URL"
+          value={formData.website}
+          onChangeText={(text) => handleChange('website', text)}
+          keyboardType="url"
+          autoCapitalize="none"
+        />
+      </View>
+      
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Bio (Optional)</Text>
+        <TextInput
+          style={[styles.input, styles.bioInput]}
+          placeholder="Tell us about your organization"
+          value={formData.bio}
+          onChangeText={(text) => handleChange('bio', text)}
+          multiline
+          numberOfLines={4}
+          textAlignVertical="top"
+        />
+      </View>
+      
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Logo (Optional)</Text>
+        <View style={styles.logoContainer}>
+          {formData.logo ? (
+            <Image source={{ uri: formData.logo }} style={styles.logoPreview} />
+          ) : (
+            <View style={styles.logoPlaceholder}>
+              <Feather name="image" size={40} color={APP_CONSTANTS.COLORS.PRIMARY} />
+            </View>
+          )}
+          
+          <TouchableOpacity
+            style={styles.uploadButton}
+            onPress={handleLogoUpload}
+            disabled={uploading}
+          >
+            {uploading ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text style={styles.uploadButtonText}>Upload Logo</Text>
+            )}
+          </TouchableOpacity>
         </View>
       </View>
       
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      
-      <TouchableOpacity
-        style={[
-          styles.continueButton,
-          (
-            !formData.companyName || 
-            !formData.email || 
-            !formData.password || 
-            !formData.confirmPassword || 
-            !formData.termsAccepted ||
-            isLoading
-          ) && styles.continueButtonDisabled
-        ]}
-        onPress={handleStepSubmit}
-        disabled={
-          !formData.companyName || 
-          !formData.email || 
-          !formData.password || 
-          !formData.confirmPassword || 
-          !formData.termsAccepted ||
-          isLoading
-        }
-      >
-        {isLoading ? (
-          <ActivityIndicator color={APP_CONSTANTS.COLORS.WHITE} />
-        ) : (
-          <Text style={styles.continueButtonText}>Continue</Text>
-        )}
-      </TouchableOpacity>
     </View>
   );
   
-  // Render the verification step
-  const renderVerificationStep = () => {
-    // Helper to determine if verification is completed
-    const isVerified = verificationStatus === 'verified';
-    
-    return (
-      <View style={styles.stepContainer}>
-        <Text style={styles.stepTitle}>Email Verification</Text>
-        
-        {isVerified ? (
-          // Verified state
-          <View style={styles.verificationSuccess}>
-            <Text style={styles.verificationSuccessText}>Email successfully verified!</Text>
-            <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} />
-            <Text style={styles.redirectingText}>Taking you to the login screen...</Text>
-          </View>
-        ) : (
-          // Pending or failed verification
-          <>
-            <Text style={styles.verificationText}>
-              We've sent a verification email to <Text style={styles.emailHighlight}>{formData.email}</Text>
-            </Text>
-            
-            <View style={styles.verificationInstructions}>
-              <Text style={styles.instructionTitle}>Please follow these steps:</Text>
-              <Text style={styles.instructionStep}>1. Open your email app</Text>
-              <Text style={styles.instructionStep}>2. Look for an email from {EMAIL_CONFIG.SENDER_NAME} ({EMAIL_CONFIG.SENDER_EMAIL})</Text>
-              <Text style={styles.instructionStep}>3. Subject: {EMAIL_CONFIG.EMAIL_SUBJECTS.VERIFICATION}</Text>
-              <Text style={styles.instructionStep}>4. Click the verification link in the email</Text>
-              <Text style={styles.instructionStep}>5. Return to this app</Text>
-            </View>
-            
-            <Text style={styles.verificationStatusText}>
-              Status: {verificationStatus === 'pending' ? 'Waiting for verification' : 'Verification failed'}
-              {verificationStatus === 'pending' && (
-                <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={styles.inlineLoader} />
-              )}
-            </Text>
-            
-            <View style={styles.verificationActionsContainer}>
-              <TouchableOpacity 
-                style={styles.verificationButton}
-                onPress={() => userId && checkVerification(userId)}
-                disabled={!userId || isVerified}
-              >
-                <Text style={styles.verificationButtonText}>Check Verification Status</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.resendButton}
-                onPress={handleResendVerification}
-                disabled={resendLoading || !userId}
-              >
-                {resendLoading ? (
-                  <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.WHITE} />
-                ) : (
-                  <Text style={styles.resendButtonText}>Resend Verification Email</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </>
-        )}
+  // Render payment step
+  const renderPaymentStep = () => (
+    <View style={styles.stepContent}>
+      <Text style={styles.stepTitle}>Payment Information</Text>
+      <Text style={styles.stepDescription}>
+        For a monthly subscription of $29.99, get access to premium features.
+      </Text>
+      
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Card Number</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter your card number"
+          value={formData.paymentInfo.cardNumber}
+          onChangeText={(text) => setFormData(prev => ({
+            ...prev,
+            paymentInfo: { ...prev.paymentInfo, cardNumber: text }
+          }))}
+          keyboardType="number-pad"
+          maxLength={16}
+        />
       </View>
-    );
-  };
+      
+      <View style={styles.rowContainer}>
+        <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
+          <Text style={styles.inputLabel}>Expiry Date</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="MM/YY"
+            value={formData.paymentInfo.expiry}
+            onChangeText={(text) => setFormData(prev => ({
+              ...prev,
+              paymentInfo: { ...prev.paymentInfo, expiry: text }
+            }))}
+            keyboardType="number-pad"
+            maxLength={5}
+          />
+        </View>
+        
+        <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
+          <Text style={styles.inputLabel}>CVV</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="CVV"
+            value={formData.paymentInfo.cvv}
+            onChangeText={(text) => setFormData(prev => ({
+              ...prev,
+              paymentInfo: { ...prev.paymentInfo, cvv: text }
+            }))}
+            keyboardType="number-pad"
+            maxLength={4}
+          />
+        </View>
+      </View>
+      
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Cardholder Name</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter cardholder name"
+          value={formData.paymentInfo.name}
+          onChangeText={(text) => setFormData(prev => ({
+            ...prev,
+            paymentInfo: { ...prev.paymentInfo, name: text }
+          }))}
+        />
+      </View>
+      
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    </View>
+  );
   
-  // Render the current step based on state
+  // Render current step
   const renderCurrentStep = () => {
     switch (currentStep) {
       case 'company-details':
-        return renderCompanyDetailsStep();
-      case 'verification':
-        return renderVerificationStep();
-      // Additional cases will be added for other steps
+        return (
+          <View style={styles.stepContainer}>
+            {renderCompanyDetailsStep()}
+            <TouchableOpacity
+              style={[
+                styles.continueButton,
+                (isLoading) && styles.continueButtonDisabled
+              ]}
+              onPress={handleStepSubmit}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="white" size="small" />
+              ) : (
+                <Text style={styles.continueButtonText}>Continue</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        );
+        
+      case 'contact-branding':
+        return (
+          <View style={styles.stepContainer}>
+            {renderContactBrandingStep()}
+            <TouchableOpacity
+              style={[
+                styles.continueButton,
+                (isLoading) && styles.continueButtonDisabled
+              ]}
+              onPress={handleStepSubmit}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="white" size="small" />
+              ) : (
+                <Text style={styles.continueButtonText}>Continue</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        );
+        
+      case 'payment':
+        return (
+          <View style={styles.stepContainer}>
+            {renderPaymentStep()}
+            <TouchableOpacity
+              style={[
+                styles.continueButton,
+                (isLoading) && styles.continueButtonDisabled
+              ]}
+              onPress={handleStepSubmit}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="white" size="small" />
+              ) : (
+                <Text style={styles.continueButtonText}>Complete Sign Up</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        );
+        
       default:
         return null;
     }
-  };
-  
-  // Continue button text
-  const continueButtonText = () => {
-    if (currentStep === 'verification' && verificationStatus === 'pending') {
-      return 'Check Verification';
-    }
-    return 'Continue';
-  };
-  
-  // Render continue button
-  const renderContinueButton = () => {
-    // Helper for checking verified status
-    const isVerified = verificationStatus === 'verified';
-    
-    return (
-      <TouchableOpacity
-        style={[styles.continueButton, (isLoading || (currentStep === 'verification' && isVerified)) && styles.continueButtonDisabled]}
-        onPress={handleStepSubmit}
-        disabled={isLoading || (currentStep === 'verification' && isVerified)}
-      >
-        {isLoading ? (
-          <ActivityIndicator color={APP_CONSTANTS.COLORS.WHITE} size="small" />
-        ) : (
-          <Text style={styles.continueButtonText}>
-            {continueButtonText()}
-          </Text>
-        )}
-      </TouchableOpacity>
-    );
   };
   
   return (
@@ -498,7 +619,18 @@ const OrganizerSignUpFlow = () => {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.backButton}
-            onPress={() => navigation.goBack()}
+            onPress={() => {
+              if (currentStep === 'company-details') {
+                navigation.goBack();
+              } else {
+                // Go back to previous step
+                const steps: Step[] = ['company-details', 'contact-branding', 'payment'];
+                const currentIndex = steps.indexOf(currentStep);
+                if (currentIndex > 0) {
+                  setCurrentStep(steps[currentIndex - 1]);
+                }
+              }
+            }}
           >
             <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
           </TouchableOpacity>
@@ -507,17 +639,21 @@ const OrganizerSignUpFlow = () => {
             <View 
               style={[
                 styles.stepIndicator, 
-                styles.stepIndicatorActive
+                currentStep === 'company-details' ? styles.stepIndicatorActive : {}
               ]} 
             />
             <View 
               style={[
                 styles.stepIndicator, 
-                currentStep !== 'company-details' ? styles.stepIndicatorActive : {}
+                currentStep === 'contact-branding' ? styles.stepIndicatorActive : {}
               ]} 
             />
-            <View style={styles.stepIndicator} />
-            <View style={styles.stepIndicator} />
+            <View 
+              style={[
+                styles.stepIndicator, 
+                currentStep === 'payment' ? styles.stepIndicatorActive : {}
+              ]} 
+            />
           </View>
         </View>
         
@@ -589,10 +725,19 @@ const styles = StyleSheet.create({
     width: '100%',
     marginTop: 32,
   },
+  stepContent: {
+    width: '100%',
+  },
   stepTitle: {
     fontSize: 24,
     fontWeight: '700',
     color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  stepDescription: {
+    fontSize: 16,
+    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
     marginBottom: 24,
     textAlign: 'center',
   },
@@ -615,6 +760,10 @@ const styles = StyleSheet.create({
     borderColor: APP_CONSTANTS.COLORS.BORDER,
     color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
   },
+  bioInput: {
+    height: 100,
+    textAlignVertical: 'top',
+  },
   termsContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -630,18 +779,77 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  termsTextContainer: {
-    flex: 1,
+  checkboxChecked: {
+    backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+    borderColor: APP_CONSTANTS.COLORS.PRIMARY,
   },
   termsText: {
     fontSize: 14,
     color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
     lineHeight: 20,
+    flex: 1,
   },
   termsLink: {
     color: APP_CONSTANTS.COLORS.PRIMARY,
-    fontWeight: '500',
-    textDecorationLine: 'underline',
+    fontWeight: '600',
+  },
+  businessTypeContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginVertical: 8,
+  },
+  businessTypeOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: APP_CONSTANTS.COLORS.BORDER,
+    marginRight: 10,
+    marginBottom: 10,
+  },
+  businessTypeSelected: {
+    backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+    borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+  },
+  businessTypeText: {
+    fontSize: 14,
+    color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+  },
+  businessTypeTextSelected: {
+    color: 'white',
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  logoPreview: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    marginBottom: 16,
+  },
+  logoPlaceholder: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: APP_CONSTANTS.COLORS.BORDER + '30',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  uploadButton: {
+    backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  uploadButtonText: {
+    color: 'white',
+    fontWeight: '600',
+  },
+  rowContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   errorText: {
     color: APP_CONSTANTS.COLORS.ERROR,
@@ -658,94 +866,9 @@ const styles = StyleSheet.create({
     backgroundColor: APP_CONSTANTS.COLORS.DISABLED,
   },
   continueButtonText: {
-    color: APP_CONSTANTS.COLORS.WHITE,
-    fontSize: 16,
+    color: 'white',
     fontWeight: '600',
-  },
-  verificationSuccess: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 20,
-    padding: 20,
-    backgroundColor: '#e6f7ef',
-    borderRadius: 8,
-  },
-  verificationSuccessText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2a9d8f',
-    marginBottom: 15,
-  },
-  redirectingText: {
-    marginTop: 10,
-    fontSize: 14,
-    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-  },
-  verificationText: {
     fontSize: 16,
-    fontWeight: '500',
-    color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-    marginBottom: 10,
-  },
-  verificationInstructions: {
-    marginVertical: 20,
-    padding: 15,
-    backgroundColor: APP_CONSTANTS.COLORS.BACKGROUND_LIGHT,
-    borderRadius: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: APP_CONSTANTS.COLORS.PRIMARY,
-  },
-  instructionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-  },
-  instructionStep: {
-    fontSize: 14,
-    lineHeight: 22,
-    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-    marginBottom: 5,
-  },
-  emailHighlight: {
-    fontWeight: 'bold',
-    color: APP_CONSTANTS.COLORS.PRIMARY,
-  },
-  verificationStatusText: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    fontSize: 14,
-    marginBottom: 20,
-    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-  },
-  inlineLoader: {
-    marginLeft: 10,
-  },
-  verificationActionsContainer: {
-    marginTop: 10,
-  },
-  verificationButton: {
-    backgroundColor: APP_CONSTANTS.COLORS.BACKGROUND_LIGHT,
-    borderWidth: 1,
-    borderColor: APP_CONSTANTS.COLORS.PRIMARY,
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  verificationButtonText: {
-    color: APP_CONSTANTS.COLORS.PRIMARY,
-    fontWeight: '600',
-  },
-  resendButton: {
-    backgroundColor: APP_CONSTANTS.COLORS.SECONDARY,
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  resendButtonText: {
-    color: APP_CONSTANTS.COLORS.WHITE,
-    fontWeight: '600',
   },
 });
 

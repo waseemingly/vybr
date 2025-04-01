@@ -17,7 +17,7 @@ const AuthContext = createContext<{
     lastName: string;
     username: string;
     email: string;
-    age: string;
+    age?: string;
     profilePicture?: string;
     musicPlatform?: string;
     bio?: {
@@ -28,6 +28,8 @@ const AuthContext = createContext<{
       musicTaste?: string;
     };
     isPremium?: boolean;
+    country?: string;
+    city?: string;
   }) => Promise<{ error: any } | { success: boolean }>;
   createOrganizerProfile: (profileData: {
     userId: string;
@@ -216,26 +218,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Sign up a new user
   const signUp = async (credentials: SignUpCredentials) => {
     try {
+      console.log('[useAuth] Starting signUp function with userType:', credentials.userType);
       const { email, password, userType } = credentials;
       
-      // Create auth user without email verification
+      // Create auth user with manual session handling 
+      console.log('[useAuth] Calling Supabase auth.signUp');
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
             user_type: userType,  // Store user type in auth metadata
-            email_confirmed_at: new Date().toISOString() // Mark email as confirmed
+            email_confirmed_at: new Date().toISOString(), // Skip email verification
           }
         }
       });
 
       if (error || !data.user) {
-        console.error('Error creating auth user:', error);
+        console.error('[useAuth] Error creating auth user:', error);
         return { error };
       }
 
+      console.log('[useAuth] User created successfully, ID:', data.user.id);
+
       // Check if user type already exists
+      console.log('[useAuth] Checking if user type exists in database');
       const { data: existingUserType, error: checkError } = await supabase
         .from('user_types')
         .select('type')
@@ -243,13 +250,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .maybeSingle();
 
       if (checkError) {
-        console.error('Error checking existing user type:', checkError);
+        console.error('[useAuth] Error checking existing user type:', checkError);
         await supabase.auth.signOut();
         return { error: checkError };
       }
 
       // Only insert if user type doesn't exist
       if (!existingUserType) {
+        console.log('[useAuth] User type does not exist, inserting into database');
         const { error: userTypeError } = await supabase
           .from('user_types')
           .insert({
@@ -258,38 +266,75 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
 
         if (userTypeError) {
-          console.error('Error inserting user type:', userTypeError);
+          console.error('[useAuth] Error inserting user type:', userTypeError);
           await supabase.auth.signOut();
           return { error: userTypeError };
         }
+      } else {
+        console.log('[useAuth] User type already exists:', existingUserType.type);
       }
 
-      // Sign in the user immediately
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      // Create initial profile based on user type
+      if (userType === 'music_lover' && 'firstName' in credentials && 'lastName' in credentials && 'username' in credentials) {
+        console.log('[useAuth] Creating initial music lover profile');
+        const { error: profileError } = await supabase
+          .from('music_lover_profiles')
+          .insert({
+            user_id: data.user.id,
+            first_name: credentials.firstName,
+            last_name: credentials.lastName,
+            username: credentials.username,
+            email: email
+          });
 
-      if (signInError) {
-        console.error('Error signing in after signup:', signInError);
-        return { error: signInError };
+        if (profileError) {
+          console.error('[useAuth] Error creating initial music lover profile:', profileError);
+          await supabase.auth.signOut();
+          return { error: profileError };
+        }
+        
+        console.log('[useAuth] Music lover profile created successfully');
       }
 
-      return { user: signInData.user };
+      // CRITICAL: Manually update our session state to reflect the new user
+      console.log('[useAuth] Manually setting session state for multi-step flow');
+      const userSession: UserSession = {
+        user: {
+          id: data.user.id,
+          email: data.user.email!,
+        },
+        userType,
+      };
+      
+      if (userType === 'music_lover') {
+        userSession.musicLoverProfile = {
+          id: data.user.id,
+          firstName: credentials.firstName as string,
+          lastName: credentials.lastName as string,
+          username: credentials.username as string,
+          email: email,
+        };
+      }
+      
+      // Set session state directly to ensure app knows user is logged in
+      setSession(userSession);
+      
+      console.log('[useAuth] SignUp complete, returning user object');
+      return { user: data.user };
     } catch (error) {
-      console.error('Error during sign up:', error);
+      console.error('[useAuth] Error in signUp:', error);
       return { error };
     }
   };
 
-  // Create music lover profile
+  // Create a music lover profile
   const createMusicLoverProfile = async (profileData: {
     userId: string;
     firstName: string;
     lastName: string;
     username: string;
     email: string;
-    age: string;
+    age?: string;
     profilePicture?: string;
     musicPlatform?: string;
     bio?: {
@@ -300,32 +345,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       musicTaste?: string;
     };
     isPremium?: boolean;
+    country?: string;
+    city?: string;
   }) => {
     try {
-      const { error: profileError } = await supabase
+      // Check if profile already exists
+      const { data: existingProfile, error: checkError } = await supabase
         .from('music_lover_profiles')
-        .insert({
-          user_id: profileData.userId,
-          first_name: profileData.firstName,
-          last_name: profileData.lastName,
-          username: profileData.username,
-          email: profileData.email,
-          age: parseInt(profileData.age),
-          profile_picture: profileData.profilePicture || null,
-          music_platform: profileData.musicPlatform || null,
-          bio: profileData.bio || null,
-          is_premium: profileData.isPremium || false,
-          music_data: null
-        });
+        .select('*')
+        .eq('user_id', profileData.userId)
+        .maybeSingle();
 
-      if (profileError) {
-        console.error('Error creating music lover profile:', profileError);
-        return { error: profileError };
+      if (checkError) {
+        console.error('Error checking existing profile:', checkError);
+        return { error: checkError };
+      }
+
+      // Prepare profile data
+      const musicLoverData = {
+        user_id: profileData.userId,
+        first_name: profileData.firstName,
+        last_name: profileData.lastName,
+        username: profileData.username,
+        email: profileData.email,
+        age: profileData.age ? parseInt(profileData.age) : null,
+        profile_picture: profileData.profilePicture || null,
+        bio: JSON.stringify(profileData.bio || {}),
+        is_premium: profileData.isPremium || false,
+        country: profileData.country || null,
+        city: profileData.city || null,
+        music_data: null
+      };
+
+      if (existingProfile) {
+        // Update existing profile
+        const { error: updateError } = await supabase
+          .from('music_lover_profiles')
+          .update(musicLoverData)
+          .eq('user_id', profileData.userId);
+
+        if (updateError) {
+          console.error('Error updating music lover profile:', updateError);
+          return { error: updateError };
+        }
+      } else {
+        // Insert new profile
+        const { error: insertError } = await supabase
+          .from('music_lover_profiles')
+          .insert([musicLoverData]);
+
+        if (insertError) {
+          console.error('Error creating music lover profile:', insertError);
+          return { error: insertError };
+        }
       }
 
       return { success: true };
     } catch (error) {
-      console.error('Error creating music lover profile:', error);
+      console.error('Error in createMusicLoverProfile:', error);
       return { error };
     }
   };
