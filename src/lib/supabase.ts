@@ -41,28 +41,38 @@ export interface SpotifyData {
   albums: { title: string; artist: string; year: number }[];
 }
 
+export interface MusicLoverBio {
+  firstSong?: string;
+  goToSong?: string;
+  mustListenAlbum?: string;
+  dreamConcert?: string;
+  musicTaste?: string;
+}
+
 export interface MusicLoverProfile {
   id: string;
+  userId?: string; // Keep this optional if it's not always present
   firstName: string;
   lastName: string;
   username: string;
   email: string;
-  age?: number;
-  profilePicture?: string;
-  bio?: string;
+  age?: number; // Keep as number if DB expects integer
+  profilePicture?: string; // This will store the URL
+  bio?: MusicLoverBio; // Use the specific interface or object
   country?: string;
   city?: string;
   isPremium?: boolean;
-  musicData?: SpotifyData;
+  musicData?: SpotifyData; // Keep if still relevant
 }
 
 export interface OrganizerProfile {
   id: string;
+  userId?: string;
   companyName: string;
   email: string;
   phoneNumber?: string;
   logo?: string;
-  businessType?: 'f&b' | 'party_collective' | 'club';
+  businessType?: 'venue' | 'promoter' | 'artist_management' | 'festival_organizer' | 'other';
   bio?: string;
   website?: string;
 }
@@ -105,6 +115,7 @@ export const formatEmailDetails = (type: 'verification' | 'password_reset' | 'we
       subject = EMAIL_CONFIG.EMAIL_SUBJECTS.WELCOME;
       break;
   }
+  
   
   return {
     from: `${EMAIL_CONFIG.SENDER_NAME} <${EMAIL_CONFIG.SENDER_EMAIL}>`,

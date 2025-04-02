@@ -1,25 +1,25 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image } from 'react-native';
+// components/Auth/OrganizerSignUpFlow.tsx (or wherever it resides)
+import React, { useState, useEffect } from 'react'; // Add useEffect
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/useAuth'; // Correct path
 import { APP_CONSTANTS } from '@/config/constants';
-import { supabase } from '@/lib/supabase';
+// Remove direct supabase import if not needed for other things
+// import { supabase } from '@/lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 
-// Step types for the signup flow - removed verification step
+// Step types remain the same
 type Step = 'company-details' | 'contact-branding' | 'payment';
-
-// Business type options
 type BusinessType = 'venue' | 'promoter' | 'artist_management' | 'festival_organizer' | 'other';
 
 const OrganizerSignUpFlow = () => {
   const navigation = useNavigation();
-  const { signUp, createOrganizerProfile } = useAuth();
-  
-  // State for all form data across steps
+  // Get new functions from useAuth
+  const { signUp, createOrganizerProfile, requestMediaLibraryPermissions, loading: authLoading } = useAuth();
+
   const [formData, setFormData] = useState({
     companyName: '',
     email: '',
@@ -27,10 +27,13 @@ const OrganizerSignUpFlow = () => {
     confirmPassword: '',
     termsAccepted: false,
     phoneNumber: '',
-    logo: '',
+    logoUri: '', // Store the local URI from the picker
+    logoPreview: '', // Store URI for preview (can be same as logoUri)
     businessType: '' as BusinessType | '',
     website: '',
     bio: '',
+    // Payment info remains - NOTE: This info isn't currently sent to supabase
+    // You would need a backend function or further integration to process payments
     paymentInfo: {
       cardNumber: '',
       expiry: '',
@@ -38,24 +41,36 @@ const OrganizerSignUpFlow = () => {
       name: '',
     },
   });
-  
-  // Current step state
+
   const [currentStep, setCurrentStep] = useState<Step>('company-details');
+  // Use a local loading state, but consider authLoading for disabling actions during auth operations
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [uploading, setUploading] = useState(false);
-  
-  // Animation value for transitions
+  const [uploading, setUploading] = useState(false); // Keep for logo upload UI feedback
   const [slideAnim] = useState(new Animated.Value(0));
-  
-  // Handle form field changes
+
+  // Request permissions on mount
+  useEffect(() => {
+    requestMediaLibraryPermissions();
+  }, [requestMediaLibraryPermissions]);
+
+
   const handleChange = (field: string, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    setError('');
+    // Special handling for payment info nested object
+    if (field.startsWith('paymentInfo.')) {
+      const key = field.split('.')[1];
+      setFormData(prev => ({
+        ...prev,
+        paymentInfo: { ...prev.paymentInfo, [key]: value }
+      }));
+    } else {
+      setFormData(prev => ({ ...prev, [field]: value }));
+    }
+    setError(''); // Clear error on any change
   };
-  
-  // Show terms and conditions
+
   const showTermsAndConditions = () => {
+     // ... (keep existing implementation)
     Alert.alert(
       'Terms and Conditions',
       'By using vybr as an organizer, you agree to:\n\n' +
@@ -69,20 +84,16 @@ const OrganizerSignUpFlow = () => {
       'For the full terms and conditions, please visit our website.'
     );
   };
-  
-  // Move to next step with animation
+
   const goToNextStep = (nextStep: Step) => {
-    // Slide out current step
+    // ... (keep existing animation implementation)
     Animated.timing(slideAnim, {
       toValue: -400,
       duration: 300,
       useNativeDriver: true,
     }).start(() => {
-      // Change step and reset animation
       setCurrentStep(nextStep);
       slideAnim.setValue(400);
-      
-      // Slide in new step
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 300,
@@ -90,406 +101,369 @@ const OrganizerSignUpFlow = () => {
       }).start();
     });
   };
-  
-  // Validation functions
+
+  // Validation functions (remain mostly the same)
   const validateCompanyDetailsStep = () => {
-    if (!formData.companyName.trim()) {
-      setError('Please enter your company name');
-      return false;
-    }
-    
-    if (!formData.email.trim()) {
-      setError('Please enter your company email');
-      return false;
-    }
-    
-    // Basic email validation
+      // ... (keep existing validation)
+    if (!formData.companyName.trim()) { setError('Please enter your company name'); return false; }
+    if (!formData.email.trim()) { setError('Please enter your company email'); return false; }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(formData.email)) {
-      setError('Please enter a valid email address');
-      return false;
-    }
-    
-    if (!formData.password) {
-      setError('Please enter a password');
-      return false;
-    }
-    
-    if (formData.password.length < 8) {
-      setError('Password must be at least 8 characters long');
-      return false;
-    }
-    
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
-      return false;
-    }
-    
-    if (!formData.termsAccepted) {
-      setError('Please accept the Terms and Conditions to continue');
-      return false;
-    }
-    
-    return true;
-  };
-  
-  // Validate contact and branding step
-  const validateContactBrandingStep = () => {
-    // Phone number is optional, so we don't validate it
-    
-    if (!formData.businessType) {
-      setError('Please select your business type');
-      return false;
-    }
-    
-    // Bio and website are optional
-    
-    return true;
-  };
-  
-  // Validate payment step
-  const validatePaymentStep = () => {
-    const { cardNumber, expiry, cvv, name } = formData.paymentInfo;
-    
-    if (!cardNumber.trim()) {
-      setError('Please enter your card number');
-      return false;
-    }
-    
-    if (!expiry.trim()) {
-      setError('Please enter the card expiry date');
-      return false;
-    }
-    
-    if (!cvv.trim()) {
-      setError('Please enter the CVV');
-      return false;
-    }
-    
-    if (!name.trim()) {
-      setError('Please enter the cardholder name');
-      return false;
-    }
-    
+    if (!emailRegex.test(formData.email)) { setError('Please enter a valid email address'); return false; }
+    if (!formData.password) { setError('Please enter a password'); return false; }
+    if (formData.password.length < 8) { setError('Password must be at least 8 characters long'); return false; }
+    if (formData.password !== formData.confirmPassword) { setError('Passwords do not match'); return false; }
+    if (!formData.termsAccepted) { setError('Please accept the Terms and Conditions'); return false; }
     return true;
   };
 
-  // Handle logo upload
-  const handleLogoUpload = async () => {
+  const validateContactBrandingStep = () => {
+    // ... (keep existing validation - logo is optional)
+     if (!formData.businessType) { setError('Please select your business type'); return false; }
+    return true;
+  };
+
+  const validatePaymentStep = () => {
+     // ... (keep existing validation)
+      const { cardNumber, expiry, cvv, name } = formData.paymentInfo;
+      if (!cardNumber.trim()) { setError('Please enter your card number'); return false; }
+      if (!expiry.trim()) { setError('Please enter the card expiry date'); return false; }
+      if (!cvv.trim()) { setError('Please enter the CVV'); return false; }
+      if (!name.trim()) { setError('Please enter the cardholder name'); return false; }
+    return true;
+  };
+
+  // Handle logo picking (not uploading directly here anymore)
+  const handleLogoPick = async () => {
+    // Ensure permissions are granted first
+    const hasPermission = await requestMediaLibraryPermissions();
+    if (!hasPermission) {
+        return; // Exit if permissions denied
+    }
+
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
+        aspect: [1, 1], // Keep aspect ratio for consistency
+        quality: 0.8, // Reduce quality slightly for faster uploads
       });
 
-      if (!result.canceled) {
-        setUploading(true);
-        const file = result.assets[0];
-        const fileExt = file.uri.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
-        const filePath = `${fileName}`;
-
-        const response = await fetch(file.uri);
-        const blob = await response.blob();
-
-        const { error: uploadError } = await supabase.storage
-          .from('profile-pictures')
-          .upload(filePath, blob);
-
-        if (uploadError) {
-          throw uploadError;
-        }
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('profile-pictures')
-          .getPublicUrl(filePath);
-
-        setFormData(prev => ({ ...prev, logo: publicUrl }));
-        setUploading(false);
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+         const uri = result.assets[0].uri;
+         console.log('Image selected URI:', uri);
+        // Set both URI for upload and preview URI
+        setFormData(prev => ({ ...prev, logoUri: uri, logoPreview: uri }));
+         setError(''); // Clear any previous errors
       }
     } catch (error) {
-      console.error('Error uploading logo:', error);
-      setError('Failed to upload logo. Please try again.');
-      setUploading(false);
+      console.error('Error picking logo:', error);
+      setError('Failed to pick logo. Please try again.');
+       Alert.alert('Error', 'Could not select image. Please ensure you have granted gallery permissions.');
     }
   };
-  
-  // Complete signup process
+
+  // Complete signup process - Updated Flow
   const handleCompleteSignup = async () => {
+    // Double check payment validation before proceeding
+    if (!validatePaymentStep()) {
+        return;
+    }
+
     setIsLoading(true);
+    setError(''); // Clear previous errors
+
     try {
-      // Sign up with Supabase
-      const result = await signUp({
+      // Step 1: Sign up the user (Auth + User Type)
+      console.log('Attempting sign up with email:', formData.email);
+      const signUpResult = await signUp({
         email: formData.email,
         password: formData.password,
         userType: 'organizer',
-        companyName: formData.companyName,
+         // Pass only essential data for signUp
+         // companyName: formData.companyName, // Not needed here anymore
       });
 
-      if ('error' in result && result.error) {
-        setError(result.error.message);
+       // Check for sign up errors
+      if ('error' in signUpResult && signUpResult.error) {
+        console.error('Sign up failed:', signUpResult.error);
+        setError(signUpResult.error.message || 'Sign up failed. Please check your details.');
         setIsLoading(false);
         return;
       }
 
-      if (!('user' in result) || !result.user) {
-        setError('Failed to create user account.');
+      // Ensure we have a user object and ID
+      if (!('user' in signUpResult) || !signUpResult.user || !signUpResult.user.id) {
+         console.error('Sign up succeeded but returned invalid user data.');
+        setError('An unexpected error occurred during sign up.');
         setIsLoading(false);
         return;
       }
 
-      // Create organizer profile
+       const userId = signUpResult.user.id;
+       console.log('Sign up successful, User ID:', userId);
+
+      // Step 2: Create the Organizer Profile (including potential logo upload handled by the hook)
+      console.log('Attempting to create organizer profile with data:', { ...formData, userId });
       const profileResult = await createOrganizerProfile({
-        userId: result.user.id,
+        userId: userId,
         companyName: formData.companyName,
-        email: formData.email,
-        logo: formData.logo,
+        email: formData.email, // Use the confirmed email
+        logoUri: formData.logoUri, // Pass the local URI, hook handles upload
         phoneNumber: formData.phoneNumber,
-        businessType: formData.businessType,
+        businessType: formData.businessType || undefined, // Ensure it's string or undefined
         bio: formData.bio,
         website: formData.website,
       });
 
+      // Check for profile creation errors
       if ('error' in profileResult && profileResult.error) {
-        setError(profileResult.error.message);
-        setIsLoading(false);
+        console.error('Profile creation failed:', profileResult.error);
+        // Dilemma: Auth user exists, but profile failed.
+        // Might need manual intervention or a retry mechanism.
+        setError(profileResult.error.message || 'Failed to save profile details. Please try editing later.');
+        // Don't stop loading immediately, maybe navigate somewhere? Or show error prominently.
+         // For now, just show error and stop loading. User is technically signed up.
+         setIsLoading(false);
+         // Consider navigating to a "complete profile" screen or dashboard with an error message.
         return;
       }
 
-      // Log in the user to complete the signup flow
-      await supabase.auth.signInWithPassword({
-        email: formData.email,
-        password: formData.password
-      });
+       console.log('Organizer profile created/updated successfully.');
 
-      // Navigate to dashboard
-      navigation.navigate('OrganizerTabs' as never);
-    } catch (err) {
-      console.error('Error completing signup:', err);
-      setError('An error occurred while completing signup. Please try again.');
+      // Step 3: Signup and Profile creation successful!
+      // Navigation should happen automatically if `onAuthStateChange` updates the session
+      // and your main App navigator logic handles session changes.
+      // If direct navigation is needed:
+      // navigation.navigate('OrganizerTabs' as never);
+       console.log('Organizer sign up flow complete.');
+       // No need to call signIn manually, auth state change handles it.
+
+    } catch (err: any) {
+      console.error('Error completing signup process:', err);
+      setError(err.message || 'An unexpected error occurred. Please try again.');
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Ensure loading indicator stops
     }
   };
-  
+
   // Handle submission of each step
   const handleStepSubmit = async () => {
-    setError('');
-    
+    setError(''); // Clear error before validation/action
+
     switch (currentStep) {
       case 'company-details':
         if (validateCompanyDetailsStep()) {
           goToNextStep('contact-branding');
         }
         break;
-      
+
       case 'contact-branding':
         if (validateContactBrandingStep()) {
           goToNextStep('payment');
         }
         break;
-        
+
       case 'payment':
-        if (validatePaymentStep()) {
-          await handleCompleteSignup();
-        }
+        // Final step - trigger the complete signup process
+        await handleCompleteSignup();
         break;
     }
   };
-  
-  // Render company details step
+
+  // Render company details step (No changes needed)
   const renderCompanyDetailsStep = () => (
-    <View style={styles.stepContent}>
-      <Text style={styles.stepTitle}>Company Details</Text>
-      
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Company Name</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter your company name"
-          value={formData.companyName}
-          onChangeText={(text) => handleChange('companyName', text)}
-        />
-      </View>
-      
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Company Email</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter your company email"
-          value={formData.email}
-          onChangeText={(text) => handleChange('email', text)}
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
-      </View>
-      
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Password</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Create a password (min. 8 characters)"
-          value={formData.password}
-          onChangeText={(text) => handleChange('password', text)}
-          secureTextEntry
-          autoCapitalize="none"
-        />
-      </View>
-      
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Confirm Password</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Confirm your password"
-          value={formData.confirmPassword}
-          onChangeText={(text) => handleChange('confirmPassword', text)}
-          secureTextEntry
-          autoCapitalize="none"
-        />
-      </View>
-      
-      <View style={styles.termsContainer}>
-        <TouchableOpacity
-          style={[
-            styles.checkbox,
-            formData.termsAccepted && styles.checkboxChecked
-          ]}
-          onPress={() => handleChange('termsAccepted', !formData.termsAccepted)}
-        >
-          {formData.termsAccepted && (
-            <Feather name="check" size={14} color="white" />
-          )}
-        </TouchableOpacity>
-        <Text style={styles.termsText}>
-          I agree to the{' '}
-          <Text style={styles.termsLink} onPress={showTermsAndConditions}>
-            Terms and Conditions
-          </Text>
-        </Text>
-      </View>
-      
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-    </View>
-  );
-  
-  // Render contact and branding step
-  const renderContactBrandingStep = () => (
-    <View style={styles.stepContent}>
-      <Text style={styles.stepTitle}>Contact & Branding</Text>
-      
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Phone Number (Optional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter your phone number"
-          value={formData.phoneNumber}
-          onChangeText={(text) => handleChange('phoneNumber', text)}
-          keyboardType="phone-pad"
-        />
-      </View>
-      
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Business Type</Text>
-        <View style={styles.businessTypeContainer}>
-          {['venue', 'promoter', 'artist_management', 'festival_organizer', 'other'].map((type) => (
-            <TouchableOpacity
-              key={type}
-              style={[
-                styles.businessTypeOption,
-                formData.businessType === type && styles.businessTypeSelected
-              ]}
-              onPress={() => handleChange('businessType', type)}
-            >
-              <Text style={[
-                styles.businessTypeText,
-                formData.businessType === type && styles.businessTypeTextSelected
-              ]}>
-                {type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+      // ... No changes here ...
+      <View style={styles.stepContent}>
+          <Text style={styles.stepTitle}>Company Details</Text>
+
+          <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Company Name</Text>
+              <TextInput
+                  style={styles.input}
+                  placeholder="Enter your company name"
+                  value={formData.companyName}
+                  onChangeText={(text) => handleChange('companyName', text)}
+              />
+          </View>
+
+          <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Company Email</Text>
+              <TextInput
+                  style={styles.input}
+                  placeholder="Enter your company email"
+                  value={formData.email}
+                  onChangeText={(text) => handleChange('email', text)}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+              />
+          </View>
+
+          <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Password</Text>
+              <TextInput
+                  style={styles.input}
+                  placeholder="Create a password (min. 8 characters)"
+                  value={formData.password}
+                  onChangeText={(text) => handleChange('password', text)}
+                  secureTextEntry
+                  autoCapitalize="none"
+              />
+          </View>
+
+          <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Confirm Password</Text>
+              <TextInput
+                  style={styles.input}
+                  placeholder="Confirm your password"
+                  value={formData.confirmPassword}
+                  onChangeText={(text) => handleChange('confirmPassword', text)}
+                  secureTextEntry
+                  autoCapitalize="none"
+              />
+          </View>
+
+          <View style={styles.termsContainer}>
+              <TouchableOpacity
+                  style={[
+                      styles.checkbox,
+                      formData.termsAccepted && styles.checkboxChecked
+                  ]}
+                  onPress={() => handleChange('termsAccepted', !formData.termsAccepted)}
+              >
+                  {formData.termsAccepted && (
+                      <Feather name="check" size={14} color="white" />
+                  )}
+              </TouchableOpacity>
+              <Text style={styles.termsText}>
+                  I agree to the{' '}
+                  <Text style={styles.termsLink} onPress={showTermsAndConditions}>
+                      Terms and Conditions
+                  </Text>
               </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+          </View>
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </View>
-      
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Website (Optional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter your website URL"
-          value={formData.website}
-          onChangeText={(text) => handleChange('website', text)}
-          keyboardType="url"
-          autoCapitalize="none"
-        />
-      </View>
-      
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Bio (Optional)</Text>
-        <TextInput
-          style={[styles.input, styles.bioInput]}
-          placeholder="Tell us about your organization"
-          value={formData.bio}
-          onChangeText={(text) => handleChange('bio', text)}
-          multiline
-          numberOfLines={4}
-          textAlignVertical="top"
-        />
-      </View>
-      
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Logo (Optional)</Text>
-        <View style={styles.logoContainer}>
-          {formData.logo ? (
-            <Image source={{ uri: formData.logo }} style={styles.logoPreview} />
-          ) : (
-            <View style={styles.logoPlaceholder}>
-              <Feather name="image" size={40} color={APP_CONSTANTS.COLORS.PRIMARY} />
-            </View>
-          )}
-          
-          <TouchableOpacity
-            style={styles.uploadButton}
-            onPress={handleLogoUpload}
-            disabled={uploading}
-          >
-            {uploading ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text style={styles.uploadButtonText}>Upload Logo</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
-      
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-    </View>
   );
-  
-  // Render payment step
+
+  // Render contact and branding step (Update Logo Upload)
+  const renderContactBrandingStep = () => (
+      <View style={styles.stepContent}>
+          <Text style={styles.stepTitle}>Contact & Branding</Text>
+
+          <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Phone Number (Optional)</Text>
+              <TextInput
+                  style={styles.input}
+                  placeholder="Enter your phone number"
+                  value={formData.phoneNumber}
+                  onChangeText={(text) => handleChange('phoneNumber', text)}
+                  keyboardType="phone-pad"
+              />
+          </View>
+
+          <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Business Type</Text>
+              <View style={styles.businessTypeContainer}>
+                  {(['venue', 'promoter', 'artist_management', 'festival_organizer', 'other'] as BusinessType[]).map((type) => (
+                      <TouchableOpacity
+                          key={type}
+                          style={[
+                              styles.businessTypeOption,
+                              formData.businessType === type && styles.businessTypeSelected
+                          ]}
+                          onPress={() => handleChange('businessType', type)}
+                      >
+                          <Text style={[
+                              styles.businessTypeText,
+                              formData.businessType === type && styles.businessTypeTextSelected
+                          ]}>
+                              {type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          </Text>
+                      </TouchableOpacity>
+                  ))}
+              </View>
+          </View>
+
+          <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Website (Optional)</Text>
+              <TextInput
+                  style={styles.input}
+                  placeholder="Enter your website URL"
+                  value={formData.website}
+                  onChangeText={(text) => handleChange('website', text)}
+                  keyboardType="url"
+                  autoCapitalize="none"
+              />
+          </View>
+
+          <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Bio (Optional)</Text>
+              <TextInput
+                  style={[styles.input, styles.bioInput]}
+                  placeholder="Tell us about your organization (max 500 chars)"
+                  value={formData.bio}
+                  onChangeText={(text) => handleChange('bio', text)}
+                  multiline
+                  numberOfLines={4}
+                  maxLength={500} // Add a reasonable limit
+                  textAlignVertical="top" // Ensure text starts at the top
+              />
+          </View>
+
+          {/* --- Updated Logo Section --- */}
+          <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Logo (Optional)</Text>
+              <View style={styles.logoContainer}>
+                  {/* Use logoPreview which holds the local URI */}
+                  {formData.logoPreview ? (
+                      <Image source={{ uri: formData.logoPreview }} style={styles.logoPreview} />
+                  ) : (
+                      <View style={styles.logoPlaceholder}>
+                          <Feather name="image" size={40} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                      </View>
+                  )}
+
+                  <TouchableOpacity
+                      style={styles.uploadButton}
+                      onPress={handleLogoPick} // Changed to pick, not upload directly
+                      disabled={uploading} // Keep disabled state if needed for visual feedback during pick? (optional)
+                  >
+                      {/* Text changes based on whether a logo is selected */}
+                      <Text style={styles.uploadButtonText}>
+                          {formData.logoPreview ? 'Change Logo' : 'Select Logo'}
+                      </Text>
+                  </TouchableOpacity>
+              </View>
+          </View>
+          {/* --- End Updated Logo Section --- */}
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      </View>
+  );
+
+
+  // Render payment step (No changes needed, but data isn't sent currently)
   const renderPaymentStep = () => (
-    <View style={styles.stepContent}>
+      // ... No changes here ...
+       <View style={styles.stepContent}>
       <Text style={styles.stepTitle}>Payment Information</Text>
       <Text style={styles.stepDescription}>
-        For a monthly subscription of $29.99, get access to premium features.
+        Link a payment method for potential future billing (e.g., premium features, transaction fees). No charges now.
       </Text>
-      
+
       <View style={styles.inputContainer}>
         <Text style={styles.inputLabel}>Card Number</Text>
         <TextInput
           style={styles.input}
-          placeholder="Enter your card number"
+          placeholder="Enter card number"
           value={formData.paymentInfo.cardNumber}
-          onChangeText={(text) => setFormData(prev => ({
-            ...prev,
-            paymentInfo: { ...prev.paymentInfo, cardNumber: text }
-          }))}
+          onChangeText={(text) => handleChange('paymentInfo.cardNumber', text.replace(/\D/g, ''))} // Allow only digits
           keyboardType="number-pad"
-          maxLength={16}
+          maxLength={19} // Account for potential spaces/formatting
         />
       </View>
-      
+
       <View style={styles.rowContainer}>
         <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
           <Text style={styles.inputLabel}>Expiry Date</Text>
@@ -497,171 +471,137 @@ const OrganizerSignUpFlow = () => {
             style={styles.input}
             placeholder="MM/YY"
             value={formData.paymentInfo.expiry}
-            onChangeText={(text) => setFormData(prev => ({
-              ...prev,
-              paymentInfo: { ...prev.paymentInfo, expiry: text }
-            }))}
+             onChangeText={(text) => {
+                 let formatted = text.replace(/\D/g, ''); // Remove non-digits
+                 if (formatted.length > 2) {
+                     formatted = formatted.slice(0, 2) + '/' + formatted.slice(2);
+                 }
+                 handleChange('paymentInfo.expiry', formatted);
+             }}
             keyboardType="number-pad"
-            maxLength={5}
+            maxLength={5} // MM/YY
           />
         </View>
-        
+
         <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
           <Text style={styles.inputLabel}>CVV</Text>
           <TextInput
             style={styles.input}
             placeholder="CVV"
             value={formData.paymentInfo.cvv}
-            onChangeText={(text) => setFormData(prev => ({
-              ...prev,
-              paymentInfo: { ...prev.paymentInfo, cvv: text }
-            }))}
+            onChangeText={(text) => handleChange('paymentInfo.cvv', text.replace(/\D/g, ''))} // Allow only digits
             keyboardType="number-pad"
             maxLength={4}
+             secureTextEntry // Hide CVV
           />
         </View>
       </View>
-      
+
       <View style={styles.inputContainer}>
         <Text style={styles.inputLabel}>Cardholder Name</Text>
         <TextInput
           style={styles.input}
-          placeholder="Enter cardholder name"
+          placeholder="Enter name as it appears on card"
           value={formData.paymentInfo.name}
-          onChangeText={(text) => setFormData(prev => ({
-            ...prev,
-            paymentInfo: { ...prev.paymentInfo, name: text }
-          }))}
+          onChangeText={(text) => handleChange('paymentInfo.name', text)}
+          autoCapitalize="words"
         />
       </View>
-      
+
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
   );
-  
-  // Render current step
+
+  // Render current step with appropriate button action/text
   const renderCurrentStep = () => {
+     // Determine if the main action button should be disabled
+      const isButtonDisabled = isLoading || authLoading; // Disable if local loading OR auth hook is loading
+
+      // Determine button text
+      let buttonText = 'Continue';
+      if (currentStep === 'payment') {
+          buttonText = 'Complete Sign Up';
+      }
+
+      // Determine which function the button calls
+      const buttonAction = currentStep === 'payment' ? handleCompleteSignup : handleStepSubmit;
+
     switch (currentStep) {
       case 'company-details':
-        return (
-          <View style={styles.stepContainer}>
-            {renderCompanyDetailsStep()}
-            <TouchableOpacity
-              style={[
-                styles.continueButton,
-                (isLoading) && styles.continueButtonDisabled
-              ]}
-              onPress={handleStepSubmit}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="white" size="small" />
-              ) : (
-                <Text style={styles.continueButtonText}>Continue</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        );
-        
       case 'contact-branding':
+      case 'payment': // All steps now use the same structure
         return (
           <View style={styles.stepContainer}>
-            {renderContactBrandingStep()}
+            {currentStep === 'company-details' && renderCompanyDetailsStep()}
+            {currentStep === 'contact-branding' && renderContactBrandingStep()}
+            {currentStep === 'payment' && renderPaymentStep()}
+
             <TouchableOpacity
               style={[
                 styles.continueButton,
-                (isLoading) && styles.continueButtonDisabled
+                isButtonDisabled && styles.continueButtonDisabled // Use combined loading state
               ]}
-              onPress={handleStepSubmit}
-              disabled={isLoading}
+              onPress={buttonAction} // Use the determined action
+              disabled={isButtonDisabled} // Use combined loading state
             >
-              {isLoading ? (
+              {isButtonDisabled ? (
                 <ActivityIndicator color="white" size="small" />
               ) : (
-                <Text style={styles.continueButtonText}>Continue</Text>
+                <Text style={styles.continueButtonText}>{buttonText}</Text> // Use dynamic text
               )}
             </TouchableOpacity>
           </View>
         );
-        
-      case 'payment':
-        return (
-          <View style={styles.stepContainer}>
-            {renderPaymentStep()}
-            <TouchableOpacity
-              style={[
-                styles.continueButton,
-                (isLoading) && styles.continueButtonDisabled
-              ]}
-              onPress={handleStepSubmit}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="white" size="small" />
-              ) : (
-                <Text style={styles.continueButtonText}>Complete Sign Up</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        );
-        
+
       default:
         return null;
     }
   };
-  
+
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient
         colors={[`${APP_CONSTANTS.COLORS.PRIMARY}05`, 'white']}
         style={styles.gradient}
       >
+        {/* Header remains the same */}
         <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => {
-              if (currentStep === 'company-details') {
-                navigation.goBack();
-              } else {
-                // Go back to previous step
-                const steps: Step[] = ['company-details', 'contact-branding', 'payment'];
-                const currentIndex = steps.indexOf(currentStep);
-                if (currentIndex > 0) {
-                  setCurrentStep(steps[currentIndex - 1]);
-                }
-              }
-            }}
-          >
-            <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
-          </TouchableOpacity>
-          
-          <View style={styles.stepIndicatorContainer}>
-            <View 
-              style={[
-                styles.stepIndicator, 
-                currentStep === 'company-details' ? styles.stepIndicatorActive : {}
-              ]} 
-            />
-            <View 
-              style={[
-                styles.stepIndicator, 
-                currentStep === 'contact-branding' ? styles.stepIndicatorActive : {}
-              ]} 
-            />
-            <View 
-              style={[
-                styles.stepIndicator, 
-                currentStep === 'payment' ? styles.stepIndicatorActive : {}
-              ]} 
-            />
-          </View>
+            <TouchableOpacity
+                style={styles.backButton}
+                onPress={() => {
+                    if (currentStep === 'company-details') {
+                        navigation.goBack();
+                    } else {
+                        const steps: Step[] = ['company-details', 'contact-branding', 'payment'];
+                        const currentIndex = steps.indexOf(currentStep);
+                        if (currentIndex > 0) {
+                            // Go back with animation (optional, reuse goToNextStep logic reversed?)
+                            setCurrentStep(steps[currentIndex - 1]);
+                             // Reset slide animation if needed when going back
+                             slideAnim.setValue(0); // Or animate backwards
+                        } else {
+                             navigation.goBack(); // Fallback if already on first step
+                        }
+                    }
+                }}
+            >
+                <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+            </TouchableOpacity>
+            <View style={styles.stepIndicatorContainer}>
+                <View style={[styles.stepIndicator, currentStep === 'company-details' ? styles.stepIndicatorActive : {}]} />
+                <View style={[styles.stepIndicator, currentStep === 'contact-branding' ? styles.stepIndicatorActive : {}]} />
+                <View style={[styles.stepIndicator, currentStep === 'payment' ? styles.stepIndicatorActive : {}]} />
+            </View>
+            {/* Add a placeholder view to balance the header if needed */}
+            <View style={{ width: 28 }} />
         </View>
-        
-        <ScrollView 
+
+        <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled" // Dismiss keyboard on tap outside inputs
         >
-          <Animated.View 
+          <Animated.View
             style={[
               styles.animatedContainer,
               { transform: [{ translateX: slideAnim }] }
@@ -675,201 +615,213 @@ const OrganizerSignUpFlow = () => {
   );
 };
 
+// Styles (minor adjustments might be needed for logo preview, but mostly the same)
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: APP_CONSTANTS.COLORS.BACKGROUND,
-  },
-  gradient: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  backButton: {
-    padding: 4,
-  },
-  stepIndicatorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-  },
-  stepIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: APP_CONSTANTS.COLORS.BORDER,
-    marginHorizontal: 4,
-  },
-  stepIndicatorActive: {
-    backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-    width: 20,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-  },
-  animatedContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-  },
-  stepContainer: {
-    width: '100%',
-    marginTop: 32,
-  },
-  stepContent: {
-    width: '100%',
-  },
-  stepTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  stepDescription: {
-    fontSize: 16,
-    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: 'white',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: APP_CONSTANTS.COLORS.BORDER,
-    color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-  },
-  bioInput: {
-    height: 100,
-    textAlignVertical: 'top',
-  },
-  termsContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 20,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderWidth: 1,
-    borderColor: APP_CONSTANTS.COLORS.BORDER,
-    borderRadius: 4,
-    marginRight: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxChecked: {
-    backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-    borderColor: APP_CONSTANTS.COLORS.PRIMARY,
-  },
-  termsText: {
-    fontSize: 14,
-    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-    lineHeight: 20,
-    flex: 1,
-  },
-  termsLink: {
-    color: APP_CONSTANTS.COLORS.PRIMARY,
-    fontWeight: '600',
-  },
-  businessTypeContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginVertical: 8,
-  },
-  businessTypeOption: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: APP_CONSTANTS.COLORS.BORDER,
-    marginRight: 10,
-    marginBottom: 10,
-  },
-  businessTypeSelected: {
-    backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-    borderColor: APP_CONSTANTS.COLORS.PRIMARY,
-  },
-  businessTypeText: {
-    fontSize: 14,
-    color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-  },
-  businessTypeTextSelected: {
-    color: 'white',
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginVertical: 16,
-  },
-  logoPreview: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    marginBottom: 16,
-  },
-  logoPlaceholder: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: APP_CONSTANTS.COLORS.BORDER + '30',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  uploadButton: {
-    backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  uploadButtonText: {
-    color: 'white',
-    fontWeight: '600',
-  },
-  rowContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  errorText: {
-    color: APP_CONSTANTS.COLORS.ERROR,
-    marginBottom: 16,
-  },
-  continueButton: {
-    backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  continueButtonDisabled: {
-    backgroundColor: APP_CONSTANTS.COLORS.DISABLED,
-  },
-  continueButtonText: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 16,
-  },
+    container: {
+        flex: 1,
+        backgroundColor: APP_CONSTANTS.COLORS.BACKGROUND,
+    },
+    gradient: {
+        flex: 1,
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between', // Ensure back button and indicators are spaced
+        paddingHorizontal: 16, // Adjust padding as needed
+        paddingTop: Platform.OS === 'android' ? 16 : 10, // Adjust for status bar
+        paddingBottom: 8,
+    },
+    backButton: {
+        padding: 8, // Increase tap area
+    },
+    stepIndicatorContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        flex: 1, // Allow it to take available space
+    },
+    stepIndicator: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: APP_CONSTANTS.COLORS.BORDER,
+        marginHorizontal: 4,
+    },
+    stepIndicatorActive: {
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        width: 20, // Make active step more prominent
+    },
+    scrollContent: {
+        flexGrow: 1,
+        paddingHorizontal: 24,
+        paddingBottom: 40, // Ensure space below button
+    },
+    animatedContainer: {
+        flex: 1,
+        // alignItems: 'center', // Let content align naturally
+        // justifyContent: 'center', // Let ScrollView handle positioning
+        width: '100%',
+    },
+    stepContainer: {
+        width: '100%',
+        marginTop: 24, // Reduce top margin slightly
+    },
+    stepContent: {
+        width: '100%',
+    },
+    stepTitle: {
+        fontSize: 24,
+        fontWeight: '700',
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+        marginBottom: 24,
+        textAlign: 'center',
+    },
+    stepDescription: {
+        fontSize: 14, // Slightly smaller description
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        marginBottom: 24,
+        textAlign: 'center',
+        lineHeight: 20,
+    },
+    inputContainer: {
+        marginBottom: 20,
+    },
+    inputLabel: {
+        fontSize: 14, // Slightly smaller label
+        fontWeight: '600', // Make label bolder
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+        marginBottom: 8,
+    },
+    input: {
+        backgroundColor: 'white',
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+        borderRadius: 12,
+        fontSize: 16,
+        borderWidth: 1,
+        borderColor: APP_CONSTANTS.COLORS.BORDER,
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+    },
+    bioInput: {
+        height: 100,
+        textAlignVertical: 'top', // Important for multiline
+    },
+    termsContainer: {
+        flexDirection: 'row',
+        alignItems: 'center', // Align checkbox and text vertically
+        marginBottom: 24,
+        marginTop: 8,
+    },
+    checkbox: {
+        width: 22, // Slightly smaller checkbox
+        height: 22,
+        borderWidth: 1.5, // Slightly thicker border
+        borderColor: APP_CONSTANTS.COLORS.BORDER,
+        borderRadius: 4,
+        marginRight: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    checkboxChecked: {
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+    },
+    termsText: {
+        fontSize: 14,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        lineHeight: 20,
+        flex: 1, // Allow text to wrap
+    },
+    termsLink: {
+        color: APP_CONSTANTS.COLORS.PRIMARY,
+        fontWeight: '600',
+        textDecorationLine: 'underline', // Make link clearer
+    },
+    businessTypeContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        marginBottom: 10, // Add margin below container
+    },
+    businessTypeOption: {
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: APP_CONSTANTS.COLORS.BORDER,
+        marginRight: 10,
+        marginBottom: 10,
+    },
+    businessTypeSelected: {
+        backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}20`, // Lighter background for selected
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+    },
+    businessTypeText: {
+        fontSize: 14,
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+        fontWeight: '500',
+    },
+    businessTypeTextSelected: {
+        color: APP_CONSTANTS.COLORS.PRIMARY, // Keep text color primary
+        fontWeight: '600',
+    },
+    logoContainer: {
+        alignItems: 'center',
+        marginVertical: 16,
+    },
+    logoPreview: {
+        width: 100, // Slightly smaller preview
+        height: 100,
+        borderRadius: 50, // Keep it circular
+        marginBottom: 16,
+        backgroundColor: '#e0e0e0', // Add a background color for loading/error
+    },
+    logoPlaceholder: {
+        width: 100,
+        height: 100,
+        borderRadius: 50,
+        backgroundColor: APP_CONSTANTS.COLORS.BORDER + '30', // Lighter placeholder
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 16,
+    },
+    uploadButton: {
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+        borderRadius: 8,
+    },
+    uploadButtonText: {
+        color: 'white',
+        fontWeight: '600',
+        fontSize: 14,
+    },
+    rowContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
+    errorText: {
+        color: APP_CONSTANTS.COLORS.ERROR,
+        marginBottom: 16,
+        textAlign: 'center',
+        fontSize: 14,
+    },
+    continueButton: {
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        paddingVertical: 16,
+        borderRadius: 12,
+        alignItems: 'center',
+        marginTop: 24, // Ensure spacing above button
+        marginBottom: 20, // Add space below button
+    },
+    continueButtonDisabled: {
+        backgroundColor: APP_CONSTANTS.COLORS.DISABLED,
+    },
+    continueButtonText: {
+        color: 'white',
+        fontWeight: '600',
+        fontSize: 16,
+    },
 });
 
-export default OrganizerSignUpFlow; 
+export default OrganizerSignUpFlow;

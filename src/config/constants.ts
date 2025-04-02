@@ -3,6 +3,7 @@ export const APP_CONSTANTS = {
   // Color scheme
   COLORS: {
     PRIMARY: '#3B82F6',
+    PRIMARY_LIGHT: '#93C5FD', // Light shade of primary for background, selected items, etc.
     SECONDARY: '#60A5FA',
     TERTIARY: '#93C5FD',
     BACKGROUND: 'white',
@@ -11,6 +12,8 @@ export const APP_CONSTANTS = {
     TEXT_SECONDARY: '#6B7280',
     TEXT_TERTIARY: '#9CA3AF',
     BORDER: '#E5E7EB',
+    BORDER_LIGHT: '#F3F4F6', // Lighter border color for subtle separators
+    BORDER_DARK: '#D1D5DB', // Darker border color for more emphasis
     ERROR: '#EF4444',
     SUCCESS: '#10B981',
     WARNING: '#F59E0B',
