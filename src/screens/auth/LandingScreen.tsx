@@ -51,13 +51,13 @@ const LandingScreen = () => {
 
         <View style={styles.signupLinksContainer}>
           <TouchableOpacity 
-            onPress={() => navigation.navigate('MusicLoverSignUp')}
+            onPress={() => navigation.navigate('MusicLoverSignUpFlow')}
           >
             <Text style={styles.signupLink}>Sign up as music lover</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
-            onPress={() => navigation.navigate('OrganizerSignUp')}
+            onPress={() => navigation.navigate('OrganizerSignUpFlow')}
           >
             <Text style={styles.signupLink}>Sign up as organiser</Text>
           </TouchableOpacity>
