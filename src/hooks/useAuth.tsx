@@ -1,16 +1,15 @@
 import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
-import { NavigationContainerRef } from '@react-navigation/native'; // Import type for ref
+import { NavigationContainerRef } from '@react-navigation/native';
 // Adjust path as necessary
 import { supabase, UserTypes, SignUpCredentials, LoginCredentials, UserSession, MusicLoverProfile as DbMusicLoverProfile, OrganizerProfile as DbOrganizerProfile, MusicLoverBio as SupabaseMusicLoverBio } from '../lib/supabase';
 import { useOrganizerMode } from './useOrganizerMode'; // Ensure path is correct
-// Use explicit imports for Image Picker
-import {
-  launchImageLibraryAsync,
-  requestMediaLibraryPermissionsAsync,
-  MediaTypeOptions // Use correct import for MediaTypeOptions
-} from 'expo-image-picker';
 import { Platform, Alert } from 'react-native';
 import Constants from 'expo-constants'; // For fallback Supabase URL
+// *** ADD expo-file-system ***
+import * as FileSystem from 'expo-file-system';
+// Import permission function from expo-image-picker (needed by context consumer)
+import { requestMediaLibraryPermissionsAsync } from 'expo-image-picker';
+import { Buffer } from 'buffer'; // Import Buffer for robust Base64 handling
 
 // --- Exported Types ---
 export type MusicLoverBio = SupabaseMusicLoverBio;
@@ -18,680 +17,796 @@ export type MusicLoverBio = SupabaseMusicLoverBio;
 // Update MusicLoverProfile interface to include the new DB column
 // Assuming DbMusicLoverProfile from supabase types might not have it yet
 export interface MusicLoverProfile extends Omit<DbMusicLoverProfile, 'selected_streaming_service'> {
-  termsAccepted?: boolean; // Keep this if not in base type
-  selectedStreamingService?: string | null; // Add this field
+    termsAccepted?: boolean; // Keep this if not in base type
+    selectedStreamingService?: string | null; // Add this field
 }
 
-// Update CreateMusicLoverProfileData to require the new field during creation
-export type CreateMusicLoverProfileData = Omit<DbMusicLoverProfile, 'id' | 'user_id' | 'is_premium' | 'created_at' | 'updated_at' | 'age' | 'music_data' | 'profile_picture' | 'bio' | 'country' | 'city' | 'terms_accepted' | 'selected_streaming_service'> & {
-  userId: string;
-  age?: number | null;
-  profilePictureUri?: string;
-  termsAccepted: boolean; // Ensure this is required
-  bio: MusicLoverBio;
-  country?: string;
-  city?: string;
-  selectedStreamingService: string; // Add this required field
+// Data needed to create the profile (matches signup flow)
+// Add profilePictureMimeType temporarily for passing data internally
+export type CreateMusicLoverProfileData = Omit<DbMusicLoverProfile, 'id' | 'user_id' | 'is_premium' | 'created_at' | 'age' | 'music_data' | 'profile_picture' | 'bio' | 'country' | 'city' | 'terms_accepted' | 'selected_streaming_service'> & {
+    userId: string;
+    age?: number | null; // Optional from form
+    profilePictureUri?: string; // Optional URI string from picker
+    profilePictureMimeType?: string | null; // <<< ADDED for passing internally
+    termsAccepted: boolean; // Required from form
+    bio: MusicLoverBio; // Required from form
+    country?: string; // Optional from form
+    city?: string; // Optional from form
+    selectedStreamingService: string; // Required from form
 };
 
-// Keep Organizer Profile Type
+// Data for Organizer (Ensure DbOrganizerProfile is accurate)
 export type CreateOrganizerProfileData = Omit<DbOrganizerProfile, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'logo'> & {
-  userId: string;
-  logoUri?: string;
+    userId: string;
+    logoUri?: string; // Optional URI string from picker
+    logoMimeType?: string | null; // <<< ADDED for passing internally
 };
 // --- End Exported Types ---
 
 // --- Context Definition ---
 const AuthContext = createContext<{
-  session: UserSession | null;
-  loading: boolean;
-  signUp: (credentials: SignUpCredentials) => Promise<{ error: any } | { user: any }>;
-  login: (credentials: LoginCredentials) => Promise<{ error: any } | { user: any }>;
-  logout: () => Promise<void>;
-  checkSession: (options?: { navigateToProfile?: boolean }) => Promise<void>;
-  createMusicLoverProfile: (profileData: CreateMusicLoverProfileData) => Promise<{ error: any } | { success: boolean }>;
-  createOrganizerProfile: (profileData: CreateOrganizerProfileData) => Promise<{ error: any } | { success: boolean }>;
-  updatePremiumStatus: (userId: string, isPremium: boolean) => Promise<{ error: any } | { success: boolean }>;
-  requestMediaLibraryPermissions: () => Promise<boolean>;
+    session: UserSession | null;
+    loading: boolean;
+    signUp: (credentials: SignUpCredentials) => Promise<{ error: any } | { user: any }>;
+    login: (credentials: LoginCredentials) => Promise<{ error: any } | { user: any }>;
+    logout: () => Promise<void>;
+    checkSession: (options?: { navigateToProfile?: boolean }) => Promise<void>;
+    // Adjust return type slightly if needed
+    createMusicLoverProfile: (profileData: CreateMusicLoverProfileData) => Promise<{ error: any } | { success: boolean; profilePictureUrl?: string | null }>;
+    createOrganizerProfile: (profileData: CreateOrganizerProfileData) => Promise<{ error: any } | { success: boolean; logoUrl?: string | null }>;
+    updatePremiumStatus: (userId: string, isPremium: boolean) => Promise<{ error: any } | { success: boolean }>;
+    requestMediaLibraryPermissions: () => Promise<boolean>; // Keep this for UI components
 }>({
-  session: null,
-  loading: true,
-  signUp: async () => ({ error: 'Not implemented' }),
-  login: async () => ({ error: 'Not implemented' }),
-  logout: async () => {},
-  checkSession: async () => {},
-  createMusicLoverProfile: async () => ({ error: 'Not implemented' }),
-  createOrganizerProfile: async () => ({ error: 'Not implemented' }),
-  updatePremiumStatus: async () => ({ error: 'Not implemented' }),
-  requestMediaLibraryPermissions: async () => false,
+    session: null,
+    loading: true,
+    signUp: async () => ({ error: 'Not implemented' }),
+    login: async () => ({ error: 'Not implemented' }),
+    logout: async () => { },
+    checkSession: async () => { },
+    createMusicLoverProfile: async () => ({ error: 'Not implemented' }),
+    createOrganizerProfile: async () => ({ error: 'Not implemented' }),
+    updatePremiumStatus: async () => ({ error: 'Not implemented' }),
+    requestMediaLibraryPermissions: async () => false,
 });
 
 // --- Provider Component ---
 interface AuthProviderProps {
-  children: React.ReactNode;
-  navigationRef: React.RefObject<NavigationContainerRef<any>>; // Use correct ref type
+    children: React.ReactNode;
+    navigationRef: React.RefObject<NavigationContainerRef<any>>; // Use correct ref type
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigationRef }) => {
-  const [session, setSession] = useState<UserSession | null>(null);
-  const [loading, setLoading] = useState(true);
-  const { isOrganizerMode, setIsOrganizerMode } = useOrganizerMode();
-  const previousSessionRef = useRef<UserSession | null>(null);
+    const [session, setSession] = useState<UserSession | null>(null);
+    const [loading, setLoading] = useState(true);
+    const { isOrganizerMode, setIsOrganizerMode } = useOrganizerMode();
+    const previousSessionRef = useRef<UserSession | null>(null);
 
-  useEffect(() => {
-    previousSessionRef.current = session;
-  }, [session]);
+    useEffect(() => {
+        previousSessionRef.current = session;
+    }, [session]);
 
-  // --- Permissions ---
-  const requestMediaLibraryPermissions = async (): Promise<boolean> => {
-    if (Platform.OS !== 'web') {
-      try {
-         const { status } = await requestMediaLibraryPermissionsAsync();
-         if (status !== 'granted') {
-           Alert.alert('Permission Required', 'Sorry, we need camera roll permissions to make this work!');
-           return false;
-         }
-         console.log("[AuthProvider] Media library permission granted.");
-         return true;
-      } catch (e) {
-         console.error("[AuthProvider] Error requesting media library permissions:", e)
-         Alert.alert('Permission Error', 'Could not request camera roll permissions.');
-         return false;
-      }
-    }
-    return true; // Assume granted or not applicable on web
-  };
-
-  // --- Image Upload ---
-  const _uploadImage = async (userId: string, fileUri: string, mimeType: string | undefined, bucket: 'profile-pictures' | 'logos'): Promise<string | null> => {
-    if (!userId || !fileUri) {
-        console.error('[AuthProvider] _uploadImage: Invalid userId or fileUri provided.');
-        return null;
-    }
-    try {
-        console.log(`[AuthProvider] _uploadImage: Uploading for user ${userId}. Bucket: ${bucket}. URI: ${fileUri.substring(0,100)}...`); // Log start of URI
-
-        // Determine Extension
-        let fileExt = mimeType?.split('/')[1] || fileUri.split('.').pop()?.toLowerCase();
-        const commonImageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
-        if (!fileExt || !commonImageExtensions.includes(fileExt)) {
-            // Fallback for URI without extension (common from expo-image-picker)
-            const lastSegment = fileUri.split('/').pop();
-            if (lastSegment?.includes('.')) {
-                fileExt = lastSegment.split('.').pop()?.toLowerCase();
-            }
-            if (!fileExt || !commonImageExtensions.includes(fileExt)) {
-                console.warn(`[AuthProvider] _uploadImage: Could not determine common extension ('${fileExt || 'none'}'). Defaulting to 'jpeg'.`);
-                fileExt = 'jpeg'; // Default if still unknown
-            }
-             if (mimeType && mimeType.startsWith('image/') && commonImageExtensions.includes(mimeType.split('/')[1])) {
-                fileExt = mimeType.split('/')[1]; // Prefer mimeType if valid
-                console.log(`[AuthProvider] _uploadImage: Using extension from valid mimeType: '${fileExt}'`);
+    // --- Permissions Function (Exposed via context) ---
+    const requestMediaLibraryPermissions = async (): Promise<boolean> => {
+        if (Platform.OS !== 'web') {
+            try {
+                const { status } = await requestMediaLibraryPermissionsAsync();
+                if (status !== 'granted') {
+                    Alert.alert('Permission Required', 'Vybr needs access to your photos to upload a profile picture.');
+                    console.warn("[AuthProvider] Media library permission denied.");
+                    return false;
+                }
+                console.log("[AuthProvider] Media library permission granted.");
+                return true;
+            } catch (e) {
+                console.error("[AuthProvider] Error requesting media library permissions:", e)
+                Alert.alert('Permission Error', 'Could not request photo permissions.');
+                return false;
             }
         }
-
-        const fileName = `${userId}-${Date.now()}.${fileExt}`;
-        const filePath = `${userId}/${fileName}`; // RLS expects userId as first segment
-        console.log(`[AuthProvider] _uploadImage: Determined filePath: ${filePath}`);
-
-        // Prepare a blob to upload
-        let blob: Blob;
-
-        if (fileUri.startsWith('file:') || fileUri.startsWith('content:') || fileUri.startsWith('ph:')) {
-          console.log('[AuthProvider] _uploadImage: Using XMLHttpRequest for local file URI');
-          try {
-            blob = await new Promise<Blob>((resolve, reject) => {
-              const xhr = new XMLHttpRequest();
-              xhr.onload = function() {
-                if (this.status === 200) {
-                  const responseBlob = new Blob([this.response], { type: mimeType || `image/${fileExt}` });
-                  console.log(`[AuthProvider] _uploadImage: XHR blob created, size: ${responseBlob.size}`);
-                  resolve(responseBlob);
-                } else { reject(new Error(`XHR failed with status ${this.status}`)); }
-              };
-              xhr.onerror = function() { reject(new Error('XHR network error')); };
-              xhr.responseType = 'blob';
-              xhr.open('GET', fileUri, true);
-              xhr.send();
-            });
-            console.log(`[AuthProvider] _uploadImage: Successfully created blob via XHR, size: ${blob.size}`);
-          } catch (xhrError: any) {
-            console.error('[AuthProvider] _uploadImage: XHR approach failed:', xhrError.message);
-            console.log('[AuthProvider] _uploadImage: Falling back to fetch API for local file...');
-            const response = await fetch(fileUri);
-            if (!response.ok) throw new Error(`Fetch failed with status ${response.status}`);
-            blob = await response.blob();
-            console.log(`[AuthProvider] _uploadImage: Successfully created blob via fetch fallback, size: ${blob.size}`);
-          }
-        } else {
-          console.log('[AuthProvider] _uploadImage: Using fetch API for remote/data URI');
-          const response = await fetch(fileUri);
-          if (!response.ok) throw new Error(`Failed to fetch: ${response.status}`);
-          blob = await response.blob();
-          console.log(`[AuthProvider] _uploadImage: Blob created via fetch, size: ${blob.size}`);
-        }
-
-        if (!blob || blob.size === 0) {
-          console.error('[AuthProvider] _uploadImage: Created blob is empty or invalid.');
-          throw new Error('Created blob is empty - cannot upload');
-        }
-
-        // Determine Content-Type
-        let finalContentType = mimeType;
-        if (!finalContentType || !finalContentType.startsWith('image/')) {
-          console.warn(`[AuthProvider] _uploadImage: Provided mimeType '${mimeType}' invalid. Trying blob type '${blob.type}'.`);
-          finalContentType = blob.type && blob.type.startsWith('image/') ? blob.type : `image/${fileExt}`;
-          console.warn(`[AuthProvider] _uploadImage: Using final content type: '${finalContentType}'.`);
-        }
-        console.log(`[AuthProvider] _uploadImage: Final ContentType for upload: ${finalContentType}.`);
-
-        // Upload to Supabase
-        const { data: uploadData, error: uploadError } = await supabase.storage
-            .from(bucket)
-            .upload(filePath, blob, { cacheControl: '3600', upsert: false, contentType: finalContentType });
-
-        if (uploadError) {
-            console.error('[AuthProvider] _uploadImage: Supabase upload error:', JSON.stringify(uploadError, null, 2));
-            if (uploadError.message?.includes('security policy') || uploadError.message?.includes('403')) {
-                 console.error(`--->>> [AuthProvider] RLS ERROR HINT: Check INSERT policy for bucket '${bucket}'. Policy should allow authenticated users based on user ID in path: (bucket_id = '${bucket}') AND (auth.uid() = (storage.foldername(name))[1]::uuid) <<<---`);
-            }
-            throw new Error(`Supabase storage upload failed: ${uploadError.message || 'Unknown upload error'}`);
-        }
-        if (!uploadData?.path) throw new Error('Supabase storage upload succeeded but returned no path.');
-
-        const uploadedPath = uploadData.path;
-        console.log('[AuthProvider] _uploadImage: Image uploaded successfully, path:', uploadedPath);
-
-        // Get Public URL
-        const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(uploadedPath);
-         if (!urlData?.publicUrl) {
-              console.warn('[AuthProvider] _uploadImage: Could not get public URL immediately. Constructing fallback.');
-              const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || Constants.expoConfig?.extra?.supabaseUrl;
-              if (!supabaseUrl) {
-                 console.error('[AuthProvider] _uploadImage: Cannot construct fallback URL - Supabase URL missing.');
-                 return null;
-              }
-              const constructedUrl = `${supabaseUrl.replace(/\/$/, '')}/storage/v1/object/public/${bucket}/${uploadedPath}`;
-              console.log('[AuthProvider] _uploadImage: Using manually constructed URL:', constructedUrl);
-              return constructedUrl;
-         }
-        console.log('[AuthProvider] _uploadImage: Public URL obtained:', urlData.publicUrl);
-        return urlData.publicUrl;
-
-    } catch (error: any) {
-        console.error(`[AuthProvider] _uploadImage: Error during upload for user ${userId}. Bucket: ${bucket}. URI: ${fileUri.substring(0,100)}... Error:`, error.message || error);
-        if (error.message?.includes('Failed to fetch')) console.error(`[AuthProvider] _uploadImage: HINT - Check if the file URI is correct and accessible.`);
-        return null;
-    }
-  };
-
-  // --- Check Session ---
-  const checkSession = async (options?: { navigateToProfile?: boolean }) => {
-    const navigateAfterProfileComplete = options?.navigateToProfile ?? false;
-    console.log(`[AuthProvider] checkSession: START (NavOnComplete: ${navigateAfterProfileComplete})`);
-    const wasMusicLoverProfileComplete = !!previousSessionRef.current?.musicLoverProfile;
-    const wasOrganizerProfileComplete = !!previousSessionRef.current?.organizerProfile;
-
-    try {
-      const { data: { session: authSession }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) { console.error('[AuthCheck] Error getSession:', sessionError); setSession(null); setLoading(false); return; }
-      if (!authSession) { console.log('[AuthCheck] No active session.'); setSession(null); setLoading(false); return; }
-
-      console.log('[AuthCheck] Active session for user:', authSession.user.id);
-
-      // Determine User Type
-      let userType: UserTypes | null = null;
-       const { data: userTypeData, error: userTypeError } = await supabase
-        .from('user_types').select('type').eq('user_id', authSession.user.id).maybeSingle();
-
-       if (userTypeError) console.error('[AuthCheck] Error fetch type:', userTypeError);
-
-       if (userTypeData?.type) { userType = userTypeData.type as UserTypes; }
-       else {
-         const metaUserType = authSession.user.user_metadata?.user_type as UserTypes;
-         if (metaUserType) {
-           userType = metaUserType;
-           console.log('[AuthCheck] User type from metadata:', userType);
-           supabase.from('user_types').upsert({ user_id: authSession.user.id, type: userType }, { onConflict: 'user_id' })
-              .then(({ error }) => { if (error) console.error('[AuthCheck] Failed DB type upsert:', error); });
-         } else {
-            console.error('[AuthCheck] CRITICAL: No user type found! Signing out.');
-            await supabase.auth.signOut().catch(e => console.warn("Sign out failed after missing type", e));
-            setSession(null); setLoading(false); return;
-          }
-      }
-      if (!userType) { console.error("User type determination failed unexpectedly."); setSession(null); setLoading(false); return; }
-      console.log('[AuthCheck] Determined User Type:', userType);
-
-      // Build Base Session
-      let currentUserSession: UserSession = {
-        user: { id: authSession.user.id, email: authSession.user.email! },
-        userType: userType,
-        musicLoverProfile: null,
-        organizerProfile: null,
-      };
-      if ((userType === 'organizer') !== isOrganizerMode) {
-            setIsOrganizerMode(userType === 'organizer');
-            console.log(`[AuthCheck] Set Organizer Mode: ${userType === 'organizer'}`);
-       }
-
-      // Fetch Specific Profile
-      let profileJustCompleted = false;
-      if (userType === 'music_lover') {
-        // Fetch profile including the new streaming service field
-        const { data: profile, error: profileError } = await supabase
-          .from('music_lover_profiles')
-          .select('*, selected_streaming_service') // Ensure it's selected
-          .eq('user_id', authSession.user.id)
-          .maybeSingle();
-
-        if (profileError) { console.error('[AuthCheck] Error fetch ML profile:', profileError); }
-        else if (profile) {
-          console.log(`[AuthCheck] Music lover profile FOUND. User: ${profile.username}, Premium: ${profile.is_premium}, Service: ${profile.selected_streaming_service}`);
-          // Map all relevant fields including the new one
-          currentUserSession.musicLoverProfile = {
-            id: profile.id, userId: profile.user_id, firstName: profile.first_name, lastName: profile.last_name,
-            username: profile.username, email: profile.email, age: profile.age, profilePicture: profile.profile_picture,
-            bio: profile.bio || {}, country: profile.country, city: profile.city,
-            termsAccepted: profile.terms_accepted ?? false, isPremium: profile.is_premium ?? false,
-            musicData: profile.music_data || {},
-            selectedStreamingService: profile.selected_streaming_service, // <-- Map the value
-          };
-          if (!wasMusicLoverProfileComplete && currentUserSession.musicLoverProfile) {
-            profileJustCompleted = true;
-            console.log('[AuthCheck] Music Lover profile JUST COMPLETED.');
-          }
-        } else console.log('[AuthCheck] No music lover profile found in DB yet.');
-
-      } else if (userType === 'organizer') {
-         // Organizer profile fetch (no changes needed here)
-         const { data: profile, error: profileError } = await supabase
-          .from('organizer_profiles').select('*').eq('user_id', authSession.user.id).maybeSingle();
-        if (profileError) { console.error('[AuthCheck] Error fetch Org profile:', profileError); }
-        else if (profile) {
-           console.log(`[AuthCheck] Organizer profile FOUND. Company: ${profile.company_name}`);
-           currentUserSession.organizerProfile = { /* ... mapping ... */ };
-           if (!wasOrganizerProfileComplete && currentUserSession.organizerProfile) {
-             profileJustCompleted = true;
-             console.log('[AuthCheck] Organizer profile JUST COMPLETED.');
-           }
-        } else console.log('[AuthCheck] No organizer profile found in DB yet.');
-      }
-
-      // Update State
-      console.log(`[AuthCheck] Updating session state. Profile Just Completed Flag: ${profileJustCompleted}`);
-      setSession(currentUserSession);
-
-      // Navigate on Profile Completion (if requested)
-      if (profileJustCompleted && navigateAfterProfileComplete) {
-         setTimeout(() => {
-            if (navigationRef.current && navigationRef.current.isReady()) {
-                 console.log('[AuthCheck] Profile completed & nav requested. Triggering navigation reset...');
-                 const targetTab = userType === 'music_lover' ? 'UserTabs' : 'OrganizerTabs';
-                 const targetScreen = userType === 'music_lover' ? 'Profile' : 'OrganizerProfile';
-
-                 navigationRef.current.reset({
-                     index: 0,
-                     routes: [ { name: 'MainApp', state: { routes: [ { name: targetTab, state: { routes: [{ name: targetScreen }] } } ] } } ],
-                 });
-                 console.log(`[AuthCheck] Navigation reset attempted to ${targetTab} -> ${targetScreen}`);
-            } else {
-                 console.warn('[AuthCheck] Profile completed, nav requested, but navigation ref not ready after delay.');
-            }
-         }, 100);
-       }
-
-    } catch (error: any) {
-      console.error('[AuthCheck] UNEXPECTED error:', error);
-      setSession(null); setIsOrganizerMode(false);
-    } finally {
-      if (loading) {
-          setLoading(false);
-          console.log('[AuthCheck] FINISHED initial load. Set loading=false');
-      } else {
-        console.log('[AuthCheck] FINISHED subsequent check.');
-      }
-    }
-  };
-
-  // --- Auth Listener ---
-  useEffect(() => {
-    console.log('[AuthProvider] Setting up onAuthStateChange listener.');
-    if (loading) { checkSession(); } // Initial check
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, currentAuthSession) => {
-       console.log(`[AuthProvider] Auth State Change Event: ${event}`, currentAuthSession ? `User: ${currentAuthSession.user?.id}` : 'null');
-      switch (event) {
-           case 'SIGNED_IN':
-           case 'INITIAL_SESSION':
-           case 'TOKEN_REFRESHED':
-           case 'USER_UPDATED':
-           case 'PASSWORD_RECOVERY':
-               console.log(`[AuthProvider] Auth Event (${event}): Calling checkSession...`);
-              await checkSession(); // Update state, don't force navigation here
-              break;
-          case 'SIGNED_OUT':
-               console.log('[AuthProvider] Auth Event: SIGNED_OUT received.');
-              setSession(null);
-              setIsOrganizerMode(false);
-              setLoading(false);
-              break;
-          default:
-               console.log('[AuthProvider] Auth Event: Unhandled:', event);
-      }
-    });
-    return () => {
-      console.log('[AuthProvider] Unsubscribing from onAuthStateChange listener.');
-      authListener?.subscription.unsubscribe();
+        console.log("[AuthProvider] Media library permissions not applicable on web or already assumed.");
+        return true; // Assume granted or not needed on web
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run only once on mount
 
-
-  // --- Sign Up ---
-  const signUp = async (credentials: SignUpCredentials): Promise<{ error: any } | { user: any }> => {
-    console.log(`[AuthProvider] signUp: Type: ${credentials.userType}, Email: ${credentials.email}`);
-    try {
-        const { email, password, userType } = credentials;
-        if (!email || !password || !userType) return { error: new Error('Missing required fields (email, password, userType).') };
-
-        console.log('[AuthProvider] signUp: Calling Supabase auth.signUp...');
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-            email, password, options: { data: { user_type: userType } }
-        });
-        if (authError || !authData?.user) {
-            console.error('[AuthProvider] signUp: Supabase Error:', authError || 'No user data returned');
-            if (authError?.message.includes('User already registered')) return { error: new Error('Email already in use. Please log in.') };
-            return { error: authError || new Error('Sign up failed.') };
+    // --- Base64 to ArrayBuffer Helper using Buffer ---
+    const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
+        try {
+            const buf = Buffer.from(base64, 'base64');
+            // Create ArrayBuffer from Buffer's underlying ArrayBuffer
+            return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+        } catch (error) {
+            console.error("Error in base64ToArrayBuffer:", error);
+            throw new Error("Failed to decode base64 string."); // Re-throw
         }
-        const userId = authData.user.id;
-        console.log('[AuthProvider] signUp: Auth user created:', userId);
+    };
 
-        // Upsert user type in DB
-        console.log('[AuthProvider] signUp: Upserting user type in DB...');
-        const { error: upsertTypeError } = await supabase
-            .from('user_types').upsert({ user_id: userId, type: userType }, { onConflict: 'user_id' });
-        if (upsertTypeError) {
-            console.error('[AuthProvider] signUp: DB type upsert failed:', upsertTypeError);
-            console.warn(`[AuthProvider] signUp: User ${userId} created, but failed DB user_type upsert.`);
-        } else {
-             console.log('[AuthProvider] signUp: DB user type upserted successfully.');
+
+    // --- Image Upload Helper (REVISED with expo-file-system) ---
+    const _uploadImage = async (
+        userId: string,
+        fileUri: string,
+        bucket: 'profile-pictures' | 'logos',
+        providedMimeType?: string | null // <<< Pass mimeType from picker result
+    ): Promise<string | null> => {
+        if (!userId || !fileUri) {
+            console.error('[AuthProvider] _uploadImage: Invalid userId or fileUri provided.');
+            return null;
         }
+        const isNative = Platform.OS !== 'web' && (fileUri.startsWith('file:') || fileUri.startsWith('content:') || fileUri.startsWith('ph:'));
+        const logPrefix = `[AuthProvider][${isNative ? 'Native' : 'Web'}] _uploadImage:`;
 
-        console.log('[AuthProvider] signUp: Success for user:', userId, 'Returning user object.');
-        return { user: authData.user }; // Listener will handle state update
+        try {
+            console.log(`${logPrefix} Uploading for user ${userId}. Bucket: ${bucket}. URI: ${fileUri.substring(0, 100)}... MimeType Hint: ${providedMimeType || 'none'}`);
 
-    } catch (error: any) {
-        console.error('[AuthProvider] signUp: UNEXPECTED error:', error);
-        return { error };
-    }
-};
-
-  // --- Create Music Lover Profile ---
-  const createMusicLoverProfile = async (profileData: CreateMusicLoverProfileData): Promise<{ error: any } | { success: boolean }> => {
-    console.log(`[AuthProvider] createMusicLoverProfile: START user: ${profileData.userId}, Service: ${profileData.selectedStreamingService}`);
-    let publicImageUrl: string | null = null;
-
-    try {
-      // Validate required fields including the new service field
-      if (!profileData.firstName || !profileData.lastName || !profileData.username || !profileData.email || profileData.termsAccepted === undefined || !profileData.selectedStreamingService) {
-          console.error("[AuthProvider] createMusicLoverProfile: Missing required profile data.");
-          return { error: new Error("Missing required profile information (name, username, email, terms, streaming service).") };
-      }
-
-      // Handle Image Upload
-      if (profileData.profilePictureUri) {
-        console.log('[AuthProvider] createMusicLoverProfile: Uploading profile picture...');
-        const extension = profileData.profilePictureUri.split('.').pop()?.toLowerCase();
-        let imageMimeType: string | undefined = undefined;
-        if (extension && ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(extension)) {
-           imageMimeType = `image/${extension === 'jpg' ? 'jpeg' : extension}`;
-        }
-        console.log(`[AuthProvider] Determined MimeType for upload: ${imageMimeType}`);
-
-        publicImageUrl = await _uploadImage(profileData.userId, profileData.profilePictureUri, imageMimeType, 'profile-pictures');
-
-        if (publicImageUrl === null) {
-          console.error('[AuthProvider] createMusicLoverProfile: Pic upload FAILED. Proceeding without.');
-        } else console.log('[AuthProvider] createMusicLoverProfile: Pic uploaded successfully:', publicImageUrl);
-      } else {
-         console.log('[AuthProvider] createMusicLoverProfile: No profile picture provided.');
-      }
-
-      // Prepare DB Data including the new service field
-      const dbData = {
-        user_id: profileData.userId,
-        first_name: profileData.firstName.trim(),
-        last_name: profileData.lastName.trim(),
-        username: profileData.username.trim(),
-        email: profileData.email.trim(),
-        age: profileData.age || null,
-        bio: profileData.bio || {},
-        country: profileData.country?.trim() || null,
-        city: profileData.city?.trim() || null,
-        terms_accepted: profileData.termsAccepted,
-        profile_picture: publicImageUrl, // Null if upload failed/skipped
-        selected_streaming_service: profileData.selectedStreamingService, // <-- Save the service
-        music_data: {}, // Default empty object
-        is_premium: false, // Default, updated later
-      };
-      console.log('[AuthProvider] createMusicLoverProfile: Upserting profile data...');
-      const { error: upsertError } = await supabase.from('music_lover_profiles').upsert(dbData, { onConflict: 'user_id' });
-
-      if (upsertError) {
-        console.error('[AuthProvider] createMusicLoverProfile: Upsert FAILED:', JSON.stringify(upsertError, null, 2));
-        if (upsertError.code === '23505' && upsertError.message.includes('username')) return { error: new Error('Username already taken.') };
-        return { error: upsertError };
-      }
-      console.log('[AuthProvider] createMusicLoverProfile: Upsert SUCCESS.');
-      // Success - next step (updatePremiumStatus) will trigger checkSession/navigation
-      return { success: true };
-    } catch (error: any) {
-      console.error('[AuthProvider] createMusicLoverProfile: UNEXPECTED error:', error);
-      return { error };
-    }
-  };
-
-  // --- Create Organizer Profile ---
-  const createOrganizerProfile = async (profileData: CreateOrganizerProfileData): Promise<{ error: any } | { success: boolean }> => {
-    console.log('[AuthProvider] createOrganizerProfile: START user:', profileData.userId);
-    let publicLogoUrl: string | null = null;
-
-    try {
-      // Validation
-      if (!profileData.companyName || !profileData.email) {
-         console.error("[AuthProvider] createOrganizerProfile: Missing required profile data.");
-         return { error: new Error("Missing required profile information (company name, email).") };
-      }
-
-      // Logo Upload
-      if (profileData.logoUri) {
-        console.log('[AuthProvider] createOrganizerProfile: Uploading logo...');
-        const extension = profileData.logoUri.split('.').pop()?.toLowerCase();
-        const imageMimeType = extension ? `image/${extension === 'jpg' ? 'jpeg' : extension}` : undefined;
-         publicLogoUrl = await _uploadImage(profileData.userId, profileData.logoUri, imageMimeType, 'logos');
-        if (publicLogoUrl === null) console.error('[AuthProvider] createOrganizerProfile: Logo upload FAILED. Proceeding without.');
-        else console.log('[AuthProvider] createOrganizerProfile: Logo uploaded successfully.');
-      } else {
-         console.log('[AuthProvider] createOrganizerProfile: No logo provided.');
-      }
-
-      // Prepare DB Data
-      const organizerDbData = {
-        user_id: profileData.userId,
-        company_name: profileData.companyName.trim(),
-        email: profileData.email.trim(),
-        phone_number: profileData.phoneNumber?.trim() || null,
-        business_type: profileData.businessType || null,
-        bio: profileData.bio?.trim() || null,
-        website: profileData.website?.trim() || null,
-        logo: publicLogoUrl,
-      };
-      console.log('[AuthProvider] createOrganizerProfile: Upserting profile data...');
-      const { error: upsertError } = await supabase.from('organizer_profiles').upsert(organizerDbData, { onConflict: 'user_id' });
-
-      if (upsertError) {
-        console.error('[AuthProvider] createOrganizerProfile: Upsert FAILED:', JSON.stringify(upsertError, null, 2));
-        return { error: upsertError };
-      }
-      console.log('[AuthProvider] createOrganizerProfile: Upsert SUCCESS.');
-
-      // Call checkSession with navigation flag for organizers
-      console.log('[AuthProvider] createOrganizerProfile: Calling checkSession with navigate=true...');
-      await checkSession({ navigateToProfile: true }); // Trigger navigation
-      return { success: true };
-    } catch (error: any) {
-      console.error('[AuthProvider] createOrganizerProfile: UNEXPECTED error:', error);
-      return { error };
-    }
-  };
-
-  // --- Update Premium Status (Music Lover) ---
-  const updatePremiumStatus = async (userId: string, isPremium: boolean): Promise<{ error: any } | { success: boolean }> => {
-    console.log(`[AuthProvider] updatePremiumStatus: Setting premium=${isPremium} for user ${userId}`);
-    try {
-      // Update profile table
-      console.log('[AuthPremium] Updating music_lover_profiles...');
-      const { error: updateError } = await supabase
-        .from('music_lover_profiles').update({ is_premium: isPremium }).eq('user_id', userId);
-      if (updateError) { console.error('[AuthPremium] Profile update failed:', updateError); return { error: updateError }; }
-      console.log('[AuthPremium] Profile status updated in DB.');
-
-      // Handle Subscriptions/Payments (ensure tables/columns exist)
-      if (isPremium) {
-        console.log('[AuthPremium] Processing premium subscription/payment records...');
-        const now = new Date();
-        const endDate = new Date(now.getTime());
-        endDate.setMonth(endDate.getMonth() + 1);
-
-        // Upsert subscription (ensure `subscriptions` table and columns exist)
-        const { error: subError } = await supabase.from('subscriptions').upsert({
-          user_id: userId, status: 'active', plan_type: 'premium',
-          start_date: now.toISOString(),
-          end_date: endDate.toISOString(), // Ensure 'end_date' column exists
-          payment_method: 'credit_card' // Placeholder
-        }, { onConflict: 'user_id' });
-
-        if (subError) {
-            console.error('[AuthPremium] Subscription upsert failed:', subError);
-             if (subError.message?.includes("column") && subError.message?.includes("end_date")) {
-               console.error(" --->>> HINT: The 'end_date' column might be missing or misspelled in your 'subscriptions' table schema. <<<---");
+            // --- Determine File Extension (Best Effort) ---
+            let fileExt = fileUri.split('.').pop()?.toLowerCase().split('?')[0]; // Handle query params
+            if (fileExt && (fileExt.length > 5 || !/^[a-z0-9]+$/.test(fileExt))) fileExt = undefined; // Likely not a real extension
+            if (!fileExt && providedMimeType?.startsWith('image/')) {
+                fileExt = providedMimeType.split('/')[1]?.split('+')[0]; // Get ext from mime type (e.g., image/jpeg -> jpeg), handle image/svg+xml
+                console.log(`${logPrefix} Using extension '${fileExt}' from provided mimeType.`);
             }
-            // Decide whether to return error or just log
-        } else {
-          console.log('[AuthPremium] Subscription upsert OK.');
-          // Insert payment history (ensure `payment_history` table and columns exist)
-          const { error: payError } = await supabase.from('payment_history').insert({
-            user_id: userId, amount: 4.99, currency: 'USD',
-            payment_method: 'credit_card', status: 'succeeded',
-            description: 'Premium Subscription Activation'
-          });
-          if (payError) console.error('[AuthPremium] Payment insert failed:', payError);
-          else console.log('[AuthPremium] Payment record OK.');
+            if (!fileExt || !['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'svg'].includes(fileExt)) { // Added common types
+                console.warn(`${logPrefix} Could not determine reliable extension ('${fileExt}'). Defaulting to 'jpg'.`);
+                fileExt = 'jpg';
+            }
+            if (fileExt === 'jpg') fileExt = 'jpeg'; // Normalize
+
+            const fileName = `${userId}-${Date.now()}.${fileExt}`;
+            const filePath = `${userId}/${fileName}`;
+            console.log(`${logPrefix} Determined filePath: ${filePath}`);
+
+            // --- Get File Data (Native vs Web) ---
+            let fileData: ArrayBuffer;
+            let detectedMimeType: string | undefined | null = providedMimeType; // Start with hint
+
+            if (isNative) {
+                console.log(`${logPrefix} Using FileSystem.readAsStringAsync for native URI.`);
+                let fileSize = 0;
+                try {
+                    const fileInfo = await FileSystem.getInfoAsync(fileUri, { size: true });
+                    if (!fileInfo.exists) throw new Error(`File not found at URI: ${fileUri}`);
+                    fileSize = fileInfo.size;
+                    console.log(`${logPrefix} FileSystem.getInfoAsync: Exists=true, Size=${fileSize}`);
+                    if (fileSize === 0) {
+                       console.warn(`${logPrefix} File exists but FileSystem reports size 0. Will attempt to read anyway.`);
+                       // Don't throw error here yet, reading might still yield data
+                    }
+                } catch (infoError: any) {
+                    console.error(`${logPrefix} FileSystem.getInfoAsync failed: ${infoError.message}. Proceeding cautiously.`);
+                }
+
+                const base64 = await FileSystem.readAsStringAsync(fileUri, {
+                    encoding: FileSystem.EncodingType.Base64,
+                });
+                if (!base64 || base64.length < 10) {
+                    throw new Error(`FileSystem.readAsStringAsync returned empty or invalid base64 (length: ${base64?.length})`);
+                }
+                console.log(`${logPrefix} Read file as Base64 successfully (Base64 length: ${base64.length}). Estimated original size: ${fileSize > 0 ? fileSize : 'unknown'}`);
+
+                console.log(`${logPrefix} Converting Base64 to ArrayBuffer...`);
+                fileData = base64ToArrayBuffer(base64);
+                console.log(`${logPrefix} Converted to ArrayBuffer (byteLength: ${fileData.byteLength})`);
+
+                if (fileData.byteLength === 0) {
+                    throw new Error('Converted ArrayBuffer has size 0.');
+                }
+                // Optional size validation (less critical now)
+                // if (fileSize > 0 && Math.abs(fileData.byteLength - fileSize) > fileSize * 0.1) { ... }
+
+            } else {
+                // Web: Use fetch API
+                console.log(`${logPrefix} Using fetch API for web URI.`);
+                const response = await fetch(fileUri);
+                if (!response.ok) throw new Error(`Failed to fetch web URI: ${response.status}`);
+                detectedMimeType = response.headers.get('content-type') || providedMimeType;
+                console.log(`${logPrefix} Fetch response OK. Reading as ArrayBuffer...`);
+                fileData = await response.arrayBuffer();
+                console.log(`${logPrefix} Read web file as ArrayBuffer (byteLength: ${fileData.byteLength})`);
+                if (fileData.byteLength === 0) {
+                    throw new Error('Fetched ArrayBuffer has size 0.');
+                }
+            }
+
+            // --- Determine Final Content-Type ---
+            let finalContentType = detectedMimeType;
+            if (!finalContentType || !finalContentType.startsWith('image/')) { // Be stricter for images
+                 console.warn(`${logPrefix} MimeType '${finalContentType || 'none'}' is invalid/missing/not image. Falling back to extension guess: image/${fileExt}`);
+                 finalContentType = `image/${fileExt}`;
+            }
+             // Special case for SVG if needed
+            if (fileExt === 'svg' && finalContentType !== 'image/svg+xml') {
+                 console.log(`${logPrefix} Setting content type to image/svg+xml for .svg extension.`);
+                 finalContentType = 'image/svg+xml';
+            }
+            console.log(`${logPrefix} Final ContentType for upload: ${finalContentType}.`);
+
+
+            // --- Upload ArrayBuffer to Supabase ---
+            console.log(`${logPrefix} Uploading ArrayBuffer to Supabase bucket "${bucket}" at path "${filePath}"`);
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from(bucket)
+                .upload(filePath, fileData, { // <<< Pass ArrayBuffer
+                    cacheControl: '3600',
+                    upsert: false,
+                    contentType: finalContentType // <<< Pass determined Content-Type
+                });
+
+            if (uploadError) {
+                console.error(`${logPrefix} Supabase upload error:`, JSON.stringify(uploadError, null, 2));
+                if (uploadError.message?.includes('policy') || uploadError.message?.includes('403') || uploadError.statusCode === '403') {
+                    console.error(`--->>> [AuthProvider] RLS CHECK: Failed to upload to bucket '${bucket}'. Verify INSERT RLS policy for authenticated users. Policy should likely check \`(storage.foldername(name))[1] = auth.uid()::text\` <<<---`);
+                } else if (uploadError.message?.includes('Bucket not found')) {
+                    console.error(`--->>> [AuthProvider] BUCKET CHECK: Bucket named '${bucket}' not found in Supabase Storage. <<<---`);
+                }
+                throw new Error(`Supabase storage upload failed: ${uploadError.message || 'Unknown upload error'}`);
+            }
+            if (!uploadData?.path) throw new Error('Supabase storage upload succeeded but returned no path.');
+
+            const uploadedPath = uploadData.path;
+            console.log(`${logPrefix} Image uploaded successfully, path:`, uploadedPath);
+
+            // --- Get Public URL ---
+            const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(uploadedPath);
+            let publicUrl: string | null = null;
+            if (urlData?.publicUrl) {
+                 publicUrl = urlData.publicUrl;
+                 console.log(`${logPrefix} Public URL obtained via API: ${publicUrl}`);
+            } else {
+                 console.warn(`${logPrefix} Could not get public URL via API immediately. Constructing fallback.`);
+                 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || Constants.expoConfig?.extra?.supabaseUrl;
+                 if (!supabaseUrl) {
+                     console.error(`${logPrefix} CRITICAL - Cannot construct fallback URL. EXPO_PUBLIC_SUPABASE_URL or Constants...supabaseUrl is missing!`);
+                 } else {
+                     publicUrl = `${supabaseUrl.replace(/\/$/, '')}/storage/v1/object/public/${bucket}/${uploadedPath}`;
+                     console.log(`${logPrefix} Using manually constructed URL: ${publicUrl}`);
+                 }
+            }
+            return publicUrl;
+
+        } catch (error: any) {
+            console.error(`${logPrefix} Error during upload process for user ${userId}. Bucket: ${bucket}. URI: ${fileUri.substring(0, 100)}... Error:`, error.message || error, error.stack);
+            if (error.message?.includes('Failed to fetch') || error.message?.includes('Network request failed')) console.error(`${logPrefix} HINT - Check network connection and if the file URI '${fileUri.substring(0, 100)}...' is correct and accessible by the app.`);
+            if (error.message?.includes('File not found at URI')) console.error(`${logPrefix} HINT - The file URI provided by the picker might be invalid or temporary and no longer accessible.`);
+            if (error.message?.includes('size 0')) console.error(`${logPrefix} HINT - The file selected appears to be empty.`);
+            Alert.alert("Upload Failed", `Could not upload image. Please try again or select a different image. ${error.message?.substring(0, 100)}`);
+            return null;
         }
-      } else {
-        // Deactivate subscription if downgrading to free
-        console.log('[AuthPremium] Processing free status (deactivation)...');
-        const { error: deactError } = await supabase.from('subscriptions')
-          .update({ status: 'inactive', end_date: new Date().toISOString() }) // Or 'cancelled', set end date
-          .eq('user_id', userId)
-          .eq('status', 'active');
-        if (deactError) console.error('[AuthPremium] Subscription deactivation failed:', deactError);
-        else console.log('[AuthPremium] Subscription deactivated (if applicable).');
-      }
+    };
 
-      // Refresh session AND NAVIGATE after updates
-      console.log(`[AuthProvider] updatePremiumStatus: Calling checkSession with navigate=true...`);
-      await checkSession({ navigateToProfile: true });
 
-      return { success: true };
-    } catch (error: any) {
-      console.error('[AuthProvider] updatePremiumStatus: UNEXPECTED error:', error);
-      return { error };
-    }
-  };
+    // --- Check Session ---
+    const checkSession = async (options?: { navigateToProfile?: boolean }) => {
+        const navigateAfterProfileComplete = options?.navigateToProfile ?? false;
+        const functionCallId = Date.now().toString().slice(-4);
+        console.log(`[AuthProvider][${functionCallId}] checkSession: START (NavOnComplete: ${navigateAfterProfileComplete})`);
+        const wasMusicLoverProfileComplete = !!previousSessionRef.current?.musicLoverProfile;
+        const wasOrganizerProfileComplete = !!previousSessionRef.current?.organizerProfile;
 
-  // --- Login / Logout ---
-  const login = async (credentials: LoginCredentials): Promise<{ error: any } | { user: any }> => {
-      console.log(`[AuthProvider] login: Type: ${credentials.userType}, Email: ${credentials.email}`);
-      try {
-          const { email, password, userType } = credentials;
-          if (!email || !password || !userType) return { error: new Error('Missing fields.') };
+        try {
+            const { data: { session: authSession }, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError) { console.error(`[AuthProvider][${functionCallId}] Error getSession:`, sessionError); setSession(null); setLoading(false); return; }
+            if (!authSession) { console.log(`[AuthProvider][${functionCallId}] No active session found.`); setSession(null); setLoading(false); return; }
 
-          console.log('[AuthProvider] login: Signing in...');
-          const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
-          if (loginError) { console.error("Login Error:", loginError); return { error: { message: 'Invalid email or password.' } }; }
-          if (!loginData?.user) return { error: new Error('Login failed: No user data.') };
-          const userId = loginData.user.id;
-          console.log('[AuthProvider] login: Sign in successful:', userId);
+            console.log(`[AuthProvider][${functionCallId}] Active session for user:`, authSession.user.id);
 
-          // Verify type from DB post-login
-          console.log('[AuthProvider] login: Verifying user type from DB...');
-          const { data: typeData, error: typeError } = await supabase
-              .from('user_types').select('type').eq('user_id', userId).single();
+            // --- Determine User Type (Robust check) ---
+            let userType: UserTypes | null = null;
+            const { data: userTypeData, error: userTypeError } = await supabase
+                .from('user_types').select('type').eq('user_id', authSession.user.id).maybeSingle();
 
-          if (typeError || !typeData) {
-              console.error('[AuthProvider] login: Failed to verify DB type:', typeError);
-              await supabase.auth.signOut().catch(e => console.warn("Sign out failed after type verify error", e));
-              return { error: { message: 'Could not verify account type after login.' } };
-          }
-          if (typeData.type !== userType) {
-              console.warn(`[AuthProvider] login: Type mismatch! Attempted ${userType}, DB has ${typeData.type}. Signing out.`);
-              await supabase.auth.signOut().catch(e => console.warn("Sign out failed after type mismatch", e));
-              return { error: { message: 'Incorrect login portal used for this account type.' } };
-          }
-          console.log('[AuthProvider] login: User type verified:', typeData.type);
+            if (userTypeError) { console.error(`[AuthProvider][${functionCallId}] Error fetching user type from DB:`, userTypeError); }
+            else if (userTypeData?.type) {
+                userType = userTypeData.type as UserTypes;
+                console.log(`[AuthProvider][${functionCallId}] User type from DB:`, userType);
+            } else {
+                console.log(`[AuthProvider][${functionCallId}] No type in DB, checking auth metadata...`);
+                const metaUserType = authSession.user.user_metadata?.user_type as UserTypes;
+                if (metaUserType && (metaUserType === 'music_lover' || metaUserType === 'organizer')) {
+                    userType = metaUserType;
+                    console.log(`[AuthProvider][${functionCallId}] User type from metadata:`, userType, '. Upserting to DB...');
+                    supabase.from('user_types').upsert({ user_id: authSession.user.id, type: userType }, { onConflict: 'user_id' })
+                        .then(({ error }) => { if (error) console.error(`[AuthProvider][${functionCallId}] Failed DB type upsert after metadata fallback:`, error); });
+                } else {
+                    console.error(`[AuthProvider][${functionCallId}] CRITICAL: No user type found in DB or valid metadata! Metadata:`, authSession.user.user_metadata);
+                    await logout();
+                    return;
+                }
+            }
+            if (!userType) { console.error(`[AuthProvider][${functionCallId}] User type determination failed unexpectedly after all checks.`); await logout(); return; }
+            console.log(`[AuthProvider][${functionCallId}] Determined User Type:`, userType);
 
-          setIsOrganizerMode(typeData.type === 'organizer');
-          await checkSession(); // Refresh session, no forced nav needed here
-          console.log('[AuthProvider] login: Session refreshed.');
-          return { user: loginData.user }; // Login screen handles navigation
-    } catch (error: any) {
-        console.error('[AuthProvider] login: UNEXPECTED error:', error);
-        return { error };
-    }
-  };
+            // --- Build Base Session ---
+            let currentUserSession: UserSession = {
+                user: { id: authSession.user.id, email: authSession.user.email! },
+                userType: userType, musicLoverProfile: null, organizerProfile: null,
+            };
 
-  const logout = async () => {
-    console.log('[AuthProvider] logout: Called');
-    try {
-        const { error } = await supabase.auth.signOut();
-        if (error) console.error("[AuthProvider] logout: Supabase signOut Error:", error);
-        else console.log("[AuthProvider] logout: Supabase signOut successful.");
-      } catch (e) { console.error("[AuthProvider] logout: UNEXPECTED error during signOut call:", e); }
-      finally {
-          // Always clear local state
-        console.log("[AuthProvider] logout: Clearing local session state.");
-        setSession(null);
-        setIsOrganizerMode(false);
-        setLoading(false); // Ensure loading is false on logout
-    }
-  };
+            if ((userType === 'organizer') !== isOrganizerMode) {
+                setIsOrganizerMode(userType === 'organizer');
+                console.log(`[AuthProvider][${functionCallId}] Set Organizer Mode: ${userType === 'organizer'}`);
+            }
 
-  // Provide context value
-  return (
-    <AuthContext.Provider value={{
-      session,
-      loading,
-      signUp,
-      login,
-      logout,
-      checkSession,
-      createMusicLoverProfile,
-      createOrganizerProfile,
-      updatePremiumStatus,
-      requestMediaLibraryPermissions
-    }}>
-      {children}
-    </AuthContext.Provider>
-  );
-};
+            // --- Fetch Specific Profile ---
+            let profileJustCompleted = false;
+            if (userType === 'music_lover') {
+                console.log(`[AuthProvider][${functionCallId}] Fetching Music Lover profile...`);
+                const { data: profile, error: profileError } = await supabase
+                    .from('music_lover_profiles') // *** CHECK TABLE NAME ***
+                    .select('*, selected_streaming_service, profile_picture') // *** CHECK COLUMN NAMES ***
+                    .eq('user_id', authSession.user.id) // *** Ensure user_id is the FK column ***
+                    .maybeSingle();
+
+                if (profileError) { console.error(`[AuthProvider][${functionCallId}] Error fetch ML profile:`, profileError); }
+                else if (profile) {
+                    console.log(`[AuthProvider][${functionCallId}] Music lover profile FOUND. User: ${profile.username}, PicURL: ${profile.profile_picture ? 'Yes' : 'No'}`);
+                    currentUserSession.musicLoverProfile = {
+                        id: profile.id, userId: profile.user_id, firstName: profile.first_name, lastName: profile.last_name,
+                        username: profile.username, email: profile.email, age: profile.age,
+                        profilePicture: profile.profile_picture, // Use the fetched URL
+                        bio: profile.bio || {}, country: profile.country, city: profile.city,
+                        termsAccepted: profile.terms_accepted ?? false, isPremium: profile.is_premium ?? false,
+                        musicData: profile.music_data || {},
+                        selectedStreamingService: profile.selected_streaming_service,
+                    };
+                    if (!wasMusicLoverProfileComplete && currentUserSession.musicLoverProfile) {
+                        profileJustCompleted = true;
+                        console.log(`[AuthProvider][${functionCallId}] Music Lover profile JUST COMPLETED.`);
+                    }
+                } else console.log(`[AuthProvider][${functionCallId}] No music lover profile found in DB yet.`);
+
+            } else if (userType === 'organizer') {
+                console.log(`[AuthProvider][${functionCallId}] Fetching Organizer profile...`);
+                const { data: profile, error: profileError } = await supabase
+                    .from('organizer_profiles') // *** CHECK TABLE NAME ***
+                    .select('*, logo') // *** CHECK logo COLUMN NAME ***
+                    .eq('user_id', authSession.user.id) // *** Ensure user_id is the FK column ***
+                    .maybeSingle();
+
+                if (profileError) { console.error(`[AuthProvider][${functionCallId}] Error fetch Org profile:`, profileError); }
+                else if (profile) {
+                    console.log(`[AuthProvider][${functionCallId}] Organizer profile FOUND. Company: ${profile.company_name}, LogoURL: ${profile.logo ? 'Yes' : 'No'}`);
+                    currentUserSession.organizerProfile = {
+                        id: profile.id, userId: profile.user_id, companyName: profile.company_name,
+                        email: profile.email, phoneNumber: profile.phone_number, businessType: profile.business_type,
+                        bio: profile.bio, website: profile.website, logo: profile.logo // Use the fetched logo URL
+                    };
+                    if (!wasOrganizerProfileComplete && currentUserSession.organizerProfile) {
+                        profileJustCompleted = true;
+                        console.log(`[AuthProvider][${functionCallId}] Organizer profile JUST COMPLETED.`);
+                    }
+                } else console.log(`[AuthProvider][${functionCallId}] No organizer profile found in DB yet.`);
+            }
+
+            // --- Update State ---
+            console.log(`[AuthProvider][${functionCallId}] Updating session state. Profile Just Completed Flag: ${profileJustCompleted}`);
+            setSession(currentUserSession);
+
+            // --- Navigate on Profile Completion (if requested) ---
+            if (profileJustCompleted && navigateAfterProfileComplete) {
+                console.log(`[AuthProvider][${functionCallId}] Profile completed & navigation requested. Scheduling navigation check...`);
+                setTimeout(() => {
+                    if (navigationRef.current && navigationRef.current.isReady()) {
+                        console.log(`[AuthProvider][${functionCallId}] Navigation ref ready. Triggering navigation reset...`);
+                        const targetTab = currentUserSession.userType === 'music_lover' ? 'UserTabs' : 'OrganizerTabs';
+                        const targetScreen = currentUserSession.userType === 'music_lover' ? 'Profile' : 'OrganizerProfile'; // *** CHECK SCREEN NAMES ***
+
+                        try {
+                            navigationRef.current.reset({
+                                index: 0,
+                                routes: [{ name: 'MainApp', state: { routes: [{ name: targetTab, state: { routes: [{ name: targetScreen }] } }] } }], // *** CHECK NAVIGATOR NAMES ***
+                            });
+                            console.log(`[AuthProvider][${functionCallId}] Navigation reset attempted to ${targetTab} -> ${targetScreen}`);
+                        } catch (navError) {
+                            console.error(`[AuthProvider][${functionCallId}] Navigation reset FAILED:`, navError);
+                            console.error(`[AuthProvider][${functionCallId}] HINT: Double-check navigator/screen names in the reset config.`);
+                        }
+                    } else {
+                        console.warn(`[AuthProvider][${functionCallId}] Profile completed, nav requested, but navigation ref NOT READY after delay. Navigation skipped.`);
+                    }
+                }, 250);
+            } else {
+                console.log(`[AuthProvider][${functionCallId}] Conditions for navigation not met (ProfileCompleted: ${profileJustCompleted}, NavRequested: ${navigateAfterProfileComplete})`);
+            }
+
+        } catch (error: any) {
+            console.error(`[AuthProvider][${functionCallId}] UNEXPECTED error during checkSession:`, error);
+            setSession(null); setIsOrganizerMode(false);
+        } finally {
+            if (loading) {
+                setLoading(false);
+                console.log(`[AuthProvider][${functionCallId}] FINISHED initial load. Set loading=false`);
+            } else {
+                console.log(`[AuthProvider][${functionCallId}] FINISHED subsequent check.`);
+            }
+        }
+    };
+
+
+    // --- Auth Listener ---
+    useEffect(() => {
+        console.log('[AuthProvider] Setting up onAuthStateChange listener.');
+        // Initial check is important here if listener might miss INITIAL_SESSION
+        if (loading) {
+             console.log('[AuthProvider] Initial load: Calling checkSession from useEffect.');
+             checkSession();
+        }
+
+        const { data: authListener } = supabase.auth.onAuthStateChange(async (event, currentAuthSession) => {
+            console.log(`[AuthProvider] Auth State Change Event: ${event}`, currentAuthSession ? `User: ${currentAuthSession.user?.id}` : 'SIGNED_OUT or NULL');
+            switch (event) {
+                case 'SIGNED_IN':
+                case 'INITIAL_SESSION': // Often triggers on startup
+                case 'TOKEN_REFRESHED':
+                case 'USER_UPDATED':
+                case 'PASSWORD_RECOVERY':
+                    console.log(`[AuthProvider] Auth Event (${event}): Calling checkSession...`);
+                    await checkSession(); // No forced navigation here
+                    break;
+                case 'SIGNED_OUT':
+                    console.log('[AuthProvider] Auth Event: SIGNED_OUT received.');
+                    setSession(null);
+                    setIsOrganizerMode(false);
+                    if (loading) setLoading(false);
+                    break;
+                default:
+                    console.log('[AuthProvider] Auth Event: Unhandled or less common:', event);
+            }
+        });
+        return () => {
+            console.log('[AuthProvider] Unsubscribing from onAuthStateChange listener.');
+            authListener?.subscription.unsubscribe();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Run only once on mount
+
+
+    // --- Sign Up ---
+    const signUp = async (credentials: SignUpCredentials): Promise<{ error: any } | { user: any }> => {
+        console.log(`[AuthProvider] signUp: Type: ${credentials.userType}, Email: ${credentials.email}`);
+        setLoading(true);
+        try {
+            const { email, password, userType, firstName, lastName, username } = credentials;
+            if (!email || !password || !userType) {
+                console.error('[AuthProvider] signUp: Missing required fields.');
+                return { error: new Error('Missing required fields (email, password, userType).') };
+            }
+
+            console.log('[AuthProvider] signUp: Calling Supabase auth.signUp...');
+            const { data: authData, error: authError } = await supabase.auth.signUp({
+                email, password, options: { data: { user_type: userType, /* optional: first_name, last_name */ } }
+            });
+            if (authError || !authData?.user) {
+                console.error('[AuthProvider] signUp: Supabase Auth Error:', JSON.stringify(authError, null, 2) || 'No user data returned');
+                if (authError?.message.includes('User already registered')) return { error: new Error('Email already in use. Please try logging in.') };
+                if (authError?.message.includes('Password should be')) return { error: new Error('Password is too weak. Please use a stronger one.') };
+                return { error: authError || new Error('Sign up failed. Please try again.') };
+            }
+            const userId = authData.user.id;
+            console.log('[AuthProvider] signUp: Auth user created:', userId);
+
+            console.log('[AuthProvider] signUp: Upserting user type in DB...');
+            const { error: upsertTypeError } = await supabase
+                .from('user_types').upsert({ user_id: userId, type: userType }, { onConflict: 'user_id' });
+            if (upsertTypeError) {
+                console.error('[AuthProvider] signUp: DB type upsert failed:', upsertTypeError);
+                console.warn(`[AuthProvider] signUp: User ${userId} created, but failed DB user_type upsert. Relying on metadata.`);
+            } else {
+                console.log('[AuthProvider] signUp: DB user type upserted successfully.');
+            }
+
+            console.log('[AuthProvider] signUp: Success for user:', userId, 'Returning user object.');
+            // Listener will handle state update via SIGNED_IN -> checkSession
+            return { user: authData.user };
+
+        } catch (error: any) {
+            console.error('[AuthProvider] signUp: UNEXPECTED error:', error);
+            return { error };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // --- Create Music Lover Profile ---
+    const createMusicLoverProfile = async (profileData: CreateMusicLoverProfileData): Promise<{ error: any } | { success: boolean; profilePictureUrl?: string | null }> => {
+        console.log(`[AuthProvider] createMusicLoverProfile: START user: ${profileData.userId}, Username: ${profileData.username}, Service: ${profileData.selectedStreamingService}`);
+        setLoading(true);
+        let publicImageUrl: string | null = null;
+
+        try {
+            // --- Basic Validation ---
+            if (!profileData.userId || !profileData.firstName || !profileData.lastName || !profileData.username || !profileData.email || profileData.termsAccepted === undefined || !profileData.selectedStreamingService) {
+                console.error("[AuthProvider] createMusicLoverProfile: Missing required profile data.", profileData);
+                return { error: new Error("Missing required profile information (name, username, email, terms, streaming service).") };
+            }
+            if (/\s/.test(profileData.username)) {
+                return { error: new Error("Username cannot contain spaces.") };
+            }
+
+            // --- Handle Image Upload ---
+            if (profileData.profilePictureUri) {
+                console.log('[AuthProvider] createMusicLoverProfile: Uploading profile picture...');
+                publicImageUrl = await _uploadImage(
+                    profileData.userId,
+                    profileData.profilePictureUri,
+                    'profile-pictures',
+                    profileData.profilePictureMimeType // Pass the hint
+                );
+
+                if (publicImageUrl === null) {
+                    console.error('[AuthProvider] createMusicLoverProfile: Pic upload FAILED. Proceeding without saving URL.');
+                } else {
+                    console.log('[AuthProvider] createMusicLoverProfile: Pic uploaded successfully, URL:', publicImageUrl);
+                }
+            } else {
+                console.log('[AuthProvider] createMusicLoverProfile: No profile picture provided.');
+            }
+
+            // --- Prepare DB Data (Match DB Columns) ---
+            const dbData: Omit<DbMusicLoverProfile, 'id' | 'created_at' | 'updated_at'> = { // *** CHECK TYPE vs DB ***
+                user_id: profileData.userId,
+                first_name: profileData.firstName.trim(),
+                last_name: profileData.lastName.trim(),
+                username: profileData.username.trim(),
+                email: profileData.email.trim(),
+                age: profileData.age || null,
+                bio: profileData.bio || {},
+                country: profileData.country?.trim() || null,
+                city: profileData.city?.trim() || null,
+                terms_accepted: profileData.termsAccepted,
+                profile_picture: publicImageUrl, // *** CHECK COLUMN NAME *** Use the URL from _uploadImage or null
+                selected_streaming_service: profileData.selectedStreamingService, // *** CHECK COLUMN NAME ***
+                music_data: {},
+                is_premium: false,
+            };
+            console.log('[AuthProvider] createMusicLoverProfile: Preparing to upsert profile data:', { ...dbData, profile_picture: dbData.profile_picture ? 'URL exists' : 'null' });
+
+            // --- Upsert Profile in DB ---
+            const { data: upsertData, error: upsertError } = await supabase
+                .from('music_lover_profiles') // *** CHECK TABLE NAME ***
+                .upsert(dbData, { onConflict: 'user_id' })
+                .select('id')
+                .single();
+
+            if (upsertError) {
+                console.error('[AuthProvider] createMusicLoverProfile: Upsert FAILED:', JSON.stringify(upsertError, null, 2));
+                if (upsertError.code === '23505' && upsertError.message.includes('username')) return { error: new Error('This username is already taken.') };
+                if (upsertError.code === '23505' && upsertError.message.includes('user_id')) {
+                    console.warn('[AuthProvider] createMusicLoverProfile: Profile already existed (user_id conflict), was updated.');
+                } else {
+                    return { error: new Error(`Failed to save profile details: ${upsertError.message}`) };
+                }
+            }
+            console.log('[AuthProvider] createMusicLoverProfile: Upsert SUCCESS.', upsertData);
+
+            // Success! Return success flag and the image URL (if any).
+            // The subsequent call to updatePremiumStatus will trigger checkSession and handle navigation.
+            return { success: true, profilePictureUrl: publicImageUrl };
+
+        } catch (error: any) {
+            console.error('[AuthProvider] createMusicLoverProfile: UNEXPECTED error:', error);
+            return { error: new Error('An unexpected error occurred while saving your profile.') };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // --- Create Organizer Profile ---
+    const createOrganizerProfile = async (profileData: CreateOrganizerProfileData): Promise<{ error: any } | { success: boolean; logoUrl?: string | null }> => {
+        console.log('[AuthProvider] createOrganizerProfile: START user:', profileData.userId);
+        setLoading(true);
+        let publicLogoUrl: string | null = null;
+
+        try {
+            // --- Validation ---
+            if (!profileData.userId || !profileData.companyName || !profileData.email) {
+                console.error("[AuthProvider] createOrganizerProfile: Missing required profile data.");
+                return { error: new Error("Missing required profile information (company name, email).") };
+            }
+
+            // --- Logo Upload ---
+            if (profileData.logoUri) {
+                console.log('[AuthProvider] createOrganizerProfile: Uploading logo...');
+                publicLogoUrl = await _uploadImage(
+                    profileData.userId,
+                    profileData.logoUri,
+                    'logos',
+                    profileData.logoMimeType // Pass hint
+                );
+                if (publicLogoUrl === null) {
+                    console.error('[AuthProvider] createOrganizerProfile: Logo upload FAILED. Proceeding without saving URL.');
+                } else {
+                    console.log('[AuthProvider] createOrganizerProfile: Logo uploaded successfully.');
+                }
+            } else {
+                console.log('[AuthProvider] createOrganizerProfile: No logo provided.');
+            }
+
+            // --- Prepare DB Data (Match DB Columns for organizer_profiles table) ---
+            const organizerDbData: Omit<DbOrganizerProfile, 'id' | 'created_at' | 'updated_at'> = { // *** CHECK TYPE vs DB ***
+                user_id: profileData.userId,
+                company_name: profileData.companyName.trim(),
+                email: profileData.email.trim(),
+                phone_number: profileData.phoneNumber?.trim() || null,
+                business_type: profileData.businessType || null,
+                bio: profileData.bio?.trim() || null,
+                website: profileData.website?.trim() || null,
+                logo: publicLogoUrl, // *** CHECK COLUMN NAME *** Use the URL from _uploadImage or null
+            };
+            console.log('[AuthProvider] createOrganizerProfile: Preparing to upsert profile data:', { ...organizerDbData, logo: organizerDbData.logo ? 'URL exists' : 'null' });
+
+            // --- Upsert Profile in DB ---
+            const { data: upsertData, error: upsertError } = await supabase
+                .from('organizer_profiles') // *** CHECK TABLE NAME ***
+                .upsert(organizerDbData, { onConflict: 'user_id' })
+                .select('id')
+                .single();
+
+            if (upsertError) {
+                console.error('[AuthProvider] createOrganizerProfile: Upsert FAILED:', JSON.stringify(upsertError, null, 2));
+                return { error: new Error(`Failed to save organizer profile: ${upsertError.message}`) };
+            }
+            console.log('[AuthProvider] createOrganizerProfile: Upsert SUCCESS.', upsertData);
+
+            // --- Refresh Session & Trigger Navigation ---
+            console.log('[AuthProvider] createOrganizerProfile: Calling checkSession with navigate=true...');
+            await checkSession({ navigateToProfile: true });
+
+            return { success: true, logoUrl: publicLogoUrl };
+
+        } catch (error: any) {
+            console.error('[AuthProvider] createOrganizerProfile: UNEXPECTED error:', error);
+            return { error: new Error('An unexpected error occurred saving the organizer profile.') };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // --- Update Premium Status ---
+    const updatePremiumStatus = async (userId: string, isPremium: boolean): Promise<{ error: any } | { success: boolean }> => {
+        console.log(`[AuthProvider] updatePremiumStatus: Setting premium=${isPremium} for user ${userId}`);
+        setLoading(true);
+        try {
+            console.log(`[AuthPremium] Updating 'is_premium' flag in music_lover_profiles for ${userId}...`);
+            const { error: updateError } = await supabase
+                .from('music_lover_profiles') // *** CHECK TABLE NAME ***
+                .update({ is_premium: isPremium, updated_at: new Date().toISOString() })
+                .eq('user_id', userId); // Use user_id
+
+            if (updateError) {
+                console.error(`[AuthPremium] Failed to update is_premium flag for ${userId}:`, updateError);
+                return { error: new Error(`Failed to update account status: ${updateError.message}`) };
+            }
+            console.log(`[AuthPremium] is_premium flag updated successfully for ${userId}.`);
+
+            // --- Handle Subscription/Payment Records (Optional) ---
+            // Add logic here if needed for subscriptions/payments tables
+
+            // --- Refresh session AND NAVIGATE ---
+            console.log(`[AuthProvider] updatePremiumStatus: Calling checkSession with navigate=true after status update for ${userId}...`);
+            await checkSession({ navigateToProfile: true });
+
+            return { success: true };
+        } catch (error: any) {
+            console.error('[AuthProvider] updatePremiumStatus: UNEXPECTED error:', error);
+            return { error: new Error('An unexpected error occurred while updating premium status.') };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // --- Login ---
+    const login = async (credentials: LoginCredentials): Promise<{ error: any } | { user: any }> => {
+        console.log(`[AuthProvider] login: Attempting login for Type: ${credentials.userType}, Email: ${credentials.email}`);
+        setLoading(true);
+        try {
+            const { email, password, userType } = credentials;
+            if (!email || !password || !userType) {
+                console.error('[AuthProvider] login: Missing required fields.');
+                return { error: new Error('Please enter email, password, and select account type.') };
+            }
+
+            console.log('[AuthProvider] login: Calling Supabase auth.signInWithPassword...');
+            const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+
+            if (loginError) {
+                console.error("[AuthProvider] login: Supabase signIn Error:", loginError);
+                if (loginError.message.includes('Invalid login credentials')) {
+                    return { error: { message: 'Invalid email or password. Please check and try again.' } };
+                }
+                return { error: { message: `Login failed: ${loginError.message}` } };
+            }
+            if (!loginData?.user) {
+                console.error('[AuthProvider] login: Login successful but no user data returned.');
+                return { error: new Error('Login failed: Could not retrieve user data.') };
+            }
+            const userId = loginData.user.id;
+            console.log('[AuthProvider] login: Sign in successful via Supabase Auth for user:', userId);
+
+            // --- Verify User Type from DB ---
+            console.log('[AuthProvider] login: Verifying user type from DB...');
+            const { data: typeData, error: typeError } = await supabase
+                .from('user_types') // *** CHECK TABLE NAME ***
+                .select('type')
+                .eq('user_id', userId)
+                .single();
+
+            if (typeError || !typeData) {
+                console.error(`[AuthProvider] login: Failed to verify DB user type for ${userId}:`, typeError || 'No type data found');
+                await logout();
+                return { error: { message: 'Login failed: Could not verify account type. Please contact support.' } };
+            }
+            const dbUserType = typeData.type as UserTypes;
+            console.log(`[AuthProvider] login: DB user type confirmed as: ${dbUserType}`);
+
+            // --- Check Type Mismatch ---
+            if (dbUserType !== userType) {
+                console.warn(`[AuthProvider] login: TYPE MISMATCH! User ${userId} tried logging in via ${userType} portal, but DB type is ${dbUserType}. Signing out.`);
+                await logout();
+                return { error: { message: `Incorrect login portal. This email is registered as a ${dbUserType === 'music_lover' ? 'Music Lover' : 'Organizer'}. Please use the correct login page.` } };
+            }
+            console.log('[AuthProvider] login: User type verified successfully.');
+
+            // --- Set Organizer Mode & Refresh Session ---
+            setIsOrganizerMode(dbUserType === 'organizer');
+            await checkSession(); // Refresh session data *without* forced navigation
+            console.log('[AuthProvider] login: Session refreshed after successful login.');
+
+            return { user: loginData.user }; // Let calling screen handle navigation
+
+        } catch (error: any) {
+            console.error('[AuthProvider] login: UNEXPECTED error:', error);
+            return { error: new Error('An unexpected error occurred during login.') };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // --- Logout ---
+    const logout = async () => {
+        console.log('[AuthProvider] logout: Initiating logout...');
+        setLoading(true);
+        try {
+            const { error } = await supabase.auth.signOut();
+            if (error) {
+                console.error("[AuthProvider] logout: Supabase signOut Error:", error);
+            } else {
+                console.log("[AuthProvider] logout: Supabase signOut successful.");
+            }
+        } catch (e) {
+            console.error("[AuthProvider] logout: UNEXPECTED error during Supabase signOut call:", e);
+        } finally {
+            console.log("[AuthProvider] logout: Clearing local session state and resetting mode.");
+            setSession(null);
+            setIsOrganizerMode(false);
+            setLoading(false);
+        }
+    };
+
+
+    // Provide context value
+    return (
+        <AuthContext.Provider value={{
+            session,
+            loading,
+            signUp,
+            login,
+            logout,
+            checkSession,
+            createMusicLoverProfile,
+            createOrganizerProfile,
+            updatePremiumStatus,
+            requestMediaLibraryPermissions
+        }}>
+            {children}
+        </AuthContext.Provider>
+    );
+}; // <<< End of AuthProvider
 
 // Custom hook
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+    const context = useContext(AuthContext);
+    if (context === undefined) {
+        throw new Error('useAuth must be used within an AuthProvider');
+    }
+    return context;
 };
+
