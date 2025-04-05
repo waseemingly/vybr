@@ -14,6 +14,7 @@
   "dependencies": {
     "@capacitor/core": "^5.5.0",
     "@expo/config-plugins": "^9.0.17",
+    "@expo/metro-runtime": "~4.0.1",
     "@expo/vector-icons": "^14.0.0",
     "@radix-ui/react-accordion": "^1.2.3",
     "@radix-ui/react-aspect-ratio": "^1.1.2",
@@ -51,6 +52,7 @@
     "date-fns": "^3.3.1",
     "embla-carousel-react": "^8.5.2",
     "expo": "^52.0.41",
+    "expo-file-system": "^18.0.12",
     "expo-image-picker": "^16.0.6",
     "expo-linear-gradient": "^14.0.2",
     "expo-status-bar": "^2.0.1",
@@ -73,6 +75,7 @@
     "react-native-safe-area-context": "^4.12.0",
     "react-native-screens": "~4.4.0",
     "react-native-svg": "^15.8.0",
+    "react-native-web": "^0.19.13",
     "react-resizable-panels": "^2.1.7",
     "react-router-dom": "^6.22.1",
     "recharts": "^2.15.1",
