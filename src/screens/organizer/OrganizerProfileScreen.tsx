@@ -65,7 +65,6 @@ const OrganizerProfileScreen: React.FC = () => {
 
   return (
     <SafeAreaView edges={["top"]} style={styles.container}>
-      <View style={styles.header}><View style={styles.headerTitleRow}><View style={styles.titleContainer}><Feather name="briefcase" size={22} color={APP_CONSTANTS.COLORS.PRIMARY} style={styles.headerIcon} /><Text style={styles.title}>Organizer Profile</Text></View><TouchableOpacity style={styles.modeButtonSmall} onPress={toggleOrganizerMode}><Feather name="repeat" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} /><Text style={styles.modeButtonTextSmall}>Switch Mode</Text></TouchableOpacity></View></View>
       <ScrollView style={styles.scrollViewContainer} contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} />}>
         <View style={styles.profileCard}>
             <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={styles.coverPhoto} />

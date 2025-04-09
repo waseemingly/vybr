@@ -138,7 +138,6 @@ const ProfileScreen: React.FC = () => {
         <SafeAreaView edges={["top"]} style={styles.container}>
             {/* Header (Keep as before) */}
             <View style={styles.header}>
-                <View style={styles.headerTitleRow}><View style={styles.titleContainer}><Feather name="user" size={22} color={APP_CONSTANTS.COLORS.PRIMARY} style={styles.headerIcon} /><Text style={styles.title}>Profile</Text></View><TouchableOpacity style={styles.modeButtonSmall} onPress={toggleOrganizerMode}><Feather name="repeat" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} /><Text style={styles.modeButtonTextSmall}>Switch Mode</Text></TouchableOpacity></View>
             </View>
 
             <ScrollView style={styles.scrollViewContainer} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} >

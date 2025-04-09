@@ -1,4 +1,3 @@
-// src/screens/organizer/CreateEventScreen.tsx (Reverted ImagePicker Logic)
 import React, { useState, useEffect, useCallback } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image,
@@ -7,46 +6,34 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-
-// *** REVERTED ImagePicker Import to use * as ImagePicker ***
 import * as ImagePicker from "expo-image-picker";
-// **********************************************************
-
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import * as FileSystem from "expo-file-system";
 import { Buffer } from "buffer";
 import { Picker } from '@react-native-picker/picker';
-
-// --- Adjust Paths If Necessary ---
-import { supabase } from "@/lib/supabase"; // Using common path convention
-import { useAuth } from "@/hooks/useAuth";   // Using common path convention
-// ---------------------------
-
-import { Session } from "@supabase/supabase-js";
+import { supabase } from "../lib/supabase"; // Using common path convention
+import { useAuth } from "../hooks/useAuth";   // Using common path convention
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
-// (Navigation Type definitions - kept from previous correction)
+// Navigation Type definitions
 type OrganizerTabParamList = { Posts: undefined; Create: undefined; OrganizerProfile: undefined; };
 type CreateEventNavigationProp = NativeStackNavigationProp<OrganizerTabParamList, 'Create'>;
 
-// (Event Type Definitions - kept from previous correction)
+// Event Type Definitions
 const eventTypeOptions = [ { label: 'Select Event Type...', value: '', color: '#9CA3AF' }, { label: 'Party', value: 'PARTY' }, { label: 'Live Band (Restaurant)', value: 'LIVE_BAND_RESTAURANT' }, { label: 'DJ Set (Restaurant)', value: 'DJ_SET_RESTAURANT' }, { label: 'DJ Set (Event)', value: 'DJ_SET_EVENT' }, { label: 'Club', value: 'CLUB' }, { label: 'Dance Performance', value: 'DANCE_PERFORMANCE' }, { label: 'Dance Class', value: 'DANCE_CLASS' }, { label: 'Music Performance', value: 'MUSIC_PERFORMANCE' }, { label: 'Orchestra', value: 'ORCHESTRA' }, { label: 'Advertisement Only', value: 'ADVERTISEMENT_ONLY' }, ] as const;
 type EventTypeValue = typeof eventTypeOptions[number]['value'];
 const TICKETED_EVENT_TYPES: EventTypeValue[] = ['PARTY', 'DJ_SET_EVENT', 'DANCE_PERFORMANCE', 'DANCE_CLASS', 'MUSIC_PERFORMANCE', 'ORCHESTRA'];
 const RESERVATION_EVENT_TYPES: EventTypeValue[] = ['LIVE_BAND_RESTAURANT', 'DJ_SET_RESTAURANT', 'CLUB'];
 
-// (Component State Interfaces - kept from previous correction)
+// Component State Interfaces
 interface FormState { title: string; description: string; location: string; artists: string; songs: string; genres: string; eventType: EventTypeValue; bookingMode: 'yes' | 'no'; maxTickets: string; maxReservations: string; ticketPrice: string; passFeeToUser: boolean; }
 interface ImageAsset { uri: string; mimeType?: string; fileName?: string; }
 
-// --- Component Definition ---
 const CreateEventScreen: React.FC = () => {
   const navigation = useNavigation<CreateEventNavigationProp>();
   const { session, loading: authIsLoading } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // (State Variables - kept from previous correction)
   const [formState, setFormState] = useState<FormState>({ title: "", description: "", location: "", artists: "", songs: "", genres: "", eventType: '', bookingMode: 'yes', maxTickets: '', maxReservations: '', ticketPrice: '', passFeeToUser: true, });
   const [eventDate, setEventDate] = useState<Date>(() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(19, 0, 0, 0); return d; });
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -54,30 +41,23 @@ const CreateEventScreen: React.FC = () => {
   const [imageAssets, setImageAssets] = useState<ImageAsset[]>([]);
 
 
-  // (Derived State & Callbacks: derivedBookingType, handleChange - kept from previous correction)
   const derivedBookingType = useCallback((): 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null => { if (formState.bookingMode === 'no' || formState.eventType === 'ADVERTISEMENT_ONLY') return 'INFO_ONLY'; if (TICKETED_EVENT_TYPES.includes(formState.eventType)) return 'TICKETED'; if (RESERVATION_EVENT_TYPES.includes(formState.eventType)) return 'RESERVATION'; return null; }, [formState.eventType, formState.bookingMode]);
   const handleChange = (name: keyof FormState, value: string | boolean | EventTypeValue) => { setFormState((prev) => ({ ...prev, [name]: value })); if (name === 'eventType') { const newEventType = value as EventTypeValue; const newBookingMode = newEventType === 'ADVERTISEMENT_ONLY' ? 'no' : 'yes'; setFormState(prev => ({ ...prev, eventType: newEventType, bookingMode: newBookingMode, maxTickets: '', maxReservations: '', ticketPrice: '', })); } if (name === 'bookingMode' && value === 'no') { setFormState(prev => ({ ...prev, bookingMode: 'no', maxTickets: '', maxReservations: '', ticketPrice: '', })); }};
 
-
-  // (Date & Time Picker Handlers - kept from previous correction)
   const onDateChange = (event: DateTimePickerEvent, selectedDate?: Date | undefined) => { const currentDate = selectedDate || eventDate; setShowDatePicker(Platform.OS === 'ios'); if (event.type === 'set' && selectedDate) { setShowDatePicker(false); const newEventDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), eventDate.getHours(), eventDate.getMinutes(), 0, 0); if (newEventDate > new Date()) { setEventDate(newEventDate); } else { Alert.alert("Invalid Date", "The selected date must be in the future."); } } else if (event.type === 'dismissed') { setShowDatePicker(false); } };
   const onTimeChange = (event: DateTimePickerEvent, selectedTime?: Date | undefined) => { const currentTime = selectedTime || eventDate; setShowTimePicker(Platform.OS === 'ios'); if (event.type === 'set' && selectedTime) { setShowTimePicker(false); const newEventDate = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate(), selectedTime.getHours(), selectedTime.getMinutes(), 0, 0); if (newEventDate > new Date()) { setEventDate(newEventDate); } else { Alert.alert("Invalid Time", "The selected time must be in the future for the chosen date."); } } else if (event.type === 'dismissed') { setShowTimePicker(false); } };
   const formatDate = (date: Date): string => date.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
   const formatTime = (date: Date): string => date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true });
 
-
-  // --- Image Handling (REVERTED to logic from prompt) ---
    const pickImages = async () => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') { Alert.alert("Permission Required", "Permission to access photos is needed."); return; }
         try {
-            // *** Use ImagePicker.MediaTypeOptions.Images (as per your working version) ***
             let result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
                 allowsMultipleSelection: true, quality: 0.8,
                 selectionLimit: 3 - imageAssets.length
             });
-            // ************************************************************************
             if (!result.canceled && result.assets) {
                 const maxToAdd = 3 - imageAssets.length;
                 const newAssets = result.assets.slice(0, maxToAdd);
@@ -88,20 +68,78 @@ const CreateEventScreen: React.FC = () => {
         } catch (e) { console.error("Image pick error:", e); Alert.alert("Image Error","Could not select images."); }
     };
    const removeImage = (index: number) => { setImageAssets(p => { const n = [...p]; n.splice(index, 1); return n; }); };
-   // (base64ToArrayBuffer, uploadSingleImage, uploadImages remain the same - they don't use ImagePicker functions/types directly)
    const base64ToArrayBuffer = (base64: string): ArrayBuffer => { try{ const b = Buffer.from(base64, 'base64'); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); } catch(e){ console.error("Base64 Err:",e); throw new Error("Failed image process."); } };
-   const uploadSingleImage = async (userId: string, asset: ImageAsset): Promise<string | null> => { const { uri, mimeType, fileName: originalFileName } = asset; try { let ext = uri.split('.').pop()?.toLowerCase().split('?')[0] || 'jpeg'; if (ext && (ext.length > 5 || !/^[a-z0-9]+$/.test(ext))) ext = 'jpeg'; if (!['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) ext = 'jpeg'; if (ext === 'jpg') ext = 'jpeg'; const fileName = `${originalFileName ? originalFileName.split('.')[0].replace(/[^a-zA-Z0-9]/g, '_') : 'event-image'}-${Date.now()}.${ext}`; const filePath = `${userId}/${fileName}`; if (Platform.OS === 'web') throw new Error("Web upload not implemented here."); const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }); if (!base64) throw new Error("Failed to read image file."); const arrayBuffer = base64ToArrayBuffer(base64); if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty."); let contentType = mimeType || `image/${ext}`; if (ext === 'svg' && contentType !== 'image/svg+xml') contentType = 'image/svg+xml'; const { data: uploadData, error: uploadError } = await supabase.storage .from("event_posters") .upload(filePath, arrayBuffer, { cacheControl: "3600", upsert: false, contentType: contentType }); if (uploadError) throw new Error(`Supabase upload error: ${uploadError.message}`); if (!uploadData?.path) throw new Error("Upload succeeded but no path returned."); const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(uploadData.path); return urlData?.publicUrl ?? null; } catch (e: any) { console.error(`[ImageUpload] Error for ${uri}:`, e); return null; } };
+   const uploadSingleImage = async (userId: string, asset: ImageAsset): Promise<string | null> => { const { uri, mimeType, fileName: originalFileName } = asset; try { let ext = uri.split('.').pop()?.toLowerCase().split('?')[0] || 'jpeg'; if (ext && (ext.length > 5 || !/^[a-z0-9]+$/.test(ext))) ext = 'jpeg'; if (!['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) ext = 'jpeg'; if (ext === 'jpg') ext = 'jpeg'; const fileName = `${originalFileName ? originalFileName.split('.')[0].replace(/[^a-zA-Z0-9]/g, '_') : 'event-image'}-${Date.now()}.${ext}`; const filePath = `${userId}/${fileName}`; if (Platform.OS === 'web') { // Handle web upload (assuming URI is blob/data URL)
+        const response = await fetch(uri);
+        if (!response.ok) throw new Error(`Failed to fetch web URI: ${response.status}`);
+        const arrayBuffer = await response.arrayBuffer();
+        const webMimeType = response.headers.get('content-type') || mimeType || `image/${ext}`;
+        if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty.");
+        const { data: uploadData, error: uploadError } = await supabase.storage.from("event_posters").upload(filePath, arrayBuffer, { cacheControl: "3600", upsert: false, contentType: webMimeType });
+        if (uploadError) throw new Error(`Supabase upload error: ${uploadError.message}`);
+        if (!uploadData?.path) throw new Error("Upload succeeded but no path returned.");
+        const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(uploadData.path);
+        return urlData?.publicUrl ?? null;
+   } else { // Native Upload
+       const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }); if (!base64) throw new Error("Failed to read image file."); const arrayBuffer = base64ToArrayBuffer(base64); if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty."); let contentType = mimeType || `image/${ext}`; if (ext === 'svg' && contentType !== 'image/svg+xml') contentType = 'image/svg+xml'; const { data: uploadData, error: uploadError } = await supabase.storage .from("event_posters") .upload(filePath, arrayBuffer, { cacheControl: "3600", upsert: false, contentType: contentType }); if (uploadError) throw new Error(`Supabase upload error: ${uploadError.message}`); if (!uploadData?.path) throw new Error("Upload succeeded but no path returned."); const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(uploadData.path); return urlData?.publicUrl ?? null;
+   }} catch (e: any) { console.error(`[ImageUpload] Error for ${uri}:`, e); return null; } };
    const uploadImages = async (userId: string, assets: ImageAsset[]): Promise<string[]> => { if (!assets || assets.length === 0) return []; console.log(`Uploading ${assets.length} images...`); const uploadPromises = assets.map(asset => uploadSingleImage(userId, asset)); try { const results = await Promise.all(uploadPromises); const successfulUrls = results.filter((url): url is string => url !== null); if (successfulUrls.length < assets.length) { Alert.alert("Partial Upload Failed", `Could not upload ${assets.length - successfulUrls.length} image(s).`); } console.log(`Uploaded ${successfulUrls.length} images successfully.`); return successfulUrls; } catch (error) { console.error("Image upload batch error:", error); Alert.alert("Upload Error", "An error occurred uploading images."); return []; } };
 
 
-  // (Form Validation - kept from previous correction)
-  const validateForm = (): boolean => { if (!session?.user) { Alert.alert("Authentication Error", "Please log in."); return false; } if (!formState.title.trim()) { Alert.alert("Missing Information", "Event title is required."); return false; } if (eventDate <= new Date()) { Alert.alert("Invalid Date", "Event date and time must be in the future."); return false; } if (imageAssets.length === 0) { Alert.alert("Missing Information", "At least one event image is required."); return false; } if (!formState.eventType) { Alert.alert("Missing Information", "Please select an event type."); return false; } const currentBookingType = derivedBookingType(); if (formState.bookingMode === 'yes') { if (currentBookingType === 'TICKETED') { if (!formState.maxTickets.trim() || !/^\d+$/.test(formState.maxTickets) || parseInt(formState.maxTickets, 10) < 0) { Alert.alert("Invalid Input", "Enter a valid number of tickets (0+)."); return false; } if (!formState.ticketPrice.trim() || !/^\d+(\.\d{1,2})?$/.test(formState.ticketPrice) || parseFloat(formState.ticketPrice) < 0) { Alert.alert("Invalid Input", "Enter a valid ticket price (e.g., 10.00 or 0)."); return false; } } else if (currentBookingType === 'RESERVATION') { if (!formState.maxReservations.trim() || !/^\d+$/.test(formState.maxReservations) || parseInt(formState.maxReservations, 10) < 0) { Alert.alert("Invalid Input", "Enter a valid number of reservations (0+)."); return false; } } } return true; };
+  const validateForm = (): boolean => {
+      if (!session?.user) { Alert.alert("Authentication Error", "Please log in."); return false; }
+      if (!formState.title.trim()) { Alert.alert("Missing Information", "Event title is required."); return false; }
+      if (eventDate <= new Date()) { Alert.alert("Invalid Date", "Event date and time must be in the future."); return false; }
+      if (imageAssets.length === 0) { Alert.alert("Missing Information", "At least one event image is required."); return false; }
+      if (!formState.eventType) { Alert.alert("Missing Information", "Please select an event type."); return false; }
+      const currentBookingType = derivedBookingType();
+      if (formState.bookingMode === 'yes') {
+          if (currentBookingType === 'TICKETED') {
+              // Allow 0 for unlimited tickets now
+              if (!formState.maxTickets.trim() || !/^\d+$/.test(formState.maxTickets) || parseInt(formState.maxTickets, 10) < 0) {
+                  Alert.alert("Invalid Input", "Enter a valid number of tickets (0 for unlimited)."); return false;
+              }
+              if (!formState.ticketPrice.trim() || !/^\d+(\.\d{1,2})?$/.test(formState.ticketPrice) || parseFloat(formState.ticketPrice) < 0) {
+                  Alert.alert("Invalid Input", "Enter a valid ticket price (e.g., 10.00 or 0 for free)."); return false;
+              }
+          } else if (currentBookingType === 'RESERVATION') {
+               // Allow 0 for unlimited reservations
+              if (!formState.maxReservations.trim() || !/^\d+$/.test(formState.maxReservations) || parseInt(formState.maxReservations, 10) < 0) {
+                  Alert.alert("Invalid Input", "Enter a valid number of reservations (0 for unlimited)."); return false;
+              }
+          }
+      }
+      return true;
+  };
 
-  // (Form Submission logic - kept from previous correction, including navigation to "Posts")
-  const handleSubmit = async () => { if (!validateForm() || !session?.user) return; const userId = session.user.id; setIsSubmitting(true); try { const posterUrls = await uploadImages(userId, imageAssets); if (posterUrls.length !== imageAssets.length && imageAssets.length > 0) { Alert.alert("Upload Issue", "Some images failed to upload. Please try again."); setIsSubmitting(false); return; } const processTags = (tagString: string): string[] | null => { if (!tagString?.trim()) return null; const tags = tagString.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0); return tags.length > 0 ? tags : null; }; const finalGenres = processTags(formState.genres); const finalArtists = processTags(formState.artists); const finalSongs = processTags(formState.songs); const currentBookingType = derivedBookingType(); const eventData = { organizer_id: userId, title: formState.title.trim(), description: formState.description.trim() || null, event_datetime: eventDate.toISOString(), location_text: formState.location.trim() || null, poster_urls: posterUrls, tags_genres: finalGenres, tags_artists: finalArtists, tags_songs: finalSongs, event_type: formState.eventType || null, booking_type: currentBookingType, max_tickets: currentBookingType === 'TICKETED' && formState.bookingMode === 'yes' ? parseInt(formState.maxTickets, 10) : null, max_reservations: currentBookingType === 'RESERVATION' && formState.bookingMode === 'yes' ? parseInt(formState.maxReservations, 10) : null, ticket_price: currentBookingType === 'TICKETED' && formState.bookingMode === 'yes' ? parseFloat(formState.ticketPrice) : null, pass_fee_to_user: currentBookingType === 'TICKETED' && formState.bookingMode === 'yes' ? formState.passFeeToUser : true, }; console.log("Submitting Event Data to Supabase:", eventData); const { data, error } = await supabase.from("events").insert(eventData).select().single(); if (error) { throw error; } Alert.alert("Success!", "Your event has been created."); setFormState({ title: "", description: "", location: "", artists: "", songs: "", genres: "", eventType: '', bookingMode: 'yes', maxTickets: '', maxReservations: '', ticketPrice: '', passFeeToUser: true }); setImageAssets([]); setEventDate(() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(19, 0, 0, 0); return d; }); console.log("Navigation: Attempting to navigate to 'Posts' screen..."); navigation.navigate('Posts'); } catch (e: any) { console.error("Event Creation Failed:", e); Alert.alert("Error Creating Event", `An unexpected error occurred: ${e.message || 'Unknown error'}. Please try again.`); setIsSubmitting(false); } };
+  const handleSubmit = async () => { if (!validateForm() || !session?.user) return; const userId = session.user.id; setIsSubmitting(true); try { const posterUrls = await uploadImages(userId, imageAssets); if (posterUrls.length !== imageAssets.length && imageAssets.length > 0) { Alert.alert("Upload Issue", "Some images failed to upload. Continuing without them."); } const processTags = (tagString: string): string[] | null => { if (!tagString?.trim()) return null; const tags = tagString.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0 && tag.length <= 50); // Added length limit
+         return tags.length > 0 ? tags : null; }; const finalGenres = processTags(formState.genres); const finalArtists = processTags(formState.artists); const finalSongs = processTags(formState.songs); const currentBookingType = derivedBookingType();
+       // Handle 0 input as null (unlimited) for max capacity fields
+       const maxTicketsValue = currentBookingType === 'TICKETED' && formState.bookingMode === 'yes' ? parseInt(formState.maxTickets, 10) : null;
+       const maxReservationsValue = currentBookingType === 'RESERVATION' && formState.bookingMode === 'yes' ? parseInt(formState.maxReservations, 10) : null;
+
+       const eventData = {
+            organizer_id: userId,
+            title: formState.title.trim(),
+            description: formState.description.trim() || null,
+            event_datetime: eventDate.toISOString(),
+            location_text: formState.location.trim() || null,
+            poster_urls: posterUrls,
+            tags_genres: finalGenres,
+            tags_artists: finalArtists,
+            tags_songs: finalSongs,
+            event_type: formState.eventType || null,
+            booking_type: currentBookingType,
+            max_tickets: maxTicketsValue === 0 ? null : maxTicketsValue, // 0 becomes null (unlimited)
+            max_reservations: maxReservationsValue === 0 ? null : maxReservationsValue, // 0 becomes null (unlimited)
+            ticket_price: currentBookingType === 'TICKETED' && formState.bookingMode === 'yes' ? parseFloat(formState.ticketPrice) : null,
+            pass_fee_to_user: currentBookingType === 'TICKETED' && formState.bookingMode === 'yes' ? formState.passFeeToUser : true,
+        };
+        console.log("Submitting Event Data:", eventData);
+        const { data, error } = await supabase.from("events").insert(eventData).select().single(); if (error) { throw error; } Alert.alert("Success!", "Your event has been created."); setFormState({ title: "", description: "", location: "", artists: "", songs: "", genres: "", eventType: '', bookingMode: 'yes', maxTickets: '', maxReservations: '', ticketPrice: '', passFeeToUser: true }); setImageAssets([]); setEventDate(() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(19, 0, 0, 0); return d; }); navigation.navigate('Posts'); } catch (e: any) { console.error("Event Creation Failed:", e); Alert.alert("Error Creating Event", `An unexpected error occurred: ${e.message || 'Unknown error'}. Please try again.`); setIsSubmitting(false); } };
 
 
-  // --- Render Logic (kept from previous correction) ---
+  // --- Render Logic ---
   if (authIsLoading) { return ( <SafeAreaView style={styles.loadingContainer}><ActivityIndicator size="large" /><Text>Loading...</Text></SafeAreaView> ); }
   if (!session) { return ( <SafeAreaView style={styles.loadingContainer}><Feather name="alert-circle" size={40} color="#F87171" /><Text style={styles.authErrorText}>Please Log In</Text><Text style={styles.authErrorSubText}>Log in as an organizer to create events.</Text></SafeAreaView> ); }
 
@@ -114,28 +152,22 @@ const CreateEventScreen: React.FC = () => {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <LinearGradient colors={["rgba(59, 130, 246, 0.05)", "white"]} style={styles.background}>
        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }} keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0} >
-          {/* Header */}
           <View style={styles.header}>
               <View style={styles.headerTitleRow}>
                   <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} accessibilityLabel="Go back"><Feather name="arrow-left" size={24} color="#3B82F6" /></TouchableOpacity>
                   <View style={styles.titleContainer}><Feather name="plus-circle" size={22} color="#60A5FA" style={styles.headerIcon} /><Text style={styles.title}>Create Event</Text></View>
-                  <View style={{ width: 40 }} />{/* Spacer */}
+                  <View style={{ width: 40 }} />
               </View>
               <Text style={styles.subtitle}>Fill in the details to host your event</Text>
           </View>
 
-          {/* Form Scroll Area */}
           <ScrollView style={styles.content} contentContainerStyle={styles.formContainer} showsVerticalScrollIndicator={false} nestedScrollEnabled={true} keyboardShouldPersistTaps="handled" >
-              {/* Event Images */}
               <View style={styles.formGroup}><Label>Event Images (Max 3) *</Label><ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imagesRow}>{imageAssets.map((asset, index)=>(<View key={index} style={styles.imagePreviewContainer}><Image source={{ uri: asset.uri }} style={styles.imagePreview} accessibilityLabel={`Event image ${index + 1}`} /><TouchableOpacity style={styles.removeImageButton} onPress={() => removeImage(index)} accessibilityLabel={`Remove image ${index + 1}`}><Feather name="x-circle" size={20} color="#FFF" /></TouchableOpacity></View>))}{imageAssets.length < 3 && (<TouchableOpacity style={styles.addImageButton} onPress={pickImages} disabled={isSubmitting} accessibilityLabel="Add event image"><Feather name="image" size={24} color="#9CA3AF" /><Text style={styles.addImageText}>Add Image</Text></TouchableOpacity>)}</ScrollView>{imageAssets.length === 0 && (<Text style={styles.errorText}>Please add at least one image.</Text>)}</View>
 
-              {/* Title */}
               <View style={styles.formGroup}><Label>Event Title *</Label><TextInput style={styles.input} placeholder="Give your event a catchy name" value={formState.title} onChangeText={(text)=>handleChange("title",text)} maxLength={100} accessibilityLabel="Event Title Input"/>{!formState.title.trim() && (<Text style={styles.errorText}>Event title is required.</Text>)}</View>
 
-              {/* Description */}
               <View style={styles.formGroup}><Label>Description</Label><TextInput style={[styles.input, styles.textArea]} placeholder="What's this event about? (Lineup, details, etc.)" value={formState.description} onChangeText={(text)=>handleChange("description",text)} multiline numberOfLines={5} textAlignVertical="top" maxLength={5000} accessibilityLabel="Event Description Input"/></View>
 
-              {/* Date & Time */}
               <View style={styles.formRow}>
                   <View style={[styles.formGroup,{flex:1,marginRight:8, marginBottom: 0}]}><Label>Date *</Label><TouchableOpacity style={styles.inputWithIconTouchable} onPress={()=>setShowDatePicker(true)} accessibilityLabel="Select Event Date" accessibilityHint={`Current date: ${formatDate(eventDate)}`} ><Feather name="calendar" size={16} color="#9CA3AF" style={styles.inputIcon} /><Text style={styles.pickerText}>{formatDate(eventDate)}</Text></TouchableOpacity></View>
                   <View style={[styles.formGroup,{flex:1,marginLeft:8, marginBottom: 0}]}><Label>Time *</Label><TouchableOpacity style={styles.inputWithIconTouchable} onPress={()=>setShowTimePicker(true)} accessibilityLabel="Select Event Time" accessibilityHint={`Current time: ${formatTime(eventDate)}`} ><Feather name="clock" size={16} color="#9CA3AF" style={styles.inputIcon} /><Text style={styles.pickerText}>{formatTime(eventDate)}</Text></TouchableOpacity></View>
@@ -144,27 +176,20 @@ const CreateEventScreen: React.FC = () => {
               {showTimePicker && (<DateTimePicker testID="timePicker" value={eventDate} mode="time" display={Platform.OS === 'ios' ? 'spinner' : 'default'} onChange={onTimeChange} />)}
               {eventDate <= new Date() && (<Text style={[styles.errorText,{ marginTop: 4, marginBottom: 10 }]}>Date/Time must be in the future.</Text>)}
 
-              {/* Location */}
               <View style={styles.formGroup}><Label>Location</Label><View style={styles.inputWithIcon}><Feather name="map-pin" size={16} color="#9CA3AF" style={styles.inputIcon} /><TextInput style={styles.iconInput} placeholder="e.g., The Fillmore, Online" value={formState.location} onChangeText={(text)=>handleChange("location",text)} accessibilityLabel="Event Location Input"/></View></View>
 
-              {/* Event Type */}
-              <View style={styles.formGroup}><Label>Event Type *</Label><View style={styles.pickerContainer}><Picker selectedValue={formState.eventType} onValueChange={(itemValue) => handleChange('eventType', itemValue)} style={styles.picker} itemStyle={styles.pickerItem} accessibilityLabel="Select Event Type Picker" prompt="Select Event Type">{eventTypeOptions.map(o=>(<Picker.Item key={o.value} label={o.label} value={o.value} enabled={o.value!==''} color={o.value === '' ? '#9CA3AF' : undefined}/>))}</Picker>{Platform.OS === 'ios' && formState.eventType && eventTypeOptions.find(o => o.value === formState.eventType) && ( <Text style={styles.iosPickerValueDisplay} pointerEvents="none">Selected: {eventTypeOptions.find(o => o.value === formState.eventType)?.label}</Text> )}</View>{!formState.eventType && (<Text style={styles.errorText}>Please select an event type.</Text>)}</View>
+              <View style={styles.formGroup}><Label>Event Type *</Label><View style={styles.pickerContainer}><Picker selectedValue={formState.eventType} onValueChange={(itemValue) => handleChange('eventType', itemValue as EventTypeValue)} style={styles.picker} itemStyle={styles.pickerItem} accessibilityLabel="Select Event Type Picker" prompt="Select Event Type">{eventTypeOptions.map(o=>(<Picker.Item key={o.value} label={o.label} value={o.value} enabled={o.value!==''} color={o.value === '' ? '#9CA3AF' : undefined}/>))}</Picker>{Platform.OS === 'ios' && formState.eventType && eventTypeOptions.find(o => o.value === formState.eventType) && ( <Text style={styles.iosPickerValueDisplay} pointerEvents="none">Selected: {eventTypeOptions.find(o => o.value === formState.eventType)?.label}</Text> )}</View>{!formState.eventType && (<Text style={styles.errorText}>Please select an event type.</Text>)}</View>
 
-              {/* Booking Mode Switch */}
               {formState.eventType && formState.eventType !== 'ADVERTISEMENT_ONLY' && (<View style={styles.formGroup}><Label>{currentBookingType==='TICKETED'?'Enable Ticket Sales?':'Enable Reservations?'}</Label><View style={styles.switchContainer}><Text style={styles.switchLabel}>{formState.bookingMode==='yes'?'Yes':'No (Info Only)'}</Text><Switch trackColor={{false:"#E5E7EB",true:"#60A5FA"}} thumbColor={formState.bookingMode==='yes'?"#3B82F6":"#f4f3f4"} ios_backgroundColor="#E5E7EB" onValueChange={(v)=>handleChange('bookingMode',v?'yes':'no')} value={formState.bookingMode==='yes'} accessibilityLabel={currentBookingType === 'TICKETED' ? 'Enable Ticket Sales Switch' : 'Enable Reservations Switch'} accessibilityHint={formState.bookingMode === 'yes' ? 'Booking enabled' : 'Booking disabled'}/></View></View>)}
 
-              {/* Ticket Fields */}
-              {showTicketFields && (<><View style={styles.formGroup}><Label>Number of Tickets Available *</Label><TextInput style={styles.input} placeholder="e.g., 100 (0 for unlimited)" value={formState.maxTickets} onChangeText={(t)=>handleChange("maxTickets",t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" accessibilityLabel="Number of Tickets Input"/>{(!/^\d+$/.test(formState.maxTickets)&&formState.maxTickets!==''&&(<Text style={styles.errorText}>Enter valid number.</Text>)) || (parseInt(formState.maxTickets, 10) < 0 && (<Text style={styles.errorText}>Cannot be negative.</Text>))}</View><View style={styles.formGroup}><Label>Ticket Price ($) *</Label><TextInput style={styles.input} placeholder="e.g., 25.50 (0 for free)" value={formState.ticketPrice} onChangeText={(t)=>handleChange("ticketPrice",t.replace(/[^0-9.]/g, ''))} keyboardType="decimal-pad" accessibilityLabel="Ticket Price Input"/>{(!/^\d+(\.\d{1,2})?$/.test(formState.ticketPrice)&&formState.ticketPrice!==''&&(<Text style={styles.errorText}>Enter valid price.</Text>)) || (parseFloat(formState.ticketPrice) < 0 && (<Text style={styles.errorText}>Cannot be negative.</Text>))}</View><View style={styles.formGroup}><Label>Pass $0.50 Processing Fee to User?</Label><View style={styles.switchContainer}><Text style={styles.switchLabel}>{formState.passFeeToUser?'Yes (User pays total)':'No (You absorb fee)'}</Text><Switch trackColor={{false:"#E5E7EB",true:"#60A5FA"}} thumbColor={formState.passFeeToUser?"#3B82F6":"#f4f3f4"} ios_backgroundColor="#E5E7EB" onValueChange={(v)=>handleChange('passFeeToUser',v)} value={formState.passFeeToUser} accessibilityLabel="Pass fee switch" accessibilityHint={formState.passFeeToUser ? 'User pays fee' : 'You absorb fee'}/></View></View></>)}
+              {showTicketFields && (<><View style={styles.formGroup}><Label>Number of Tickets Available *</Label><TextInput style={styles.input} placeholder="e.g., 100 (0 for unlimited)" value={formState.maxTickets} onChangeText={(t)=>handleChange("maxTickets",t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" accessibilityLabel="Number of Tickets Input"/>{(!/^\d+$/.test(formState.maxTickets)&&formState.maxTickets!==''&&(<Text style={styles.errorText}>Enter valid number (0 = unlimited).</Text>))}</View><View style={styles.formGroup}><Label>Ticket Price ($) *</Label><TextInput style={styles.input} placeholder="e.g., 25.50 (0 for free)" value={formState.ticketPrice} onChangeText={(t)=>handleChange("ticketPrice",t.replace(/[^0-9.]/g, ''))} keyboardType="decimal-pad" accessibilityLabel="Ticket Price Input"/>{(!/^\d+(\.\d{1,2})?$/.test(formState.ticketPrice)&&formState.ticketPrice!==''&&(<Text style={styles.errorText}>Enter valid price.</Text>))}</View><View style={styles.formGroup}><Label>Pass $0.50 Processing Fee to User?</Label><View style={styles.switchContainer}><Text style={styles.switchLabel}>{formState.passFeeToUser?'Yes (User pays total)':'No (You absorb fee)'}</Text><Switch trackColor={{false:"#E5E7EB",true:"#60A5FA"}} thumbColor={formState.passFeeToUser?"#3B82F6":"#f4f3f4"} ios_backgroundColor="#E5E7EB" onValueChange={(v)=>handleChange('passFeeToUser',v)} value={formState.passFeeToUser} accessibilityLabel="Pass fee switch" accessibilityHint={formState.passFeeToUser ? 'User pays fee' : 'You absorb fee'}/></View></View></>)}
 
-              {/* Reservation Fields */}
-              {showReservationFields && (<View style={styles.formGroup}><Label>Number of Reservations Available *</Label><TextInput style={styles.input} placeholder="e.g., 50 (0 for unlimited)" value={formState.maxReservations} onChangeText={(t)=>handleChange("maxReservations",t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" accessibilityLabel="Number of Reservations Input"/>{(!/^\d+$/.test(formState.maxReservations)&&formState.maxReservations!==''&&(<Text style={styles.errorText}>Enter valid number.</Text>)) || (parseInt(formState.maxReservations, 10) < 0 && (<Text style={styles.errorText}>Cannot be negative.</Text>))}</View>)}
+              {showReservationFields && (<View style={styles.formGroup}><Label>Number of Reservations Available *</Label><TextInput style={styles.input} placeholder="e.g., 50 (0 for unlimited)" value={formState.maxReservations} onChangeText={(t)=>handleChange("maxReservations",t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" accessibilityLabel="Number of Reservations Input"/>{(!/^\d+$/.test(formState.maxReservations)&&formState.maxReservations!==''&&(<Text style={styles.errorText}>Enter valid number (0 = unlimited).</Text>))}</View>)}
 
-              {/* Simplified Tag Inputs */}
               <View style={styles.formGroup}><Label>Music Genres (Comma-separated)</Label><TextInput style={styles.input} placeholder="e.g., House, Techno, Disco" value={formState.genres} onChangeText={(text) => handleChange("genres", text)} accessibilityLabel="Music Genres Input" autoCapitalize="none"/></View>
               <View style={styles.formGroup}><Label>Featured Artists (Comma-separated)</Label><TextInput style={styles.input} placeholder="e.g., Daft Punk, Purple Disco Machine" value={formState.artists} onChangeText={(text) => handleChange("artists", text)} accessibilityLabel="Featured Artists Input" autoCapitalize="words"/></View>
               <View style={styles.formGroup}><Label>Featured Songs (Comma-separated)</Label><TextInput style={styles.input} placeholder="e.g., One More Time, Around the World" value={formState.songs} onChangeText={(text) => handleChange("songs", text)} accessibilityLabel="Featured Songs Input" autoCapitalize="sentences"/></View>
 
-              {/* Submit Button */}
               <TouchableOpacity style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]} onPress={handleSubmit} disabled={isSubmitting} accessibilityLabel="Create Event Button" >{isSubmitting ? (<ActivityIndicator size="small" color="#fff" />) : (<><Feather name="check-circle" size={18} color="#fff" /><Text style={styles.submitButtonText}>Create Event</Text></>)}</TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -173,7 +198,7 @@ const CreateEventScreen: React.FC = () => {
   );
 };
 
-// --- Styles (Keep styles from the previous comma-separated version) ---
+// --- Styles ---
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: "white" },
     background: { flex: 1 },
@@ -190,7 +215,7 @@ const styles = StyleSheet.create({
     content: { flex: 1 },
     formContainer: { paddingHorizontal: 16, paddingBottom: 80 },
     formGroup: { marginBottom: 20 },
-    formRow: { flexDirection: "row", justifyContent: 'space-between', },
+    formRow: { flexDirection: "row", justifyContent: 'space-between', marginBottom: 20 }, // Added marginBottom
     label: { fontSize: 14, fontWeight: "500", color: "#374151", marginBottom: 8 },
     input: { borderWidth: 1, borderColor: "#D1D5DB", borderRadius: 8, paddingHorizontal: 12, fontSize: 16, backgroundColor: "white", height: 48, color: '#1F2937' },
     textArea: { height: 120, paddingTop: 12, textAlignVertical: "top" },
