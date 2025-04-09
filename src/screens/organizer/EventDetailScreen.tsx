@@ -1,4 +1,3 @@
-// src/screens/organizer/EventDetailScreen.tsx (Example Path)
 import React, { useState, useEffect, useCallback } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Dimensions,
@@ -9,44 +8,46 @@ import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/nativ
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
+import { LineChart, PieChart } from "react-native-chart-kit";
+import { supabase, AttendeeAgeGroup, ImpressionTimePoint } from "../../lib/supabase"; // Adjust path
 
-// --- !!! ADJUST PATH !!! ---
-import { supabase } from "../../lib/supabase";
-// ---------------------------
-
-type RootStackParamList = {
+// Define Param List to match AppNavigator
+type OrganizerStackParamList = {
   OrganizerPosts: undefined;
   EventDetail: { eventId: string };
   EditEvent: { eventId: string };
-  PromoteEvent: { eventId: string };
-  ViewBookings: { eventId: string; eventTitle: string }; // Screen to view list of attendees
+  PromoteEvent: { eventId: string }; // Keep if planning to implement
+  ViewBookings: { eventId: string; eventTitle: string }; // Keep if planning to implement
 };
-type EventDetailScreenRouteProp = RouteProp<RootStackParamList, 'EventDetail'>;
-type EventDetailScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'EventDetail'>;
+type EventDetailScreenRouteProp = RouteProp<OrganizerStackParamList, 'EventDetail'>;
+type EventDetailScreenNavigationProp = NativeStackNavigationProp<OrganizerStackParamList, 'EventDetail'>;
 
-// Raw data from 'events' table including new fields
+// Raw data from 'events' table
 interface SupabaseEventDetailData {
   id: string; organizer_id: string; title: string; description: string | null;
   event_datetime: string; location_text: string | null; poster_urls: string[];
-  tags_genres: string[]; tags_artists: string[]; tags_songs: string[];
+  tags_genres: string[] | null; tags_artists: string[] | null; tags_songs: string[] | null;
   created_at: string; updated_at: string;
-  event_type: string | null; // Raw ENUM value
+  event_type: string | null;
   booking_type: 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null;
   max_tickets: number | null; max_reservations: number | null;
   ticket_price: number | null; pass_fee_to_user: boolean | null;
 }
 
-// Mapped data for UI
+// Mapped data for UI including analytics
 interface MappedEventDetail {
   id: string; title: string; description: string; date: string; time: string;
-  venue: string; image: string; artists: string[]; genres: string[];
+  venue: string; image: string; artists: string[]; genres: string[]; songs: string[];
   status: "Upcoming" | "Completed" | "Ongoing";
-  event_type: string | null; // Store the raw type string
+  event_type: string | null;
   booking_type: 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null;
   max_tickets: number | null; max_reservations: number | null;
   ticket_price: number | null; pass_fee_to_user: boolean;
-  bookingsCount: number | null; // Fetched booking count
-  analyticsPlaceholder: boolean; // Keep as placeholder
+  confirmedBookingsCount: number | null;
+  totalImpressions: number | null;
+  totalRevenue: number | null;
+  ageDistribution: AttendeeAgeGroup[] | null;
+  impressionsOverTime: ImpressionTimePoint[] | null;
 }
 
 const DEFAULT_EVENT_IMAGE = "https://via.placeholder.com/800x450/D1D5DB/1F2937?text=No+Image";
@@ -54,8 +55,12 @@ const formatDateTime = (isoString: string | null): { date: string; time: string 
 const getEventStatus = (isoString: string | null): "Upcoming" | "Completed" | "Ongoing" => { if(!isoString)return "Upcoming";try{return new Date(isoString)>new Date()?"Upcoming":"Completed";}catch(e){return "Upcoming";}};
 const formatEventType = (type: string | null): string => { if (!type) return "Unknown"; return type.replace(/_/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' '); };
 
-interface SectionProps { title: string; children: React.ReactNode; }
-const Section: React.FC<SectionProps> = ({ title, children }) => ( <View style={styles.section}><Text style={styles.sectionTitle}>{title}</Text>{children}</View> );
+interface SectionProps { title: string; children: React.ReactNode; icon?: React.ComponentProps<typeof Feather>['name']; }
+const Section: React.FC<SectionProps> = ({ title, children, icon }) => ( <View style={styles.section}><View style={styles.sectionHeader}><View style={styles.sectionTitleContainer}>{icon && <Feather name={icon} size={18} color="#4B5563" style={{marginRight: 8}}/>}<Text style={styles.sectionTitle}>{title}</Text></View></View>{children}</View> );
+
+const screenWidth = Dimensions.get("window").width;
+const chartConfig = { backgroundColor: "#F9FAFB", backgroundGradientFrom: "#F9FAFB", backgroundGradientTo: "#F9FAFB", decimalPlaces: 0, color: (opacity = 1) => `rgba(59, 130, 246, ${opacity})`, labelColor: (opacity = 1) => `rgba(107, 114, 128, ${opacity})`, style: { borderRadius: 8 }, propsForDots: { r: "4", strokeWidth: "1", stroke: "#3B82F6" } };
+const pieChartColors = ["#60A5FA", "#34D399", "#FBBF24", "#F87171", "#A78BFA", "#FB923C", "#9CA3AF"];
 
 const EventDetailScreen = () => {
   const navigation = useNavigation<EventDetailScreenNavigationProp>();
@@ -66,41 +71,81 @@ const EventDetailScreen = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
 
-  // Fetch event details AND booking count
+  // Fetch event details AND analytics data
   const fetchEventData = useCallback(async () => {
     if (!eventId) { setError("Event ID missing."); setIsLoading(false); setRefreshing(false); return; }
-    if (!refreshing) setIsLoading(true); setError(null);
+    if (!refreshing) { setIsLoading(true); setAnalyticsLoading(true); }
+    setError(null);
 
     try {
-        const [eventDetailsResult, bookingCountResult] = await Promise.all([
-            supabase.from("events").select("*").eq("id", eventId).maybeSingle(),
-            supabase.from("event_bookings").select('*', { count: 'exact', head: true }).eq("event_id", eventId)
-        ]);
+        const { data: eventDetailsData, error: eventDetailsError } = await supabase
+            .from("events").select("*").eq("id", eventId).maybeSingle();
 
-        if (eventDetailsResult.error) throw eventDetailsResult.error;
-        if (!eventDetailsResult.data) { setError("Event not found."); setEvent(null); setIsLoading(false); setRefreshing(false); return; }
+        if (eventDetailsError) throw eventDetailsError;
+        if (!eventDetailsData) { setError("Event not found."); setEvent(null); setIsLoading(false); setAnalyticsLoading(false); setRefreshing(false); return; }
 
-        const rawData = eventDetailsResult.data as SupabaseEventDetailData;
+        const rawData = eventDetailsData as SupabaseEventDetailData;
         const { date, time } = formatDateTime(rawData.event_datetime);
-        let bookingsCount: number | null = null;
-        if (bookingCountResult.error) console.warn("Count fetch warn:", bookingCountResult.error.message);
-        else bookingsCount = bookingCountResult.count;
 
-        const mappedData: MappedEventDetail = {
+        // Set base event data first
+        const baseMappedData: MappedEventDetail = {
           id: rawData.id, title: rawData.title, description: rawData.description ?? "N/A",
           date: date, time: time, venue: rawData.location_text ?? "N/A",
           image: rawData.poster_urls?.[0] ?? DEFAULT_EVENT_IMAGE, artists: rawData.tags_artists ?? [],
-          genres: rawData.tags_genres ?? [], status: getEventStatus(rawData.event_datetime),
+          genres: rawData.tags_genres ?? [], songs: rawData.tags_songs ?? [], status: getEventStatus(rawData.event_datetime),
           event_type: rawData.event_type, booking_type: rawData.booking_type,
           max_tickets: rawData.max_tickets, max_reservations: rawData.max_reservations,
           ticket_price: rawData.ticket_price, pass_fee_to_user: rawData.pass_fee_to_user ?? true,
-          bookingsCount: bookingsCount, analyticsPlaceholder: true,
+          confirmedBookingsCount: null, totalImpressions: null, totalRevenue: null,
+          ageDistribution: null, impressionsOverTime: null,
         };
-        setEvent(mappedData);
+        setEvent(baseMappedData);
+        setIsLoading(false); // Base loading finished
 
-    } catch (err: any) { console.error("Fetch Error:", err); setError(`Failed: ${err.message}`); setEvent(null); }
-    finally { setIsLoading(false); setRefreshing(false); }
+        // Fetch analytics in parallel
+        const analyticsPromises = [
+             supabase.from("event_bookings").select('quantity').eq("event_id", eventId).eq('status', 'CONFIRMED'),
+             supabase.from("event_impressions").select('*', { count: 'exact', head: true }).eq("event_id", eventId),
+             rawData.booking_type === 'TICKETED'
+                ? supabase.from("event_bookings").select('total_price_paid').eq("event_id", eventId).eq('status', 'CONFIRMED').not('total_price_paid', 'is', null)
+                : Promise.resolve({ data: [], error: null }),
+             supabase.rpc('get_event_attendee_age_distribution', { target_event_id: eventId }),
+             supabase.rpc('get_event_impressions_over_time', { target_event_id: eventId }) // Using default '1 day' interval
+        ];
+
+        const [ bookingsResult, impressionsResult, revenueResult, ageResult, impressionsTimeResult ] = await Promise.all(analyticsPromises);
+
+        // Process results
+        let confirmedBookingsCount: number | null = null;
+        if (!bookingsResult.error && bookingsResult.data) {
+            confirmedBookingsCount = bookingsResult.data.reduce((sum, row) => sum + (row.quantity || 0), 0);
+        } else { console.warn("Bookings count fetch warn:", bookingsResult.error?.message); }
+
+        let totalImpressions: number | null = impressionsResult.count;
+        if (impressionsResult.error) { console.warn("Impressions count fetch warn:", impressionsResult.error.message); totalImpressions = null; }
+
+        let totalRevenue: number | null = null;
+        if (rawData.booking_type === 'TICKETED' && !revenueResult.error && revenueResult.data) {
+             totalRevenue = revenueResult.data.reduce((sum, row) => sum + (row.total_price_paid || 0), 0);
+        } else if (rawData.booking_type === 'TICKETED' && revenueResult.error) { console.warn("Revenue fetch warn:", revenueResult.error?.message); }
+
+        let ageDistribution: AttendeeAgeGroup[] | null = null;
+        if (!ageResult.error && ageResult.data) {
+            ageDistribution = ageResult.data as AttendeeAgeGroup[];
+        } else { console.warn("Age distribution fetch warn:", ageResult.error?.message); }
+
+        let impressionsOverTime: ImpressionTimePoint[] | null = null;
+        if (!impressionsTimeResult.error && impressionsTimeResult.data) {
+            impressionsOverTime = impressionsTimeResult.data as ImpressionTimePoint[];
+        } else { console.warn("Impressions time fetch warn:", impressionsTimeResult.error?.message); }
+
+        // Update state with analytics
+        setEvent(prev => prev ? ({ ...prev, confirmedBookingsCount, totalImpressions, totalRevenue, ageDistribution, impressionsOverTime }) : null);
+
+    } catch (err: any) { console.error("Fetch Error:", err); setError(`Failed to load event: ${err.message}`); setEvent(null); setIsLoading(false); }
+    finally { setAnalyticsLoading(false); setRefreshing(false); }
   }, [eventId, refreshing]);
 
   useFocusEffect(useCallback(() => { fetchEventData(); }, [fetchEventData]));
@@ -108,9 +153,30 @@ const EventDetailScreen = () => {
 
   // Actions
   const handleEdit = () => { if(event?.id) navigation.navigate('EditEvent', { eventId: event.id }); };
-  const handlePromote = () => { if(event?.id) Alert.alert("Promote", `Promote: ${event.id}`); /* navigation.navigate('PromoteEvent', { eventId: event.id }); */ };
-  const handleViewBookings = () => { if(event?.id) navigation.navigate('ViewBookings', { eventId: event.id, eventTitle: event.title }); };
-  const handleMoreOptions = () => { Alert.alert("More Options", "Implement Delete, etc."); };
+  const handlePromote = () => { if(event?.id) Alert.alert("Promote", `Promote feature coming soon!`); };
+  const handleViewBookings = () => { if(event?.id && event.title) navigation.navigate('ViewBookings', { eventId: event.id, eventTitle: event.title }); else Alert.alert("Error", "Cannot view bookings without event details."); };
+  const handleMoreOptions = () => { Alert.alert("More Options", "Future options: Duplicate Event, Cancel Event, etc."); };
+
+  // Prepare chart data (handle cases with no/insufficient data)
+  const lineChartData = {
+      labels: event?.impressionsOverTime && event.impressionsOverTime.length > 0
+                ? event.impressionsOverTime.map(p => new Date(p.interval_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))
+                : ["Start"], // Default label if no data
+      datasets: [{
+          data: event?.impressionsOverTime && event.impressionsOverTime.length > 0
+                ? event.impressionsOverTime.map(p => p.impression_count)
+                : [0] // Default data point if no data
+      }],
+      legend: ["Impressions / Day"]
+  };
+  const pieChartData = event?.ageDistribution?.filter(g => g.count > 0) // Filter out zero-count groups
+                        .map((group, index) => ({
+                            name: group.age_group,
+                            population: group.count,
+                            color: pieChartColors[index % pieChartColors.length],
+                            legendFontColor: "#7F7F7F",
+                            legendFontSize: 13
+                        })) ?? [];
 
   // Render Logic
   if (isLoading && !event) return ( <SafeAreaView edges={["top"]} style={styles.centeredContainer}><ActivityIndicator size="large" color="#3B82F6" /></SafeAreaView> );
@@ -118,11 +184,12 @@ const EventDetailScreen = () => {
   if (!event) return ( <SafeAreaView edges={["top"]} style={styles.centeredContainer}><Feather name="help-circle" size={40} color="#6B7280" /><Text style={styles.emptyText}>Event not found.</Text></SafeAreaView> );
 
   const bookingLimit = event.booking_type === 'TICKETED' ? event.max_tickets : event.booking_type === 'RESERVATION' ? event.max_reservations : null;
-  // Treat 0 as unlimited in UI, NULL means something went wrong or not applicable
-  const isUnlimited = bookingLimit === 0;
-  const bookingsMade = event.bookingsCount ?? 0; // Default to 0 if count is null
-  // Calculate percentage only if limit is defined, positive, and count is available
-  const percentageSold = (bookingLimit && bookingLimit > 0 && event.bookingsCount !== null) ? Math.min((bookingsMade / bookingLimit) * 100, 100) : 0;
+  const isUnlimited = bookingLimit === null; // Treat null as unlimited (0 means 0 capacity)
+  const bookingsMade = event.confirmedBookingsCount ?? 0;
+  const percentageSold = (!isUnlimited && bookingLimit && bookingLimit > 0 && event.confirmedBookingsCount !== null)
+                         ? Math.min((bookingsMade / bookingLimit) * 100, 100)
+                         : 0;
+  const spotsRemaining = !isUnlimited && bookingLimit ? bookingLimit - bookingsMade : null;
 
   return (
     <SafeAreaView edges={["top"]} style={styles.container}>
@@ -137,48 +204,56 @@ const EventDetailScreen = () => {
             <View style={styles.infoRow}><Feather name="calendar" size={16} color="#6B7280" style={styles.infoIcon} /><Text style={styles.infoText}>{event.date} • {event.time}</Text></View>
             <View style={styles.infoRow}><Feather name="map-pin" size={16} color="#6B7280" style={styles.infoIcon} /><Text style={styles.infoText} numberOfLines={2}>{event.venue}</Text></View>
           </View>
-          {event.genres.length > 0 && (<View style={styles.tagsContainer}>{event.genres.map((g, i) => (<View key={i} style={styles.tag}><Text style={styles.tagText}>{g}</Text></View>))}</View>)}
-          <Section title="Description"><Text style={styles.description}>{event.description}</Text></Section>
-          {event.artists.length > 0 && ( <Section title="Artists"><View style={styles.artistsContainer}>{event.artists.map((a, i) => (<View key={i} style={styles.artistRow}><Feather name="music" size={16} color="#3B82F6" /><Text style={styles.artistName}>{a}</Text></View>))}</View></Section> )}
+          {/* Combined Tags */}
+          <Section title="Tags" icon="tag">
+            <View style={styles.tagsContainer}>{ [...event.genres, ...event.artists, ...event.songs].filter(t => t).map((tag, i) => (<View key={`${tag}-${i}-detail`} style={styles.tag}><Text style={styles.tagText}>{tag}</Text></View>)) }{ [...event.genres, ...event.artists, ...event.songs].filter(t => t).length === 0 && (<Text style={styles.dataMissingTextSmall}>No tags provided.</Text>) }</View>
+          </Section>
 
-          {/* Updated Ticket Sales / Reservations Section */}
-           <Section title={event.booking_type === 'TICKETED' ? "Ticket Sales" : event.booking_type === 'RESERVATION' ? "Reservations" : "Booking Info"}>
-              {event.booking_type === 'INFO_ONLY' ? (
-                  <View style={styles.dataMissingContainer}><Feather name="info" size={24} color="#9CA3AF" /><Text style={styles.dataMissingText}>This event is for information only.</Text></View>
-              ) : event.bookingsCount === null ? (
+          <Section title="Description" icon="file-text"><Text style={styles.description}>{event.description}</Text></Section>
+
+          {/* Ticket Sales / Reservations Section */}
+           <Section title={event.booking_type === 'TICKETED' ? "Ticket Sales" : event.booking_type === 'RESERVATION' ? "Reservations" : "Booking Info"} icon={event.booking_type === 'TICKETED' ? 'tag' : event.booking_type === 'RESERVATION' ? 'bookmark' : 'info'} >
+              {event.booking_type === 'INFO_ONLY' ? (<View style={styles.dataMissingContainer}><Feather name="info" size={24} color="#9CA3AF" /><Text style={styles.dataMissingText}>This event is for information only.</Text></View>
+              ) : analyticsLoading && event.confirmedBookingsCount === null ? ( // Show loading only if count is still null
                   <View style={styles.dataMissingContainer}><ActivityIndicator color="#3B82F6"/><Text style={styles.dataMissingTextSmall}>Loading booking data...</Text></View>
               ) : (
                   <View>
-                      {/* Price Info (Tickets Only) */}
-                      {event.booking_type === 'TICKETED' && (
-                           <View style={styles.infoRow}><Feather name="dollar-sign" size={16} color="#6B7280" style={styles.infoIcon}/><Text style={styles.infoTextBold}>Price:</Text><Text style={styles.infoText}> {event.ticket_price !== null && event.ticket_price >= 0 ? (event.ticket_price === 0 ? 'Free' : `$${event.ticket_price.toFixed(2)}`) : 'N/A'} {event.ticket_price !== null && event.ticket_price > 0 ? (event.pass_fee_to_user ? ' (+ $0.50 Fee)' : ' (Fee Absorbed)') : ''}</Text></View>
-                      )}
-                      {/* Booking/Reservation Progress */}
+                      {event.booking_type === 'TICKETED' && (<View style={styles.infoRow}><Feather name="dollar-sign" size={16} color="#6B7280" style={styles.infoIcon}/><Text style={styles.infoTextBold}>Price:</Text><Text style={styles.infoText}> {event.ticket_price !== null && event.ticket_price >= 0 ? (event.ticket_price === 0 ? 'Free' : `$${event.ticket_price.toFixed(2)}`) : 'N/A'} {event.ticket_price !== null && event.ticket_price > 0 ? (event.pass_fee_to_user ? ' (+ $0.50 Fee)' : ' (Fee Absorbed)') : ''}</Text></View>)}
                       <View style={styles.ticketTypeContainer}>
-                         <View style={styles.ticketHeader}>
-                            <Text style={styles.ticketName}>{event.booking_type === 'TICKETED' ? 'Tickets Sold' : 'Reservations Made'}</Text>
-                            <Text style={styles.ticketPrice}>{bookingsMade} / {isUnlimited ? 'Unlimited' : bookingLimit ?? 'N/A'}</Text>
-                         </View>
-                         {/* Progress Bar */}
-                         {!isUnlimited && bookingLimit !== null && bookingLimit > 0 && (
-                              <View style={styles.progressBarContainer}><View style={[styles.progressBar, { width: `${percentageSold}%` }]} /></View>
-                         )}
-                         {/* Remaining Text */}
-                         {!isUnlimited && bookingLimit !== null && bookingLimit > 0 && (
-                             <Text style={styles.ticketRemainingText}>{bookingLimit - bookingsMade} remaining</Text>
-                         )}
+                         <View style={styles.ticketHeader}><Text style={styles.ticketName}>{event.booking_type === 'TICKETED' ? 'Tickets Sold' : 'Reservations Made'}</Text><Text style={styles.ticketPrice}>{bookingsMade} / {isUnlimited ? 'Unlimited' : bookingLimit ?? 'N/A'}</Text></View>
+                         {!isUnlimited && bookingLimit && bookingLimit > 0 && (<View style={styles.progressBarContainer}><View style={[styles.progressBar, { width: `${percentageSold}%` }]} /></View>)}
+                         {!isUnlimited && bookingLimit && spotsRemaining !== null && spotsRemaining >= 0 && (<Text style={styles.ticketRemainingText}>{spotsRemaining} remaining</Text>)}
+                         {bookingLimit === 0 && event.booking_type !== 'INFO_ONLY' && (<Text style={styles.warningTextSmall}>Capacity set to 0. Booking disabled.</Text>)}
                       </View>
-                      {/* View Bookings Button */}
-                      {bookingsMade > 0 ? (
-                           <TouchableOpacity style={styles.viewBookingsButtonFullWidth} onPress={handleViewBookings}><Text style={styles.viewBookingsText}>View Attendee List ({bookingsMade})</Text><Feather name="users" size={16} color="#3B82F6" /></TouchableOpacity>
-                      ) : (
-                          <Text style={styles.dataMissingTextSmall}>No {event.booking_type === 'TICKETED' ? 'tickets sold' : 'reservations made'} yet.</Text>
-                      )}
+                      {bookingsMade > 0 ? (<TouchableOpacity style={styles.viewBookingsButtonFullWidth} onPress={handleViewBookings}><Text style={styles.viewBookingsText}>View Attendee List ({bookingsMade})</Text><Feather name="users" size={16} color="#3B82F6" /></TouchableOpacity>
+                      ) : ( <Text style={styles.dataMissingTextSmall}>No {event.booking_type === 'TICKETED' ? 'tickets sold' : 'reservations made'} yet.</Text> )}
+                      {event.booking_type === 'TICKETED' && (<View style={[styles.infoRow, {marginTop: 15, borderTopWidth: 1, borderColor: '#F3F4F6', paddingTop: 15}]}><Feather name="trending-up" size={16} color="#10B981" style={styles.infoIcon}/><Text style={styles.infoTextBold}>Total Revenue:</Text><Text style={[styles.infoText, {color: '#10B981', fontWeight: '600'}]}> ${event.totalRevenue !== null ? event.totalRevenue.toFixed(2) : '0.00'}</Text></View>)}
                   </View>
               )}
            </Section>
 
-          {event.analyticsPlaceholder && ( <Section title="Audience Analytics"><View style={styles.dataMissingContainer}><Feather name="bar-chart-2" size={24} color="#9CA3AF" /><Text style={styles.dataMissingText}>Detailed audience analytics not available.</Text></View></Section> )}
+          {/* Audience Analytics Section */}
+          <Section title="Audience Analytics" icon="bar-chart-2">
+            {analyticsLoading ? ( <View style={styles.dataMissingContainer}><ActivityIndicator color="#3B82F6"/><Text style={styles.dataMissingTextSmall}>Loading analytics...</Text></View> )
+             : (
+                <>
+                    <View style={styles.analyticItem}><Feather name="eye" size={16} color="#6B7280" style={styles.infoIcon}/><Text style={styles.infoTextBold}>Total Views:</Text><Text style={styles.infoText}> {event.totalImpressions ?? 'N/A'}</Text></View>
+                    {(event.impressionsOverTime && event.impressionsOverTime.length > 0) ? (
+                         <View style={styles.chartContainer}>
+                            <Text style={styles.chartTitle}>Impressions Over Time</Text>
+                            <LineChart data={lineChartData} width={screenWidth - 64} height={220} chartConfig={chartConfig} bezier style={styles.chartStyle} />
+                         </View>
+                     ) : ( <Text style={styles.dataMissingTextSmall}>Not enough impression data for trend chart.</Text> )}
+                     {(pieChartData && pieChartData.length > 0) ? (
+                         <View style={styles.chartContainer}>
+                             <Text style={styles.chartTitle}>Attendee Age Distribution</Text>
+                             <PieChart data={pieChartData} width={screenWidth - 64} height={220} chartConfig={chartConfig} accessor={"population"} backgroundColor={"transparent"} paddingLeft={"15"} absolute style={styles.chartStyle} />
+                         </View>
+                     ) : ( <Text style={styles.dataMissingTextSmall}>No attendee age data available.</Text> )}
+                </>
+            )}
+          </Section>
+
           <View style={styles.actionButtons}><TouchableOpacity style={styles.editButton} onPress={handleEdit}><Feather name="edit-2" size={18} color="#3B82F6" /><Text style={styles.editButtonText}>Edit Event</Text></TouchableOpacity><TouchableOpacity style={styles.promoteButton} onPress={handlePromote}><Feather name="trending-up" size={18} color="#FFFFFF" /><Text style={styles.promoteButtonText}>Promote Event</Text></TouchableOpacity></View>
         </View>
       </ScrollView>
@@ -186,7 +261,7 @@ const EventDetailScreen = () => {
   );
 };
 
-// --- Styles --- (Keep previous styles, ensure sales section styles are present)
+// --- Styles ---
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "white" },
   centeredContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: 'white' },
@@ -209,39 +284,34 @@ const styles = StyleSheet.create({
   eventTypeContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, },
   infoContainer: { marginBottom: 16 },
   infoRow: { flexDirection: "row", marginBottom: 12, alignItems: 'flex-start' },
-  infoIcon: { marginRight: 12, marginTop: 3 },
+  infoIcon: { marginRight: 12, marginTop: 3, width: 16, textAlign: 'center' }, // Added width for alignment
   infoText: { fontSize: 16, color: "#4B5563", flexShrink: 1 },
-  infoTextBold: { fontSize: 16, color: "#4B5563", fontWeight: '600'},
-  venueContainer: { flex: 1 },
-  tagsContainer: { flexDirection: "row", flexWrap: "wrap", marginBottom: 20 },
+  infoTextBold: { fontSize: 16, color: "#374151", fontWeight: '600'},
+  tagsContainer: { flexDirection: "row", flexWrap: "wrap", marginTop: 8 },
   tag: { backgroundColor: "rgba(59, 130, 246, 0.1)", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, marginRight: 8, marginBottom: 8 },
   tagText: { color: "#3B82F6", fontSize: 14, fontWeight: "500" },
   section: { marginBottom: 24, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
-  sectionTitle: { fontSize: 18, fontWeight: "600", color: "#111827", marginBottom: 16 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  sectionTitleContainer: {flexDirection: 'row', alignItems: 'center'},
+  sectionTitle: { fontSize: 18, fontWeight: "600", color: "#111827", },
   description: { fontSize: 16, lineHeight: 24, color: "#4B5563" },
-  artistsContainer: { marginTop: 8 },
-  artistRow: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
-  artistName: { fontSize: 16, color: "#374151", marginLeft: 12 },
-  // Sales/Reservation Styles
   ticketTypeContainer: { backgroundColor: "#F9FAFB", borderRadius: 8, padding: 12, marginBottom: 12 },
   ticketHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
   ticketName: { fontSize: 16, fontWeight: "600", color: "#1F2937" },
   ticketPrice: { fontSize: 16, fontWeight: "bold", color: "#4B5563" },
   progressBarContainer: { height: 8, backgroundColor: "#E5E7EB", borderRadius: 4, overflow: "hidden", marginTop: 8 },
   progressBar: { height: "100%", backgroundColor: "#3B82F6", borderRadius: 4 },
-   ticketRemainingText: { // Added style for remaining text
-     fontSize: 12,
-     color: '#6B7280',
-     textAlign: 'right',
-     marginTop: 4,
-   },
+  ticketRemainingText: { fontSize: 12, color: '#6B7280', textAlign: 'right', marginTop: 4, },
   viewBookingsButtonFullWidth: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, marginTop: 12, borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8 },
   viewBookingsText: { fontSize: 14, color: '#3B82F6', fontWeight: '500', marginRight: 4 },
-  // Placeholders
   dataMissingContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 30, paddingHorizontal: 10, backgroundColor: '#F9FAFB', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', borderStyle: 'dashed' },
   dataMissingText: { marginTop: 12, fontSize: 15, color: '#6B7280', textAlign: 'center', lineHeight: 22 },
-  dataMissingTextSmall: { fontSize: 13, color: '#9CA3AF', textAlign: 'center', marginTop: 8 },
-  // Action Buttons
+  dataMissingTextSmall: { fontSize: 13, color: '#9CA3AF', textAlign: 'center', marginTop: 8, fontStyle: 'italic', paddingVertical: 10 },
+  warningTextSmall: { fontSize: 13, color: '#F59E0B', textAlign: 'center', marginTop: 4, },
+  analyticItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingVertical: 4 },
+  chartContainer: { marginTop: 16, alignItems: 'center', marginBottom: 16 },
+  chartTitle: { fontSize: 16, fontWeight: '600', color: '#374151', marginBottom: 8, textAlign: 'center' },
+  chartStyle: { marginVertical: 8, borderRadius: 8 },
   actionButtons: { flexDirection: "row", marginTop: 24, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
   editButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(59, 130, 246, 0.1)", paddingVertical: 12, borderRadius: 8, marginRight: 8 },
   editButtonText: { color: "#3B82F6", fontWeight: "600", marginLeft: 8, fontSize: 16 },

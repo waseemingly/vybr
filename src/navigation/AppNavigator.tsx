@@ -1,36 +1,83 @@
 import React from 'react';
 import { View, ActivityIndicator, StyleSheet } from "react-native";
-// No NavigationContainer here, should be in App.tsx or root file
+import { NavigationContainerRef } from '@react-navigation/native'; // Keep if used
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
-import { useOrganizerMode } from "@/hooks/useOrganizerMode";
-import { useAuth } from "@/hooks/useAuth";
-import { APP_CONSTANTS } from "@/config/constants";
+import { useOrganizerMode } from "@/hooks/useOrganizerMode"; // Adjust path if needed
+import { useAuth } from "@/hooks/useAuth"; // Adjust path if needed
+import { APP_CONSTANTS } from "@/config/constants"; // Adjust path if needed
 
-// Import screens (Assuming paths are correct)
+// Import screens (Ensure paths are correct)
 import MatchesScreen from "@/screens/MatchesScreen";
 import ChatsScreen from "@/screens/ChatsScreen";
 import SearchScreen from "@/screens/SearchScreen";
 import EventsScreen from "@/screens/EventsScreen";
-import ProfileScreen from "../screens/ProfileScreen"; // Music Lover Profile
+import ProfileScreen from "@/screens/ProfileScreen"; // Assuming this is User Profile
 import CreateEventScreen from "@/screens/CreateEventScreen";
 import NotFoundScreen from "@/screens/NotFoundScreen";
 import OrganizerPostsScreen from "@/screens/organizer/OrganizerPostsScreen";
-import OrganizerProfileScreen from "@/screens/organizer/OrganizerProfileScreen"; // Organizer Profile
+import OrganizerProfileScreen from "@/screens/organizer/OrganizerProfileScreen";
 import EventDetailScreen from "@/screens/organizer/EventDetailScreen";
+import EditEventScreen from "@/screens/EditEventScreen";
+import BookingConfirmationScreen from "@/screens/BookingConfirmationScreen"; // IMPORTED
 
 // Import auth screens
-import LandingScreen from "../screens/auth/LandingScreen";
-import LoginScreen from "../screens/auth/LoginScreen";
-import MusicLoverSignUpFlow from "../screens/auth/MusicLoverSignUpFlow";
-import OrganizerSignUpFlow from "../screens/auth/OrganizerSignUpFlow";
+import LandingScreen from "@/screens/auth/LandingScreen"; // Adjust path if needed
+import LoginScreen from "@/screens/auth/LoginScreen"; // Adjust path if needed
+import MusicLoverSignUpFlow from "@/screens/auth/MusicLoverSignUpFlow"; // Adjust path if needed
+import OrganizerSignUpFlow from "@/screens/auth/OrganizerSignUpFlow"; // Adjust path if needed
+
+// --- Define Param Lists ---
+type RootStackParamList = {
+    Auth: undefined;
+    MusicLoverSignUpFlow: undefined;
+    OrganizerSignUpFlow: undefined;
+    MainApp: undefined; // Nested navigator
+    NotFoundGlobal?: undefined;
+};
+
+type MainStackParamList = {
+    UserTabs: { screen?: keyof UserTabParamList }; // Nested navigator with optional initial screen
+    OrganizerTabs: { screen?: keyof OrganizerTabParamList }; // Nested navigator with optional initial screen
+    EventDetail: { eventId: string };
+    EditEvent: { eventId: string };
+    BookingConfirmation: { // Added confirmation screen params
+        eventId: string;
+        eventTitle: string;
+        quantity: number;
+        pricePerItemDisplay: string;
+        totalPriceDisplay: string;
+        bookingType: 'TICKETED' | 'RESERVATION';
+        rawPricePerItem: number | null;
+        rawTotalPrice: number | null;
+        rawFeePaid: number | null;
+        maxTickets: number | null;
+        maxReservations: number | null;
+    };
+    NotFoundMain: undefined;
+    // Add other screens like ViewBookings, UserEventDetail if needed
+};
+
+type UserTabParamList = {
+    Matches: undefined;
+    Chats: undefined;
+    Search: undefined;
+    Events: undefined;
+    Profile: undefined;
+};
+
+type OrganizerTabParamList = {
+    Posts: undefined;
+    Create: undefined;
+    OrganizerProfile: undefined;
+};
 
 // Create navigators
-const RootStack = createNativeStackNavigator();
-const AuthStackNav = createNativeStackNavigator();
-const MainStack = createNativeStackNavigator();
-const Tab = createBottomTabNavigator();
+const RootStack = createNativeStackNavigator<RootStackParamList>();
+const AuthStackNav = createNativeStackNavigator(); // Keep simple
+const MainStack = createNativeStackNavigator<MainStackParamList>();
+const Tab = createBottomTabNavigator(); // Keep simple
 
 // Loading Component
 const LoadingScreen = () => (
@@ -57,16 +104,12 @@ const AuthScreens = () => {
 };
 
 // Tab navigator for user mode
-// *** CLEANED UP STRUCTURE ***
-const UserTabs = (props) => {
-  const initialRouteName = props.route?.params?.initialRouteName || "Matches";
-  
+const UserTabs = () => {
   return (
     <Tab.Navigator
-      initialRouteName={initialRouteName}
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
-          let iconName: keyof typeof Feather.glyphMap = "help-circle"; // Default
+          let iconName: keyof typeof Feather.glyphMap = "help-circle";
           if (route.name === "Matches") iconName = "heart";
           else if (route.name === "Chats") iconName = "message-square";
           else if (route.name === "Search") iconName = "search";
@@ -86,22 +129,17 @@ const UserTabs = (props) => {
       <Tab.Screen name="Search" component={SearchScreen} />
       <Tab.Screen name="Events" component={EventsScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
-      {/* Ensure NO other elements like spaces or comments are direct children here */}
     </Tab.Navigator>
   );
 };
 
 // Tab navigator for organizer mode
-// *** CLEANED UP STRUCTURE ***
-const OrganizerTabs = (props) => {
-  const initialRouteName = props.route?.params?.initialRouteName || "Posts";
-  
+const OrganizerTabs = () => {
   return (
     <Tab.Navigator
-      initialRouteName={initialRouteName}
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
-          let iconName: keyof typeof Feather.glyphMap = "help-circle"; // Default
+          let iconName: keyof typeof Feather.glyphMap = "help-circle";
           if (route.name === "Posts") iconName = "layout";
           else if (route.name === "Create") iconName = "plus-circle";
           else if (route.name === "OrganizerProfile") iconName = "briefcase";
@@ -117,7 +155,6 @@ const OrganizerTabs = (props) => {
       <Tab.Screen name="Posts" component={OrganizerPostsScreen} options={{ title: "Events" }} />
       <Tab.Screen name="Create" component={CreateEventScreen} options={{ title: "Create" }} />
       <Tab.Screen name="OrganizerProfile" component={OrganizerProfileScreen} options={{ title: "Profile" }} />
-      {/* Ensure NO other elements like spaces or comments are direct children here */}
     </Tab.Navigator>
   );
 };
@@ -127,70 +164,55 @@ const AppNavigator = () => {
   const { isOrganizerMode } = useOrganizerMode();
   const { session, loading } = useAuth();
 
-  console.log(
-    "[AppNavigator] State:",
-    loading ? "Loading" : session ? `Authenticated (${session.userType})` : "Not Authenticated",
-    `Organizer Mode: ${isOrganizerMode}`
-  );
-
-  const isProfileComplete = session && (
-    (session.userType === 'music_lover' && session.musicLoverProfile !== null) ||
-    (session.userType === 'organizer' && session.organizerProfile !== null)
-  );
-
+  console.log("[AppNavigator] State:", loading ? "Loading" : session ? `Auth (${session.userType})` : "No Auth", `Org Mode: ${isOrganizerMode}`);
+  const isProfileComplete = session && ( (session.userType === 'music_lover' && session.musicLoverProfile) || (session.userType === 'organizer' && session.organizerProfile) );
   console.log(`[AppNavigator] Profile Complete: ${isProfileComplete}`);
 
+  if (loading) { return <LoadingScreen />; }
 
-  if (loading) {
-    console.log("[AppNavigator] Rendering Loading Screen");
-    return <LoadingScreen />;
-  }
-
-  // Root stack manages Auth vs Main App vs Onboarding
   return (
       <RootStack.Navigator screenOptions={{ headerShown: false }}>
         {!session ? (
-          // Stack for Authentication screens
           <RootStack.Screen name="Auth" component={AuthScreens} />
         ) : !isProfileComplete ? (
-           // Authenticated BUT Profile Incomplete: Route to the correct signup flow
            <RootStack.Screen
              name={session.userType === 'music_lover' ? "MusicLoverSignUpFlow" : "OrganizerSignUpFlow"}
              component={session.userType === 'music_lover' ? MusicLoverSignUpFlow : OrganizerSignUpFlow}
-             // Add options to prevent navigating back from onboarding if needed
-             // options={{ gestureEnabled: false }}
+             options={{ gestureEnabled: false }} // Prevent swipe back during onboarding
            />
         ) : (
-          // Authenticated AND Profile Complete: Show Main App Stack
           <RootStack.Screen name="MainApp">
             {() => (
               <MainStack.Navigator screenOptions={{ headerShown: false }}>
-                {isOrganizerMode ? (
-                   // Organizer Screens - Start with profile first
+                 {isOrganizerMode ? (
+                  // Organizer Flow
                   <>
-                    <MainStack.Screen name="OrganizerTabs" component={OrganizerTabs} initialParams={{ initialRouteName: "OrganizerProfile" }} />
+                    <MainStack.Screen name="OrganizerTabs" component={OrganizerTabs} initialParams={{ screen: "Posts" }} />
                     <MainStack.Screen name="EventDetail" component={EventDetailScreen} />
+                    <MainStack.Screen name="EditEvent" component={EditEventScreen} />
                   </>
-                ) : (
-                   // Music Lover Screens - Start with profile first
+                 ) : (
+                  // Music Lover Flow
                   <>
-                    <MainStack.Screen name="UserTabs" component={UserTabs} initialParams={{ initialRouteName: "Profile" }} />
-                    <MainStack.Screen name="CreateEvent" component={CreateEventScreen} />
+                    <MainStack.Screen name="UserTabs" component={UserTabs} initialParams={{ screen: "Events" }}/>
                   </>
-                )}
+                 )}
+                {/* Screens accessible by both modes are placed outside the conditional */}
+                <MainStack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} />
+
+                {/* Fallback for Main App */}
                 <MainStack.Screen name="NotFoundMain" component={NotFoundScreen} options={{ title: 'Oops!'}}/>
               </MainStack.Navigator>
             )}
           </RootStack.Screen>
         )}
-        {/* Global Fallback NotFound screen (Optional, place last in RootStack) */}
-         {/* This catches any navigation state not handled above */}
-         {/* <RootStack.Screen name="NotFoundGlobal" component={NotFoundScreen} options={{ title: 'Oops!'}}/> */}
+        {/* Optional Global Fallback */}
+        {/* <RootStack.Screen name="NotFoundGlobal" component={NotFoundScreen} options={{ title: 'Oops!'}}/> */}
       </RootStack.Navigator>
   );
 };
 
-// Styles (Keep existing)
+// Styles
 const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,
