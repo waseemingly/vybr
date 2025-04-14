@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { NavigationContainerRef } from '@react-navigation/native';
 // Adjust path as necessary
 import { supabase, UserTypes, SignUpCredentials, LoginCredentials, UserSession, MusicLoverProfile as DbMusicLoverProfile, OrganizerProfile as DbOrganizerProfile, MusicLoverBio as SupabaseMusicLoverBio } from '../lib/supabase';
@@ -41,28 +41,38 @@ export type CreateOrganizerProfileData = Omit<DbOrganizerProfile, 'id' | 'user_i
     logoUri?: string; // Optional URI string from picker
     logoMimeType?: string | null; // <<< ADDED for passing internally
 };
+
+export interface OrganizerProfile extends DbOrganizerProfile {
+    // Add any frontend-specific fields if needed
+}
+
 // --- End Exported Types ---
 
 // --- Context Definition ---
 const AuthContext = createContext<{
     session: UserSession | null;
     loading: boolean;
+    musicLoverProfile: MusicLoverProfile | null;
+    organizerProfile: OrganizerProfile | null;
     signUp: (credentials: SignUpCredentials) => Promise<{ error: any } | { user: any }>;
     login: (credentials: LoginCredentials) => Promise<{ error: any } | { user: any }>;
     logout: () => Promise<void>;
     checkSession: (options?: { navigateToProfile?: boolean }) => Promise<void>;
-    // Adjust return type slightly if needed
+    refreshSessionData: () => Promise<void>;
     createMusicLoverProfile: (profileData: CreateMusicLoverProfileData) => Promise<{ error: any } | { success: boolean; profilePictureUrl?: string | null }>;
     createOrganizerProfile: (profileData: CreateOrganizerProfileData) => Promise<{ error: any } | { success: boolean; logoUrl?: string | null }>;
     updatePremiumStatus: (userId: string, isPremium: boolean) => Promise<{ error: any } | { success: boolean }>;
-    requestMediaLibraryPermissions: () => Promise<boolean>; // Keep this for UI components
+    requestMediaLibraryPermissions: () => Promise<boolean>;
 }>({
     session: null,
     loading: true,
+    musicLoverProfile: null,
+    organizerProfile: null,
     signUp: async () => ({ error: 'Not implemented' }),
     login: async () => ({ error: 'Not implemented' }),
     logout: async () => { },
     checkSession: async () => { },
+    refreshSessionData: async () => { },
     createMusicLoverProfile: async () => ({ error: 'Not implemented' }),
     createOrganizerProfile: async () => ({ error: 'Not implemented' }),
     updatePremiumStatus: async () => ({ error: 'Not implemented' }),
@@ -78,6 +88,8 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigationRef }) => {
     const [session, setSession] = useState<UserSession | null>(null);
     const [loading, setLoading] = useState(true);
+    const [musicLoverProfile, setMusicLoverProfile] = useState<MusicLoverProfile | null>(null);
+    const [organizerProfile, setOrganizerProfile] = useState<OrganizerProfile | null>(null);
     const { isOrganizerMode, setIsOrganizerMode } = useOrganizerMode();
     const previousSessionRef = useRef<UserSession | null>(null);
 
@@ -232,7 +244,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
             if (uploadError) {
                 console.error(`${logPrefix} Supabase upload error:`, JSON.stringify(uploadError, null, 2));
-                if (uploadError.message?.includes('policy') || uploadError.message?.includes('403') || uploadError.statusCode === '403') {
+                if (uploadError.message?.includes('policy') || uploadError.message?.includes('403')) { 
                     console.error(`--->>> [AuthProvider] RLS CHECK: Failed to upload to bucket '${bucket}'. Verify INSERT RLS policy for authenticated users. Policy should likely check \`(storage.foldername(name))[1] = auth.uid()::text\` <<<---`);
                 } else if (uploadError.message?.includes('Bucket not found')) {
                     console.error(`--->>> [AuthProvider] BUCKET CHECK: Bucket named '${bucket}' not found in Supabase Storage. <<<---`);
@@ -273,191 +285,211 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     };
 
 
-    // --- Check Session ---
-    const checkSession = async (options?: { navigateToProfile?: boolean }) => {
-        const navigateAfterProfileComplete = options?.navigateToProfile ?? false;
-        const functionCallId = Date.now().toString().slice(-4);
-        console.log(`[AuthProvider][${functionCallId}] checkSession: START (NavOnComplete: ${navigateAfterProfileComplete})`);
-        const wasMusicLoverProfileComplete = !!previousSessionRef.current?.musicLoverProfile;
-        const wasOrganizerProfileComplete = !!previousSessionRef.current?.organizerProfile;
+    // --- Check Session & Fetch Profile --- 
+    const checkSession = useCallback(async (options?: { navigateToProfile?: boolean }) => {
+        console.log("[AuthProvider] checkSession called");
+        setLoading(true);
+        setMusicLoverProfile(null); // Clear profiles initially
+        setOrganizerProfile(null);
+        let currentSession: UserSession | null = null;
+        let userType: UserTypes | null = null; // Define userType in broader scope
 
         try {
-            const { data: { session: authSession }, error: sessionError } = await supabase.auth.getSession();
-            if (sessionError) { console.error(`[AuthProvider][${functionCallId}] Error getSession:`, sessionError); setSession(null); setLoading(false); return; }
-            if (!authSession) { console.log(`[AuthProvider][${functionCallId}] No active session found.`); setSession(null); setLoading(false); return; }
+            const { data: { session: supabaseSession }, error: sessionError } = await supabase.auth.getSession();
 
-            console.log(`[AuthProvider][${functionCallId}] Active session for user:`, authSession.user.id);
-
-            // --- Determine User Type (Robust check) ---
-            let userType: UserTypes | null = null;
-            const { data: userTypeData, error: userTypeError } = await supabase
-                .from('user_types').select('type').eq('user_id', authSession.user.id).maybeSingle();
-
-            if (userTypeError) { console.error(`[AuthProvider][${functionCallId}] Error fetching user type from DB:`, userTypeError); }
-            else if (userTypeData?.type) {
-                userType = userTypeData.type as UserTypes;
-                console.log(`[AuthProvider][${functionCallId}] User type from DB:`, userType);
-            } else {
-                console.log(`[AuthProvider][${functionCallId}] No type in DB, checking auth metadata...`);
-                const metaUserType = authSession.user.user_metadata?.user_type as UserTypes;
-                if (metaUserType && (metaUserType === 'music_lover' || metaUserType === 'organizer')) {
-                    userType = metaUserType;
-                    console.log(`[AuthProvider][${functionCallId}] User type from metadata:`, userType, '. Upserting to DB...');
-                    supabase.from('user_types').upsert({ user_id: authSession.user.id, type: userType }, { onConflict: 'user_id' })
-                        .then(({ error }) => { if (error) console.error(`[AuthProvider][${functionCallId}] Failed DB type upsert after metadata fallback:`, error); });
-                } else {
-                    console.error(`[AuthProvider][${functionCallId}] CRITICAL: No user type found in DB or valid metadata! Metadata:`, authSession.user.user_metadata);
-                    await logout();
-                    return;
-                }
-            }
-            if (!userType) { console.error(`[AuthProvider][${functionCallId}] User type determination failed unexpectedly after all checks.`); await logout(); return; }
-            console.log(`[AuthProvider][${functionCallId}] Determined User Type:`, userType);
-
-            // --- Build Base Session ---
-            let currentUserSession: UserSession = {
-                user: { id: authSession.user.id, email: authSession.user.email! },
-                userType: userType, musicLoverProfile: null, organizerProfile: null,
-            };
-
-            if ((userType === 'organizer') !== isOrganizerMode) {
-                setIsOrganizerMode(userType === 'organizer');
-                console.log(`[AuthProvider][${functionCallId}] Set Organizer Mode: ${userType === 'organizer'}`);
+            if (sessionError) {
+                console.error("[AuthProvider] Error getting session:", sessionError);
+                throw sessionError;
             }
 
-            // --- Fetch Specific Profile ---
-            let profileJustCompleted = false;
+            if (supabaseSession) {
+                console.log("[AuthProvider] Supabase session found, user ID:", supabaseSession.user.id);
+                userType = (supabaseSession.user.user_metadata?.user_type as UserTypes) || null;
+                // Construct session matching UserSession type correctly
+                currentSession = {
+                    // Ensure user object matches the type
+                    user: {
+                         id: supabaseSession.user.id,
+                         email: supabaseSession.user.email ?? '' // Provide fallback for email
+                    },
+                    userType: userType,
+                    musicLoverProfile: null, // Initialize as null, fetch below
+                    organizerProfile: null, // Initialize as null, fetch below
+                    // REMOVED token properties and duplicates
+                };
+
+                const userId = supabaseSession.user.id;
+                console.log(`[AuthProvider] User type determined: ${userType}`);
+
+                // Fetch the correct profile based on userType
             if (userType === 'music_lover') {
-                console.log(`[AuthProvider][${functionCallId}] Fetching Music Lover profile...`);
-                const { data: profile, error: profileError } = await supabase
-                    .from('music_lover_profiles') // *** CHECK TABLE NAME ***
-                    .select('*, selected_streaming_service, profile_picture') // *** CHECK COLUMN NAMES ***
-                    .eq('user_id', authSession.user.id) // *** Ensure user_id is the FK column ***
+                    console.log("[AuthProvider] Fetching music lover profile...");
+                    const { data: profileData, error: profileError } = await supabase
+                        .from('music_lover_profiles')
+                        .select('*')
+                        .eq('user_id', userId)
                     .maybeSingle();
 
-                if (profileError) { console.error(`[AuthProvider][${functionCallId}] Error fetch ML profile:`, profileError); }
-                else if (profile) {
-                    console.log(`[AuthProvider][${functionCallId}] Music lover profile FOUND. User: ${profile.username}, PicURL: ${profile.profile_picture ? 'Yes' : 'No'}`);
-                    currentUserSession.musicLoverProfile = {
-                        id: profile.id, userId: profile.user_id, firstName: profile.first_name, lastName: profile.last_name,
-                        username: profile.username, email: profile.email, age: profile.age,
-                        profilePicture: profile.profile_picture, // Use the fetched URL
-                        bio: profile.bio || {}, country: profile.country, city: profile.city,
-                        termsAccepted: profile.terms_accepted ?? false, isPremium: profile.is_premium ?? false,
-                        musicData: profile.music_data || {},
-                        selectedStreamingService: profile.selected_streaming_service,
-                    };
-                    if (!wasMusicLoverProfileComplete && currentUserSession.musicLoverProfile) {
-                        profileJustCompleted = true;
-                        console.log(`[AuthProvider][${functionCallId}] Music Lover profile JUST COMPLETED.`);
+                    if (profileError) {
+                        console.error("[AuthProvider] Error fetching music lover profile:", profileError);
+                        // Don't throw, allow session to proceed but profile will be null
+                    } else if (profileData) {
+                        console.log("[AuthProvider] Music lover profile fetched successfully.", profileData.id);
+                        // Map DB snake_case to frontend camelCase
+                        const fullProfile: MusicLoverProfile = {
+                           id: profileData.id,
+                           userId: profileData.user_id,
+                           firstName: profileData.first_name,
+                           lastName: profileData.last_name,
+                           username: profileData.username,
+                           email: profileData.email,
+                           age: profileData.age,
+                           profilePicture: profileData.profile_picture, // Map snake_case to camelCase
+                           bio: profileData.bio,
+                           country: profileData.country,
+                           city: profileData.city,
+                           isPremium: profileData.is_premium,
+                           musicData: profileData.music_data,
+                           selectedStreamingService: profileData.selected_streaming_service,
+                           termsAccepted: profileData.terms_accepted,
+                        };
+                        setMusicLoverProfile(fullProfile);
+                        if (currentSession) currentSession.musicLoverProfile = fullProfile;
+                   } else {
+                         console.log("[AuthProvider] No music lover profile found for this user.");
                     }
-                } else console.log(`[AuthProvider][${functionCallId}] No music lover profile found in DB yet.`);
-
             } else if (userType === 'organizer') {
-                console.log(`[AuthProvider][${functionCallId}] Fetching Organizer profile...`);
-                const { data: profile, error: profileError } = await supabase
-                    .from('organizer_profiles') // *** CHECK TABLE NAME ***
-                    .select('*, logo') // *** CHECK logo COLUMN NAME ***
-                    .eq('user_id', authSession.user.id) // *** Ensure user_id is the FK column ***
+                    console.log("[AuthProvider] Fetching organizer profile...");
+                     const { data: profileData, error: profileError } = await supabase
+                        .from('organizer_profiles')
+                        .select('*')
+                        .eq('user_id', userId)
                     .maybeSingle();
 
-                if (profileError) { console.error(`[AuthProvider][${functionCallId}] Error fetch Org profile:`, profileError); }
-                else if (profile) {
-                    console.log(`[AuthProvider][${functionCallId}] Organizer profile FOUND. Company: ${profile.company_name}, LogoURL: ${profile.logo ? 'Yes' : 'No'}`);
-                    currentUserSession.organizerProfile = {
-                        id: profile.id, userId: profile.user_id, companyName: profile.company_name,
-                        email: profile.email, phoneNumber: profile.phone_number, businessType: profile.business_type,
-                        bio: profile.bio, website: profile.website, logo: profile.logo // Use the fetched logo URL
-                    };
-                    if (!wasOrganizerProfileComplete && currentUserSession.organizerProfile) {
-                        profileJustCompleted = true;
-                        console.log(`[AuthProvider][${functionCallId}] Organizer profile JUST COMPLETED.`);
-                    }
-                } else console.log(`[AuthProvider][${functionCallId}] No organizer profile found in DB yet.`);
-            }
-
-            // --- Update State ---
-            console.log(`[AuthProvider][${functionCallId}] Updating session state. Profile Just Completed Flag: ${profileJustCompleted}`);
-            setSession(currentUserSession);
-
-            // --- Navigate on Profile Completion (if requested) ---
-            if (profileJustCompleted && navigateAfterProfileComplete) {
-                console.log(`[AuthProvider][${functionCallId}] Profile completed & navigation requested. Scheduling navigation check...`);
-                setTimeout(() => {
-                    if (navigationRef.current && navigationRef.current.isReady()) {
-                        console.log(`[AuthProvider][${functionCallId}] Navigation ref ready. Triggering navigation reset...`);
-                        const targetTab = currentUserSession.userType === 'music_lover' ? 'UserTabs' : 'OrganizerTabs';
-                        const targetScreen = currentUserSession.userType === 'music_lover' ? 'Profile' : 'OrganizerProfile'; // *** CHECK SCREEN NAMES ***
-
-                        try {
-                            navigationRef.current.reset({
-                                index: 0,
-                                routes: [{ name: 'MainApp', state: { routes: [{ name: targetTab, state: { routes: [{ name: targetScreen }] } }] } }], // *** CHECK NAVIGATOR NAMES ***
-                            });
-                            console.log(`[AuthProvider][${functionCallId}] Navigation reset attempted to ${targetTab} -> ${targetScreen}`);
-                        } catch (navError) {
-                            console.error(`[AuthProvider][${functionCallId}] Navigation reset FAILED:`, navError);
-                            console.error(`[AuthProvider][${functionCallId}] HINT: Double-check navigator/screen names in the reset config.`);
-                        }
+                    if (profileError) {
+                        console.error("[AuthProvider] Error fetching organizer profile:", profileError);
+                    } else if (profileData) {
+                         console.log("[AuthProvider] Organizer profile fetched successfully.", profileData.id);
+                         // Map DB snake_case to frontend camelCase
+                         const fullProfile: OrganizerProfile = {
+                           id: profileData.id,
+                           userId: profileData.user_id,
+                           companyName: profileData.company_name,
+                           email: profileData.email,
+                           phoneNumber: profileData.phone_number,
+                           logo: profileData.logo,
+                           businessType: profileData.business_type,
+                           bio: profileData.bio,
+                           website: profileData.website,
+                         };
+                         setOrganizerProfile(fullProfile);
+                         if (currentSession) currentSession.organizerProfile = fullProfile;
                     } else {
-                        console.warn(`[AuthProvider][${functionCallId}] Profile completed, nav requested, but navigation ref NOT READY after delay. Navigation skipped.`);
+                        console.log("[AuthProvider] No organizer profile found for this user.");
                     }
-                }, 250);
-            } else {
-                console.log(`[AuthProvider][${functionCallId}] Conditions for navigation not met (ProfileCompleted: ${profileJustCompleted}, NavRequested: ${navigateAfterProfileComplete})`);
-            }
+                } else {
+                    console.warn("[AuthProvider] User type is null or unrecognized, cannot fetch profile.");
+                }
 
-        } catch (error: any) {
-            console.error(`[AuthProvider][${functionCallId}] UNEXPECTED error during checkSession:`, error);
-            setSession(null); setIsOrganizerMode(false);
-        } finally {
-            if (loading) {
-                setLoading(false);
-                console.log(`[AuthProvider][${functionCallId}] FINISHED initial load. Set loading=false`);
-            } else {
-                console.log(`[AuthProvider][${functionCallId}] FINISHED subsequent check.`);
-            }
-        }
-    };
-
-
-    // --- Auth Listener ---
-    useEffect(() => {
-        console.log('[AuthProvider] Setting up onAuthStateChange listener.');
-        // Initial check is important here if listener might miss INITIAL_SESSION
-        if (loading) {
-             console.log('[AuthProvider] Initial load: Calling checkSession from useEffect.');
-             checkSession();
-        }
-
-        const { data: authListener } = supabase.auth.onAuthStateChange(async (event, currentAuthSession) => {
-            console.log(`[AuthProvider] Auth State Change Event: ${event}`, currentAuthSession ? `User: ${currentAuthSession.user?.id}` : 'SIGNED_OUT or NULL');
-            switch (event) {
-                case 'SIGNED_IN':
-                case 'INITIAL_SESSION': // Often triggers on startup
-                case 'TOKEN_REFRESHED':
-                case 'USER_UPDATED':
-                case 'PASSWORD_RECOVERY':
-                    console.log(`[AuthProvider] Auth Event (${event}): Calling checkSession...`);
-                    await checkSession(); // No forced navigation here
-                    break;
-                case 'SIGNED_OUT':
-                    console.log('[AuthProvider] Auth Event: SIGNED_OUT received.');
-                    setSession(null);
+                // Set organizer mode based on fetched profile
+                if (currentSession?.organizerProfile) { // Guarded access
+                    setIsOrganizerMode(true);
+                    console.log("[AuthProvider] Setting Organizer Mode ON based on profile.");
+                } else {
                     setIsOrganizerMode(false);
-                    if (loading) setLoading(false);
-                    break;
-                default:
-                    console.log('[AuthProvider] Auth Event: Unhandled or less common:', event);
+                    console.log("[AuthProvider] Setting Organizer Mode OFF (no organizer profile).");
+                }
+
+            } else {
+                console.log("[AuthProvider] No active Supabase session found.");
+                 // Ensure mode is off if no session
+                setIsOrganizerMode(false);
+                setSession(null); // Explicitly set session to null if no supabase session
+            }
+
+            setSession(currentSession);
+
+            // --- Navigation logic --- 
+            // Check if navigator is ready before attempting reset
+            if (navigationRef.current?.isReady()) {
+                if (options?.navigateToProfile && currentSession) {
+                    const profileComplete = userType === 'music_lover'
+                        ? !!currentSession.musicLoverProfile
+                        : userType === 'organizer'
+                            ? !!currentSession.organizerProfile
+                            : false;
+                    if (profileComplete) {
+                        console.log("[AuthProvider] Navigating to MainApp (profile complete).");
+                        navigationRef.current?.reset({ index: 0, routes: [{ name: 'MainApp' }] });
+                    } else if (userType) {
+                        console.log("[AuthProvider] Navigating to SignUpFlow (profile incomplete).");
+                        navigationRef.current?.reset({ index: 0, routes: [{ name: userType === 'music_lover' ? 'MusicLoverSignUpFlow' : 'OrganizerSignUpFlow' }] });
+                    } else {
+                        console.log("[AuthProvider] Navigating to Auth (session exists, but no valid user type).");
+                        navigationRef.current?.reset({ index: 0, routes: [{ name: 'Auth' }] });
+                    }
+                } else if (!currentSession) {
+                    console.log("[AuthProvider] No session, navigating to Auth.");
+                    navigationRef.current?.reset({ index: 0, routes: [{ name: 'Auth' }] });
+                }
+            } else {
+                // Log if nav isn't ready, maybe retry later or handle differently
+                console.warn("[AuthProvider] Navigation Ref not ready, navigation skipped.");
+            }
+            // --- End Navigation Logic ---
+
+        } catch (e) {
+            console.error("[AuthProvider] Error in checkSession process:", e);
+            setSession(null);
+            setMusicLoverProfile(null);
+            setOrganizerProfile(null);
+            setIsOrganizerMode(false);
+            // Optionally navigate to Auth on error
+            // navigationRef.current?.reset({ index: 0, routes: [{ name: 'Auth' }] });
+        } finally {
+                setLoading(false);
+            console.log("[AuthProvider] checkSession finished.");
+        }
+    }, [navigationRef, setIsOrganizerMode]); // Added dependencies
+
+    // --- Refresh Session Data --- 
+    const refreshSessionData = useCallback(async () => {
+        console.log("[AuthProvider] Refreshing session data...");
+        await checkSession(); // Re-run the checkSession logic to fetch latest profiles
+         console.log("[AuthProvider] Session data refreshed.");
+    }, [checkSession]); // Depend on checkSession
+
+    // --- Initial Session Check on Mount ---
+    useEffect(() => {
+        console.log("[AuthProvider] Initial checkSession on mount.");
+             checkSession();
+    }, [checkSession]); // Depend on checkSession
+
+    // --- Supabase Auth State Change Listener ---
+    useEffect(() => {
+        console.log("[AuthProvider] Setting up Supabase auth listener.");
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSupabaseSession) => {
+            console.log(`[AuthProvider] onAuthStateChange triggered: Event ${_event}`);
+            // Simple comparison: re-fetch profile if user ID changes or logs in/out
+            if (newSupabaseSession?.user?.id !== previousSessionRef.current?.user?.id) {
+                console.log("[AuthProvider] Auth state change detected (user ID changed or login/logout), running checkSession...");
+                 checkSession({ navigateToProfile: _event === 'SIGNED_IN' }); // Navigate on explicit sign-in
+            } else if (newSupabaseSession && !previousSessionRef.current) {
+                 console.log("[AuthProvider] Auth state change detected (session appeared), running checkSession...");
+                 checkSession({ navigateToProfile: true }); // Navigate if session appears from null
+            } else if (!newSupabaseSession && previousSessionRef.current) {
+                 console.log("[AuthProvider] Auth state change detected (session disappeared), running checkSession...");
+                 checkSession(); // Just update state, likely logout handled elsewhere
+            } else {
+                console.log("[AuthProvider] Auth state change ignored (no significant user change or already handled).");
             }
         });
-        return () => {
-            console.log('[AuthProvider] Unsubscribing from onAuthStateChange listener.');
-            authListener?.subscription.unsubscribe();
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Run only once on mount
 
+        return () => {
+            console.log("[AuthProvider] Unsubscribing from Supabase auth listener.");
+            subscription.unsubscribe();
+        };
+    }, [checkSession]); // Depend on checkSession
 
     // --- Sign Up ---
     const signUp = async (credentials: SignUpCredentials): Promise<{ error: any } | { user: any }> => {
@@ -541,28 +573,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             }
 
             // --- Prepare DB Data (Match DB Columns) ---
-            const dbData: Omit<DbMusicLoverProfile, 'id' | 'created_at' | 'updated_at'> = { // *** CHECK TYPE vs DB ***
-                user_id: profileData.userId,
-                first_name: profileData.firstName.trim(),
-                last_name: profileData.lastName.trim(),
-                username: profileData.username.trim(),
-                email: profileData.email.trim(),
-                age: profileData.age || null,
-                bio: profileData.bio || {},
-                country: profileData.country?.trim() || null,
-                city: profileData.city?.trim() || null,
-                terms_accepted: profileData.termsAccepted,
-                profile_picture: publicImageUrl, // *** CHECK COLUMN NAME *** Use the URL from _uploadImage or null
-                selected_streaming_service: profileData.selectedStreamingService, // *** CHECK COLUMN NAME ***
-                music_data: {},
+            const { userId, profilePictureUri, profilePictureMimeType, termsAccepted, bio, country, city, age, selectedStreamingService, ...basicProfileData } = profileData;
+            const profileToInsert = {
+                user_id: userId,
+                first_name: basicProfileData.firstName,
+                last_name: basicProfileData.lastName,
+                username: basicProfileData.username,
+                email: basicProfileData.email,
+                age: age === null ? undefined : age, // Convert null to undefined for DB
+                profile_picture: publicImageUrl ?? undefined, // Use DB name (snake_case), handle null
+                bio: bio,
+                country: country === null ? undefined : country, // Convert null to undefined
+                city: city === null ? undefined : city, // Convert null to undefined
+                terms_accepted: termsAccepted,
+                selected_streaming_service: selectedStreamingService === null ? undefined : selectedStreamingService, // Convert null to undefined
                 is_premium: false,
+                 // Ensure all REQUIRED DB fields are present or have defaults
+                // music_data: {} // Example default if required and not nullable
             };
-            console.log('[AuthProvider] createMusicLoverProfile: Preparing to upsert profile data:', { ...dbData, profile_picture: dbData.profile_picture ? 'URL exists' : 'null' });
+            console.log('[AuthProvider] createMusicLoverProfile: Preparing to upsert profile data:', { ...profileToInsert, profile_picture: profileToInsert.profile_picture ? 'URL exists' : 'null' });
 
             // --- Upsert Profile in DB ---
             const { data: upsertData, error: upsertError } = await supabase
                 .from('music_lover_profiles') // *** CHECK TABLE NAME ***
-                .upsert(dbData, { onConflict: 'user_id' })
+                .upsert(profileToInsert, { onConflict: 'user_id' })
                 .select('id')
                 .single();
 
@@ -579,6 +613,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
             // Success! Return success flag and the image URL (if any).
             // The subsequent call to updatePremiumStatus will trigger checkSession and handle navigation.
+            await checkSession();
             return { success: true, profilePictureUrl: publicImageUrl };
 
         } catch (error: any) {
@@ -621,22 +656,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             }
 
             // --- Prepare DB Data (Match DB Columns for organizer_profiles table) ---
-            const organizerDbData: Omit<DbOrganizerProfile, 'id' | 'created_at' | 'updated_at'> = { // *** CHECK TYPE vs DB ***
-                user_id: profileData.userId,
-                company_name: profileData.companyName.trim(),
-                email: profileData.email.trim(),
-                phone_number: profileData.phoneNumber?.trim() || null,
-                business_type: profileData.businessType || null,
-                bio: profileData.bio?.trim() || null,
-                website: profileData.website?.trim() || null,
-                logo: publicLogoUrl, // *** CHECK COLUMN NAME *** Use the URL from _uploadImage or null
+            const { userId, logoUri, logoMimeType, ...basicOrgData } = profileData;
+            const profileToInsert = {
+                user_id: userId,
+                company_name: basicOrgData.companyName,
+                email: basicOrgData.email,
+                // Convert null or empty string to undefined for optional fields
+                phone_number: basicOrgData.phoneNumber === null || basicOrgData.phoneNumber === '' ? undefined : basicOrgData.phoneNumber,
+                // business_type is a specific enum or null, only check for null
+                business_type: basicOrgData.businessType === null ? undefined : basicOrgData.businessType,
+                bio: basicOrgData.bio === null || basicOrgData.bio === '' ? undefined : basicOrgData.bio,
+                website: basicOrgData.website === null || basicOrgData.website === '' ? undefined : basicOrgData.website,
+                logo: publicLogoUrl ?? undefined,
+                 // Ensure all REQUIRED DB fields are present or have defaults
             };
-            console.log('[AuthProvider] createOrganizerProfile: Preparing to upsert profile data:', { ...organizerDbData, logo: organizerDbData.logo ? 'URL exists' : 'null' });
+            console.log('[AuthProvider] createOrganizerProfile: Preparing to upsert profile data:', { ...profileToInsert, logo: profileToInsert.logo ? 'URL exists' : 'null' });
 
             // --- Upsert Profile in DB ---
             const { data: upsertData, error: upsertError } = await supabase
                 .from('organizer_profiles') // *** CHECK TABLE NAME ***
-                .upsert(organizerDbData, { onConflict: 'user_id' })
+                .upsert(profileToInsert, { onConflict: 'user_id' })
                 .select('id')
                 .single();
 
@@ -696,7 +735,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     // --- Login ---
     const login = async (credentials: LoginCredentials): Promise<{ error: any } | { user: any }> => {
         console.log(`[AuthProvider] login: Attempting login for Type: ${credentials.userType}, Email: ${credentials.email}`);
-        setLoading(true);
+        // Keep loading true until checkSession finishes
+        // setLoading(true); // setLoading(true) is called within checkSession
         try {
             const { email, password, userType } = credentials;
             if (!email || !password || !userType) {
@@ -712,51 +752,59 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 if (loginError.message.includes('Invalid login credentials')) {
                     return { error: { message: 'Invalid email or password. Please check and try again.' } };
                 }
+                 setLoading(false); // Stop loading on login error
                 return { error: { message: `Login failed: ${loginError.message}` } };
             }
             if (!loginData?.user) {
-                console.error('[AuthProvider] login: Login successful but no user data returned.');
+                 console.error('[AuthProvider] login: Login successful but no user data returned.');
+                 setLoading(false); // Stop loading on login error
                 return { error: new Error('Login failed: Could not retrieve user data.') };
             }
             const userId = loginData.user.id;
             console.log('[AuthProvider] login: Sign in successful via Supabase Auth for user:', userId);
 
-            // --- Verify User Type from DB ---
+            // --- Verify User Type from DB --- 
             console.log('[AuthProvider] login: Verifying user type from DB...');
             const { data: typeData, error: typeError } = await supabase
-                .from('user_types') // *** CHECK TABLE NAME ***
+                .from('user_types') 
                 .select('type')
                 .eq('user_id', userId)
                 .single();
 
             if (typeError || !typeData) {
                 console.error(`[AuthProvider] login: Failed to verify DB user type for ${userId}:`, typeError || 'No type data found');
-                await logout();
+                await logout(); // Log out user if type can't be verified
+                 setLoading(false); // Stop loading
                 return { error: { message: 'Login failed: Could not verify account type. Please contact support.' } };
             }
             const dbUserType = typeData.type as UserTypes;
             console.log(`[AuthProvider] login: DB user type confirmed as: ${dbUserType}`);
 
-            // --- Check Type Mismatch ---
+            // --- Check Type Mismatch --- 
             if (dbUserType !== userType) {
                 console.warn(`[AuthProvider] login: TYPE MISMATCH! User ${userId} tried logging in via ${userType} portal, but DB type is ${dbUserType}. Signing out.`);
-                await logout();
+                await logout(); // Log out user if type mismatch
+                 setLoading(false); // Stop loading
                 return { error: { message: `Incorrect login portal. This email is registered as a ${dbUserType === 'music_lover' ? 'Music Lover' : 'Organizer'}. Please use the correct login page.` } };
             }
             console.log('[AuthProvider] login: User type verified successfully.');
 
-            // --- Set Organizer Mode & Refresh Session ---
-            setIsOrganizerMode(dbUserType === 'organizer');
-            await checkSession(); // Refresh session data *without* forced navigation
-            console.log('[AuthProvider] login: Session refreshed after successful login.');
+            // --- Set Mode, Refresh Session & NAVIGATE --- 
+            // We MUST await checkSession here AND pass navigateToProfile: true
+            // so that the profile fetch completes before AppNavigator re-renders and checks isProfileComplete.
+            console.log('[AuthProvider] login: User type verified. Calling checkSession WITH navigation request...');
+            setIsOrganizerMode(dbUserType === 'organizer'); // Set mode based on verified type
+            await checkSession({ navigateToProfile: true }); 
+            console.log('[AuthProvider] login: checkSession completed after successful login.');
 
-            return { user: loginData.user }; // Let calling screen handle navigation
+            return { user: loginData.user }; // Return user, navigation is handled by checkSession
 
         } catch (error: any) {
             console.error('[AuthProvider] login: UNEXPECTED error:', error);
+            setLoading(false); // Ensure loading is stopped on unexpected error
             return { error: new Error('An unexpected error occurred during login.') };
         } finally {
-            setLoading(false);
+            // setLoading(false); // Loading is handled within checkSession or error paths now
         }
     };
 
@@ -776,6 +824,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         } finally {
             console.log("[AuthProvider] logout: Clearing local session state and resetting mode.");
             setSession(null);
+            setMusicLoverProfile(null);
+            setOrganizerProfile(null);
             setIsOrganizerMode(false);
             setLoading(false);
         }
@@ -787,10 +837,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         <AuthContext.Provider value={{
             session,
             loading,
+            musicLoverProfile,
+            organizerProfile,
             signUp,
             login,
             logout,
             checkSession,
+            refreshSessionData,
             createMusicLoverProfile,
             createOrganizerProfile,
             updatePremiumStatus,
@@ -809,4 +862,3 @@ export const useAuth = () => {
     }
     return context;
 };
-

@@ -39,6 +39,9 @@ export interface SpotifyData {
   artists: string[];
   songs: { title: string; artist: string }[];
   albums: { title: string; artist: string; year: number }[];
+  analytics?: {
+    genreDistribution?: { name: string; value: number }[];
+  };
 }
 
 export interface MusicLoverBio {

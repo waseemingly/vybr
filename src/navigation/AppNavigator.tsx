@@ -21,6 +21,19 @@ import OrganizerProfileScreen from "@/screens/organizer/OrganizerProfileScreen";
 import EventDetailScreen from "@/screens/organizer/EventDetailScreen";
 import EditEventScreen from "@/screens/EditEventScreen";
 import BookingConfirmationScreen from "@/screens/BookingConfirmationScreen"; // IMPORTED
+import UserSettingsScreen from "@/screens/UserSettingsScreen"; // Added for settings
+import OrganizerSettingsScreen from "@/screens/organizer/OrganizerSettingsScreen"; // Added for settings
+// Import new user settings screens
+import EditUserProfileScreen from '@/screens/EditUserProfileScreen';
+import UserManageSubscriptionScreen from '@/screens/UserManageSubscriptionScreen';
+import UserMutedListScreen from '@/screens/UserMutedListScreen';
+import UserBlockedListScreen from '@/screens/UserBlockedListScreen';
+import UpgradeScreen from '@/screens/UpgradeScreen';
+
+// Import new organizer settings screens
+import EditOrganizerProfileScreen from '@/screens/organizer/EditOrganizerProfileScreen';
+import OrgManagePlanScreen from '@/screens/organizer/OrgManagePlanScreen';
+import OrgBillingHistoryScreen from '@/screens/organizer/OrgBillingHistoryScreen';
 
 // Import auth screens
 import LandingScreen from "@/screens/auth/LandingScreen"; // Adjust path if needed
@@ -55,6 +68,18 @@ type MainStackParamList = {
         maxTickets: number | null;
         maxReservations: number | null;
     };
+    UserSettingsScreen: undefined; // Added for user settings
+    OrganizerSettingsScreen: undefined; // Added for organizer settings
+    // Add new screens related to user settings
+    EditUserProfileScreen: undefined;
+    UserManageSubscriptionScreen: undefined;
+    UserMutedListScreen: undefined;
+    UserBlockedListScreen: undefined;
+    UpgradeScreen: undefined;
+    // Add new organizer screens
+    EditOrganizerProfileScreen: undefined;
+    OrgManagePlanScreen: undefined;
+    OrgBillingHistoryScreen: undefined;
     NotFoundMain: undefined;
     // Add other screens like ViewBookings, UserEventDetail if needed
 };
@@ -187,14 +212,24 @@ const AppNavigator = () => {
                  {isOrganizerMode ? (
                   // Organizer Flow
                   <>
-                    <MainStack.Screen name="OrganizerTabs" component={OrganizerTabs} initialParams={{ screen: "Posts" }} />
+                    <MainStack.Screen name="OrganizerTabs" component={OrganizerTabs} initialParams={{ screen: "OrganizerProfile" }} />
                     <MainStack.Screen name="EventDetail" component={EventDetailScreen} />
                     <MainStack.Screen name="EditEvent" component={EditEventScreen} />
+                    <MainStack.Screen name="OrganizerSettingsScreen" component={OrganizerSettingsScreen} />
+                    <MainStack.Screen name="EditOrganizerProfileScreen" component={EditOrganizerProfileScreen} />
+                    <MainStack.Screen name="OrgManagePlanScreen" component={OrgManagePlanScreen} />
+                    <MainStack.Screen name="OrgBillingHistoryScreen" component={OrgBillingHistoryScreen} />
                   </>
                  ) : (
                   // Music Lover Flow
                   <>
-                    <MainStack.Screen name="UserTabs" component={UserTabs} initialParams={{ screen: "Events" }}/>
+                    <MainStack.Screen name="UserTabs" component={UserTabs} initialParams={{ screen: "Profile" }}/>
+                    <MainStack.Screen name="UserSettingsScreen" component={UserSettingsScreen} />
+                    <MainStack.Screen name="EditUserProfileScreen" component={EditUserProfileScreen} />
+                    <MainStack.Screen name="UserManageSubscriptionScreen" component={UserManageSubscriptionScreen} />
+                    <MainStack.Screen name="UserMutedListScreen" component={UserMutedListScreen} />
+                    <MainStack.Screen name="UserBlockedListScreen" component={UserBlockedListScreen} />
+                    <MainStack.Screen name="UpgradeScreen" component={UpgradeScreen} />
                   </>
                  )}
                 {/* Screens accessible by both modes are placed outside the conditional */}
