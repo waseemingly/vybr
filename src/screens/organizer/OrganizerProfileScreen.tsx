@@ -20,6 +20,7 @@ import { APP_CONSTANTS } from "../../config/constants"; // Assuming constants li
 type RootStackParamList = {
     AuthFlow: undefined; // For navigating to login if needed
     CreateEventScreen: undefined; // For create button
+    OrganizerSettingsScreen: undefined; // Added for settings navigation
     // Add other relevant screens
 };
 type OrganizerProfileNavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -65,6 +66,22 @@ const OrganizerProfileScreen: React.FC = () => {
 
   return (
     <SafeAreaView edges={["top"]} style={styles.container}>
+      {/* Add settings icon in header */}
+      <View style={styles.header}>
+        <View style={styles.headerTitleRow}>
+          <View style={styles.titleContainer}>
+            <Feather name="briefcase" size={22} color={APP_CONSTANTS.COLORS.PRIMARY} style={styles.headerIcon} />
+            <Text style={styles.title}>Organizer Profile</Text>
+          </View>
+          <TouchableOpacity 
+            style={styles.settingsButton}
+            onPress={() => navigation.navigate('OrganizerSettingsScreen')}
+          >
+            <Feather name="settings" size={22} color={APP_CONSTANTS.COLORS.PRIMARY} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
       <ScrollView style={styles.scrollViewContainer} contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} />}>
         <View style={styles.profileCard}>
             <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={styles.coverPhoto} />
@@ -94,7 +111,7 @@ const OrganizerProfileScreen: React.FC = () => {
   );
 };
 
-// --- Styles --- (Keep as before)
+// --- Styles --- (Keep as before and add new styles)
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f8fafc", },
   scrollViewContainer: { flex: 1, },
@@ -104,6 +121,7 @@ const styles = StyleSheet.create({
   titleContainer: { flexDirection: "row", alignItems: "center", },
   headerIcon: { marginRight: 8, },
   title: { fontSize: 22, fontWeight: "bold", color: APP_CONSTANTS.COLORS.PRIMARY, },
+  settingsButton: { padding: 8, borderRadius: 20, backgroundColor: 'rgba(59, 130, 246, 0.1)' },
   modeButtonSmall: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(59, 130, 246, 0.1)", paddingVertical: 6, paddingHorizontal: 10, borderRadius: 20, },
   modeButtonTextSmall: { color: APP_CONSTANTS.COLORS.PRIMARY, fontSize: 12, fontWeight: "500", marginLeft: 4, },
   profileCard: { backgroundColor: "white", borderRadius: 16, marginBottom: 24, overflow: "hidden", shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2, },

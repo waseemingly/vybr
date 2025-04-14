@@ -18,7 +18,17 @@ import { useOrganizerMode } from "@/hooks/useOrganizerMode"; // Assuming path is
 import { useAuth, MusicLoverBio } from "@/hooks/useAuth"; // Import useAuth and MusicLoverBio type
 import { APP_CONSTANTS } from "@/config/constants"; // Import constants for colors/defaults if needed
 import { useNavigation } from "@react-navigation/native"; // Import for navigation
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack'; // Import navigation prop type
 
+// --- Navigation Type ---
+type RootStackParamList = {
+    AuthFlow: undefined; // If navigating back to auth
+    UpgradeScreen: undefined; // For premium upsell
+    UserSettingsScreen: undefined; // Added for settings navigation
+    // Add other relevant screens user might navigate to from profile
+};
+type ProfileScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
+// ------------------------
 
 // Default Profile Picture Placeholder
 const DEFAULT_PROFILE_PIC = 'https://via.placeholder.com/150/CCCCCC/808080?text=No+Image';
@@ -81,7 +91,7 @@ const ProfileScreen: React.FC = () => {
     // Hooks
     const { session, loading: authLoading, logout } = useAuth();
     const { toggleOrganizerMode } = useOrganizerMode();
-    const navigation = useNavigation();
+    const navigation = useNavigation<ProfileScreenNavigationProp>(); // Use typed navigation
 
     // State
     const [expandedSections, setExpandedSections] = useState<ExpandedSections>({ artists: false, songs: false, analytics: true, });
@@ -129,15 +139,33 @@ const ProfileScreen: React.FC = () => {
     const favoriteGenres = (musicLoverProfile.musicData?.genres as string[]) ?? [];
     const favoriteArtists = (musicLoverProfile.musicData?.artists as string[]) ?? [];
     const favoriteSongs = (musicLoverProfile.musicData?.songs as { title: string; artist: string }[]) ?? [];
-    const favoriteAlbums = (musicLoverProfile.musicData?.albums as { title: string; artist: string; year: string }[]) ?? [];
-    const genreAnalyticsData = (musicLoverProfile.musicData?.analytics?.genreDistribution as { name: string; value: number }[]) ?? [];
+    const favoriteAlbums = musicLoverProfile.musicData?.albums?.map(album => ({ ...album, year: String(album.year) })) ?? [];
+    const genreAnalyticsData = (musicLoverProfile.musicData &&
+        'analytics' in musicLoverProfile.musicData &&
+        musicLoverProfile.musicData.analytics &&
+        'genreDistribution' in musicLoverProfile.musicData.analytics
+    )
+        ? (musicLoverProfile.musicData.analytics.genreDistribution as { name: string; value: number }[] | undefined) ?? []
+        : [];
 
 
     // --- Render Profile ---
     return (
         <SafeAreaView edges={["top"]} style={styles.container}>
-            {/* Header (Keep as before) */}
+            {/* Add Header with Settings Icon */}
             <View style={styles.header}>
+                <View style={styles.headerTitleRow}>
+                    <View style={styles.titleContainer}>
+                         <Feather name="user" size={22} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} style={styles.headerIcon} />
+                         <Text style={styles.title}>My Profile</Text>
+                    </View>
+                     <TouchableOpacity
+                        style={styles.settingsButton}
+                        onPress={() => navigation.navigate('UserSettingsScreen')}
+                    >
+                        <Feather name="settings" size={22} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <ScrollView style={styles.scrollViewContainer} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} >
@@ -232,6 +260,7 @@ const styles = StyleSheet.create({
     titleContainer: { flexDirection: "row", alignItems: "center", },
     headerIcon: { marginRight: 8, },
     title: { fontSize: 22, fontWeight: "bold", color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, },
+    settingsButton: { padding: 8, borderRadius: 20, backgroundColor: 'rgba(59, 130, 246, 0.1)' }, // Reuse style from organizer profile
     scrollContent: { paddingHorizontal: 16, paddingBottom: 40, paddingTop: 16, },
     profileCard: { backgroundColor: "white", borderRadius: 16, marginBottom: 24, overflow: "hidden", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 5, elevation: 3, },
     coverPhoto: { height: 120, width: "100%", },
