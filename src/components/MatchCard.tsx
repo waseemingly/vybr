@@ -36,6 +36,11 @@ export interface MatchCardProps {
 // Define navigation stack for typing
 type RootStackParamList = {
     ChatsScreen: { matchUserId: string; matchName: string; };
+    IndividualChatScreen: { // <--- Define the target screen and params
+        matchUserId: string;
+        matchName: string;
+        matchProfilePicture?: string | null;
+    };
     // Add other screens if needed
 };
 type MatchCardNavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -84,10 +89,19 @@ const MatchCard: React.FC<MatchCardProps> = ({
     }, [bio]); // Dependency array ensures recalculation only if bio changes
 
 
+    // const handleChatPress = () => {
+    //     navigation.navigate('ChatsScreen', {
+    //         matchUserId: userId,
+    //         matchName: name,
+    //     });
+    // };
+
     const handleChatPress = () => {
-        navigation.navigate('ChatsScreen', {
-            matchUserId: userId,
-            matchName: name,
+        console.log(`Navigating to chat with user: ${userId}, name: ${name}`);
+        navigation.navigate('IndividualChatScreen', {
+            matchUserId: userId, // Pass the matched user's ID
+            matchName: name,     // Pass their name
+            matchProfilePicture: image // Pass their image URL
         });
     };
 
