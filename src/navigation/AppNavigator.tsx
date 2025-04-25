@@ -45,19 +45,49 @@ import LoginScreen from "@/screens/auth/LoginScreen";
 import MusicLoverSignUpFlow from "@/screens/auth/MusicLoverSignUpFlow";
 import OrganizerSignUpFlow from "@/screens/auth/OrganizerSignUpFlow";
 
+import CreateGroupChatScreen from '@/screens/CreateGroupChatScreen'; // <-- IMPORT
+import GroupChatScreen from '@/screens/GroupChatScreen';         // <-- IMPORT
+import AddGroupMembersScreen from '@/screens/AddGroupMembersScreen'; // <-- IMPORT
+
 // --- Define Param Lists ---
+// export type RootStackParamList = {
+//     Auth: undefined;
+//     MusicLoverSignUpFlow: undefined;
+//     OrganizerSignUpFlow: undefined;
+//     MainApp: { screen?: keyof MainStackParamList, params?: { screen?: keyof UserTabParamList | keyof OrganizerTabParamList, params?: any } };
+//     IndividualChatScreen: {
+//       matchUserId: string;
+//       matchName: string;
+//       matchProfilePicture?: string | null;
+//     };
+//     OtherUserProfileScreen: { userId: string };
+//     NotFoundGlobal?: undefined;
+// };
+
 export type RootStackParamList = {
-    Auth: undefined;
-    MusicLoverSignUpFlow: undefined;
-    OrganizerSignUpFlow: undefined;
-    MainApp: { screen?: keyof MainStackParamList, params?: { screen?: keyof UserTabParamList | keyof OrganizerTabParamList, params?: any } };
-    IndividualChatScreen: {
-      matchUserId: string;
-      matchName: string;
-      matchProfilePicture?: string | null;
-    };
-    OtherUserProfileScreen: { userId: string };
-    NotFoundGlobal?: undefined;
+  Auth: undefined;
+  MusicLoverSignUpFlow: undefined;
+  OrganizerSignUpFlow: undefined;
+  MainApp: { screen?: keyof MainStackParamList, params?: { screen?: keyof UserTabParamList | keyof OrganizerTabParamList, params?: any } };
+  IndividualChatScreen: {
+    matchUserId: string;
+    matchName: string;
+    matchProfilePicture?: string | null;
+  };
+  OtherUserProfileScreen: { userId: string };
+  // *** ADD Group Screens to Root Param List ***
+  CreateGroupChatScreen: undefined;
+  GroupChatScreen: {
+      groupId: string;
+      groupName?: string | null;
+      groupImage?: string | null;
+  };
+  AddGroupMembersScreen: {
+       groupId: string;
+       groupName?: string | null;
+  };
+  // *** END ADDITION ***
+  NotFoundGlobal?: undefined;
 };
 
 export type MainStackParamList = {
@@ -150,34 +180,91 @@ const AppNavigator = () => {
 
   if (loading) { return <LoadingScreen />; }
 
+//   return (
+//       <RootStack.Navigator screenOptions={{ headerShown: false }} >
+//         {!session ? (
+//           <RootStack.Screen name="Auth" component={AuthScreens} />
+//         ) : !isProfileComplete ? (
+//            <RootStack.Screen
+//              name={session.userType === 'music_lover' ? "MusicLoverSignUpFlow" : "OrganizerSignUpFlow"}
+//              component={session.userType === 'music_lover' ? MusicLoverSignUpFlow : OrganizerSignUpFlow}
+//              options={{ gestureEnabled: false }}
+//            />
+//         ) : (
+//           <>
+//             <RootStack.Screen name="MainApp" component={MainAppStack} />
+//             <RootStack.Screen
+//               name="IndividualChatScreen"
+//               component={IndividualChatScreen}
+//               options={{ headerShown: false }} // Header managed internally
+//             />
+//             <RootStack.Screen
+//               name="OtherUserProfileScreen"
+//               component={OtherUserProfileScreen}
+//               options={{ headerShown: false }} // Header managed internally
+//             />
+//           </>
+//         )}
+//       </RootStack.Navigator>
+//   );
+// };
+
   return (
+    // **** Must wrap in NavigationContainer ****
       <RootStack.Navigator screenOptions={{ headerShown: false }} >
         {!session ? (
+          // 1. Not Logged In
           <RootStack.Screen name="Auth" component={AuthScreens} />
         ) : !isProfileComplete ? (
-           <RootStack.Screen
-             name={session.userType === 'music_lover' ? "MusicLoverSignUpFlow" : "OrganizerSignUpFlow"}
-             component={session.userType === 'music_lover' ? MusicLoverSignUpFlow : OrganizerSignUpFlow}
-             options={{ gestureEnabled: false }}
-           />
+          // 2. Logged In, Profile Incomplete
+          <RootStack.Screen
+            name={session.userType === 'music_lover' ? "MusicLoverSignUpFlow" : "OrganizerSignUpFlow"}
+            component={session.userType === 'music_lover' ? MusicLoverSignUpFlow : OrganizerSignUpFlow}
+            options={{ gestureEnabled: false }}
+          />
         ) : (
+          // 3. Logged In AND Profile Complete
+          // Use React Fragment to group screens available in this state
           <>
+            {/* Main App entry point (renders MainAppStack) */}
             <RootStack.Screen name="MainApp" component={MainAppStack} />
+
+            {/* Screens pushed on top of MainApp */}
             <RootStack.Screen
               name="IndividualChatScreen"
               component={IndividualChatScreen}
-              options={{ headerShown: false }} // Header managed internally
+              options={{ headerShown: true, headerBackTitleVisible: false }} // Show header for this screen
             />
             <RootStack.Screen
               name="OtherUserProfileScreen"
               component={OtherUserProfileScreen}
-              options={{ headerShown: false }} // Header managed internally
+              options={{ headerShown: true, headerBackTitleVisible: false }} // Show header for this screen
             />
+
+            {/* *** REGISTER NEW GROUP CHAT SCREENS HERE *** */}
+            <RootStack.Screen
+                name="CreateGroupChatScreen"
+                component={CreateGroupChatScreen}
+                options={{ headerShown: true, title: 'Create Group', headerBackTitleVisible: false }}
+            />
+            <RootStack.Screen
+                name="GroupChatScreen"
+                component={GroupChatScreen}
+                options={{ headerShown: true, headerBackTitleVisible: false }} // Title set dynamically
+            />
+            <RootStack.Screen
+                name="AddGroupMembersScreen"
+                component={AddGroupMembersScreen}
+                options={{ headerShown: true, title: 'Add Members', headerBackTitleVisible: false }}
+            />
+            {/* *** END REGISTRATION *** */}
           </>
         )}
+        {/* Optional Global Fallback */}
+        {/* <RootStack.Screen name="NotFoundGlobal" component={NotFoundScreen} options={{ title: 'Oops!'}}/> */}
       </RootStack.Navigator>
   );
-};
+  };
 
 // --- Styles ---
 const styles = StyleSheet.create({
