@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from "react";
+// screens/MatchesScreen.tsx
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
     View,
     Text,
@@ -7,19 +8,21 @@ import {
     ScrollView,
     ActivityIndicator,
     Platform,
-    RefreshControl, // Added for pull-to-refresh
+    RefreshControl
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
-// --- Adjust these import paths based on YOUR project structure ---
-import MatchCard, { MusicLoverBio } from "@/components/MatchCard"; // Assuming MatchCard is default export now
+import AsyncStorage from '@react-native-async-storage/async-storage'; // Import AsyncStorage
+import MatchCard, { MusicLoverBio } from "@/components/MatchCard";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { APP_CONSTANTS } from "@/config/constants";
-// --- End Adjustments ---
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from "@/navigation/AppNavigator";
 
-// Interface includes commonTags
+// Interface
 interface FetchedMatchData {
     userId: string;
     profileId: string;
@@ -29,92 +32,242 @@ interface FetchedMatchData {
     isPremium: boolean;
     bio: MusicLoverBio | null;
     compatibilityScore: number;
-    commonTags: string[]; // <<< Interface is correct
+    commonTags: string[];
 }
 
+// Constants
 const DEFAULT_PROFILE_PIC = APP_CONSTANTS?.DEFAULT_PROFILE_PIC || 'https://via.placeholder.com/150/CCCCCC/808080?text=No+Image';
+const CHATTED_USERS_STORAGE_KEY = '@ChattedUserIds';
+
+type MatchesScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'MatchesScreen'>;
+
 
 const MatchesScreen = () => {
     const { session, loading: authLoading } = useAuth();
-    const [matches, setMatches] = useState<FetchedMatchData[]>([]);
+    const navigation = useNavigation<MatchesScreenNavigationProp>();
+    const [matches, setMatches] = useState<FetchedMatchData[]>([]); // Raw non-blocked matches
+    const [filteredMatches, setFilteredMatches] = useState<FetchedMatchData[]>([]); // Displayed matches
     const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [chattedUserIds, setChattedUserIds] = useState<Set<string>>(new Set());
+    const [chattedIdsLoaded, setChattedIdsLoaded] = useState(false); // Track storage load
+    const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
+    const chattedUserIdsRef = useRef(chattedUserIds); // Ref for saving
 
-    const fetchMatches = useCallback(async (refreshing = false) => {
-        if (!session?.user?.id) {
-            setError("You must be logged in to find matches.");
-            setIsLoading(false); setIsRefreshing(false); return;
+    // Keep Ref updated
+    useEffect(() => {
+        chattedUserIdsRef.current = chattedUserIds;
+    }, [chattedUserIds]);
+
+    // --- Load Chatted IDs ---
+    useEffect(() => {
+        const loadChattedIds = async () => {
+            if (!session?.user?.id) {
+                 setChattedUserIds(new Set());
+                 setChattedIdsLoaded(true);
+                 return;
+            }
+            setChattedIdsLoaded(false); // Reset loading state
+            try {
+                const storedIdsJson = await AsyncStorage.getItem(`${CHATTED_USERS_STORAGE_KEY}_${session.user.id}`);
+                if (storedIdsJson !== null) {
+                    const storedIdsArray = JSON.parse(storedIdsJson);
+                    setChattedUserIds(new Set(storedIdsArray));
+                    console.log("[MatchesScreen] Loaded chatted IDs:", storedIdsArray.length);
+                } else {
+                     setChattedUserIds(new Set());
+                     console.log("[MatchesScreen] No chatted IDs found in storage.");
+                }
+            } catch (e) {
+                console.error("[MatchesScreen] Failed to load chatted IDs:", e);
+                 setChattedUserIds(new Set());
+            } finally {
+                setChattedIdsLoaded(true);
+            }
+        };
+        loadChattedIds();
+    }, [session?.user?.id]);
+
+    // --- Save Chatted IDs ---
+    useEffect(() => {
+        const saveChattedIds = async () => {
+            if (chattedIdsLoaded && session?.user?.id && chattedUserIdsRef.current) {
+                try {
+                    const idsArray = Array.from(chattedUserIdsRef.current);
+                    const jsonValue = JSON.stringify(idsArray);
+                    await AsyncStorage.setItem(`${CHATTED_USERS_STORAGE_KEY}_${session.user.id}`, jsonValue);
+                    // console.log("[MatchesScreen] Saved chatted IDs:", idsArray.length); // Optional: Log on save
+                } catch (e) {
+                    console.error("[MatchesScreen] Failed to save chatted IDs:", e);
+                }
+            }
+        };
+        // Save slightly delayed to batch potential rapid changes
+        const timerId = setTimeout(saveChattedIds, 500);
+        return () => clearTimeout(timerId); // Cleanup timer on unmount or re-run
+
+    }, [chattedUserIds, chattedIdsLoaded, session?.user?.id]); // Depend on state
+
+
+    // --- Fetch Blocked Users ---
+    const fetchBlockedUsers = useCallback(async () => {
+        if (!session?.user?.id) return new Set<string>();
+        try {
+            const { data, error } = await supabase
+                .from('blocks').select('blocker_id, blocked_id')
+                .or(`blocker_id.eq.${session.user.id},blocked_id.eq.${session.user.id}`);
+            if (error) throw error;
+            const blockedIds = new Set<string>();
+            data?.forEach(item => {
+                blockedIds.add(item.blocker_id === session.user.id ? item.blocked_id : item.blocker_id);
+            });
+            console.log("[MatchesScreen] Fetched blocked user IDs:", blockedIds.size);
+            return blockedIds;
+        } catch (err: any) {
+            console.error("[MatchesScreen] Error fetching blocked users:", err);
+            setError(prev => prev || "Could not check blocked users.");
+            return new Set<string>();
+        }
+    }, [session?.user?.id]);
+
+    // --- Fetch Matches & Blocks ---
+    const fetchMatchesAndBlocks = useCallback(async (refreshing = false) => {
+        if (!session?.user?.id || !chattedIdsLoaded) { // Wait for chatted IDs load
+            if (!session?.user?.id) setError("You must be logged in.");
+             // Keep loading true if waiting for chatted IDs
+            setIsLoading(!chattedIdsLoaded);
+            setIsRefreshing(false); return;
         }
         if (!refreshing) setIsLoading(true);
         setError(null);
 
         try {
-            console.log("[MatchesScreen] Calling RPC 'get_matches_sql' for user:", session.user.id);
-            const { data, error: rpcError } = await supabase.rpc(
-                'get_matches_sql',
-                { current_user_id_input: session.user.id }
-            );
+            const currentBlockedIds = await fetchBlockedUsers();
+            setBlockedUserIds(currentBlockedIds);
 
-            if (rpcError) {
-                if (rpcError.code === '42883') { throw new Error("Match function not found or mismatch."); }
-                else { throw new Error(rpcError.message || "Failed to fetch matches via RPC."); }
-            }
+            const { data: rpcData, error: rpcError } = await supabase.rpc('get_matches_sql', { current_user_id_input: session.user.id });
+            if (rpcError) throw new Error(rpcError.message || "Failed to fetch matches via RPC.");
 
-            if (data && Array.isArray(data)) {
-                 console.log(`[MatchesScreen] Received ${data.length} matches via RPC.`);
-                 // Add console log to check received data including commonTags
-                 if (data.length > 0) {
-                     console.log("[MatchesScreen] First match data received:", data[0]);
-                 }
-                 setMatches(data as FetchedMatchData[]);
-                 setCurrentMatchIndex(0);
-                 if (data.length === 0) console.log("[MatchesScreen] No matches found.");
-                 setError(null);
+            if (rpcData && Array.isArray(rpcData)) {
+                const fetchedData = rpcData as FetchedMatchData[];
+                const nonBlockedData = fetchedData.filter(m => !currentBlockedIds.has(m.userId));
+                setMatches(nonBlockedData);
+                console.log(`[MatchesScreen] Fetched ${nonBlockedData.length} non-blocked matches.`);
             } else {
-                console.warn("[MatchesScreen] Received unexpected data format from RPC:", data);
-                setMatches([]); setCurrentMatchIndex(0); setError("Received invalid match data.");
+                 console.warn("[MatchesScreen] Invalid data from RPC:", rpcData);
+                 setMatches([]); setError("Received invalid match data.");
             }
         } catch (err: any) {
-            console.error("[MatchesScreen] Error fetching matches:", err);
-            setError(err.message || "An unexpected error occurred while fetching matches.");
-            setMatches([]); setCurrentMatchIndex(0);
+            console.error("[MatchesScreen] Error fetching matches/blocks:", err);
+            setError(err.message || "An unexpected error occurred.");
+            setMatches([]); // Clear matches on error
         } finally {
             setIsLoading(false); setIsRefreshing(false);
         }
-    }, [session?.user?.id]);
+    }, [session?.user?.id, fetchBlockedUsers, chattedIdsLoaded]);
 
+    // --- Initial Fetch ---
     useEffect(() => {
-        if (!authLoading && session?.user?.id) { fetchMatches(); }
-        else if (!authLoading && !session?.user?.id) {
-            setIsLoading(false); setError("Please log in to see matches."); setMatches([]); setCurrentMatchIndex(0);
+        if (!authLoading && session?.user?.id && chattedIdsLoaded) {
+            fetchMatchesAndBlocks();
+        } else if (!authLoading && !session?.user?.id) {
+            setIsLoading(false); setError("Please log in."); setMatches([]); setFilteredMatches([]); setCurrentMatchIndex(0); setChattedUserIds(new Set()); setChattedIdsLoaded(true); // Ensure loaded flag is true on logout
+        } else if (!authLoading && session?.user?.id && !chattedIdsLoaded) {
+            setIsLoading(true); // Explicitly set loading while waiting for chatted IDs
         }
-    }, [authLoading, session?.user?.id, fetchMatches]);
+    }, [authLoading, session?.user?.id, chattedIdsLoaded, fetchMatchesAndBlocks]);
 
+    // --- Re-apply filters ---
+    useEffect(() => {
+        if (!chattedIdsLoaded) return; // Don't filter until initial chatted IDs are loaded
+
+        const currentChattedIds = chattedUserIdsRef.current; // Use ref for filtering consistency
+        const newFiltered = matches.filter(m =>
+            !currentChattedIds.has(m.userId) && !blockedUserIds.has(m.userId)
+        );
+
+        setFilteredMatches(prevFiltered => {
+            if (prevFiltered.length === newFiltered.length && prevFiltered.every((val, index) => val.userId === newFiltered[index]?.userId)) {
+                return prevFiltered;
+            }
+             console.log("[MatchesScreen] Updating filtered matches list.");
+             return newFiltered;
+        });
+
+        setCurrentMatchIndex(prevIndex => {
+            if (newFiltered.length === 0) return 0;
+            if (prevIndex >= newFiltered.length) return Math.max(0, newFiltered.length - 1);
+            return prevIndex;
+        });
+
+    }, [matches, chattedUserIds, blockedUserIds, chattedIdsLoaded]); // chattedUserIds state triggers re-filter
+
+
+    // --- Refresh Logic ---
     const onRefresh = useCallback(() => {
-        setIsRefreshing(true); fetchMatches(true);
-    }, [fetchMatches]);
+        setIsRefreshing(true);
+        fetchMatchesAndBlocks(true);
+    }, [fetchMatchesAndBlocks]);
 
+     // --- Refetch blocks on focus ---
+     useFocusEffect(
+         useCallback(() => {
+             if (session?.user?.id) { // Only fetch if logged in
+                 console.log("[MatchesScreen] Focus effect: Fetching blocked users.");
+                 fetchBlockedUsers().then(currentBlockedIds => {
+                     setBlockedUserIds(prevBlockedIds => {
+                         if (prevBlockedIds.size === currentBlockedIds.size && [...prevBlockedIds].every(id => currentBlockedIds.has(id))) {
+                             return prevBlockedIds; // No change
+                         }
+                         console.log("[MatchesScreen] Blocked users updated on focus.");
+                         return currentBlockedIds; // Update
+                     });
+                 });
+             }
+         }, [fetchBlockedUsers, session?.user?.id])
+     );
+
+    // --- Navigation Actions ---
     const goToNextMatch = () => {
-        if (matches.length > 1) { setCurrentMatchIndex((prev) => (prev + 1) % matches.length); }
+        if (filteredMatches.length > 0) {
+            setCurrentMatchIndex((prev) => (prev + 1) % filteredMatches.length);
+        }
     };
 
-    const currentMatchData = matches.length > 0 ? matches[currentMatchIndex] : null;
+    const handleInitiateChat = (match: FetchedMatchData) => {
+        setChattedUserIds(prev => {
+            if (prev.has(match.userId)) return prev;
+            const newSet = new Set(prev);
+            newSet.add(match.userId);
+            console.log("[MatchesScreen] Added to chattedUserIds:", match.userId);
+            return newSet;
+        });
+        navigation.navigate('IndividualChatScreen', {
+            matchUserId: match.userId,
+            matchName: `${match.firstName || ''} ${match.lastName || ''}`.trim() || 'User',
+        });
+    };
+
+    const currentMatchData = filteredMatches.length > 0 ? filteredMatches[currentMatchIndex] : null;
 
     // --- Render Logic ---
     const renderContent = () => {
-        if (isLoading) { /* ... Loading UI ... */
-             return ( <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || "#3B82F6"} /><Text style={styles.infoText}>Finding matches...</Text></View> );
+        if (isLoading || !chattedIdsLoaded) {
+             return ( <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || "#3B82F6"} /><Text style={styles.infoText}>Loading data...</Text></View> );
         }
-        if (error) { /* ... Error UI ... */
-            return ( <View style={styles.centered}><Feather name="alert-circle" size={48} color="#EF4444" /><Text style={styles.errorText}>Oops!</Text><Text style={styles.errorSubText}>{error}</Text><TouchableOpacity style={styles.retryButton} onPress={() => fetchMatches()}><Feather name="refresh-cw" size={16} color="white" /><Text style={styles.retryButtonText}>Try Again</Text></TouchableOpacity></View> );
+        if (error && !currentMatchData) {
+            return ( <View style={styles.centered}><Feather name="alert-circle" size={48} color="#EF4444" /><Text style={styles.errorText}>Oops!</Text><Text style={styles.errorSubText}>{error}</Text><TouchableOpacity style={styles.retryButton} onPress={() => fetchMatchesAndBlocks()}><Feather name="refresh-cw" size={16} color="white" /><Text style={styles.retryButtonText}>Try Again</Text></TouchableOpacity></View> );
         }
-        if (!currentMatchData) { /* ... No Matches UI ... */
-            return ( <View style={styles.centered}><Feather name="users" size={48} color="#6B7280" /><Text style={styles.infoText}>No Matches Found</Text><Text style={styles.infoSubText}>Try updating your profile or check back later!</Text></View> );
+        if (!currentMatchData) {
+            if (matches.length > 0) { // Had potential matches, but all filtered
+                 return ( <View style={styles.centered}><Feather name="check-circle" size={48} color="#10B981" /><Text style={styles.infoText}>All Caught Up!</Text><Text style={styles.infoSubText}>You've seen, chatted with, or blocked everyone currently available. Pull down to refresh later!</Text></View> );
+            } else { // Truly no matches found
+                 return ( <View style={styles.centered}><Feather name="users" size={48} color="#6B7280" /><Text style={styles.infoText}>No Matches Found Yet</Text><Text style={styles.infoSubText}>Widen your search or check back later. Pull down to refresh!</Text></View> );
+            }
         }
-
-        // Display the match card
+        // Display MatchCard
         return (
             <View style={styles.mainContent}>
                 <MatchCard
@@ -124,35 +277,44 @@ const MatchesScreen = () => {
                     image={currentMatchData.profilePicture ?? DEFAULT_PROFILE_PIC}
                     bio={currentMatchData.bio}
                     isPremium={currentMatchData.isPremium}
-                    commonTags={currentMatchData.commonTags ?? []} // <<< ADD THIS PROP (using ?? [] as fallback)
-                    // Pass commonTags, provide empty array as fallback if it's null/undefined for safety
+                    commonTags={currentMatchData.commonTags ?? []}
+                    onChatPress={() => handleInitiateChat(currentMatchData)}
                 />
             </View>
         );
-    }; // End renderContent
-
+    };
 
     return (
         <SafeAreaView style={styles.container}>
-            <LinearGradient colors={["rgba(59, 130, 246, 0.05)", "white"]} style={styles.background} >
+            <LinearGradient colors={["rgba(59, 130, 246, 0.05)", "white"]} style={styles.background}>
                 {/* Header */}
-                 <View style={styles.header}>
-                      {/* ... header content ... */}
-                       <View style={styles.headerInner}>
-                          <View style={styles.headerTitleRow}>
-                              <View style={styles.titleContainer}><Feather name="heart" size={22} color="#60A5FA" style={styles.headerIcon} /><Text style={styles.title}>Matches</Text>{matches.length > 0 && (<Text style={styles.matchCount}>({currentMatchIndex + 1}/{matches.length})</Text>)}</View>
-                          </View>
-                          <View style={styles.headerSubtitleRow}>
-                             <Text style={styles.subtitle}>Your potential music connections</Text>
-                             <TouchableOpacity style={[styles.nextButton, matches.length <= 1 && styles.disabledButton]} activeOpacity={matches.length <= 1 ? 1 : 0.7} onPress={goToNextMatch} disabled={matches.length <= 1} >
-                                 <Text style={[styles.nextButtonText, matches.length <= 1 && styles.disabledButtonText]}>Next match</Text>
-                                 <Feather name="arrow-right" size={16} color={matches.length <= 1 ? "#9CA3AF" : "#3B82F6"} />
-                             </TouchableOpacity>
-                          </View>
-                      </View>
-                 </View>
-
-                 {/* Scrollable content area */}
+                <View style={styles.header}>
+                    <View style={styles.headerInner}>
+                        <View style={styles.headerTitleRow}>
+                            <View style={styles.titleContainer}>
+                                <Feather name="heart" size={22} color="#60A5FA" style={styles.headerIcon} />
+                                <Text style={styles.title}>Matches</Text>
+                                {filteredMatches.length > 0 && (
+                                    <Text style={styles.matchCount}>({currentMatchIndex + 1}/{filteredMatches.length})</Text>
+                                )}
+                            </View>
+                        </View>
+                        <View style={styles.headerSubtitleRow}>
+                            <Text style={styles.subtitle}>Your potential music connections</Text>
+                            <TouchableOpacity
+                                style={[styles.nextButton, filteredMatches.length <= 1 && styles.disabledButton]}
+                                activeOpacity={filteredMatches.length <= 1 ? 1 : 0.7}
+                                onPress={goToNextMatch}
+                                disabled={filteredMatches.length <= 1} >
+                                <Text style={[styles.nextButtonText, filteredMatches.length <= 1 && styles.disabledButtonText]}>
+                                    {filteredMatches.length <= 1 ? 'No More' : 'Next Match'}
+                                </Text>
+                                <Feather name="arrow-right" size={16} color={filteredMatches.length <= 1 ? "#9CA3AF" : "#3B82F6"} />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+                {/* ScrollView */}
                 <ScrollView
                     contentContainerStyle={styles.scrollContent}
                     showsVerticalScrollIndicator={false}
@@ -161,10 +323,8 @@ const MatchesScreen = () => {
                             refreshing={isRefreshing}
                             onRefresh={onRefresh}
                             colors={[APP_CONSTANTS?.COLORS?.PRIMARY || "#3B82F6"]}
-                            tintColor={APP_CONSTANTS?.COLORS?.PRIMARY || "#3B82F6"}
-                        />
-                    }
-                 >
+                            tintColor={APP_CONSTANTS?.COLORS?.PRIMARY || "#3B82F6"} />
+                    } >
                     {renderContent()}
                 </ScrollView>
             </LinearGradient>
@@ -172,7 +332,7 @@ const MatchesScreen = () => {
     );
 };
 
-// --- Styles --- (Keep the previous styles)
+// --- Styles ---
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: "white", },
     background: { flex: 1, },
@@ -190,7 +350,7 @@ const styles = StyleSheet.create({
     nextButtonText: { color: "#3B82F6", marginRight: 6, fontSize: 14, fontWeight: '600', },
     disabledButton: { backgroundColor: 'rgba(209, 213, 219, 0.4)', },
     disabledButtonText: { color: "#9CA3AF", },
-    centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, marginTop: -50, },
+    centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, marginTop: -50, textAlign: 'center', },
     mainContent: { paddingHorizontal: 16, paddingTop: 24, paddingBottom: 24, alignItems: "center", width: '100%', },
     infoText: { marginTop: 15, fontSize: 18, fontWeight: '600', color: '#4B5563', textAlign: 'center', },
     infoSubText: { marginTop: 8, fontSize: 14, color: '#6B7280', textAlign: 'center', maxWidth: '85%', lineHeight: 20, },
@@ -199,6 +359,5 @@ const styles = StyleSheet.create({
     retryButton: { flexDirection: 'row', alignItems: 'center', marginTop: 25, backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', paddingVertical: 12, paddingHorizontal: 25, borderRadius: 8, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 3, elevation: 2, },
     retryButtonText: { color: 'white', fontWeight: '600', fontSize: 15, marginLeft: 8, }
 });
-
 
 export default MatchesScreen;
