@@ -15,7 +15,7 @@ import type { RootStackParamList } from '@/navigation/AppNavigator';
 
 type FriendsListNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-const DEFAULT_PROFILE_PIC = APP_CONSTANTS?.DEFAULT_PROFILE_PIC || 'https://via.placeholder.com/150/CCCCCC/808080?text=No+Image';
+const DEFAULT_PROFILE_PIC = APP_CONSTANTS.DEFAULT_PROFILE_PIC;
 
 interface Friend {
     userId: string;

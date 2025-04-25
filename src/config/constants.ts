@@ -1,9 +1,64 @@
 // Application-wide constants
-export const APP_CONSTANTS = {
+
+// Define a type for the COLORS object for better type checking
+type AppColors = {
+  PRIMARY: string;
+  PRIMARY_LIGHT: string;
+  PRIMARY_DARK: string;
+  SECONDARY: string;
+  TERTIARY: string;
+  BACKGROUND: string;
+  BACKGROUND_LIGHT: string;
+  TEXT_PRIMARY: string;
+  TEXT_SECONDARY: string;
+  TEXT_TERTIARY: string;
+  BORDER: string;
+  BORDER_LIGHT: string;
+  BORDER_DARK: string;
+  ERROR: string;
+  SUCCESS: string;
+  SUCCESS_LIGHT: string;
+  SUCCESS_DARK: string;
+  WARNING: string;
+  WARNING_LIGHT: string;
+  WARNING_DARK: string;
+  DISABLED: string;
+  WHITE: string;
+  PREMIUM_LIGHT_BG: string;
+  PREMIUM_BORDER: string;
+  PREMIUM_DARK: string;
+};
+
+// Define the overall type for APP_CONSTANTS
+interface AppConstantsType {
+  COLORS: AppColors;
+  CONFIG: {
+    APP_NAME: string;
+    APP_SCHEME: string;
+    APP_SLOGAN: string;
+  };
+  BUSINESS: {
+    COST_PER_TICKET: number;
+    COST_PER_DINER: number;
+    COST_PER_THOUSAND_IMPRESSIONS: number;
+    TICKET_COST_PERCENTAGE: number;
+    DINER_COST_FIXED: number;
+    ADVERTISING_COST_PER_IMPRESSION: number;
+  };
+  API: {
+    SPOTIFY_AUTH_CALLBACK: string;
+    AUTH_REDIRECT_URL: string;
+  };
+  DEFAULT_PROFILE_PIC: string;
+  NAVBAR_HEIGHT: number;
+}
+
+export const APP_CONSTANTS: AppConstantsType = {
   // Color scheme
   COLORS: {
     PRIMARY: '#3B82F6',
     PRIMARY_LIGHT: '#93C5FD', // Light shade of primary for background, selected items, etc.
+    PRIMARY_DARK: '#1D4ED8', // Darker shade of primary for borders, etc.
     SECONDARY: '#60A5FA',
     TERTIARY: '#93C5FD',
     BACKGROUND: 'white',
@@ -16,9 +71,16 @@ export const APP_CONSTANTS = {
     BORDER_DARK: '#D1D5DB', // Darker border color for more emphasis
     ERROR: '#EF4444',
     SUCCESS: '#10B981',
+    SUCCESS_LIGHT: '#D1FAE5', // Light green for success backgrounds
+    SUCCESS_DARK: '#059669', // Darker green for success text
     WARNING: '#F59E0B',
+    WARNING_LIGHT: '#FEF3C7', // Light yellow for warning backgrounds
+    WARNING_DARK: '#D97706', // Darker yellow for warning text
     DISABLED: '#94A3B8',
     WHITE: '#FFFFFF',
+    PREMIUM_LIGHT_BG: 'rgba(255, 215, 0, 0.15)', // Light gold for premium features background
+    PREMIUM_BORDER: 'rgba(255, 215, 0, 0.4)', // Gold border for premium features
+    PREMIUM_DARK: '#B8860B', // Dark gold for premium text
   },
   
   // App configuration
@@ -43,4 +105,10 @@ export const APP_CONSTANTS = {
     SPOTIFY_AUTH_CALLBACK: 'vybr://spotify-auth-callback',
     AUTH_REDIRECT_URL: 'vybr://auth/callback',
   },
+  
+  // Default assets
+  DEFAULT_PROFILE_PIC: 'https://via.placeholder.com/150/CCCCCC/808080?text=No+Image',
+  
+  // Layout dimensions
+  NAVBAR_HEIGHT: 90,
 }; 

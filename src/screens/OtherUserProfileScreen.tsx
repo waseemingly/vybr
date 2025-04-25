@@ -15,7 +15,7 @@ import { APP_CONSTANTS } from '@/config/constants';
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator';
 
 // --- Reusable Components ---
-const DEFAULT_PROFILE_PIC = APP_CONSTANTS?.DEFAULT_PROFILE_PIC || 'https://via.placeholder.com/150/CCCCCC/808080?text=No+Image';
+const DEFAULT_PROFILE_PIC = APP_CONSTANTS.DEFAULT_PROFILE_PIC;
 interface SeparatorProps { vertical?: boolean; style?: object; }
 const Separator: React.FC<SeparatorProps> = ({ vertical = false, style = {} }) => ( <View style={[ profileStyles.separator, vertical ? { height: '60%', width: 1 } : { height: 1, width: "100%" }, style ]} /> );
 
@@ -55,104 +55,223 @@ const OtherUserProfileScreen: React.FC = () => {
     const [reportModalVisible, setReportModalVisible] = useState(false);
     const [reportReason, setReportReason] = useState('');
     const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+    // --- State for custom unfriend confirmation modal ---
+    const [showUnfriendConfirmModal, setShowUnfriendConfirmModal] = useState(false);
 
     const currentUserId = session?.user?.id;
 
-    // --- Data Fetching ---
-    const fetchProfileData = useCallback(async () => {
-        if (!profileUserId) { setError("User ID not provided."); return; } // No need to set loading false here
-        setError(null); console.log(`[OtherUserProfileScreen] Fetching profile for ${profileUserId}`);
-        try {
-            const { data: profile, error: profileError } = await supabase.from('music_lover_profiles').select('*').eq('user_id', profileUserId).single();
-            if (profileError && profileError.code !== 'PGRST116') { throw profileError; }
-            if (!profile) { setProfileData(null); setError("Profile not found."); console.log(`[OtherUserProfileScreen] Profile not found.`); return; } // Set error state here
-            setProfileData(profile as MusicLoverProfile);
-            await fetchFriendsCount(); // Fetch count after profile data is set
-        } catch (err: any) { console.error("Error fetching profile data:", err); setError(err.message || "Could not load profile."); setProfileData(null); }
-    }, [profileUserId]); // Removed fetchFriendsCount from deps
-
+    // --- Data Fetching (fetchFriendsCount, fetchProfileData, fetchInteractionStatus) ---
+    // These functions remain unchanged from previous versions
     const fetchFriendsCount = useCallback(async () => {
         if (!profileUserId) return;
-        console.log("[OtherUserProfileScreen] Fetching friends count...");
+        console.log("[OtherUserProfileScreen] Fetching friends count for profile:", profileUserId);
         try {
-            const { count, error } = await supabase.from('friends').select('*', { count: 'exact', head: true }).or(`user_id_1.eq.${profileUserId},user_id_2.eq.${profileUserId}`).eq('status', 'accepted');
-            if (!error) setFriendCount(count ?? 0);
-            else console.error("Error fetching friend count:", error);
-        } catch (e) { console.error("Error fetching friend count:", e) }
+            const { count, error } = await supabase
+                .from('friends')
+                .select('*', { count: 'exact', head: true })
+                .or(`user_id_1.eq.${profileUserId},user_id_2.eq.${profileUserId}`)
+                .eq('status', 'accepted');
+
+            if (!error) {
+                setFriendCount(count ?? 0);
+                console.log("[OtherUserProfileScreen] Friend count fetched:", count ?? 0);
+            } else {
+                console.error("[OtherUserProfileScreen] Error fetching friend count:", error);
+                setFriendCount(0);
+            }
+        } catch (e) {
+            console.error("[OtherUserProfileScreen] Catch Error fetching friend count:", e);
+            setFriendCount(0);
+        }
     }, [profileUserId]);
 
-    const fetchInteractionStatus = useCallback(async () => {
-        if (!currentUserId || !profileUserId || currentUserId === profileUserId) { setFriendshipStatus('not_friends'); setIsMuted(false); setIsBlocked(false); return; }
-        console.log(`[OtherUserProfileScreen] Fetching interaction status (Direct Add) between ${currentUserId} and ${profileUserId}`);
-        setFriendshipStatus('loading'); // Indicate status loading
+
+    const fetchProfileData = useCallback(async () => {
+        if (!profileUserId) { setError("User ID not provided."); setIsLoading(false); return; }
+        setError(null);
+        console.log(`[OtherUserProfileScreen] Fetching profile for ${profileUserId}`);
         try {
-            const { data: blockData, error: blockError } = await supabase.from('blocks').select('blocker_id').or(`and(blocker_id.eq.${currentUserId},blocked_id.eq.${profileUserId}),and(blocker_id.eq.${profileUserId},blocked_id.eq.${currentUserId})`);
-            if (blockError) throw blockError;
+            const { data: profile, error: profileError } = await supabase
+                .from('music_lover_profiles')
+                .select('id, user_id, first_name, last_name, username, profile_picture, age, city, country, is_premium, bio, music_data')
+                .eq('user_id', profileUserId)
+                .single();
+
+            if (profileError && profileError.code === 'PGRST116') {
+                console.log(`[OtherUserProfileScreen] Profile not found for user ${profileUserId}.`);
+                setError("Profile not found.");
+                setProfileData(null);
+                return;
+            } else if (profileError) {
+                throw profileError;
+            }
+
+            if (!profile) {
+                 console.log(`[OtherUserProfileScreen] Profile data is null for user ${profileUserId}.`);
+                 setError("Profile not found.");
+                 setProfileData(null);
+                 return;
+            }
+
+            console.log(`[OtherUserProfileScreen] Retrieved profile successfully.`);
+            setProfileData({
+                id: profile.id,
+                userId: profile.user_id,
+                firstName: profile.first_name,
+                lastName: profile.last_name,
+                username: profile.username,
+                profilePicture: profile.profile_picture,
+                age: profile.age,
+                city: profile.city,
+                country: profile.country,
+                isPremium: profile.is_premium,
+                bio: profile.bio,
+                musicData: profile.music_data,
+            });
+            await fetchFriendsCount();
+
+        } catch (err: any) {
+            console.error("[OtherUserProfileScreen] Error fetching profile data:", err);
+            setError(err.message || "Could not load profile.");
+            setProfileData(null);
+        }
+    }, [profileUserId, fetchFriendsCount]);
+
+
+    const fetchInteractionStatus = useCallback(async () => {
+        if (!currentUserId || !profileUserId || currentUserId === profileUserId) {
+             setFriendshipStatus('not_friends');
+             setIsMuted(false);
+             setIsBlocked(false);
+             console.log("[OtherUserProfileScreen] Cannot fetch interaction: missing IDs or self-profile.");
+             return;
+         }
+
+        console.log(`[OtherUserProfileScreen] Fetching interaction status between ${currentUserId} and ${profileUserId}`);
+        setFriendshipStatus('loading');
+        setIsMuted(false);
+        setIsBlocked(false);
+
+        try {
+            // 1. Check Block Status
+            const { data: blockData, error: blockError } = await supabase
+                .from('blocks')
+                .select('blocker_id')
+                .or(`and(blocker_id.eq.${currentUserId},blocked_id.eq.${profileUserId}),and(blocker_id.eq.${profileUserId},blocked_id.eq.${currentUserId})`);
+            if (blockError) throw new Error(`Block check failed: ${blockError.message}`);
             const blockedByCurrentUser = blockData?.some(b => b.blocker_id === currentUserId) ?? false;
             const blockedByProfileUser = blockData?.some(b => b.blocker_id === profileUserId) ?? false;
-            setIsBlocked(blockedByCurrentUser); // Set block status based on current user
-            if (blockedByCurrentUser) { setFriendshipStatus('blocked_by_you'); setIsMuted(false); return; }
-            if (blockedByProfileUser) { setFriendshipStatus('blocked_by_them'); setIsMuted(false); return; }
-
-            const { data: friendData, error: friendError } = await supabase.from('friends').select('status').or(`and(user_id_1.eq.${currentUserId},user_id_2.eq.${profileUserId}),and(user_id_1.eq.${profileUserId},user_id_2.eq.${currentUserId})`).eq('status', 'accepted').maybeSingle();
-            if (friendError) throw friendError;
-            const isCurrentlyFriends = !!friendData; // True if 'accepted' record exists
-            setFriendshipStatus(isCurrentlyFriends ? 'friends' : 'not_friends');
-            console.log(`[OtherUserProfileScreen] Status: ${isCurrentlyFriends ? 'Friends' : 'Not friends'}`);
-
-            if (!isCurrentlyFriends) { // Only check mute if not friends (or check always?) - Let's check always for simplicity
-                 const { count: muteCount, error: muteError } = await supabase.from('mutes').select('*', { count: 'exact', head: true }).eq('muter_id', currentUserId).eq('muted_id', profileUserId);
-                 if (muteError) throw muteError;
-                 const mutedResult = (muteCount ?? 0) > 0;
-                 setIsMuted(mutedResult); console.log(`[OtherUserProfileScreen] Mute status: ${mutedResult}`);
-            } else {
-                 setIsMuted(false); // Assume not muted if friends? Or fetch anyway? Fetching always is safer.
-                 const { count: muteCount, error: muteError } = await supabase.from('mutes').select('*', { count: 'exact', head: true }).eq('muter_id', currentUserId).eq('muted_id', profileUserId);
-                 if (muteError) throw muteError;
-                 const mutedResult = (muteCount ?? 0) > 0;
-                 setIsMuted(mutedResult); console.log(`[OtherUserProfileScreen] Mute status (friends check): ${mutedResult}`);
+            setIsBlocked(blockedByCurrentUser);
+            if (blockedByCurrentUser) {
+                console.log("[OtherUserProfileScreen] Interaction Status: Blocked by You");
+                setFriendshipStatus('blocked_by_you');
+                setIsMuted(false); return;
+            }
+            if (blockedByProfileUser) {
+                console.log("[OtherUserProfileScreen] Interaction Status: Blocked by Them");
+                setFriendshipStatus('blocked_by_them');
+                setIsMuted(false); return;
             }
 
-        } catch (err: any) { console.error("Error fetching interaction status:", err); setFriendshipStatus('error'); setIsMuted(false); setIsBlocked(false); }
+            // 2. Check Friendship Status
+            console.log("[OtherUserProfileScreen] Checking for 'accepted' friendship...");
+            const { data: friendData, error: friendError } = await supabase
+                .from('friends')
+                .select('status')
+                .or(`and(user_id_1.eq.${currentUserId},user_id_2.eq.${profileUserId}),and(user_id_1.eq.${profileUserId},user_id_2.eq.${currentUserId})`)
+                .eq('status', 'accepted')
+                .maybeSingle();
+            if (friendError) throw new Error(`Friend check (accepted) failed: ${friendError.message}`);
+            const isCurrentlyFriends = !!friendData;
+            setFriendshipStatus(isCurrentlyFriends ? 'friends' : 'not_friends');
+            console.log(`[OtherUserProfileScreen] Interaction Status (Friendship): ${isCurrentlyFriends ? 'Friends (accepted)' : 'Not friends (or pending/rejected)'}`);
+
+            // 3. Check Mute Status
+            console.log("[OtherUserProfileScreen] Checking mute status...");
+            const { count: muteCount, error: muteError } = await supabase
+                 .from('mutes')
+                 .select('*', { count: 'exact', head: true })
+                 .eq('muter_id', currentUserId)
+                 .eq('muted_id', profileUserId);
+            if (muteError) throw new Error(`Mute check failed: ${muteError.message}`);
+            const mutedResult = (muteCount ?? 0) > 0;
+            setIsMuted(mutedResult);
+            console.log(`[OtherUserProfileScreen] Interaction Status (Mute): ${mutedResult}`);
+
+        } catch (err: any) {
+             console.error("[OtherUserProfileScreen] Error fetching interaction status:", err);
+             setFriendshipStatus('error');
+             setIsMuted(false);
+             setIsBlocked(false);
+         }
     }, [currentUserId, profileUserId]);
 
-    // --- Initial data fetch ---
+    // --- useEffect Hooks (Initial fetch, Focus effect, Interaction after load, Header options) ---
+    // These hooks remain unchanged from previous versions
     useEffect(() => {
         setIsLoading(true);
-        fetchProfileData().finally(() => setIsLoading(false));
+        setProfileData(null);
+        setError(null);
+        setFriendshipStatus('loading');
+        fetchProfileData().finally(() => {
+             setIsLoading(false)
+        });
     }, [fetchProfileData]);
 
-    // --- Interaction status fetch on focus ---
+
      useFocusEffect(
          useCallback(() => {
-             console.log(`[OtherUserProfileScreen] Focus effect: Fetching interaction status.`);
-             // Fetch status immediately on focus, don't wait for isLoading
-             fetchInteractionStatus();
-         }, [fetchInteractionStatus]) // Only depends on the stable callback
+             console.log(`[OtherUserProfileScreen] Focus effect triggered. Fetching interaction status.`);
+             if (currentUserId && profileUserId) {
+                 fetchInteractionStatus();
+             } else {
+                 console.log("[OtherUserProfileScreen] Focus effect: Skipping interaction fetch (missing IDs).");
+             }
+             return () => {
+                 console.log("[OtherUserProfileScreen] Focus effect cleanup (screen unfocused).");
+             };
+         }, [fetchInteractionStatus, currentUserId, profileUserId])
      );
 
-    // --- Set Header Options ---
-    useEffect(() => {
-        // Function to derive header state from current component state
-        const getHeaderConfig = () => {
-            let title = 'User Profile'; let canChat = false; let profileUserNameForChat = 'User';
-            const currentBlockStatus = isBlocked; // Read latest state
-            const currentFriendshipStatus = friendshipStatus; // Read latest state
+     useEffect(() => {
+         if (!isLoading && profileData && currentUserId && profileUserId) {
+             console.log("[OtherUserProfileScreen] Profile data available and not loading. Validating interaction status.");
+             fetchInteractionStatus();
+         } else if (!isLoading && !profileData && currentUserId && profileUserId) {
+             console.log("[OtherUserProfileScreen] Profile data *not* available after load. Validating interaction status (likely should be not_friends unless blocked).");
+             fetchInteractionStatus();
+         }
+     }, [profileData, isLoading, fetchInteractionStatus, currentUserId, profileUserId]);
 
-            if (isLoading && !profileData) { // Show loading only if profile isn't available yet
+    useEffect(() => {
+        const getHeaderConfig = () => {
+            let title = 'User Profile';
+            let canChat = false;
+            let profileUserNameForChat = 'User';
+            const currentBlockStatus = isBlocked;
+            const currentFriendshipStatusValue = friendshipStatus;
+
+            if (isLoading && !profileData) {
                  title = 'Loading Profile...';
-             } else if (currentFriendshipStatus === 'blocked_by_them') {
+             } else if (currentFriendshipStatusValue === 'blocked_by_them') {
                 title = 'Profile Unavailable';
-            } else if (profileData) { // Use profile data if available
-                const fetchedUserName = `${profileData.firstName ?? ''} ${profileData.lastName ?? ''}`.trim();
-                title = fetchedUserName || 'User Profile';
-                profileUserNameForChat = fetchedUserName || 'User';
-                canChat = !currentBlockStatus; // Can chat if not blocked BY YOU
-            } else if (error) { // Handle error state
+            } else if (profileData) {
+                const first = profileData.firstName?.trim();
+                const last = profileData.lastName?.trim();
+                const username = profileData.username?.trim();
+                let displayName = `${first ?? ''} ${last ?? ''}`.trim();
+                if (!displayName && username) displayName = username;
+                else if (!displayName) displayName = 'User Profile';
+                title = displayName;
+                profileUserNameForChat = displayName !== 'User Profile' ? displayName : (username || 'User');
+            } else if (error) {
                  title = 'Error Loading';
-             } else { // Fallback if profileData is null after loading without specific error
+             } else {
                 title = 'Profile Not Found';
             }
+
+            canChat = !currentBlockStatus && currentFriendshipStatusValue !== 'blocked_by_them';
+
             return { title, canChat, profileUserNameForChat };
         };
 
@@ -160,71 +279,546 @@ const OtherUserProfileScreen: React.FC = () => {
         console.log(`[OtherUserProfileScreen] Updating header - Title: ${title}, CanChat: ${canChat}`);
 
         navigation.setOptions({
-            headerShown: true, headerTitle: title, headerTitleAlign: 'center', headerBackTitleVisible: false,
-            headerLeft: () => ( <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}> <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} /> </TouchableOpacity> ),
+            headerShown: true,
+            headerTitle: title,
+            headerTitleAlign: 'center',
+            headerBackTitleVisible: false,
+            headerLeft: () => (
+                <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}>
+                    <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+            ),
             headerRight: () => (
-                <TouchableOpacity onPress={() => navigation.navigate('IndividualChatScreen', { matchUserId: profileUserId, matchName: profileUserNameForChat })} style={{ marginRight: Platform.OS === 'ios' ? 10 : 15, padding: 5 }} disabled={!canChat} >
+                <TouchableOpacity
+                    onPress={() => {
+                        if (profileUserId && profileUserNameForChat && canChat) {
+                           navigation.navigate('IndividualChatScreen', {
+                               matchUserId: profileUserId,
+                               matchName: profileUserNameForChat
+                           });
+                        } else {
+                           console.warn("Cannot navigate to chat:", { profileUserId, profileUserNameForChat, canChat });
+                           if (!canChat) {
+                               Alert.alert("Cannot Chat", "Chat is unavailable with this user.");
+                           } else {
+                               Alert.alert("Error", "Could not open chat. User information might be missing.");
+                           }
+                        }
+                    }}
+                    style={{ marginRight: Platform.OS === 'ios' ? 10 : 15, padding: 5 }}
+                    disabled={!canChat}
+                >
                     <Feather name="message-circle" size={24} color={canChat ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.DISABLED} />
                 </TouchableOpacity>
             ),
-            headerStyle: { backgroundColor: 'white' }, headerTitleStyle: { fontWeight: '600', color: '#1F2937' },
+            headerStyle: { backgroundColor: 'white' },
+            headerTitleStyle: { fontWeight: '600', color: '#1F2937' },
         });
-    // Depend on all states that influence the header's content/behavior
     }, [navigation, profileData, profileUserId, isLoading, error, friendshipStatus, isBlocked]);
 
 
     // --- Action Handlers ---
+
+    // handleAddFriendDirectly - remains unchanged
     const handleAddFriendDirectly = async () => {
-        if (!currentUserId || friendshipStatus !== 'not_friends') return;
-        console.log(`[OtherUserProfileScreen] Adding friend directly: ${profileUserId}`);
+        if (!currentUserId || !profileUserId || friendshipStatus !== 'not_friends' || isLoading) {
+            console.log("[OtherUserProfileScreen] Add friend conditions not met:", { currentUserIdPresent: !!currentUserId, profileUserIdPresent: !!profileUserId, status: friendshipStatus, isLoading });
+            return;
+        }
+        console.log(`[OtherUserProfileScreen] Initiating 'Add Friend' action for: ${profileUserId}`);
         setFriendshipStatus('loading');
+
+        const id1 = currentUserId < profileUserId ? currentUserId : profileUserId;
+        const id2 = currentUserId < profileUserId ? profileUserId : currentUserId;
+
         try {
-            const { error } = await supabase.from('friends').insert({ user_id_1: currentUserId, user_id_2: profileUserId, status: 'accepted' }); // Rely on DB trigger/constraint for order/uniqueness
-            if (error) throw error; // Let RLS handle violation check
-            setFriendshipStatus('friends'); fetchFriendsCount(); // Refresh count on success
-        } catch (err: any) { console.error("Error adding friend:", err); Alert.alert("Error", `Could not add friend: ${err.message}`); fetchInteractionStatus(); } // Refetch status on error
+            console.log(`[OtherUserProfileScreen] Checking for existing relationship: user_id_low=${id1}, user_id_high=${id2}`);
+            const { data: existingRelation, error: checkError } = await supabase
+                .from('friends')
+                .select('id, status, requester_id')
+                .eq('user_id_low', id1)
+                .eq('user_id_high', id2)
+                .maybeSingle();
+
+            if (checkError) {
+                console.error("[OtherUserProfileScreen] Error checking for existing relationship:", JSON.stringify(checkError, null, 2));
+                throw new Error(`Failed to check relationship: ${checkError.message}`);
+            }
+
+            if (existingRelation) {
+                console.log(`[OtherUserProfileScreen] Found existing relationship:`, existingRelation);
+                if (existingRelation.status === 'accepted') {
+                    console.warn("[OtherUserProfileScreen] Relationship already 'accepted'. Correcting state.");
+                    setFriendshipStatus('friends');
+                    fetchFriendsCount();
+                    await fetchInteractionStatus();
+                    return;
+                }
+                 else if (existingRelation.status === 'pending' && existingRelation.requester_id === profileUserId) {
+                    console.log("[OtherUserProfileScreen] Existing request was pending from other user. Accepting it.");
+                    const { error: updateError } = await supabase
+                        .from('friends')
+                        .update({ status: 'accepted', requester_id: currentUserId, updated_at: new Date().toISOString() })
+                        .eq('id', existingRelation.id);
+                    if (updateError) throw new Error(`Failed to accept request: ${updateError.message}`);
+                    console.log("[OtherUserProfileScreen] Successfully updated status to 'accepted'.");
+                    setFriendshipStatus('friends');
+                    fetchFriendsCount();
+                }
+                 else {
+                    console.log(`[OtherUserProfileScreen] Existing relationship status is '${existingRelation.status}'. Attempting to set to 'accepted'.`);
+                    const { error: updateError } = await supabase
+                       .from('friends')
+                       .update({ status: 'accepted', requester_id: currentUserId, updated_at: new Date().toISOString() })
+                       .eq('id', existingRelation.id);
+                    if (updateError) throw new Error(`Failed to force accept: ${updateError.message}. Check RLS.`);
+                    console.log("[OtherUserProfileScreen] Successfully forced status to 'accepted'.");
+                    setFriendshipStatus('friends');
+                    fetchFriendsCount();
+                }
+            }
+             else {
+                console.log("[OtherUserProfileScreen] No existing relationship found. Inserting new 'accepted' record.");
+                const { error: insertError } = await supabase
+                    .from('friends')
+                    .insert({ user_id_1: id1, user_id_2: id2, status: 'accepted', requester_id: currentUserId });
+                if (insertError) {
+                    if (insertError.message?.toLowerCase().includes('rls') || insertError.message?.toLowerCase().includes('policy')) {
+                       throw new Error(`Permission denied: ${insertError.message}`);
+                    } else {
+                       throw new Error(`Failed to insert friendship: ${insertError.message}`);
+                    }
+                }
+                console.log("[OtherUserProfileScreen] Successfully inserted new 'accepted' friendship.");
+                setFriendshipStatus('friends');
+                fetchFriendsCount();
+            }
+
+        } catch (err: any) {
+            console.error("[OtherUserProfileScreen] Error caught during 'Add Friend' action:", err);
+            Alert.alert("Error", `Could not add friend: ${err.message || 'An unknown error occurred.'}`);
+            await fetchInteractionStatus();
+        }
     };
 
-    const handleUnfriend = async () => {
-        if (!currentUserId || friendshipStatus !== 'friends') return; Alert.alert("Unfriend User", `Remove ${profileData?.firstName ?? 'this user'} as friend?`, [ { text: "Cancel", style: "cancel" }, { text: "Unfriend", style: "destructive", onPress: async () => { setFriendshipStatus('loading'); try { const { error } = await supabase.from('friends').delete().or(`and(user_id_1.eq.${currentUserId},user_id_2.eq.${profileUserId}),and(user_id_1.eq.${profileUserId},user_id_2.eq.${currentUserId})`).eq('status', 'accepted'); if (error) throw error; setFriendshipStatus('not_friends'); fetchFriendsCount(); } catch (err: any) { console.error("Error unfriending:", err); Alert.alert("Error", "Could not unfriend."); setFriendshipStatus('friends'); } } } ]);
+    // performUnfriendAction - contains the Supabase call, remains unchanged
+    const performUnfriendAction = async () => {
+        console.log("[performUnfriendAction] Entered function.");
+        console.log("[performUnfriendAction] currentUserId:", currentUserId);
+        console.log("[performUnfriendAction] profileUserId:", profileUserId);
+        console.log("[performUnfriendAction] profileData exists:", !!profileData);
+
+        if (!currentUserId || !profileUserId) {
+            console.error("[performUnfriendAction] Missing user IDs.");
+            Alert.alert("Error", "Cannot perform action due to missing user information.");
+            await fetchInteractionStatus();
+            return;
+        }
+
+        const displayName = profileData?.firstName ?? profileData?.username ?? 'this user';
+
+        console.log(`[performUnfriendAction] Inside async action. Attempting unfriend for user: ${profileUserId}, current user: ${currentUserId}`);
+        setFriendshipStatus('loading');
+
+        const user1 = currentUserId;
+        const user2 = profileUserId;
+
+        try {
+            console.log(`[performUnfriendAction] Entering try block...`);
+            console.log(`[performUnfriendAction] Executing delete for users: ${user1}, ${user2} with status 'accepted'`);
+            const { error, count } = await supabase
+                .from('friends')
+                .delete({ count: 'exact' })
+                .or(`and(user_id_1.eq.${user1},user_id_2.eq.${user2}),and(user_id_1.eq.${user2},user_id_2.eq.${user1})`)
+                .eq('status', 'accepted');
+
+            console.log("[performUnfriendAction] Supabase delete response:", { error: JSON.stringify(error), count });
+
+            if (error) {
+                console.error("[performUnfriendAction] Supabase DELETE error object:", JSON.stringify(error, null, 2));
+                if (error.message?.toLowerCase().includes('row level security') || error.message?.toLowerCase().includes('rls policy')) {
+                     console.error("[performUnfriendAction] RLS policy likely denied the delete operation.");
+                     throw new Error(`Permission denied. Please check application policies. (${error.code})`);
+                } else {
+                    throw new Error(`Supabase error: ${error.message} (Code: ${error.code})`);
+                }
+            }
+
+            console.log(`[performUnfriendAction] Supabase DELETE successful. Rows deleted: ${count ?? 'unknown'}`);
+            if (count === 0) {
+                console.warn("[performUnfriendAction] Unfriend operation completed, but 0 rows were deleted. Friendship might have already been removed.");
+            }
+
+            setFriendshipStatus('not_friends');
+            await fetchFriendsCount();
+            console.log("[performUnfriendAction] Unfriend successful. State set to not_friends, friend count updated.");
+
+        } catch (err: any) {
+            console.error("[performUnfriendAction] Error caught in catch block:", err);
+            console.error("[performUnfriendAction] Stringified catch error:", JSON.stringify(err, null, 2));
+            let alertMessage = `Could not unfriend ${displayName}.`;
+            if (err.message) { alertMessage += `\nReason: ${err.message}`; }
+            else { alertMessage += "\nAn unknown error occurred."; }
+            Alert.alert("Unfriend Failed", alertMessage);
+
+            console.log("[performUnfriendAction] Fetching interaction status after failed unfriend attempt...");
+            await fetchInteractionStatus();
+
+            if (friendshipStatus === 'loading') {
+                 console.warn("[performUnfriendAction] Status still 'loading' after error and fetchInteractionStatus. Refetching again.");
+                 await fetchInteractionStatus();
+            }
+        }
     };
-    const handleToggleMute = async () => { if (!currentUserId || isBlocked || friendshipStatus === 'blocked_by_them') return; const currentlyMuted = isMuted; console.log(`[OtherUserProfileScreen] Attempting to ${currentlyMuted ? 'unmute' : 'mute'} user ${profileUserId}`); setIsMuted(!currentlyMuted); try { if (currentlyMuted) { const { error } = await supabase.from('mutes').delete().eq('muter_id', currentUserId).eq('muted_id', profileUserId); if (error) throw error; console.log(`[OtherUserProfileScreen] Successfully unmuted user ${profileUserId}`); } else { const { error } = await supabase.from('mutes').insert({ muter_id: currentUserId, muted_id: profileUserId }); if (error && error.code !== '23505') { throw error; } else if (error?.code === '23505') { console.warn(`[OtherUserProfileScreen] Already muted user ${profileUserId}, but proceeding.`); } console.log(`[OtherUserProfileScreen] Successfully muted user ${profileUserId}`); } } catch (err: any) { console.error(`[OtherUserProfileScreen] Raw Error object (${currentlyMuted ? 'unmuting' : 'muting'}):`, err); const errorMessage = err.message || err.details || err.hint || 'An unexpected error occurred.'; console.error(`[OtherUserProfileScreen] Parsed Error Message: ${errorMessage}`); Alert.alert("Error", `Could not ${currentlyMuted ? 'unmute' : 'mute'} user. ${errorMessage}`); setIsMuted(currentlyMuted); } };
-    const handleBlock = async () => { if (!currentUserId || isBlocked) return; Alert.alert( "Block User", `Block ${profileData?.firstName ?? 'this user'}? You won't see their profile or messages. This action cannot be undone from their profile.`, [ { text: "Cancel", style: "cancel" }, { text: "Block", style: "destructive", onPress: async () => { setFriendshipStatus('loading'); setIsBlocked(true); setIsMuted(false); try { await supabase.from('friends').delete().or(`and(user_id_1.eq.${currentUserId},user_id_2.eq.${profileUserId}),and(user_id_1.eq.${profileUserId},user_id_2.eq.${currentUserId})`); const { error: blockError } = await supabase.from('blocks').insert({ blocker_id: currentUserId, blocked_id: profileUserId }); if (blockError && blockError.code !== '23505') throw blockError; setFriendshipStatus('blocked_by_you'); console.log("User blocked"); navigation.navigate('MainApp', { screen: 'UserTabs', params: { screen: 'Matches' } }); } catch (err: any) { console.error("Error blocking user:", err); Alert.alert("Error", "Could not block user."); setIsBlocked(false); fetchInteractionStatus(); } } } ] ); };
-    const handleUnblock = async () => { if (!currentUserId || !isBlocked) return; setIsBlocked(false); setFriendshipStatus('loading'); try { const { error } = await supabase.from('blocks').delete().eq('blocker_id', currentUserId).eq('blocked_id', profileUserId); if (error) throw error; console.log("User unblocked"); fetchInteractionStatus(); } catch (err: any) { console.error("Error unblocking user:", err); Alert.alert("Error", "Could not unblock user."); setIsBlocked(true); setFriendshipStatus('blocked_by_you'); } };
-    const submitReport = async () => { if (!currentUserId || !profileUserId || !reportReason.trim()) { Alert.alert("Error", "Please provide a reason for the report."); return; } setIsSubmittingReport(true); setError(null); try { const { error: reportError } = await supabase.from('reports').insert({ reporter_id: currentUserId, reported_id: profileUserId, reason: reportReason.trim(), }); if (reportError) throw reportError; await supabase.from('friends').delete().or(`and(user_id_1.eq.${currentUserId},user_id_2.eq.${profileUserId}),and(user_id_1.eq.${profileUserId},user_id_2.eq.${currentUserId})`); const { error: blockError } = await supabase.from('blocks').insert({ blocker_id: currentUserId, blocked_id: profileUserId }); if (blockError && blockError.code !== '23505') throw blockError; setReportReason(''); setReportModalVisible(false); setIsBlocked(true); setFriendshipStatus('blocked_by_you'); setIsMuted(false); Alert.alert("Report Submitted", "User reported and blocked."); navigation.navigate('MainApp', { screen: 'UserTabs', params: { screen: 'Matches' } }); } catch (err: any) { console.error("Error submitting report and blocking:", err); setError("Failed to submit report. Please try again."); Alert.alert("Error", "Failed to submit report."); } finally { setIsSubmittingReport(false); } };
+
+    // handleUnfriend - MODIFIED to show custom modal instead of Alert.alert
+    const handleUnfriend = () => {
+        console.log("[handleUnfriend] Function called. Current friendshipStatus:", friendshipStatus);
+
+        // Pre-conditions check
+        if (!currentUserId || !profileUserId || friendshipStatus !== 'friends' || isLoading) {
+            console.log("[OtherUserProfileScreen] Unfriend conditions not met:", {
+                currentUserIdPresent: !!currentUserId,
+                profileUserIdPresent: !!profileUserId,
+                status: friendshipStatus,
+                isLoading
+            });
+            return;
+        }
+
+        console.log("[handleUnfriend] Conditions met. Showing custom confirmation modal.");
+        setShowUnfriendConfirmModal(true); // Show the custom modal
+    };
+
+    // handleToggleMute, handleBlock, handleUnblock, submitReport - remain unchanged
+    const handleToggleMute = async () => {
+        if (!currentUserId || !profileUserId || isBlocked || friendshipStatus === 'blocked_by_them') return;
+        const currentlyMuted = isMuted;
+        console.log(`[OtherUserProfileScreen] Attempting to ${currentlyMuted ? 'unmute' : 'mute'} user ${profileUserId}`);
+        setIsMuted(!currentlyMuted);
+        try {
+            if (currentlyMuted) {
+                const { error } = await supabase.from('mutes').delete().eq('muter_id', currentUserId).eq('muted_id', profileUserId);
+                if (error) throw error;
+                console.log(`[OtherUserProfileScreen] Successfully unmuted user ${profileUserId}`);
+            } else {
+                const { error } = await supabase.from('mutes').upsert({ muter_id: currentUserId, muted_id: profileUserId });
+                if (error) throw error;
+                console.log(`[OtherUserProfileScreen] Successfully muted (or confirmed mute) for user ${profileUserId}`);
+            }
+        } catch (err: any) {
+            console.error(`[OtherUserProfileScreen] Error ${currentlyMuted ? 'unmuting' : 'muting'} user:`, err);
+            Alert.alert("Error", `Could not ${currentlyMuted ? 'unmute' : 'mute'} user. ${err.message || 'Please try again.'}`);
+            setIsMuted(currentlyMuted);
+        }
+    };
+
+
+    const handleBlock = async () => {
+        if (!currentUserId || !profileUserId || isBlocked) return;
+        const displayName = profileData?.firstName ?? profileData?.username ?? 'this user';
+
+        Alert.alert(
+            "Block User",
+            `Block ${displayName}? You won't see their profile or messages, and they won't see yours. This also removes any existing friendship. This action is final from this screen.`,
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Block",
+                    style: "destructive",
+                    onPress: async () => {
+                        console.log(`[OtherUserProfileScreen] Initiating block for user: ${profileUserId}`);
+                        setFriendshipStatus('loading');
+                        setIsBlocked(true);
+                        setIsMuted(false);
+
+                        try {
+                            console.log("[OtherUserProfileScreen] Removing existing friendship during block...");
+                            const { error: friendDeleteError } = await supabase
+                                .from('friends')
+                                .delete()
+                                .or(`and(user_id_1.eq.${currentUserId},user_id_2.eq.${profileUserId}),and(user_id_1.eq.${profileUserId},user_id_2.eq.${currentUserId})`);
+                            if (friendDeleteError) {
+                                console.warn("[OtherUserProfileScreen] Error removing friendship during block (might not exist):", friendDeleteError.message);
+                            } else {
+                                console.log("[OtherUserProfileScreen] Existing friendship removed (if any).");
+                            }
+                            await fetchFriendsCount();
+
+                            console.log("[OtherUserProfileScreen] Inserting block record...");
+                            const { error: blockError } = await supabase
+                                .from('blocks')
+                                .upsert({ blocker_id: currentUserId, blocked_id: profileUserId });
+                            if (blockError) {
+                                throw new Error(`Failed to insert block record: ${blockError.message}`);
+                            }
+
+                            console.log("[OtherUserProfileScreen] User blocked successfully.");
+                            setFriendshipStatus('blocked_by_you');
+                            Alert.alert("User Blocked", `${displayName} has been blocked.`);
+                            navigation.navigate('MainApp', { screen: 'UserTabs', params: { screen: 'Matches' } });
+
+                        } catch (err: any) {
+                            console.error("[OtherUserProfileScreen] Error blocking user:", err);
+                            Alert.alert("Error", `Could not block user: ${err.message || 'Unknown error'}`);
+                            setIsBlocked(false);
+                            await fetchInteractionStatus();
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+
+    const handleUnblock = async () => {
+        if (!currentUserId || !profileUserId || !isBlocked) return;
+        console.log(`[OtherUserProfileScreen] Attempting to unblock user: ${profileUserId}`);
+        setFriendshipStatus('loading');
+
+        try {
+            const { error } = await supabase
+                .from('blocks')
+                .delete()
+                .eq('blocker_id', currentUserId)
+                .eq('blocked_id', profileUserId);
+            if (error) {
+                 if (error.message?.toLowerCase().includes('rls') || error.message?.toLowerCase().includes('policy')) {
+                      throw new Error(`Permission denied to unblock: ${error.message}`);
+                 } else {
+                     throw new Error(`Failed to unblock: ${error.message}`);
+                 }
+            }
+
+            console.log("[OtherUserProfileScreen] User unblocked successfully.");
+            setIsBlocked(false);
+            Alert.alert("User Unblocked");
+            await fetchInteractionStatus();
+
+        } catch (err: any) {
+            console.error("[OtherUserProfileScreen] Error unblocking user:", err);
+            Alert.alert("Error", `Could not unblock user: ${err.message || 'Unknown error'}`);
+            setFriendshipStatus('blocked_by_you');
+            setIsBlocked(true);
+        }
+    };
+
+    const submitReport = async () => {
+        if (!currentUserId || !profileUserId || !reportReason.trim()) {
+            Alert.alert("Input Required", "Please provide a reason for the report.");
+            return;
+        }
+        const displayName = profileData?.firstName ?? profileData?.username ?? 'this user';
+        setIsSubmittingReport(true);
+        setError(null);
+
+        try {
+             console.log("[OtherUserProfileScreen] Submitting report...");
+            const { error: reportError } = await supabase.from('reports').insert({
+                reporter_id: currentUserId,
+                reported_id: profileUserId,
+                reason: reportReason.trim(),
+            });
+             if (reportError) throw new Error(`Report submission failed: ${reportError.message}`);
+            console.log("[OtherUserProfileScreen] Report submitted successfully.");
+
+             console.log("[OtherUserProfileScreen] Removing friendship after report...");
+             const { error: friendDeleteError } = await supabase.from('friends').delete().or(`and(user_id_1.eq.${currentUserId},user_id_2.eq.${profileUserId}),and(user_id_1.eq.${profileUserId},user_id_2.eq.${currentUserId})`);
+             if (friendDeleteError) console.warn("[OtherUserProfileScreen] Error removing friendship post-report (might not exist):", friendDeleteError.message);
+             await fetchFriendsCount();
+
+            console.log("[OtherUserProfileScreen] Blocking user after report...");
+            const { error: blockError } = await supabase.from('blocks').upsert({ blocker_id: currentUserId, blocked_id: profileUserId });
+             if (blockError) throw new Error(`Blocking failed after report: ${blockError.message}`);
+            console.log("[OtherUserProfileScreen] User blocked successfully after report.");
+
+            setReportReason('');
+            setReportModalVisible(false);
+            setIsBlocked(true);
+            setFriendshipStatus('blocked_by_you');
+            setIsMuted(false);
+            Alert.alert("Report Submitted", `${displayName} has been reported and blocked.`);
+            navigation.navigate('MainApp', { screen: 'UserTabs', params: { screen: 'Matches' } });
+
+        } catch (err: any) {
+            console.error("[OtherUserProfileScreen] Error submitting report and blocking:", err);
+            Alert.alert("Error", `Failed to submit report: ${err.message || 'Unknown error. Please try again.'}`);
+        } finally {
+            setIsSubmittingReport(false);
+        }
+    };
 
 
     // --- Render Logic ---
-    if (isLoading && !profileData) { return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} /></View>; }
-    if (!profileData && !isLoading) { return ( <View style={styles.centered}><Feather name={error === "Profile not found." ? "user-x" : "alert-circle"} size={48} color={APP_CONSTANTS.COLORS.WARNING} /><Text style={styles.errorText}>{error || "Profile Not Found"}</Text><Text style={styles.infoSubText}>User may not exist or load failed.</Text>{error && error !== "Profile not found." && ( <TouchableOpacity onPress={fetchProfileData} style={styles.retryButton}><Text style={styles.retryButtonText}>Try Again</Text></TouchableOpacity>)}</View> );}
-    if (friendshipStatus === 'blocked_by_them') { return ( <View style={styles.container}><View style={styles.centered}><Feather name="slash" size={60} color={APP_CONSTANTS.COLORS.DISABLED} /><Text style={styles.infoText}>You cannot view this profile.</Text></View></View> ); }
-    if (!profileData) return null; // Safety net
+    const showLoadingIndicator = isLoading || (friendshipStatus === 'loading' && !profileData);
+
+    if (showLoadingIndicator) {
+        return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} /></View>;
+    }
+
+     if (!profileData && !isLoading) {
+         const isNotFoundError = error === "Profile not found." || error === "User ID not provided.";
+         return (
+              <View style={styles.centered}>
+                  <Feather name={isNotFoundError ? "user-x" : "alert-circle"} size={48} color={APP_CONSTANTS.COLORS.WARNING} />
+                  <Text style={styles.errorText}>{error || "Profile Not Found"}</Text>
+                  <Text style={styles.infoSubText}>
+                      {isNotFoundError
+                          ? "This user profile could not be found."
+                          : "We encountered an issue loading this profile."}
+                  </Text>
+                  {!isNotFoundError && (
+                      <TouchableOpacity
+                          onPress={() => {
+                              console.log("Retrying profile fetch...");
+                              setIsLoading(true);
+                              setError(null);
+                              fetchProfileData().finally(() => setIsLoading(false));
+                          }}
+                          style={styles.retryButton}
+                       >
+                          <Text style={styles.retryButtonText}>Try Again</Text>
+                      </TouchableOpacity>
+                  )}
+              </View>
+          );
+     }
+
+    if (friendshipStatus === 'blocked_by_them') {
+        return (
+            <View style={styles.container}>
+                <View style={styles.centered}>
+                    <Feather name="slash" size={60} color={APP_CONSTANTS.COLORS.DISABLED} />
+                    <Text style={styles.infoText}>Profile Unavailable</Text>
+                     <Text style={styles.infoSubText}>You cannot view this profile or interact with this user.</Text>
+                </View>
+            </View>
+         );
+     }
+
+    if (!profileData) {
+        console.error("[OtherUserProfileScreen] Render reached state where profileData is null unexpectedly.");
+        return <View style={styles.centered}><Text style={styles.errorText}>An unexpected error occurred.</Text></View>;
+    }
+
 
     // --- Data Extraction ---
     const profilePictureUrl = profileData.profilePicture ?? DEFAULT_PROFILE_PIC;
-    const userName = `${profileData.firstName ?? ''} ${profileData.lastName ?? ''}`.trim() || "User";
-    const userAge = profileData.age; const userCity = profileData.city; const userCountry = profileData.country; const isPremium = profileData.isPremium ?? false;
+    const userName = `${profileData.firstName ?? ''} ${profileData.lastName ?? ''}`.trim() || profileData.username || "User";
+    const userAge = profileData.age;
+    const userCity = profileData.city;
+    const userCountry = profileData.country;
+    const isPremium = profileData.isPremium ?? false;
     const allBioDetails = profileData.bio ? Object.entries(profileData.bio).filter(([_, v]) => v && String(v).trim() !== '').map(([k, v]) => ({ label: bioDetailLabels[k as keyof MusicLoverBio] || k, value: String(v).trim() })) : [];
     const favoriteGenres = (profileData.musicData?.genres as string[]) ?? [];
 
     // --- Dynamic Action Buttons ---
+    // renderFriendButton now calls handleUnfriend (which opens the modal)
     const renderFriendButton = () => {
-        const buttonStyle = [styles.actionButton, styles.friendButton]; let iconName: React.ComponentProps<typeof Feather>['name'] = 'user-plus'; let buttonText = 'Add Friend'; let onPress = handleAddFriendDirectly; let disabled = friendshipStatus === 'loading' || friendshipStatus === 'error' || friendshipStatus === 'blocked_by_you';
-        switch (friendshipStatus) { case 'loading': buttonText = 'Loading...'; break; case 'friends': iconName = 'user-check'; buttonText = 'Friends'; buttonStyle.push(styles.friendsButton); onPress = handleUnfriend; break; case 'blocked_by_you': return null; case 'error': buttonText = 'Error'; break; case 'not_friends': default: iconName = 'user-plus'; buttonText = 'Add Friend'; onPress = handleAddFriendDirectly; break; }
-        return ( <TouchableOpacity style={[...buttonStyle, disabled && styles.disabledButton]} onPress={onPress} disabled={disabled}> <Feather name={iconName} size={16} color={friendshipStatus === 'friends' ? APP_CONSTANTS.COLORS.SUCCESS_DARK : 'white'} /> <Text style={[styles.actionButtonText, friendshipStatus === 'friends' && styles.actionButtonTextDark]}> {buttonText} </Text> </TouchableOpacity> );
+        const currentStatus = friendshipStatus;
+        const isLoadingInteraction = currentStatus === 'loading';
+
+        const buttonStyle = [styles.actionButton, styles.friendButton];
+        let iconName: React.ComponentProps<typeof Feather>['name'] = 'user-plus';
+        let buttonText = 'Add Friend';
+        let onPress = handleAddFriendDirectly;
+        let disabled = isLoadingInteraction || currentStatus === 'blocked_by_you' || currentStatus === 'blocked_by_them' || currentStatus === 'error';
+
+        switch (currentStatus) {
+            case 'loading':
+                buttonText = 'Loading...';
+                break;
+            case 'friends':
+                iconName = 'user-check';
+                buttonText = 'Friends';
+                buttonStyle.length = 0;
+                buttonStyle.push(styles.actionButton, styles.friendsButton);
+                onPress = handleUnfriend; // Correctly calls the function that now opens the modal
+                disabled = isLoadingInteraction;
+                break;
+            case 'not_friends':
+                iconName = 'user-plus';
+                buttonText = 'Add Friend';
+                onPress = handleAddFriendDirectly;
+                disabled = isLoadingInteraction;
+                break;
+             case 'error':
+                 buttonText = 'Error';
+                 iconName = 'alert-circle';
+                 buttonStyle.push(styles.disabledButton);
+                 disabled = true;
+                 onPress = () => {
+                     Alert.alert("Error", "Could not determine friendship status. Please try again later.");
+                     fetchInteractionStatus();
+                 };
+                 break;
+            case 'blocked_by_you':
+            case 'blocked_by_them':
+                return null;
+        }
+
+        return (
+            <TouchableOpacity
+                style={[...buttonStyle, disabled && styles.disabledButton]}
+                onPress={onPress}
+                disabled={disabled}
+            >
+                {isLoadingInteraction ? (
+                     <ActivityIndicator size="small" color={currentStatus === 'friends' ? APP_CONSTANTS.COLORS.SUCCESS_DARK : APP_CONSTANTS.COLORS.WHITE} style={{ marginRight: 8 }}/>
+                 ) : (
+                     <Feather name={iconName} size={16} color={currentStatus === 'friends' ? APP_CONSTANTS.COLORS.SUCCESS_DARK : APP_CONSTANTS.COLORS.WHITE} />
+                 )}
+                <Text style={[styles.actionButtonText, currentStatus === 'friends' && styles.actionButtonTextDark]}>
+                     {buttonText}
+                 </Text>
+            </TouchableOpacity>
+        );
      };
-     const renderMuteButton = () => { if (isBlocked) return null; const iconName: React.ComponentProps<typeof Feather>['name'] = isMuted ? 'volume-x' : 'volume-2'; const text = isMuted ? 'Unmute User' : 'Mute User'; const buttonStyle = [styles.actionButton, styles.secondaryButton, isMuted && styles.mutedButton]; return ( <TouchableOpacity style={buttonStyle} onPress={handleToggleMute}> <Feather name={iconName} size={16} color={isMuted ? APP_CONSTANTS.COLORS.WARNING_DARK : APP_CONSTANTS.COLORS.TEXT_SECONDARY} /> <Text style={[styles.actionButtonText, styles.secondaryButtonText, isMuted && styles.mutedButtonText]}>{text}</Text> </TouchableOpacity> ); };
-     const renderBlockButton = () => { if (isBlocked) { return ( <TouchableOpacity style={[styles.actionButton, styles.unblockButton]} onPress={handleUnblock}> <Feather name="unlock" size={16} color={APP_CONSTANTS.COLORS.SUCCESS_DARK} /> <Text style={[styles.actionButtonText, styles.unblockButtonText]}>Unblock User</Text> </TouchableOpacity> ); } else { return ( <TouchableOpacity style={[styles.actionButton, styles.reportButton]} onPress={() => setReportModalVisible(true)}> <Feather name="alert-octagon" size={16} color={APP_CONSTANTS.COLORS.ERROR} /> <Text style={[styles.actionButtonText, styles.reportButtonText]}>Report / Block</Text> </TouchableOpacity> ); } };
+
+     // renderMuteButton, renderBlockButton remain unchanged
+     const renderMuteButton = () => {
+         if (isBlocked || friendshipStatus === 'blocked_by_them') return null;
+
+         const iconName: React.ComponentProps<typeof Feather>['name'] = isMuted ? 'volume-x' : 'volume-2';
+         const text = isMuted ? 'Unmute User' : 'Mute User';
+         const buttonStyle = [styles.actionButton, styles.secondaryButton, isMuted && styles.mutedButton];
+         return (
+             <TouchableOpacity style={buttonStyle} onPress={handleToggleMute}>
+                 <Feather name={iconName} size={16} color={isMuted ? APP_CONSTANTS.COLORS.WARNING_DARK : APP_CONSTANTS.COLORS.TEXT_SECONDARY} />
+                 <Text style={[styles.actionButtonText, styles.secondaryButtonText, isMuted && styles.mutedButtonText]}>{text}</Text>
+             </TouchableOpacity>
+         );
+     };
+
+     const renderBlockButton = () => {
+        if (friendshipStatus === 'blocked_by_them') return null;
+
+         if (isBlocked) {
+             return (
+                 <TouchableOpacity style={[styles.actionButton, styles.unblockButton]} onPress={handleUnblock}>
+                     <Feather name="unlock" size={16} color={APP_CONSTANTS.COLORS.SUCCESS_DARK} />
+                     <Text style={[styles.actionButtonText, styles.unblockButtonText]}>Unblock User</Text>
+                 </TouchableOpacity>
+             );
+         } else {
+             return (
+                 <TouchableOpacity style={[styles.actionButton, styles.reportButton]} onPress={() => setReportModalVisible(true)}>
+                     <Feather name="alert-octagon" size={16} color={APP_CONSTANTS.COLORS.ERROR} />
+                     <Text style={[styles.actionButtonText, styles.reportButtonText]}>Report / Block</Text>
+                 </TouchableOpacity>
+             );
+         }
+     };
 
     // --- Main Return ---
     return (
         <View style={styles.container}>
+            {/* Report Modal (existing) */}
             <Modal animationType="slide" transparent={true} visible={reportModalVisible} onRequestClose={() => { if (!isSubmittingReport) setReportModalVisible(false); }} >
                 <View style={styles.modalOverlay}><View style={styles.modalContent}>
                     <Text style={styles.modalTitle}>Report and Block {userName}</Text>
                     <Text style={styles.modalSubtitle}>Reason for report? User will be blocked.</Text>
                     <TextInput style={styles.reportInput} placeholder="Reason..." value={reportReason} onChangeText={setReportReason} multiline maxLength={500} />
-                    {isSubmittingReport && error && <Text style={styles.modalErrorText}>{error}</Text>}
                     <View style={styles.modalActions}>
                         <TouchableOpacity style={[styles.modalButton, styles.modalCancelButton]} onPress={() => setReportModalVisible(false)} disabled={isSubmittingReport}><Text style={styles.modalCancelButtonText}>Cancel</Text></TouchableOpacity>
                         <TouchableOpacity style={[styles.modalButton, styles.modalSubmitButton, (!reportReason.trim() || isSubmittingReport) && styles.disabledButton]} onPress={submitReport} disabled={!reportReason.trim() || isSubmittingReport} >
@@ -233,16 +827,65 @@ const OtherUserProfileScreen: React.FC = () => {
                     </View>
                 </View></View>
             </Modal>
+
+             {/* --- Custom Unfriend Confirmation Modal --- */}
+             <Modal
+                 animationType="fade"
+                 transparent={true}
+                 visible={showUnfriendConfirmModal}
+                 onRequestClose={() => setShowUnfriendConfirmModal(false)} // Allows closing via back button on Android
+             >
+                 <View style={styles.modalOverlay}>
+                     <View style={styles.modalContent}>
+                         <Text style={styles.modalTitle}>Unfriend User</Text>
+                         <Text style={styles.modalSubtitle}>
+                             Are you sure you want to remove {userName} as a friend? {/* Use userName here */}
+                         </Text>
+                         <View style={styles.modalActions}>
+                             <TouchableOpacity
+                                 style={[styles.modalButton, styles.modalCancelButton]}
+                                 onPress={() => {
+                                    console.log("[Custom Modal] Cancel pressed.");
+                                    setShowUnfriendConfirmModal(false);
+                                }}
+                             >
+                                 <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                             </TouchableOpacity>
+                             <TouchableOpacity
+                                 // Use error color for destructive action
+                                 style={[styles.modalButton, styles.modalSubmitButton, { backgroundColor: APP_CONSTANTS.COLORS.ERROR }]}
+                                 onPress={() => {
+                                     console.log("[Custom Modal] Unfriend confirmed. Calling performUnfriendAction...");
+                                     setShowUnfriendConfirmModal(false); // Close modal first
+                                     performUnfriendAction();        // Then call the action
+                                 }}
+                             >
+                                 {/* Use white text matching the report modal */}
+                                 <Text style={styles.modalSubmitButtonText}>Unfriend</Text>
+                             </TouchableOpacity>
+                         </View>
+                     </View>
+                 </View>
+             </Modal>
+             {/* --- End Custom Unfriend Confirmation Modal --- */}
+
+
+            {/* Profile Content */}
             <ScrollView style={profileStyles.scrollViewContainer} contentContainerStyle={profileStyles.scrollContent} showsVerticalScrollIndicator={false}>
+                {/* Profile Card */}
                 <View style={profileStyles.profileCard}>
                     <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={[profileStyles.coverPhoto, { height: 90 }]} />
-                    <View style={[profileStyles.avatarContainer, { top: 40 }]}><Image source={{ uri: profilePictureUrl }} style={[profileStyles.avatar, { width: 90, height: 90, borderRadius: 45 }]} /></View>
+                    <View style={[profileStyles.avatarContainer, { top: 40 }]}>
+                         <Image source={{ uri: profilePictureUrl }} style={[profileStyles.avatar, { width: 90, height: 90, borderRadius: 45 }]} />
+                    </View>
                     <View style={[profileStyles.profileInfo, { paddingTop: 55 }]}>
-                        <View style={profileStyles.nameContainer}><Text style={profileStyles.name}>{userName}</Text>{isPremium && (<View style={profileStyles.premiumBadgeName}><Feather name="award" size={10} color="#B8860B" /><Text style={profileStyles.premiumTextName}>Premium</Text></View>)}</View>
+                        <View style={profileStyles.nameContainer}>
+                            <Text style={profileStyles.name}>{userName}</Text>
+                            {isPremium && (<View style={profileStyles.premiumBadgeName}><Feather name="award" size={10} color="#B8860B" /><Text style={profileStyles.premiumTextName}>Premium</Text></View>)}
+                        </View>
                         <View style={profileStyles.locationAgeContainer}>
-                            {userAge && <Text style={profileStyles.age}>{userAge} y/o</Text>}
-                            {/* Fix: Ensure Text wraps the separator */}
-                            {(userCity || userCountry) && userAge && <Text style={profileStyles.locationSeparator}> • </Text>}
+                            {userAge && <Text style={styles.age}>{userAge} y/o</Text>}
+                            {(userCity || userCountry) && userAge && <Text style={styles.locationSeparator}> • </Text>}
                             {(userCity || userCountry) && (
                                 <View style={profileStyles.locationRow}>
                                     <Feather name="map-pin" size={12} color="#6B7280" style={{ marginRight: 4 }}/>
@@ -250,22 +893,132 @@ const OtherUserProfileScreen: React.FC = () => {
                                 </View>
                             )}
                         </View>
-                        <View style={profileStyles.statsContainer}><View style={profileStyles.statItem}><Text style={profileStyles.statValue}>{friendCount}</Text><Text style={profileStyles.statLabel}>Friends</Text></View></View>
+                        <View style={profileStyles.statsContainer}>
+                            <View style={profileStyles.statItem}>
+                                <Text style={profileStyles.statValue}>{friendCount}</Text>
+                                <Text style={profileStyles.statLabel}>Friends</Text>
+                            </View>
+                        </View>
                     </View>
                 </View>
-                <View style={styles.actionsRow}>{renderFriendButton()}</View>
-                <ProfileSection title="Things About Them" icon="info" hasData={allBioDetails.length > 0}><View style={profileStyles.bioDetailsListContainer}>{allBioDetails.map((d, i) => (<View key={i} style={profileStyles.bioDetailItem}><Text style={profileStyles.bioDetailLabel}>{d.label}:</Text><Text style={profileStyles.bioDetailValue}>{d.value}</Text></View>))}</View></ProfileSection>
-                <ProfileSection title="Favorite Genres" icon="music" hasData={favoriteGenres.length > 0}><View style={profileStyles.tagsContainer}>{favoriteGenres.map((g, i) => (<View key={i} style={profileStyles.genreTag}><Text style={profileStyles.genreTagText}>{g}</Text></View>))}</View></ProfileSection>
-                <View style={styles.moreOptionsSection}><Text style={styles.moreOptionsTitle}>More Options</Text>{renderMuteButton()}{renderBlockButton()}</View>
+
+                 {/* Friend Action Button Row */}
+                 <View style={styles.actionsRow}>
+                     {renderFriendButton()}
+                 </View>
+
+                {/* Profile Sections */}
+                <ProfileSection title="Things About Them" icon="info" hasData={allBioDetails.length > 0}>
+                     <View style={profileStyles.bioDetailsListContainer}>
+                         {allBioDetails.map((d, i) => (
+                             <View key={i} style={profileStyles.bioDetailItem}>
+                                 <Text style={profileStyles.bioDetailLabel}>{d.label}:</Text>
+                                 <Text style={profileStyles.bioDetailValue}>{d.value}</Text>
+                             </View>
+                         ))}
+                     </View>
+                 </ProfileSection>
+
+                <ProfileSection title="Favorite Genres" icon="music" hasData={favoriteGenres.length > 0}>
+                     <View style={profileStyles.tagsContainer}>
+                         {favoriteGenres.map((g, i) => (
+                             <View key={i} style={profileStyles.genreTag}>
+                                 <Text style={profileStyles.genreTagText}>{g}</Text>
+                             </View>
+                         ))}
+                     </View>
+                 </ProfileSection>
+
+                 {/* More Options Section */}
+                 {friendshipStatus !== 'blocked_by_them' && (
+                     <View style={styles.moreOptionsSection}>
+                          <Text style={styles.moreOptionsTitle}>More Options</Text>
+                          {renderMuteButton()}
+                          {renderBlockButton()}
+                      </View>
+                 )}
             </ScrollView>
         </View>
     );
 };
 
 // --- Styles ---
-const styles = StyleSheet.create({ container: { flex: 1, backgroundColor: "#F9FAFB", }, centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, }, errorText: { color: APP_CONSTANTS.COLORS.ERROR, fontSize: 16, textAlign: 'center', marginBottom: 10 }, infoText: { fontSize: 16, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, textAlign: 'center', marginTop: 10, }, infoSubText: { fontSize: 14, color: APP_CONSTANTS.COLORS.DISABLED, textAlign: 'center', marginTop: 5 }, retryButton: { marginTop: 20, backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, }, retryButtonText: { color: 'white', fontWeight: '600' }, actionsRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: 16, marginBottom: 24, marginTop: -10, gap: 10, }, actionButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 3, elevation: 2, minWidth: 120, borderWidth: 1, borderColor: 'transparent', }, actionButtonText: { marginLeft: 8, fontSize: 14, fontWeight: '600', color: 'white', }, actionButtonTextDark: { color: '#374151', }, friendButton: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, borderColor: APP_CONSTANTS.COLORS.PRIMARY_DARK, }, friendsButton: { backgroundColor: APP_CONSTANTS.COLORS.SUCCESS_LIGHT, borderColor: APP_CONSTANTS.COLORS.SUCCESS, }, disabledButton: { backgroundColor: '#D1D5DB', shadowOpacity: 0, elevation: 0, borderColor: '#B0B0B0' }, moreOptionsSection: { marginTop: 16, marginBottom: 32, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 20, }, moreOptionsTitle: { fontSize: 16, fontWeight: '600', color: '#4B5563', marginBottom: 15, textAlign: 'center', }, secondaryButton: { backgroundColor: '#F3F4F6', marginBottom: 12, shadowOpacity: 0.05, elevation: 1, borderColor: '#E5E7EB', borderWidth: 1, justifyContent: 'flex-start', paddingHorizontal: 16, width: '100%', borderRadius: 8, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, }, secondaryButtonText: { color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, fontWeight: '500', marginLeft: 8, fontSize: 14, }, mutedButton: { backgroundColor: APP_CONSTANTS.COLORS.WARNING_LIGHT, borderColor: APP_CONSTANTS.COLORS.WARNING, }, mutedButtonText: { color: APP_CONSTANTS.COLORS.WARNING_DARK, }, reportButton: { backgroundColor: `${APP_CONSTANTS.COLORS.ERROR}1A`, borderColor: APP_CONSTANTS.COLORS.ERROR, borderWidth: 1, justifyContent: 'flex-start', paddingHorizontal: 16, width: '100%', marginBottom: 12, shadowOpacity: 0.05, elevation: 1, borderRadius: 8, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, }, reportButtonText: { color: APP_CONSTANTS.COLORS.ERROR, fontWeight: '500', marginLeft: 8, fontSize: 14, }, unblockButton: { backgroundColor: `${APP_CONSTANTS.COLORS.SUCCESS_LIGHT}CC`, borderColor: APP_CONSTANTS.COLORS.SUCCESS, borderWidth: 1, justifyContent: 'flex-start', paddingHorizontal: 16, width: '100%', marginBottom: 12, shadowOpacity: 0.05, elevation: 1, borderRadius: 8, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, }, unblockButtonText: { color: APP_CONSTANTS.COLORS.SUCCESS_DARK, fontWeight: '500', marginLeft: 8, fontSize: 14, }, modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.6)', }, modalContent: { width: '90%', maxWidth: 400, backgroundColor: 'white', borderRadius: 12, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5, }, modalTitle: { fontSize: 18, fontWeight: '600', color: '#1F2937', marginBottom: 8, textAlign: 'center', }, modalSubtitle: { fontSize: 14, color: '#4B5563', marginBottom: 16, textAlign: 'center', lineHeight: 20, }, reportInput: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, padding: 12, minHeight: 80, textAlignVertical: 'top', fontSize: 14, color: '#1F2937', marginBottom: 16, }, modalErrorText: { color: APP_CONSTANTS.COLORS.ERROR, fontSize: 13, textAlign: 'center', marginBottom: 10, }, modalActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, }, modalButton: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center', }, modalCancelButton: { backgroundColor: '#E5E7EB', marginRight: 10, }, modalCancelButtonText: { color: '#4B5563', fontWeight: '600', }, modalSubmitButton: { backgroundColor: APP_CONSTANTS.COLORS.ERROR, marginLeft: 10, }, modalSubmitButtonText: { color: 'white', fontWeight: '600', }, });
-const profileStyles = StyleSheet.create({ scrollViewContainer: { flex: 1, }, scrollContent: { paddingBottom: 40, paddingTop: 16, }, profileCard: { backgroundColor: "white", borderRadius: 16, marginBottom: 24, overflow: "hidden", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 5, elevation: 3, marginHorizontal: 16, }, coverPhoto: { height: 120, width: "100%", }, avatarContainer: { position: "absolute", top: 65, alignSelf: 'center', backgroundColor: "white", borderRadius: 55, padding: 5, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 3, elevation: 4, }, avatar: { width: 100, height: 100, borderRadius: 50, borderWidth: 2, borderColor: 'white', }, profileInfo: { paddingTop: 65, paddingBottom: 20, paddingHorizontal: 20, alignItems: "center", }, nameContainer: { flexDirection: "row", alignItems: "center", justifyContent: 'center', marginBottom: 4, flexWrap: 'wrap', }, name: { fontSize: 22, fontWeight: "bold", color: "#1F2937", marginRight: 8, textAlign: 'center', }, premiumBadgeName: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255, 215, 0, 0.15)", paddingVertical: 3, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1, borderColor: "rgba(255, 215, 0, 0.4)", }, premiumTextName: { color: "#B8860B", fontSize: 10, fontWeight: "600", marginLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5, }, locationAgeContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 4, marginBottom: 16, flexWrap: 'wrap', justifyContent: 'center' }, age: { fontSize: 14, color: "#6B7280", }, locationSeparator: { color: "#D1D5DB", marginHorizontal: 6, fontSize: 14, }, locationRow: { flexDirection: 'row', alignItems: 'center'}, // Added wrapper View
-    location: { fontSize: 14, color: "#6B7280", marginLeft: 0, textAlign: 'center' }, // Removed margin left
-    statsContainer: { flexDirection: "row", justifyContent: "space-around", alignItems: 'center', marginVertical: 16, width: "80%", paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#F3F4F6', }, statItem: { alignItems: "center", paddingHorizontal: 10 }, statValue: { fontSize: 18, fontWeight: "600", color: APP_CONSTANTS.COLORS.PRIMARY, }, statLabel: { fontSize: 12, color: "#6B7280", marginTop: 2, }, separator: { backgroundColor: "#E5E7EB", }, section: { marginBottom: 24, paddingHorizontal: 16, }, sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: "#F3F4F6", }, sectionTitleContainer: { flexDirection: "row", alignItems: "center", flexShrink: 1, }, sectionIcon: { marginRight: 10, }, sectionTitle: { fontSize: 18, fontWeight: "600", color: "#111827", marginRight: 8, }, dataMissingText: { fontSize: 14, color: '#6B7280', textAlign: 'center', paddingVertical: 20, paddingHorizontal: 10, fontStyle: 'italic', backgroundColor: '#F9FAFB', borderRadius: 8, marginTop: 4, }, bioDetailsListContainer: { width: '100%', marginTop: 4, }, bioDetailItem: { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'flex-start', marginBottom: 10, paddingHorizontal: 0, }, bioDetailLabel: { fontSize: 14, color: '#4B5563', fontWeight: '600', width: '45%', marginRight: 8, }, bioDetailValue: { fontSize: 14, color: '#1F2937', flex: 1, textAlign: 'left', }, tagsContainer: { flexDirection: "row", flexWrap: "wrap", marginTop: 4, }, genreTag: { backgroundColor: "rgba(59, 130, 246, 0.1)", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, marginRight: 8, marginBottom: 8, }, genreTagText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontSize: 13, fontWeight: '500', }, });
+// Using existing styles, ensure they cover the modal elements added
+const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: "#F9FAFB", },
+    centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, },
+    errorText: { color: APP_CONSTANTS.COLORS.ERROR, fontSize: 16, fontWeight: '500', textAlign: 'center', marginBottom: 10 },
+    infoText: { fontSize: 16, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, textAlign: 'center', marginTop: 10, },
+    infoSubText: { fontSize: 14, color: APP_CONSTANTS.COLORS.DISABLED, textAlign: 'center', marginTop: 5 },
+    retryButton: { marginTop: 20, backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, },
+    retryButtonText: { color: 'white', fontWeight: '600' },
+    actionsRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: 16, marginBottom: 24, marginTop: -10, gap: 10, minHeight: 40 },
+    actionButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 3, elevation: 2, minWidth: 120, borderWidth: 1, borderColor: 'transparent', },
+    actionButtonText: { marginLeft: 8, fontSize: 14, fontWeight: '600', color: 'white', },
+    actionButtonTextDark: { color: APP_CONSTANTS.COLORS.SUCCESS_DARK },
+    friendButton: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, borderColor: APP_CONSTANTS.COLORS.PRIMARY_DARK, },
+    friendsButton: { backgroundColor: APP_CONSTANTS.COLORS.SUCCESS_LIGHT, borderColor: APP_CONSTANTS.COLORS.SUCCESS, },
+    disabledButton: { backgroundColor: '#D1D5DB', shadowOpacity: 0, elevation: 0, borderColor: '#B0B0B0', opacity: 0.7 },
+    moreOptionsSection: { marginTop: 16, marginBottom: 32, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 20, },
+    moreOptionsTitle: { fontSize: 16, fontWeight: '600', color: '#4B5563', marginBottom: 15, textAlign: 'center', },
+    secondaryButton: { backgroundColor: '#F3F4F6', marginBottom: 12, shadowOpacity: 0.05, elevation: 1, borderColor: '#E5E7EB', borderWidth: 1, justifyContent: 'flex-start', paddingHorizontal: 16, width: '100%', borderRadius: 8, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, },
+    secondaryButtonText: { color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, fontWeight: '500', marginLeft: 8, fontSize: 14, },
+    mutedButton: { backgroundColor: APP_CONSTANTS.COLORS.WARNING_LIGHT, borderColor: APP_CONSTANTS.COLORS.WARNING, },
+    mutedButtonText: { color: APP_CONSTANTS.COLORS.WARNING_DARK, },
+    reportButton: { backgroundColor: `${APP_CONSTANTS.COLORS.ERROR}1A`, borderColor: APP_CONSTANTS.COLORS.ERROR, borderWidth: 1, justifyContent: 'flex-start', paddingHorizontal: 16, width: '100%', marginBottom: 12, shadowOpacity: 0.05, elevation: 1, borderRadius: 8, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, },
+    reportButtonText: { color: APP_CONSTANTS.COLORS.ERROR, fontWeight: '500', marginLeft: 8, fontSize: 14, },
+    unblockButton: { backgroundColor: `${APP_CONSTANTS.COLORS.SUCCESS_LIGHT}CC`, borderColor: APP_CONSTANTS.COLORS.SUCCESS, borderWidth: 1, justifyContent: 'flex-start', paddingHorizontal: 16, width: '100%', marginBottom: 12, shadowOpacity: 0.05, elevation: 1, borderRadius: 8, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, },
+    unblockButtonText: { color: APP_CONSTANTS.COLORS.SUCCESS_DARK, fontWeight: '500', marginLeft: 8, fontSize: 14, },
+    modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.6)', },
+    modalContent: { width: '90%', maxWidth: 400, backgroundColor: 'white', borderRadius: 12, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5, },
+    modalTitle: { fontSize: 18, fontWeight: '600', color: '#1F2937', marginBottom: 8, textAlign: 'center', },
+    modalSubtitle: { fontSize: 14, color: '#4B5563', marginBottom: 16, textAlign: 'center', lineHeight: 20, },
+    reportInput: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, padding: 12, minHeight: 80, textAlignVertical: 'top', fontSize: 14, color: '#1F2937', marginBottom: 16, },
+    modalErrorText: { color: APP_CONSTANTS.COLORS.ERROR, fontSize: 13, textAlign: 'center', marginBottom: 10, },
+    modalActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, },
+    modalButton: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center', },
+    modalCancelButton: { backgroundColor: '#E5E7EB', marginRight: 10, },
+    modalCancelButtonText: { color: '#4B5563', fontWeight: '600', },
+    modalSubmitButton: { backgroundColor: APP_CONSTANTS.COLORS.ERROR, marginLeft: 10, }, // Default to error color
+    modalSubmitButtonText: { color: 'white', fontWeight: '600', },
+    age: { fontSize: 14, color: "#6B7280", },
+    locationSeparator: { color: "#D1D5DB", marginHorizontal: 6, fontSize: 14, },
+    location: { fontSize: 14, color: "#6B7280", marginLeft: 0, textAlign: 'center' },
+ });
+
+const profileStyles = StyleSheet.create({
+    scrollViewContainer: { flex: 1, },
+    scrollContent: { paddingBottom: 40, paddingTop: 16, },
+    profileCard: { backgroundColor: "white", borderRadius: 16, marginBottom: 24, overflow: "hidden", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 5, elevation: 3, marginHorizontal: 16, },
+    coverPhoto: { height: 120, width: "100%", },
+    avatarContainer: { position: "absolute", top: 65, alignSelf: 'center', backgroundColor: "white", borderRadius: 55, padding: 5, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 3, elevation: 4, },
+    avatar: { width: 100, height: 100, borderRadius: 50, borderWidth: 2, borderColor: 'white', },
+    profileInfo: { paddingTop: 65, paddingBottom: 20, paddingHorizontal: 20, alignItems: "center", },
+    nameContainer: { flexDirection: "row", alignItems: "center", justifyContent: 'center', marginBottom: 4, flexWrap: 'wrap', },
+    name: { fontSize: 22, fontWeight: "bold", color: "#1F2937", marginRight: 8, textAlign: 'center', },
+    premiumBadgeName: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255, 215, 0, 0.15)", paddingVertical: 3, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1, borderColor: "rgba(255, 215, 0, 0.4)", },
+    premiumTextName: { color: "#B8860B", fontSize: 10, fontWeight: "600", marginLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5, },
+    locationAgeContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 4, marginBottom: 16, flexWrap: 'wrap', justifyContent: 'center' },
+    locationRow: { flexDirection: 'row', alignItems: 'center'},
+    statsContainer: { flexDirection: "row", justifyContent: "space-around", alignItems: 'center', marginVertical: 16, width: "80%", paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#F3F4F6', },
+    statItem: { alignItems: "center", paddingHorizontal: 10 },
+    statValue: { fontSize: 18, fontWeight: "600", color: APP_CONSTANTS.COLORS.PRIMARY, },
+    statLabel: { fontSize: 12, color: "#6B7280", marginTop: 2, },
+    separator: { backgroundColor: "#E5E7EB", },
+    section: { marginBottom: 24, paddingHorizontal: 16, },
+    sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: "#F3F4F6", },
+    sectionTitleContainer: { flexDirection: "row", alignItems: "center", flexShrink: 1, },
+    sectionIcon: { marginRight: 10, },
+    sectionTitle: { fontSize: 18, fontWeight: "600", color: "#111827", marginRight: 8, },
+    dataMissingText: { fontSize: 14, color: '#6B7280', textAlign: 'center', paddingVertical: 20, paddingHorizontal: 10, fontStyle: 'italic', backgroundColor: '#F9FAFB', borderRadius: 8, marginTop: 4, },
+    bioDetailsListContainer: { width: '100%', marginTop: 4, },
+    bioDetailItem: { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'flex-start', marginBottom: 10, paddingHorizontal: 0, },
+    bioDetailLabel: { fontSize: 14, color: '#4B5563', fontWeight: '600', width: '45%', marginRight: 8, },
+    bioDetailValue: { fontSize: 14, color: '#1F2937', flex: 1, textAlign: 'left', },
+    tagsContainer: { flexDirection: "row", flexWrap: "wrap", marginTop: 4, },
+    genreTag: { backgroundColor: "rgba(59, 130, 246, 0.1)", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, marginRight: 8, marginBottom: 8, },
+    genreTagText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontSize: 13, fontWeight: '500', },
+});
+
 
 export default OtherUserProfileScreen;

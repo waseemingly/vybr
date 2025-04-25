@@ -24,8 +24,8 @@ const Separator: React.FC<SeparatorProps> = ({ vertical = false, style = {} }) =
 
 interface ProfileSectionProps { title: string; icon: React.ComponentProps<typeof Feather>['name']; children: React.ReactNode; isPremiumFeature?: boolean; isPremiumUser?: boolean; expanded?: boolean; onToggle?: () => void; hasData?: boolean; }
 const ProfileSection: React.FC<ProfileSectionProps> = (props) => {
-    const { title, icon, children, isPremiumFeature = false, isPremiumUser = false, expanded = true, onToggle = ProfileSection.defaultProps.onToggle, hasData = true } = props;
-    const canToggle = onToggle !== ProfileSection.defaultProps.onToggle;
+    const { title, icon, children, isPremiumFeature = false, isPremiumUser = false, expanded = true, onToggle, hasData = true } = props;
+    const canToggle = !!onToggle;
     const showContent = expanded;
 
     return (
@@ -43,7 +43,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = (props) => {
                         </View>
                     )}
                 </View>
-                {canToggle && (
+                {canToggle && onToggle && (
                     <TouchableOpacity onPress={onToggle} style={styles.toggleButton}>
                         <Text style={styles.toggleButtonText}>{expanded ? "See Less" : "See More"}</Text>
                         <Feather name={expanded ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} style={styles.toggleIcon} />
@@ -57,7 +57,6 @@ const ProfileSection: React.FC<ProfileSectionProps> = (props) => {
         </View>
     );
 };
-ProfileSection.defaultProps = { onToggle: () => {} }; // Define defaultProps
 
 const bioDetailLabels: Record<keyof MusicLoverBio, string> = {
     firstSong: "First Concert / Memory", goToSong: "Go-To Song Right Now", mustListenAlbum: "Must-Listen Album", dreamConcert: "Dream Concert Lineup", musicTaste: "Music Taste Description",
