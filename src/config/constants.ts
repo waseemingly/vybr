@@ -50,7 +50,10 @@ interface AppConstantsType {
     AUTH_REDIRECT_URL: string;
   };
   DEFAULT_PROFILE_PIC: string;
+  DEFAULT_EVENT_IMAGE: string;
+  DEFAULT_ORGANIZER_LOGO: string;
   NAVBAR_HEIGHT: number;
+  API_BASE_URL: string;
 }
 
 export const APP_CONSTANTS: AppConstantsType = {
@@ -108,7 +111,12 @@ export const APP_CONSTANTS: AppConstantsType = {
   
   // Default assets
   DEFAULT_PROFILE_PIC: 'https://via.placeholder.com/150/CCCCCC/808080?text=No+Image',
+  DEFAULT_EVENT_IMAGE: 'https://via.placeholder.com/800x450/D1D5DB/1F2937?text=No+Event+Image',
+  DEFAULT_ORGANIZER_LOGO: 'https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo',
   
   // Layout dimensions
   NAVBAR_HEIGHT: 90,
+  
+  // API base URL
+  API_BASE_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api',
 }; 

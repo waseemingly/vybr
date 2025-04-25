@@ -71,32 +71,52 @@ const ProfileScreen: React.FC = () => {
 
     const [expandedSections, setExpandedSections] = useState<ExpandedSections>({ artists: false, songs: false, analytics: true, });
     const [friendCount, setFriendCount] = useState<number>(0);
-    const [friendCountLoading, setFriendCountLoading] = useState(true);
+    const [followedOrganizersCount, setFollowedOrganizersCount] = useState<number>(0);
+    const [countsLoading, setCountsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const userId = session?.user?.id;
 
-    // Fetch friend count
-    const fetchFriends = useCallback(async () => {
-        if (!session?.user?.id) { setFriendCountLoading(false); return; }
-        console.log("[ProfileScreen] Fetching friend count...");
-        setFriendCountLoading(true);
+    // Fetch friend count and followed organizers count
+    const fetchCounts = useCallback(async () => {
+        if (!userId) { setCountsLoading(false); return; }
+        console.log("[ProfileScreen] Fetching counts (friends, following organizers)...");
+        setCountsLoading(true);
         try {
-            const { count, error } = await supabase.from('friends').select('*', { count: 'exact', head: true })
-                .or(`user_id_1.eq.${session.user.id},user_id_2.eq.${session.user.id}`).eq('status', 'accepted');
-            if (error) throw error;
-            console.log("[ProfileScreen] Friend count:", count);
-            setFriendCount(count ?? 0);
-        } catch (err: any) { console.error("[ProfileScreen] Error fetching friend count:", err); setFriendCount(0); }
-        finally { setFriendCountLoading(false); }
-    }, [session?.user?.id]);
+            const [friendsRes, followingRes] = await Promise.all([
+                // Fetch friends count
+                supabase.from('friends')
+                    .select('*', { count: 'exact', head: true })
+                    .or(`user_id_1.eq.${userId},user_id_2.eq.${userId}`)
+                    .eq('status', 'accepted'),
+                // Fetch followed organizers count
+                supabase.from('organizer_follows')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('user_id', userId)
+            ]);
 
-    useFocusEffect( useCallback(() => { fetchFriends(); }, [fetchFriends]) );
+            if (friendsRes.error) console.error("[ProfileScreen] Error fetching friend count:", friendsRes.error);
+            if (followingRes.error) console.error("[ProfileScreen] Error fetching following count:", followingRes.error);
+
+            setFriendCount(friendsRes.count ?? 0);
+            setFollowedOrganizersCount(followingRes.count ?? 0);
+            console.log(`[ProfileScreen] Counts: Friends=${friendsRes.count ?? 0}, Following=${followingRes.count ?? 0}`);
+
+        } catch (err: any) {
+            console.error("[ProfileScreen] Error fetching counts:", err);
+            setFriendCount(0);
+            setFollowedOrganizersCount(0);
+        }
+        finally { setCountsLoading(false); }
+    }, [userId]);
+
+    useFocusEffect(useCallback(() => { fetchCounts(); }, [fetchCounts]));
 
     const onRefresh = useCallback(async () => {
         setIsRefreshing(true);
-        try { await Promise.all([ refreshUserProfile(), fetchFriends() ]); }
+        try { await Promise.all([ refreshUserProfile(), fetchCounts() ]); }
         catch (error) { console.error("Error during refresh:", error); Alert.alert("Refresh Failed", "Could not update profile data."); }
         finally { setIsRefreshing(false); }
-    }, [refreshUserProfile, fetchFriends]);
+    }, [refreshUserProfile, fetchCounts]);
 
     const isPremium = musicLoverProfile?.isPremium ?? false;
 
@@ -106,7 +126,7 @@ const ProfileScreen: React.FC = () => {
         setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
     };
 
-    if (authLoading || (friendCountLoading && !isRefreshing)) {
+    if (authLoading || (countsLoading && !isRefreshing)) {
          return (<SafeAreaView style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} /><Text style={styles.loadingText}>Loading Profile...</Text></SafeAreaView> );
     }
 
@@ -140,12 +160,15 @@ const ProfileScreen: React.FC = () => {
                         <View style={styles.nameContainer}><Text style={styles.name}>{userName}</Text>{isPremium && (<View style={styles.premiumBadgeName}><Feather name="award" size={10} color="#B8860B" /><Text style={styles.premiumTextName}>Premium</Text></View>)}</View>
                         <View style={styles.locationAgeContainer}>{userAge && <Text style={styles.age}>{userAge} y/o</Text>}{(userCity || userCountry) && (<>{userAge && <Text style={styles.locationSeparator}>•</Text>}<Feather name="map-pin" size={12} color="#6B7280" style={{ marginRight: 4 }}/><Text style={styles.location}>{userCity}{userCity && userCountry ? ', ' : ''}{userCountry}</Text></>)}</View>
                         <View style={styles.statsContainer}>
-                            <TouchableOpacity style={styles.statItemTouchable} onPress={() => navigation.navigate('FriendsListScreen')} disabled={friendCount === 0 && !friendCountLoading} >
-                                {friendCountLoading && !isRefreshing ? ( <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{height: 21}}/> ) : ( <Text style={styles.statValue}>{friendCount}</Text> )}
+                            <TouchableOpacity style={styles.statItemTouchable} onPress={() => navigation.navigate('FriendsListScreen')} disabled={friendCount === 0 && !countsLoading} >
+                                {countsLoading && !isRefreshing ? ( <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{height: 21}}/> ) : ( <Text style={styles.statValue}>{friendCount}</Text> )}
                                 <Text style={styles.statLabel}>Friends</Text>
                             </TouchableOpacity>
                             <Separator vertical style={{ backgroundColor: '#E5E7EB' }}/>
-                            <View style={styles.statItem}><Text style={styles.statValue}>0</Text><Text style={styles.statLabel}>Following</Text></View>
+                            <TouchableOpacity style={styles.statItemTouchable} onPress={() => navigation.navigate('OrganizerListScreen')} disabled={followedOrganizersCount === 0 && !countsLoading} >
+                                {countsLoading && !isRefreshing ? ( <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{height: 21}}/> ) : ( <Text style={styles.statValue}>{followedOrganizersCount}</Text> )}
+                                <Text style={styles.statLabel}>Following</Text>
+                            </TouchableOpacity>
                         </View>
                     </View>
                 </View>

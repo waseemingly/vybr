@@ -29,6 +29,7 @@ import EditUserProfileScreen from '@/screens/EditUserProfileScreen';
 import UserManageSubscriptionScreen from '@/screens/UserManageSubscriptionScreen';
 import UserMutedListScreen from '@/screens/UserMutedListScreen';
 import UserBlockedListScreen from '@/screens/UserBlockedListScreen';
+import OrganizerListScreen from '@/screens/OrganizerListScreen';
 
 // Organizer Screens
 import OrganizerPostsScreen from "@/screens/organizer/OrganizerPostsScreen";
@@ -38,6 +39,9 @@ import OrganizerSettingsScreen from "@/screens/organizer/OrganizerSettingsScreen
 import EditOrganizerProfileScreen from '@/screens/organizer/EditOrganizerProfileScreen';
 import OrgManagePlanScreen from '@/screens/organizer/OrgManagePlanScreen';
 import OrgBillingHistoryScreen from '@/screens/organizer/OrgBillingHistoryScreen';
+import UserListScreen from '@/screens/UserListScreen';
+import UpcomingEventsListScreen from '@/screens/UpcomingEventsListScreen';
+import PastEventsListScreen from '@/screens/PastEventsListScreen';
 
 // Auth Screens
 import LandingScreen from "@/screens/auth/LandingScreen";
@@ -48,6 +52,7 @@ import OrganizerSignUpFlow from "@/screens/auth/OrganizerSignUpFlow";
 import CreateGroupChatScreen from '@/screens/CreateGroupChatScreen'; // <-- IMPORT
 import GroupChatScreen from '@/screens/GroupChatScreen';         // <-- IMPORT
 import AddGroupMembersScreen from '@/screens/AddGroupMembersScreen'; // <-- IMPORT
+import ViewOrganizerProfileScreen from '@/screens/ViewOrganizerProfileScreen'; // <-- IMPORT
 
 // --- Define Param Lists ---
 // export type RootStackParamList = {
@@ -87,6 +92,11 @@ export type RootStackParamList = {
        groupName?: string | null;
   };
   // *** END ADDITION ***
+
+  // *** REMOVE View Organizer Profile Screen from Root ***
+  // ViewOrganizerProfileScreen: { organizerUserId: string };
+  // *** END REMOVAL ***
+
   NotFoundGlobal?: undefined;
 };
 
@@ -103,10 +113,17 @@ export type MainStackParamList = {
     UserMutedListScreen: undefined;
     UserBlockedListScreen: undefined;
     FriendsListScreen: undefined;
+    OrganizerListScreen: undefined;
+    UserListScreen: undefined;
+    UpcomingEventsListScreen: { organizerUserId: string, organizerName?: string };
+    PastEventsListScreen: { organizerUserId: string, organizerName?: string };
     UpgradeScreen: undefined;
     EditOrganizerProfileScreen: undefined;
     OrgManagePlanScreen: undefined;
     OrgBillingHistoryScreen: undefined;
+    // *** ADD View Organizer Profile Screen to MainStack ***
+    ViewOrganizerProfileScreen: { organizerUserId: string };
+    // *** END ADDITION ***
     NotFoundMain: undefined;
 };
 
@@ -151,6 +168,7 @@ const MainAppStack = () => {
                  <MainStack.Screen name="EditOrganizerProfileScreen" component={EditOrganizerProfileScreen} options={{ title: 'Edit Profile' }}/>
                  <MainStack.Screen name="OrgManagePlanScreen" component={OrgManagePlanScreen} options={{ title: 'Manage Plan' }}/>
                  <MainStack.Screen name="OrgBillingHistoryScreen" component={OrgBillingHistoryScreen} options={{ title: 'Billing History' }}/>
+                 <MainStack.Screen name="UserListScreen" component={UserListScreen} options={{ title: 'Followers' }}/>
              </>
         ) : (
              <>
@@ -161,11 +179,15 @@ const MainAppStack = () => {
                  <MainStack.Screen name="UserMutedListScreen" component={UserMutedListScreen} options={{ title: 'Muted Users' }} />
                  <MainStack.Screen name="UserBlockedListScreen" component={UserBlockedListScreen} options={{ title: 'Blocked Users' }} />
                  <MainStack.Screen name="FriendsListScreen" component={FriendsListScreen} options={{ title: 'Friends' }} />
+                 <MainStack.Screen name="OrganizerListScreen" component={OrganizerListScreen} options={{ title: 'Following' }}/>
                  <MainStack.Screen name="UpgradeScreen" component={UpgradeScreen} options={{ title: 'Go Premium' }} />
              </>
         )}
         {/* Screens accessible by both modes */}
         <MainStack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} options={{ title: 'Booking Confirmed' }} />
+        <MainStack.Screen name="UpcomingEventsListScreen" component={UpcomingEventsListScreen} />
+        <MainStack.Screen name="PastEventsListScreen" component={PastEventsListScreen} />
+        <MainStack.Screen name="ViewOrganizerProfileScreen" component={ViewOrganizerProfileScreen} />
         <MainStack.Screen name="NotFoundMain" component={NotFoundScreen} options={{ title: 'Oops!' }} />
     </MainStack.Navigator>
   );
@@ -258,6 +280,17 @@ const AppNavigator = () => {
                 options={{ headerShown: true, title: 'Add Members', headerBackTitleVisible: false }}
             />
             {/* *** END REGISTRATION *** */}
+
+            {/* *** REMOVE ViewOrganizerProfileScreen ROUTE from here *** */}
+            {/*
+            <RootStack.Screen
+              name="ViewOrganizerProfileScreen"
+              component={ViewOrganizerProfileScreen}
+              options={{ headerShown: true, headerBackTitleVisible: false }} // Title set dynamically in screen
+            />
+            */}
+             {/* *** END REMOVAL *** */}
+
           </>
         )}
         {/* Optional Global Fallback */}
