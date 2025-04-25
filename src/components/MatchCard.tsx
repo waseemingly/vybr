@@ -25,6 +25,7 @@ export interface MatchCardProps {
     bio: MusicLoverBio | null;
     isPremium: boolean;
     commonTags: string[];
+    onChatPress?: (userId: string) => void; // Changed to pass userId back
 }
 
 // --- Define Navigation Type for useNavigation ---
@@ -68,6 +69,7 @@ const MatchCard: React.FC<MatchCardProps> = ({
     bio,
     isPremium,
     commonTags,
+    onChatPress,
 }) => {
     // Use the correctly typed navigation hook
     const navigation = useNavigation<MatchCardNavigationProp>();
@@ -184,7 +186,7 @@ const MatchCard: React.FC<MatchCardProps> = ({
                  {/* Chat Button */}
                  <View style={styles.actionsContainer}>
                      {/* Ensure this TouchableOpacity calls the MODIFIED handleChatPress */}
-                     <TouchableOpacity style={styles.chatButton} onPress={handleChatPress}>
+                     <TouchableOpacity style={styles.chatButton} onPress={() => onChatPress && onChatPress(userId)}>
                          <Feather name="message-circle" size={18} color="#FFFFFF" />
                          <Text style={styles.chatButtonText}>Chat with {displayName.split(' ')[0]}</Text>
                      </TouchableOpacity>

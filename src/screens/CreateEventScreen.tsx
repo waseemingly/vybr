@@ -44,8 +44,70 @@ const CreateEventScreen: React.FC = () => {
   const derivedBookingType = useCallback((): 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null => { if (formState.bookingMode === 'no' || formState.eventType === 'ADVERTISEMENT_ONLY') return 'INFO_ONLY'; if (TICKETED_EVENT_TYPES.includes(formState.eventType)) return 'TICKETED'; if (RESERVATION_EVENT_TYPES.includes(formState.eventType)) return 'RESERVATION'; return null; }, [formState.eventType, formState.bookingMode]);
   const handleChange = (name: keyof FormState, value: string | boolean | EventTypeValue) => { setFormState((prev) => ({ ...prev, [name]: value })); if (name === 'eventType') { const newEventType = value as EventTypeValue; const newBookingMode = newEventType === 'ADVERTISEMENT_ONLY' ? 'no' : 'yes'; setFormState(prev => ({ ...prev, eventType: newEventType, bookingMode: newBookingMode, maxTickets: '', maxReservations: '', ticketPrice: '', })); } if (name === 'bookingMode' && value === 'no') { setFormState(prev => ({ ...prev, bookingMode: 'no', maxTickets: '', maxReservations: '', ticketPrice: '', })); }};
 
-  const onDateChange = (event: DateTimePickerEvent, selectedDate?: Date | undefined) => { const currentDate = selectedDate || eventDate; setShowDatePicker(Platform.OS === 'ios'); if (event.type === 'set' && selectedDate) { setShowDatePicker(false); const newEventDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), eventDate.getHours(), eventDate.getMinutes(), 0, 0); if (newEventDate > new Date()) { setEventDate(newEventDate); } else { Alert.alert("Invalid Date", "The selected date must be in the future."); } } else if (event.type === 'dismissed') { setShowDatePicker(false); } };
-  const onTimeChange = (event: DateTimePickerEvent, selectedTime?: Date | undefined) => { const currentTime = selectedTime || eventDate; setShowTimePicker(Platform.OS === 'ios'); if (event.type === 'set' && selectedTime) { setShowTimePicker(false); const newEventDate = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate(), selectedTime.getHours(), selectedTime.getMinutes(), 0, 0); if (newEventDate > new Date()) { setEventDate(newEventDate); } else { Alert.alert("Invalid Time", "The selected time must be in the future for the chosen date."); } } else if (event.type === 'dismissed') { setShowTimePicker(false); } };
+  const onDateChange = (event: DateTimePickerEvent, selectedDate?: Date | undefined) => { 
+    if (Platform.OS === 'web') {
+      if (selectedDate) {
+        const newEventDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 
+          eventDate.getHours(), eventDate.getMinutes(), 0, 0);
+        if (newEventDate > new Date()) {
+          setEventDate(newEventDate);
+        } else {
+          Alert.alert("Invalid Date", "The selected date must be in the future.");
+        }
+      }
+      setShowDatePicker(false);
+      return;
+    }
+
+    // Mobile implementation
+    const currentDate = selectedDate || eventDate; 
+    setShowDatePicker(Platform.OS === 'ios'); 
+    if (event.type === 'set' && selectedDate) { 
+      setShowDatePicker(false); 
+      const newEventDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 
+        eventDate.getHours(), eventDate.getMinutes(), 0, 0); 
+      if (newEventDate > new Date()) { 
+        setEventDate(newEventDate); 
+      } else { 
+        Alert.alert("Invalid Date", "The selected date must be in the future."); 
+      } 
+    } else if (event.type === 'dismissed') { 
+      setShowDatePicker(false); 
+    } 
+  };
+
+  const onTimeChange = (event: DateTimePickerEvent, selectedTime?: Date | undefined) => { 
+    if (Platform.OS === 'web') {
+      if (selectedTime) {
+        const newEventDate = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate(), 
+          selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+        if (newEventDate > new Date()) {
+          setEventDate(newEventDate);
+        } else {
+          Alert.alert("Invalid Time", "The selected time must be in the future for the chosen date.");
+        }
+      }
+      setShowTimePicker(false);
+      return;
+    }
+
+    // Mobile implementation
+    const currentTime = selectedTime || eventDate; 
+    setShowTimePicker(Platform.OS === 'ios'); 
+    if (event.type === 'set' && selectedTime) { 
+      setShowTimePicker(false); 
+      const newEventDate = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate(), 
+        selectedTime.getHours(), selectedTime.getMinutes(), 0, 0); 
+      if (newEventDate > new Date()) { 
+        setEventDate(newEventDate); 
+      } else { 
+        Alert.alert("Invalid Time", "The selected time must be in the future for the chosen date."); 
+      } 
+    } else if (event.type === 'dismissed') { 
+      setShowTimePicker(false); 
+    } 
+  };
+
   const formatDate = (date: Date): string => date.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
   const formatTime = (date: Date): string => date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true });
 
@@ -55,34 +117,130 @@ const CreateEventScreen: React.FC = () => {
         try {
             let result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                allowsMultipleSelection: true, quality: 0.8,
-                selectionLimit: 3 - imageAssets.length
+                allowsMultipleSelection: true, 
+                quality: 0.8,
+                selectionLimit: 3 - imageAssets.length,
+                ...(Platform.OS === 'web' ? { base64: true } : {})
             });
             if (!result.canceled && result.assets) {
                 const maxToAdd = 3 - imageAssets.length;
                 const newAssets = result.assets.slice(0, maxToAdd);
                 if (result.assets.length > maxToAdd) { Alert.alert("Limit Reached",`Added ${newAssets.length} image(s). Max 3 total.`); }
-                const assetsToAdd: ImageAsset[] = newAssets.map(a => ({ uri:a.uri, mimeType:a.mimeType, fileName:a.fileName }));
+                const assetsToAdd: ImageAsset[] = newAssets.map(a => {
+                    // On web, ensure we have the uri and all needed properties
+                    const uri = Platform.OS === 'web' && (a as any).base64 && a.mimeType
+                        ? `data:${a.mimeType};base64,${(a as any).base64}`
+                        : a.uri;
+                    // Make sure fileName is either string or undefined, not null
+                    const fileName = a.fileName || `image-${Date.now()}`;
+                    return { uri, mimeType: a.mimeType, fileName };
+                });
                 setImageAssets(p => [...p, ...assetsToAdd]);
             }
         } catch (e) { console.error("Image pick error:", e); Alert.alert("Image Error","Could not select images."); }
     };
    const removeImage = (index: number) => { setImageAssets(p => { const n = [...p]; n.splice(index, 1); return n; }); };
    const base64ToArrayBuffer = (base64: string): ArrayBuffer => { try{ const b = Buffer.from(base64, 'base64'); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); } catch(e){ console.error("Base64 Err:",e); throw new Error("Failed image process."); } };
-   const uploadSingleImage = async (userId: string, asset: ImageAsset): Promise<string | null> => { const { uri, mimeType, fileName: originalFileName } = asset; try { let ext = uri.split('.').pop()?.toLowerCase().split('?')[0] || 'jpeg'; if (ext && (ext.length > 5 || !/^[a-z0-9]+$/.test(ext))) ext = 'jpeg'; if (!['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) ext = 'jpeg'; if (ext === 'jpg') ext = 'jpeg'; const fileName = `${originalFileName ? originalFileName.split('.')[0].replace(/[^a-zA-Z0-9]/g, '_') : 'event-image'}-${Date.now()}.${ext}`; const filePath = `${userId}/${fileName}`; if (Platform.OS === 'web') { // Handle web upload (assuming URI is blob/data URL)
-        const response = await fetch(uri);
-        if (!response.ok) throw new Error(`Failed to fetch web URI: ${response.status}`);
-        const arrayBuffer = await response.arrayBuffer();
-        const webMimeType = response.headers.get('content-type') || mimeType || `image/${ext}`;
-        if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty.");
-        const { data: uploadData, error: uploadError } = await supabase.storage.from("event_posters").upload(filePath, arrayBuffer, { cacheControl: "3600", upsert: false, contentType: webMimeType });
-        if (uploadError) throw new Error(`Supabase upload error: ${uploadError.message}`);
-        if (!uploadData?.path) throw new Error("Upload succeeded but no path returned.");
-        const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(uploadData.path);
-        return urlData?.publicUrl ?? null;
-   } else { // Native Upload
-       const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }); if (!base64) throw new Error("Failed to read image file."); const arrayBuffer = base64ToArrayBuffer(base64); if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty."); let contentType = mimeType || `image/${ext}`; if (ext === 'svg' && contentType !== 'image/svg+xml') contentType = 'image/svg+xml'; const { data: uploadData, error: uploadError } = await supabase.storage .from("event_posters") .upload(filePath, arrayBuffer, { cacheControl: "3600", upsert: false, contentType: contentType }); if (uploadError) throw new Error(`Supabase upload error: ${uploadError.message}`); if (!uploadData?.path) throw new Error("Upload succeeded but no path returned."); const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(uploadData.path); return urlData?.publicUrl ?? null;
-   }} catch (e: any) { console.error(`[ImageUpload] Error for ${uri}:`, e); return null; } };
+   const uploadSingleImage = async (userId: string, asset: ImageAsset): Promise<string | null> => { 
+     const { uri, mimeType, fileName: originalFileName } = asset; 
+     try { 
+       let ext = uri.split('.').pop()?.toLowerCase().split('?')[0] || 'jpeg'; 
+       if (ext && (ext.length > 5 || !/^[a-z0-9]+$/.test(ext))) ext = 'jpeg'; 
+       if (!['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(ext)) ext = 'jpeg'; 
+       if (ext === 'jpg') ext = 'jpeg'; 
+       
+       const fileName = `${originalFileName ? originalFileName.split('.')[0].replace(/[^a-zA-Z0-9]/g, '_') : 'event-image'}-${Date.now()}.${ext}`; 
+       const filePath = `${userId}/${fileName}`; 
+       
+       if (Platform.OS === 'web') { 
+         // Handle web upload (improved for web data URIs or blob URIs)
+         let arrayBuffer: ArrayBuffer;
+         let webMimeType: string = mimeType || `image/${ext}`;
+         
+         if (uri.startsWith('data:')) {
+           // Handle data URI for web
+           const base64Data = uri.split(',')[1];
+           if (!base64Data) throw new Error("Invalid data URI format");
+           const binary = atob(base64Data);
+           const bytes = new Uint8Array(binary.length);
+           for (let i = 0; i < binary.length; i++) {
+             bytes[i] = binary.charCodeAt(i);
+           }
+           arrayBuffer = bytes.buffer;
+           
+           // Extract mime type from data URI if available, but override if webp
+           const dataPrefix = uri.split(',')[0];
+           const extractedMimeType = dataPrefix.match(/data:(.*?);base64/)?.[1];
+           if (extractedMimeType) webMimeType = extractedMimeType;
+           // If the extracted type was webp, force it back to jpeg
+           if (webMimeType === 'image/webp') {
+               webMimeType = 'image/jpeg';
+           }
+
+         } else {
+           // Handle blob or regular URI
+           const response = await fetch(uri);
+           if (!response.ok) throw new Error(`Failed to fetch web URI: ${response.status}`);
+           arrayBuffer = await response.arrayBuffer();
+           
+           // Use content-type from response if available, but override if webp
+           const contentType = response.headers.get('content-type');
+           if (contentType) webMimeType = contentType;
+            // If the fetched type was webp, force it back to jpeg
+           if (webMimeType === 'image/webp') {
+               webMimeType = 'image/jpeg';
+           }
+         }
+         
+         if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty.");
+         
+         console.log(`Uploading to Supabase with path: ${filePath}, contentType: ${webMimeType}`); // Debug log
+         
+         const { data: uploadData, error: uploadError } = await supabase.storage.from("event_posters").upload(filePath, arrayBuffer, { 
+           cacheControl: "3600", 
+           upsert: false, 
+           contentType: webMimeType // Use the potentially corrected MIME type
+         });
+         
+         if (uploadError) {
+           console.error("Supabase Upload Error Details:", uploadError); // Log detailed error
+           throw new Error(`Supabase upload error: ${uploadError.message}`);
+         }
+         if (!uploadData?.path) throw new Error("Upload succeeded but no path returned.");
+         
+         const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(uploadData.path);
+         return urlData?.publicUrl ?? null;
+       } else { 
+         // Native Upload (unchanged, assuming native handles webp ok or converts)
+         const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }); 
+         if (!base64) throw new Error("Failed to read image file."); 
+         const arrayBuffer = base64ToArrayBuffer(base64); 
+         if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty."); 
+         // Use original mimeType or derived ext for native
+         let contentType = mimeType || `image/${uri.split('.').pop()?.toLowerCase().split('?')[0] || 'jpeg'}`; 
+         if (contentType === 'image/jpg') contentType = 'image/jpeg'; // Normalize jpg
+         if (ext === 'svg' && contentType !== 'image/svg+xml') contentType = 'image/svg+xml'; 
+
+         console.log(`Uploading Native with path: ${filePath}, contentType: ${contentType}`); // Debug log
+
+         const { data: uploadData, error: uploadError } = await supabase.storage.from("event_posters").upload(filePath, arrayBuffer, { 
+           cacheControl: "3600", 
+           upsert: false, 
+           contentType: contentType 
+         }); 
+         if (uploadError) {
+            console.error("Supabase Native Upload Error Details:", uploadError); // Log detailed error
+            throw new Error(`Supabase upload error: ${uploadError.message}`); 
+         }
+         if (!uploadData?.path) throw new Error("Upload succeeded but no path returned."); 
+         const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(uploadData.path); 
+         return urlData?.publicUrl ?? null;
+       }
+     } catch (e: any) { 
+       console.error(`[ImageUpload] Error for ${uri}:`, e); 
+       return null; 
+     } 
+   };
    const uploadImages = async (userId: string, assets: ImageAsset[]): Promise<string[]> => { if (!assets || assets.length === 0) return []; console.log(`Uploading ${assets.length} images...`); const uploadPromises = assets.map(asset => uploadSingleImage(userId, asset)); try { const results = await Promise.all(uploadPromises); const successfulUrls = results.filter((url): url is string => url !== null); if (successfulUrls.length < assets.length) { Alert.alert("Partial Upload Failed", `Could not upload ${assets.length - successfulUrls.length} image(s).`); } console.log(`Uploaded ${successfulUrls.length} images successfully.`); return successfulUrls; } catch (error) { console.error("Image upload batch error:", error); Alert.alert("Upload Error", "An error occurred uploading images."); return []; } };
 
 
@@ -172,8 +330,82 @@ const CreateEventScreen: React.FC = () => {
                   <View style={[styles.formGroup,{flex:1,marginRight:8, marginBottom: 0}]}><Label>Date *</Label><TouchableOpacity style={styles.inputWithIconTouchable} onPress={()=>setShowDatePicker(true)} accessibilityLabel="Select Event Date" accessibilityHint={`Current date: ${formatDate(eventDate)}`} ><Feather name="calendar" size={16} color="#9CA3AF" style={styles.inputIcon} /><Text style={styles.pickerText}>{formatDate(eventDate)}</Text></TouchableOpacity></View>
                   <View style={[styles.formGroup,{flex:1,marginLeft:8, marginBottom: 0}]}><Label>Time *</Label><TouchableOpacity style={styles.inputWithIconTouchable} onPress={()=>setShowTimePicker(true)} accessibilityLabel="Select Event Time" accessibilityHint={`Current time: ${formatTime(eventDate)}`} ><Feather name="clock" size={16} color="#9CA3AF" style={styles.inputIcon} /><Text style={styles.pickerText}>{formatTime(eventDate)}</Text></TouchableOpacity></View>
               </View>
-              {showDatePicker && (<DateTimePicker testID="datePicker" value={eventDate} mode="date" display={Platform.OS === 'ios' ? 'spinner' : 'default'} onChange={onDateChange} minimumDate={new Date()} />)}
-              {showTimePicker && (<DateTimePicker testID="timePicker" value={eventDate} mode="time" display={Platform.OS === 'ios' ? 'spinner' : 'default'} onChange={onTimeChange} />)}
+              {showDatePicker && (
+                Platform.OS === 'web' ? (
+                  <View style={styles.webPickerContainer}>
+                    <input
+                      type="date"
+                      value={eventDate.toISOString().split('T')[0]}
+                      onChange={(e) => {
+                        const selectedDate = new Date(e.target.value);
+                        onDateChange({ type: 'set' } as DateTimePickerEvent, selectedDate);
+                      }}
+                      style={{
+                        padding: 10,
+                        border: '1px solid #D1D5DB',
+                        borderRadius: 8,
+                        fontSize: 16,
+                        width: '100%',
+                        marginBottom: 10
+                      }}
+                    />
+                    <TouchableOpacity 
+                      style={{alignSelf: 'flex-end', marginTop: 5}} 
+                      onPress={() => setShowDatePicker(false)}
+                    >
+                      <Text style={{color: '#3B82F6', fontWeight: '500'}}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <DateTimePicker
+                    testID="datePicker"
+                    value={eventDate}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={onDateChange}
+                    minimumDate={new Date()}
+                  />
+                )
+              )}
+
+              {showTimePicker && (
+                Platform.OS === 'web' ? (
+                  <View style={styles.webPickerContainer}>
+                    <input
+                      type="time"
+                      value={`${eventDate.getHours().toString().padStart(2, '0')}:${eventDate.getMinutes().toString().padStart(2, '0')}`}
+                      onChange={(e) => {
+                        const [hours, minutes] = e.target.value.split(':').map(Number);
+                        const selectedTime = new Date();
+                        selectedTime.setHours(hours, minutes, 0, 0);
+                        onTimeChange({ type: 'set' } as DateTimePickerEvent, selectedTime);
+                      }}
+                      style={{
+                        padding: 10,
+                        border: '1px solid #D1D5DB',
+                        borderRadius: 8,
+                        fontSize: 16,
+                        width: '100%',
+                        marginBottom: 10
+                      }}
+                    />
+                    <TouchableOpacity 
+                      style={{alignSelf: 'flex-end', marginTop: 5}} 
+                      onPress={() => setShowTimePicker(false)}
+                    >
+                      <Text style={{color: '#3B82F6', fontWeight: '500'}}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <DateTimePicker
+                    testID="timePicker"
+                    value={eventDate}
+                    mode="time"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={onTimeChange}
+                  />
+                )
+              )}
               {eventDate <= new Date() && (<Text style={[styles.errorText,{ marginTop: 4, marginBottom: 10 }]}>Date/Time must be in the future.</Text>)}
 
               <View style={styles.formGroup}><Label>Location</Label><View style={styles.inputWithIcon}><Feather name="map-pin" size={16} color="#9CA3AF" style={styles.inputIcon} /><TextInput style={styles.iconInput} placeholder="e.g., The Fillmore, Online" value={formState.location} onChangeText={(text)=>handleChange("location",text)} accessibilityLabel="Event Location Input"/></View></View>
@@ -240,6 +472,21 @@ const styles = StyleSheet.create({
     iosPickerValueDisplay: { paddingHorizontal: 12, paddingVertical: Platform.OS === 'ios' ? 14 : 0, fontSize: 16, color: '#1F2937', position: 'absolute', left: 10, top: 0, bottom: 0, zIndex: -1, textAlignVertical: 'center', },
     switchContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, height: 48 },
     switchLabel: { fontSize: 16, color: '#374151', marginRight: 10, flexShrink: 1 },
+    webPickerContainer: {
+      backgroundColor: 'white',
+      padding: 15,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#D1D5DB',
+      marginTop: 5,
+      marginBottom: 15,
+      // Add shadow for better visibility
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
 });
 
 export default CreateEventScreen;

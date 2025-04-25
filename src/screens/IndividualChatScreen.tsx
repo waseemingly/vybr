@@ -1,56 +1,25 @@
+// screens/IndividualChatScreen.tsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-    View,
-    StyleSheet,
-    ActivityIndicator,
-    Text,
-    TouchableOpacity,
-    Platform,
-    TextInput,
-    FlatList,
-    KeyboardAvoidingView,
-    SafeAreaView,
-    Keyboard,
+    View, StyleSheet, ActivityIndicator, Text, TouchableOpacity,
+    Platform, TextInput, FlatList, KeyboardAvoidingView, Keyboard
 } from 'react-native';
-import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
+import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
 
-// --- Adjust these imports based on YOUR project structure ---
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import type { RootStackParamList } from "@/navigation/AppNavigator"; // Adjust path if needed
-import { APP_CONSTANTS } from '@/config/constants'; // Adjust path if needed
-// --- End Adjustments ---
+import type { RootStackParamList } from "@/navigation/AppNavigator";
+import { APP_CONSTANTS } from '@/config/constants';
 
-// Keep Route and Navigation props
+// Types and MessageBubble component
 type IndividualChatScreenRouteProp = RouteProp<RootStackParamList, 'IndividualChatScreen'>;
-type IndividualChatScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'IndividualChatScreen'>;
-
-// Keep DB message structure
-interface DbMessage {
-    id: string;
-    created_at: string;
-    sender_id: string;
-    receiver_id: string;
-    content: string;
-}
-
-// Keep simplified ChatMessage interface
-interface ChatMessage {
-    _id: string;
-    text: string;
-    createdAt: Date;
-    user: {
-        _id: string;
-    };
-}
-
-// Keep MessageBubble component
-interface MessageBubbleProps {
-    message: ChatMessage;
-    currentUserId: string | undefined;
-}
+type RootNavigationProp = NativeStackNavigationProp<RootStackParamList>;
+interface DbMessage { id: string; created_at: string; sender_id: string; receiver_id: string; content: string; }
+interface ChatMessage { _id: string; text: string; createdAt: Date; user: { _id: string; }; }
+interface MessageBubbleProps { message: ChatMessage; currentUserId: string | undefined; }
 const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, currentUserId }) => {
     const isCurrentUser = message.user._id === currentUserId;
     return (
@@ -64,35 +33,85 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, curre
     );
 });
 
-// --- Main Component ---
-const IndividualChatScreen = () => {
+
+const IndividualChatScreen: React.FC = () => {
     const route = useRoute<IndividualChatScreenRouteProp>();
-    const navigation = useNavigation<IndividualChatScreenNavigationProp>();
+    const navigation = useNavigation<RootNavigationProp>();
     const { session } = useAuth();
 
-    const { matchUserId, matchName } = route.params;
+    const { matchUserId } = route.params;
+    // Use state for name to allow potential updates (though less likely needed here now)
+    const [dynamicMatchName, setDynamicMatchName] = useState(route.params.matchName || 'Chat');
 
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [isMatchMuted, setIsMatchMuted] = useState(false);
+    const [isBlocked, setIsBlocked] = useState(false); // Covers block in either direction
 
     const currentUserId = session?.user?.id;
     const flatListRef = useRef<FlatList>(null);
 
-    // Map DB message to ChatMessage format
-    const mapDbMessageToChatMessage = (dbMessage: DbMessage): ChatMessage => ({
-        _id: dbMessage.id,
-        text: dbMessage.content,
-        createdAt: new Date(dbMessage.created_at),
-        user: { _id: dbMessage.sender_id, },
-    });
+    const mapDbMessageToChatMessage = useCallback((dbMessage: DbMessage): ChatMessage => ({
+         _id: dbMessage.id, text: dbMessage.content, createdAt: new Date(dbMessage.created_at), user: { _id: dbMessage.sender_id, },
+    }), []);
 
-    // Fetch initial messages
+    // --- Fetch Mute and Block Status ---
+    const fetchInteractionStatus = useCallback(async () => {
+         if (!currentUserId || !matchUserId) return;
+         console.log(`[ChatScreen] Fetching interaction status for ${matchUserId}`);
+         try {
+             // Check if current user muted the match user
+             const { count: muteCount, error: muteError } = await supabase
+                 .from('mutes')
+                 .select('*', { count: 'exact', head: true }) // Use count directly
+                 .eq('muter_id', currentUserId)
+                 .eq('muted_id', matchUserId);
+
+             if (muteError) throw muteError;
+             const mutedResult = (muteCount ?? 0) > 0;
+             setIsMatchMuted(mutedResult);
+             console.log(`[ChatScreen] Fetched Mute Status: ${mutedResult}`);
+
+             // Check if either user blocked the other
+             const { data: blockData, error: blockError } = await supabase
+                 .from('blocks')
+                 .select('blocker_id') // Select only needed field
+                 .or(`and(blocker_id.eq.${currentUserId},blocked_id.eq.${matchUserId}),and(blocker_id.eq.${matchUserId},blocked_id.eq.${currentUserId})`)
+                 .limit(1); // Only need to know if *any* block exists
+
+             if (blockError) throw blockError;
+             const blockedResult = blockData && blockData.length > 0;
+             setIsBlocked(blockedResult);
+             console.log(`[ChatScreen] Fetched Block Status: ${blockedResult}`);
+
+             // If blocked, clear messages and set error state for UI
+             if (blockedResult) {
+                 setMessages([]);
+                 setError("You cannot chat with this user.");
+                 setLoading(false); // Stop loading if blocked
+             } else if (error === "You cannot chat with this user.") {
+                 // Clear block-related error if unblocked
+                 setError(null);
+             }
+
+
+         } catch (err: any) {
+             console.error("[ChatScreen] Error fetching mute/block status:", err);
+             setError(prev => prev || "Could not load chat status."); // Show error
+         }
+    }, [currentUserId, matchUserId, error]); // Added error to dependency to potentially clear it
+
+    // --- Fetch Messages ---
     const fetchMessages = useCallback(async () => {
-        if (!currentUserId) { setError("User not authenticated."); setLoading(false); return; }
-        setLoading(true);
-        setError(null);
+        if (!currentUserId || !matchUserId || isBlocked) { // Added block check
+             if (!isBlocked && currentUserId) setLoading(true); // Only set loading if not blocked
+             return; // Don't fetch if blocked or not logged in
+         }
+        console.log(`[ChatScreen] Fetching messages for ${matchUserId}`);
+        setLoading(true); // Set loading true only when actually fetching
+        setError(null); // Clear previous errors before fetching
         try {
             const { data, error: fetchError } = await supabase
                 .from('messages')
@@ -101,67 +120,106 @@ const IndividualChatScreen = () => {
                 .order('created_at', { ascending: true });
 
             if (fetchError) throw fetchError;
-            if (data) { setMessages(data.map(mapDbMessageToChatMessage)); }
-        } catch (err: any) { console.error("Error fetching messages:", err); setError("Could not load messages."); }
-        finally { setLoading(false); }
-    }, [currentUserId, matchUserId]);
+            if (data) {
+                setMessages(data.map(mapDbMessageToChatMessage));
+                console.log(`[ChatScreen] Fetched ${data.length} messages.`);
+            } else {
+                setMessages([]);
+                 console.log(`[ChatScreen] No messages found.`);
+            }
+        } catch (err: any) {
+            console.error("[ChatScreen] Error fetching messages:", err);
+            setError("Could not load messages.");
+            setMessages([]); // Clear messages on error
+        } finally {
+            setLoading(false);
+        }
+    }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage]); // isBlocked is crucial
 
-    // --- Handle Sending New Messages (Method 1 Implementation) ---
+    // --- Send Message ---
     const sendMessage = useCallback(async (text: string) => {
-        if (!currentUserId || !text.trim()) {
-            return; // Don't send empty messages or if not logged in
+         if (!currentUserId || !matchUserId || !text.trim() || isBlocked) { return; }
+         const tempId = `temp_${Date.now()}`;
+         const newMessage: ChatMessage = { _id: tempId, text: text.trim(), createdAt: new Date(), user: { _id: currentUserId } };
+         setMessages(previousMessages => [...previousMessages, newMessage]);
+         setInputText('');
+         Keyboard.dismiss();
+         const { error: insertError } = await supabase.from('messages').insert({ sender_id: currentUserId, receiver_id: matchUserId, content: newMessage.text });
+         if (insertError) { console.error("Error sending message:", insertError); setError("Failed to send message."); setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempId)); setInputText(newMessage.text); }
+         else { console.log("Message insert successful."); setError(null); } // Clear error on success
+    }, [currentUserId, matchUserId, isBlocked]);
+    const handleSendPress = () => { sendMessage(inputText); };
+
+    // --- Effects ---
+
+    // Set Header Title and fetch status ON FOCUS
+    useFocusEffect(
+        useCallback(() => {
+            console.log(`[ChatScreen] Focus effect running for user: ${matchUserId}`);
+            // Update the name from route params in case it changed somehow
+            const currentName = route.params.matchName || 'Chat';
+            setDynamicMatchName(currentName);
+
+            // Fetch the latest mute/block status
+             fetchInteractionStatus(); // This now also handles setting block error messages
+
+            // Update navigation options based on the LATEST fetched status and name
+             navigation.setOptions({
+                 headerShown: true,
+                 headerTitleAlign: 'center',
+                 headerBackTitleVisible: false,
+                 headerLeft: () => (
+                     <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}>
+                         <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                     </TouchableOpacity>
+                 ),
+                 // Render header title component dynamically
+                 headerTitle: () => {
+                    // Need to read state *within* this render prop scope
+                    const isCurrentlyBlocked = isBlocked; // Read latest state
+                    const isCurrentlyMuted = isMatchMuted; // Read latest state
+                    const title = isCurrentlyBlocked ? "User Unavailable" : (currentName || 'Chat');
+
+                    return (
+                        <TouchableOpacity
+                            onPress={() => navigation.navigate('OtherUserProfileScreen', { userId: matchUserId })}
+                            style={styles.headerTitleContainer}
+                            disabled={isCurrentlyBlocked}
+                        >
+                            <Text style={[styles.headerTitleText, isCurrentlyBlocked && styles.blockedText]} numberOfLines={1}>
+                                {title}
+                            </Text>
+                            {isCurrentlyMuted && !isCurrentlyBlocked && (
+                                <Feather name="volume-x" size={16} color="#FF8C00" style={styles.muteIcon} />
+                            )}
+                        </TouchableOpacity>
+                    );
+                 },
+                 headerRight: () => (isBlocked ? <View style={{width: 30}} /> : undefined), // Hide options maybe?
+                 headerStyle: { backgroundColor: 'white' },
+             });
+
+        }, [navigation, matchUserId, route.params.matchName, fetchInteractionStatus, isBlocked, isMatchMuted]) // Add isBlocked/isMatchMuted to re-render header when they change
+    );
+
+    // Fetch initial messages AFTER checking block status
+    useEffect(() => {
+        if (!isBlocked && currentUserId && matchUserId) {
+            fetchMessages();
+        } else if (isBlocked) {
+            setMessages([]); // Ensure messages are cleared if blocked
         }
+    }, [fetchMessages, isBlocked, currentUserId, matchUserId]); // Run when block status or IDs change
 
-        const tempId = `temp_${Date.now()}`; // Temporary ID for optimistic update
-        const newMessage: ChatMessage = {
-            _id: tempId,
-            text: text.trim(),
-            createdAt: new Date(),
-            user: { _id: currentUserId },
-        };
-
-        // Optimistically update the UI
-        setMessages(previousMessages => [...previousMessages, newMessage]); // Append new message
-        setInputText(''); // Clear the input field
-        Keyboard.dismiss(); // Dismiss keyboard after sending
-
-        // Insert into Supabase - No .select() needed
-        const { error: insertError } = await supabase
-            .from('messages')
-            .insert({
-                sender_id: currentUserId,
-                receiver_id: matchUserId,
-                content: newMessage.text,
-            });
-            // REMOVED .select().single()
-
-        // *** CORRECTED SUCCESS/ERROR CHECK ***
-        if (insertError) { // Only check if an error object exists
-            console.error("Error sending message:", insertError);
-            setError("Failed to send message.");
-            // Revert optimistic update on error
-            setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempId));
-            setInputText(newMessage.text); // Optionally restore input text
-        } else {
-            // Success! Message was inserted into DB.
-            console.log("Message insert successful (optimistic UI applied).");
-            // The message with the temp ID is already shown.
-            // Real-time listener OR next fetch will get the version with the real DB ID.
-            setError(null); // Clear any previous errors
-        }
-    }, [currentUserId, matchUserId]);
-    // --- End Handle Sending New Messages ---
-
-    // Handler for the send button press
-    const handleSendPress = () => {
-        sendMessage(inputText);
-    };
 
     // Real-time Subscription Setup
     useEffect(() => {
-        if (!currentUserId) return;
-        fetchMessages(); // Fetch initial messages
+        if (!currentUserId || !matchUserId || isBlocked) {
+            // If blocked, ensure no subscription exists
+            return () => { supabase.channel(`chat_${[currentUserId, matchUserId].sort().join('_')}`).unsubscribe(); };
+        }
 
+        console.log(`[ChatScreen] Subscribing to channel for ${matchUserId}`);
         const channel = supabase
             .channel(`chat_${[currentUserId, matchUserId].sort().join('_')}`)
             .on<DbMessage>(
@@ -169,50 +227,78 @@ const IndividualChatScreen = () => {
                 { event: 'INSERT', schema: 'public', table: 'messages',
                   filter: `or(and(sender_id.eq.${currentUserId},receiver_id.eq.${matchUserId}),and(sender_id.eq.${matchUserId},receiver_id.eq.${currentUserId}))` },
                 (payload) => {
-                    console.log('New message received via subscription!', payload.new);
+                    if (isBlocked) return; // Double check block status on receive
+                    console.log('[ChatScreen] New message received via subscription:', payload.new);
                     const receivedMessage = mapDbMessageToChatMessage(payload.new as DbMessage);
-                    // Add message ONLY if it's from the OTHER user
+                     // Add message ONLY if it's from the OTHER user
                     if (receivedMessage.user._id === matchUserId) {
                          setMessages(prevMessages => {
-                            // Optional: Prevent adding duplicate if already present
-                            if (prevMessages.some(msg => msg._id === receivedMessage._id)) {
-                                return prevMessages;
-                            }
+                            if (prevMessages.some(msg => msg._id === receivedMessage._id)) return prevMessages;
                             return [...prevMessages, receivedMessage];
                          });
+                    } else if (receivedMessage.user._id === currentUserId) {
+                        // If message is from current user (sent from another device), replace temp message
+                        setMessages(prevMessages =>
+                            prevMessages.map(msg =>
+                                msg._id.startsWith('temp_') && msg.text === receivedMessage.text
+                                ? receivedMessage // Replace temp with real
+                                : msg
+                            )
+                         );
                     }
                 }
             )
             .subscribe((status, err) => {
-                 if (status === 'SUBSCRIBED') console.log('Realtime channel subscribed');
-                 if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') { console.error(`Realtime error: ${status}`, err); setError('Realtime connection issue.'); }
+                 if (status === 'SUBSCRIBED') console.log('[ChatScreen] Realtime channel subscribed');
+                 if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') { console.error(`[ChatScreen] Realtime error: ${status}`, err); setError('Realtime connection issue.'); }
             });
 
         // Cleanup subscription
-        return () => { console.log('Unsubscribing'); supabase.removeChannel(channel); };
-    }, [currentUserId, matchUserId, fetchMessages]);
+        return () => {
+            console.log(`[ChatScreen] Unsubscribing from channel for ${matchUserId}`);
+            supabase.removeChannel(channel);
+        };
+    }, [currentUserId, matchUserId, mapDbMessageToChatMessage, isBlocked]); // isBlocked is crucial
 
-    // Set Header Title
-    useEffect(() => {
-        navigation.setOptions({ title: matchName || 'Chat' });
-    }, [navigation, matchName]);
 
     // --- Render Logic ---
-    if (loading && messages.length === 0) { /* ... loading ... */ return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View>; }
-    if (!currentUserId) { /* ... auth error ... */ return <View style={styles.centered}><Text style={styles.errorText}>Authentication error.</Text></View>; }
-    if (error && messages.length === 0) { /* ... fetch error ... */ return <View style={styles.centered}><Text style={styles.errorText}>{error}</Text></View>; }
+    if (loading && messages.length === 0 && !isBlocked) {
+        return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View>;
+    }
+    if (!currentUserId) {
+        return <View style={styles.centered}><Text style={styles.errorText}>Authentication error.</Text></View>;
+    }
+     // Use the error state set by fetchInteractionStatus or fetchMessages
+     if (isBlocked) {
+         return (
+             <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+                 <View style={styles.centered}>
+                     <Feather name="slash" size={60} color={APP_CONSTANTS.COLORS.DISABLED} />
+                     <Text style={styles.errorText}>Chat Unavailable</Text>
+                     <Text style={styles.infoText}>{error || "You cannot exchange messages with this user."}</Text>
+                 </View>
+             </SafeAreaView>
+         );
+     }
+    // Show fetch error only if not blocked and messages are empty
+    if (error && messages.length === 0 && !isBlocked) {
+        return <View style={styles.centered}><Text style={styles.errorText}>{error}</Text></View>;
+    }
+
+    const safeAreaEdges: Edge[] = ['bottom'];
 
     return (
-        <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+        <SafeAreaView style={styles.safeArea} edges={safeAreaEdges}>
             <KeyboardAvoidingView
                 style={styles.keyboardAvoidingContainer}
                 behavior={Platform.OS === "ios" ? "padding" : undefined}
-                keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0} // Adjust offset as needed
+                keyboardVerticalOffset={Platform.OS === "ios" ? (APP_CONSTANTS.NAVBAR_HEIGHT || 90) : 0}
             >
                 {/* Non-blocking send error banner */}
-                {error && messages.length > 0 && ( <View style={styles.errorBanner}><Text style={styles.errorBannerText}>{error}</Text></View> )}
+                {error && error !== "Could not load messages." && error !== "You cannot chat with this user." && (
+                    <View style={styles.errorBanner}><Text style={styles.errorBannerText}>{error}</Text></View>
+                )}
 
-                {/* Message List */}
                 <FlatList
                     ref={flatListRef}
                     style={styles.messageList}
@@ -220,12 +306,17 @@ const IndividualChatScreen = () => {
                     data={messages}
                     keyExtractor={(item) => item._id} // Use message ID as key
                     renderItem={({ item }) => <MessageBubble message={item} currentUserId={currentUserId} />}
-                    onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                    onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
                     onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
-                    ListEmptyComponent={ <View style={styles.centered}><Text style={styles.noMessagesText}>Start the conversation!</Text></View> }
+                    ListEmptyComponent={
+                        !loading ? // Only show if not loading
+                         <View style={styles.centered}><Text style={styles.noMessagesText}>Start the conversation!</Text></View>
+                         : null
+                    }
+                    // Add an inverted prop if you want newest messages at the bottom and list starts scrolled down
+                    // inverted={true} // Remember to reverse the 'data' array if using inverted
                 />
 
-                {/* Input Toolbar */}
                 <View style={styles.inputToolbar}>
                     <TextInput
                         style={styles.textInput}
@@ -234,11 +325,12 @@ const IndividualChatScreen = () => {
                         placeholder="Type a message..."
                         placeholderTextColor="#9CA3AF"
                         multiline
+                        editable={!isBlocked}
                     />
                     <TouchableOpacity
-                        style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+                        style={[styles.sendButton, (!inputText.trim() || isBlocked) && styles.sendButtonDisabled]}
                         onPress={handleSendPress}
-                        disabled={!inputText.trim()}
+                        disabled={!inputText.trim() || isBlocked}
                     >
                         <Feather name="send" size={20} color="#FFFFFF" />
                     </TouchableOpacity>
@@ -252,15 +344,17 @@ const IndividualChatScreen = () => {
 const styles = StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: '#FFFFFF', },
     keyboardAvoidingContainer: { flex: 1, },
-    container: { flex: 1, backgroundColor: '#F9FAFB', },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, },
-    errorText: { color: '#DC2626', fontSize: 16, textAlign: 'center', },
+    errorText: { color: '#DC2626', fontSize: 16, textAlign: 'center', marginTop: 10 },
+    infoText: { color: '#6B7280', fontSize: 14, textAlign: 'center', marginTop: 8 },
     errorBanner: { backgroundColor: 'rgba(239, 68, 68, 0.1)', paddingVertical: 8, paddingHorizontal: 15, },
     errorBannerText: { color: '#B91C1C', fontSize: 13, textAlign: 'center', },
     noMessagesText: { color: '#6B7280', fontSize: 14, marginTop: 30 },
     messageList: { flex: 1, paddingHorizontal: 10, },
-    messageListContent: { paddingVertical: 10, },
+    // If using inverted FlatList, add: transform: [{ scaleY: -1 }]
+    messageListContent: { paddingVertical: 10, flexGrow: 1, justifyContent: 'flex-end' },
     messageRow: { flexDirection: 'row', marginVertical: 5, },
+    // If using inverted FlatList, add: transform: [{ scaleY: -1 }] to messageRow
     messageRowSent: { justifyContent: 'flex-end', },
     messageRowReceived: { justifyContent: 'flex-start', },
     messageBubble: { maxWidth: '75%', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 18, },
@@ -269,9 +363,14 @@ const styles = StyleSheet.create({
     messageTextSent: { color: '#FFFFFF', fontSize: 15, },
     messageTextReceived: { color: '#1F2937', fontSize: 15, },
     inputToolbar: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 10, borderTopWidth: 1, borderTopColor: '#E5E7EB', backgroundColor: '#FFFFFF', },
-    textInput: { flex: 1, minHeight: 40, maxHeight: 120, backgroundColor: '#F3F4F6', borderRadius: 20, paddingHorizontal: 15, paddingVertical: 10, fontSize: 15, marginRight: 10, color: '#1F2937', },
+    textInput: { flex: 1, minHeight: 40, maxHeight: 120, backgroundColor: '#F3F4F6', borderRadius: 20, paddingHorizontal: 15, paddingVertical: Platform.OS === 'ios' ? 10 : 8, fontSize: 15, marginRight: 10, color: '#1F2937', },
     sendButton: { backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', },
     sendButtonDisabled: { backgroundColor: '#9CA3AF', },
+    // Header Styles
+     headerTitleContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexShrink: 1 },
+    headerTitleText: { fontSize: 17, fontWeight: '600', color: '#000000', textAlign: 'center', },
+    muteIcon: { marginLeft: 6, },
+     blockedText: { color: '#6B7280', fontStyle: 'italic', },
 });
 
 export default IndividualChatScreen;
