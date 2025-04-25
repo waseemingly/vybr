@@ -9,6 +9,7 @@ import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList, MainStackParamList, OrganizerTabParamList } from '@/navigation/AppNavigator'; // Import all needed param lists
 
 // --- !!! ADJUST PATHS !!! ---
 import { supabase } from "../../lib/supabase";
@@ -17,13 +18,8 @@ import { useOrganizerMode } from "../../hooks/useOrganizerMode"; // Use the spec
 import { APP_CONSTANTS } from "../../config/constants"; // Assuming constants live here
 // ----------------------------
 
-type RootStackParamList = {
-    AuthFlow: undefined; // For navigating to login if needed
-    CreateEventScreen: undefined; // For create button
-    OrganizerSettingsScreen: undefined; // Added for settings navigation
-    // Add other relevant screens
-};
-type OrganizerProfileNavigationProp = NativeStackNavigationProp<RootStackParamList>;
+// Combine param lists for navigation prop type
+type OrganizerProfileNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList & OrganizerTabParamList>;
 
 const DEFAULT_ORGANIZER_LOGO = 'https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo';
 
@@ -32,13 +28,18 @@ interface SectionProps { title: string; icon: React.ComponentProps<typeof Feathe
 const Section: React.FC<SectionProps> = ({ title, icon, children }) => ( <View style={styles.section}><View style={styles.sectionHeader}><View style={styles.sectionTitleContainer}><Feather name={icon} size={18} color={APP_CONSTANTS.COLORS.PRIMARY} style={styles.sectionIcon} /><Text style={styles.sectionTitle}>{title}</Text></View></View>{children}</View>);
 const formatBusinessType = (type?: string | null): string | null => { if(!type)return null;return type.replace(/_/g,' ').replace(/-/g,' ').split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ');};
 
-interface OrganizerStats { totalEvents: number | null; upcomingEvents: number | null; pastEvents: number | null; }
+interface OrganizerStats {
+     totalEvents: number | null;
+     upcomingEvents: number | null;
+     pastEvents: number | null;
+     followerCount: number | null; // <-- ADD FOLLOWER COUNT
+}
 
 const OrganizerProfileScreen: React.FC = () => {
   const { session, loading: authLoading, logout } = useAuth(); // Get session from context
   const { isOrganizerMode, toggleOrganizerMode } = useOrganizerMode(); // Use the specific hook
   const navigation = useNavigation<OrganizerProfileNavigationProp>();
-  const [stats, setStats] = useState<OrganizerStats>({ totalEvents: null, upcomingEvents: null, pastEvents: null });
+  const [stats, setStats] = useState<OrganizerStats>({ totalEvents: null, upcomingEvents: null, pastEvents: null, followerCount: null });
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,20 +47,51 @@ const OrganizerProfileScreen: React.FC = () => {
   const organizerProfile = session?.organizerProfile;
   const userId = session?.user?.id;
 
-  // Fetch organizer stats (Keep as before)
-  const fetchOrganizerStats = useCallback(async () => { if (!userId) return; if(!refreshing) setStatsLoading(true); setStatsError(null); try { const now=new Date().toISOString(); const [totalR, upcomingR, pastR]=await Promise.all([supabase.from('events').select('*',{count:'exact',head:true}).eq('organizer_id',userId), supabase.from('events').select('*',{count:'exact',head:true}).eq('organizer_id',userId).gt('event_datetime',now), supabase.from('events').select('*',{count:'exact',head:true}).eq('organizer_id',userId).lte('event_datetime',now)]); if (totalR.error||upcomingR.error||pastR.error) throw new Error("Stats DB Error"); setStats({totalEvents: totalR.count ?? 0, upcomingEvents: upcomingR.count ?? 0, pastEvents: pastR.count ?? 0}); } catch (e:any){ console.error("Stats Err:", e); setStatsError(`Stats Error: ${e.message}`); setStats({totalEvents:null,upcomingEvents:null,pastEvents:null});} finally { setStatsLoading(false); setRefreshing(false); }}, [userId, refreshing]);
+  // Fetch organizer stats (Add follower count query)
+  const fetchOrganizerStats = useCallback(async () => {
+      if (!userId) return;
+      if(!refreshing) setStatsLoading(true);
+      setStatsError(null);
+      try {
+          const now=new Date().toISOString();
+          const [totalR, upcomingR, pastR, followerR] = await Promise.all([
+                supabase.from('events').select('*',{count:'exact',head:true}).eq('organizer_id',userId),
+                supabase.from('events').select('*',{count:'exact',head:true}).eq('organizer_id',userId).gt('event_datetime',now),
+                supabase.from('events').select('*',{count:'exact',head:true}).eq('organizer_id',userId).lte('event_datetime',now),
+                supabase.from('organizer_follows').select('*', {count: 'exact', head: true}).eq('organizer_id', userId) // <-- Fetch follower count
+           ]);
+          if (totalR.error||upcomingR.error||pastR.error||followerR.error) {
+             console.warn("Stats DB Error:", totalR.error || upcomingR.error || pastR.error || followerR.error);
+             throw new Error("Stats DB Error");
+          }
+           setStats({
+               totalEvents: totalR.count ?? 0,
+               upcomingEvents: upcomingR.count ?? 0,
+               pastEvents: pastR.count ?? 0,
+               followerCount: followerR.count ?? 0 // <-- Set follower count
+           });
+      } catch (e:any){
+          console.error("Stats Err:", e);
+          setStatsError(`Stats Error: ${e.message}`);
+          // Reset all stats on error
+          setStats({totalEvents:null,upcomingEvents:null,pastEvents:null, followerCount: null});
+      } finally {
+          setStatsLoading(false);
+          setRefreshing(false);
+      }
+  }, [userId, refreshing]);
   useFocusEffect(useCallback(() => { fetchOrganizerStats(); }, [fetchOrganizerStats]));
   const onRefresh = useCallback(() => { setRefreshing(true); }, []);
 
   // Loading/Error/Profile Check (Keep as before)
   if (authLoading) return ( <SafeAreaView style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} /><Text style={styles.loadingText}>Loading Profile...</Text></SafeAreaView> );
-  if (!session || !organizerProfile) return ( <SafeAreaView style={styles.centered}><Feather name="alert-circle" size={40} color="#FFA500" /><Text style={styles.errorText}>Profile Error</Text><Text style={styles.errorSubText}>{ !session?"Not logged in.":"Profile incomplete."}</Text><TouchableOpacity style={[styles.logoutButton,{marginTop:20,backgroundColor:!session?APP_CONSTANTS.COLORS.PRIMARY:'#EF4444'}]} onPress={()=>!session?navigation.navigate('AuthFlow'):logout()}><Feather name={!session?"log-in":"log-out"} size={18} color="#FFF" /><Text style={styles.logoutButtonText}>{!session?"Go to Login":"Logout"}</Text></TouchableOpacity></SafeAreaView>);
+  if (!session || !organizerProfile) return ( <SafeAreaView style={styles.centered}><Feather name="alert-circle" size={40} color="#FFA500" /><Text style={styles.errorText}>Profile Error</Text><Text style={styles.errorSubText}>{ !session?"Not logged in.":"Profile incomplete."}</Text><TouchableOpacity style={[styles.logoutButton,{marginTop:20,backgroundColor:!session?APP_CONSTANTS.COLORS.PRIMARY:'#EF4444'}]} onPress={()=>!session?navigation.navigate('Auth'):logout()}><Feather name={!session?"log-in":"log-out"} size={18} color="#FFF" /><Text style={styles.logoutButtonText}>{!session?"Go to Login":"Logout"}</Text></TouchableOpacity></SafeAreaView>);
 
   // Data Extraction (Keep as before)
   const { companyName, logo, bio, email: contactEmail, phoneNumber, website, businessType } = organizerProfile;
   const businessTypeFormatted = formatBusinessType(businessType);
   const logoUrl = logo ?? DEFAULT_ORGANIZER_LOGO;
-  const followers="N/A"; const rating="N/A"; const reviews="N/A"; const location="N/A"; const specialties: string[]=[]; const recentEvents: any[]=[]; // Placeholders
+  const rating="N/A"; const reviews="N/A"; const location="N/A"; const specialties: string[]=[]; const recentEvents: any[]=[]; // Placeholders
 
   // openLink function (Keep as before)
    const openLink = async (url: string | null | undefined, type: 'web' | 'email' | 'tel') => { if(!url)return; let fUrl=url; if(type==='email'&&!url.startsWith('mailto:'))fUrl=`mailto:${url}`; else if(type==='tel'&&!url.startsWith('tel:'))fUrl=`tel:${url.replace(/\s+/g,'')}`; else if(type==='web'&&!url.startsWith('http'))fUrl=`https://${url}`; try{const s=await Linking.canOpenURL(fUrl); if(s)await Linking.openURL(fUrl); else Alert.alert("Error",`Cannot open: ${url}`);}catch(e){Alert.alert("Error","Failed to open.");}};
@@ -90,17 +122,34 @@ const OrganizerProfileScreen: React.FC = () => {
                 <Text style={styles.name}>{companyName ?? "Organizer"}</Text>
                  {businessTypeFormatted && (<Text style={styles.businessType}>{businessTypeFormatted}</Text>)}
                 <View style={styles.statsContainer}>
-                    <View style={styles.statItem}><Text style={styles.statValue}>{followers}</Text><Text style={styles.statLabel}>Followers</Text></View><View style={styles.statDivider} />
-                    <View style={styles.statItem}>{statsLoading?<ActivityIndicator size="small"/>:<Text style={styles.statValue}>{stats.totalEvents??'N/A'}</Text>}<Text style={styles.statLabel}>Events</Text></View><View style={styles.statDivider} />
+                     {/* Make Followers stat pressable */}
+                     <TouchableOpacity style={styles.statItemTouchable} onPress={() => navigation.navigate('UserListScreen')} disabled={stats.followerCount === 0 && !statsLoading}>
+                        {statsLoading?<ActivityIndicator size="small"/>:<Text style={styles.statValue}>{stats.followerCount??'N/A'}</Text>}
+                        <Text style={styles.statLabel}>Followers</Text>
+                    </TouchableOpacity>
+                    <View style={styles.statDivider} />
+                    <View style={styles.statItem}>{statsLoading?<ActivityIndicator size="small"/>:<Text style={styles.statValue}>{stats.totalEvents??'N/A'}</Text>}<Text style={styles.statLabel}>Events</Text></View>
+                    <View style={styles.statDivider} />
                     <View style={styles.statItem}><Text style={styles.statValue}>{rating}</Text><Text style={styles.statLabel}>Rating</Text></View>
                 </View>
                 <Text style={styles.bio}>{bio ?? "No description."}</Text>
-                <TouchableOpacity style={styles.createEventButton} onPress={() => navigation.navigate('CreateEventScreen')} ><Feather name="plus" size={16} color="#FFF" /><Text style={styles.createEventButtonText}>Create New Event</Text></TouchableOpacity>
+                <TouchableOpacity style={styles.createEventButton} onPress={() => navigation.navigate('MainApp', { screen: 'OrganizerTabs', params: { screen: 'Create'} })} ><Feather name="plus" size={16} color="#FFF" /><Text style={styles.createEventButtonText}>Create New Event</Text></TouchableOpacity>
             </View>
         </View>
         {(contactEmail || phoneNumber || website) && (<Section title="Contact Information" icon="phone"><View style={styles.infoContainer}>{contactEmail && (<TouchableOpacity style={styles.infoRow} onPress={() => openLink(contactEmail, 'email')}><Feather name="mail" size={16} color="#6B7280" /><Text style={styles.infoTextLink}>{contactEmail}</Text></TouchableOpacity>)}{phoneNumber && (<TouchableOpacity style={styles.infoRow} onPress={() => openLink(phoneNumber, 'tel')}><Feather name="phone" size={16} color="#6B7280" /><Text style={styles.infoTextLink}>{phoneNumber}</Text></TouchableOpacity>)}{website && (<TouchableOpacity style={styles.infoRow} onPress={() => openLink(website, 'web')}><Feather name="globe" size={16} color="#6B7280" /><Text style={styles.infoTextLink}>{website}</Text></TouchableOpacity>)}</View></Section>)}
         <Section title="Event Specialties" icon="tag"><Text style={styles.dataMissingText}>Specialties not listed.</Text></Section>
-        <Section title="Recent Events" icon="calendar"><Text style={styles.dataMissingText}>Recent event history not available.</Text></Section>
+        <Section title="My Events" icon="calendar">
+             <TouchableOpacity style={styles.linkButton} onPress={() => { if(userId) navigation.navigate('UpcomingEventsListScreen', { organizerUserId: userId, organizerName: companyName }) }} disabled={!userId}>
+                 <Feather name="fast-forward" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                 <Text style={styles.linkButtonText}>View Upcoming Events</Text>
+                 <Feather name="chevron-right" size={16} color={APP_CONSTANTS.COLORS.DISABLED} />
+             </TouchableOpacity>
+             <TouchableOpacity style={styles.linkButton} onPress={() => { if(userId) navigation.navigate('PastEventsListScreen', { organizerUserId: userId, organizerName: companyName }) }} disabled={!userId}>
+                 <Feather name="rewind" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                 <Text style={styles.linkButtonText}>View Past Events</Text>
+                  <Feather name="chevron-right" size={16} color={APP_CONSTANTS.COLORS.DISABLED} />
+             </TouchableOpacity>
+        </Section>
         <Section title="Performance" icon="bar-chart-2">
           {statsLoading?<View style={styles.centered}><ActivityIndicator color={APP_CONSTANTS.COLORS.PRIMARY}/></View> : statsError?<Text style={[styles.errorText,{marginTop:0,marginBottom:10}]}>{statsError}</Text> : (<View style={styles.statsGrid}><View style={styles.statBox}><Feather name="calendar" size={24} color="#3B82F6" /><Text style={styles.statBoxValue}>{stats.upcomingEvents ?? 'N/A'}</Text><Text style={styles.statBoxLabel}>Upcoming</Text></View><View style={styles.statBox}><Feather name="check-circle" size={24} color="#10B981" /><Text style={styles.statBoxValue}>{stats.pastEvents ?? 'N/A'}</Text><Text style={styles.statBoxLabel}>Completed</Text></View><View style={styles.statBox}><Feather name="users" size={24} color="#F59E0B" /><Text style={styles.statBoxValue}>{reviews}</Text><Text style={styles.statBoxLabel}>Reviews</Text></View></View>)}
         </Section>
@@ -111,7 +160,7 @@ const OrganizerProfileScreen: React.FC = () => {
   );
 };
 
-// --- Styles --- (Keep as before and add new styles)
+// --- Styles --- (Add statItemTouchable if missing)
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f8fafc", },
   scrollViewContainer: { flex: 1, },
@@ -134,7 +183,8 @@ const styles = StyleSheet.create({
   location: { fontSize: 14, color: "#6B7280", marginBottom: 16, },
   statsContainer: { flexDirection: "row", justifyContent: "space-around", width: "90%", marginVertical: 16, paddingVertical: 10, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#F3F4F6', alignItems: 'center' },
   statItem: { alignItems: "center", paddingHorizontal: 10, minWidth: 60 },
-  statValue: { fontSize: 18, fontWeight: "600", color: APP_CONSTANTS.COLORS.PRIMARY, },
+  statItemTouchable: { alignItems: "center", paddingHorizontal: 10, minWidth: 60, paddingVertical: 5, borderRadius: 8 },
+  statValue: { fontSize: 18, fontWeight: "600", color: APP_CONSTANTS.COLORS.PRIMARY, minHeight: 21 },
   statLabel: { fontSize: 12, color: "#6B7280", marginTop: 2 },
   statDivider: { width: 1, height: 35, backgroundColor: "#E5E7EB", },
   bio: { fontSize: 14, color: "#4B5563", textAlign: "center", lineHeight: 20, marginBottom: 20, },
@@ -170,6 +220,8 @@ const styles = StyleSheet.create({
   errorText: { marginTop: 15, fontSize: 18, fontWeight: '600', color: '#DC2626', textAlign: 'center', },
   errorSubText: { marginTop: 8, fontSize: 14, color: '#4B5563', textAlign: 'center', },
    dataMissingText: { fontSize: 14, color: '#9CA3AF', textAlign: 'center', paddingVertical: 16, fontStyle: 'italic', },
+  linkButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F9FAFB' },
+  linkButtonText: { flex: 1, marginLeft: 12, fontSize: 15, fontWeight: '500', color: '#374151' },
 });
 
 export default OrganizerProfileScreen;

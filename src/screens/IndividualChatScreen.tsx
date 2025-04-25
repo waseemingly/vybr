@@ -43,6 +43,14 @@ const IndividualChatScreen: React.FC = () => {
     // Use state for name to allow potential updates (though less likely needed here now)
     const [dynamicMatchName, setDynamicMatchName] = useState(route.params.matchName || 'Chat');
 
+    // Add an effect to update name when route params change
+    useEffect(() => {
+        if (route.params.matchName) {
+            setDynamicMatchName(route.params.matchName);
+            console.log(`[IndividualChatScreen] Updated match name: ${route.params.matchName}`);
+        }
+    }, [route.params.matchName]);
+
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
     const [loading, setLoading] = useState(true);
@@ -175,10 +183,10 @@ const IndividualChatScreen: React.FC = () => {
                  ),
                  // Render header title component dynamically
                  headerTitle: () => {
-                    // Need to read state *within* this render prop scope
-                    const isCurrentlyBlocked = isBlocked; // Read latest state
-                    const isCurrentlyMuted = isMatchMuted; // Read latest state
-                    const title = isCurrentlyBlocked ? "User Unavailable" : (currentName || 'Chat');
+                    // Use the state variable for the name
+                    const isCurrentlyBlocked = isBlocked;
+                    const isCurrentlyMuted = isMatchMuted;
+                    const title = isCurrentlyBlocked ? "User Unavailable" : (dynamicMatchName || 'Chat'); // Use dynamicMatchName state
 
                     return (
                         <TouchableOpacity
@@ -292,7 +300,7 @@ const IndividualChatScreen: React.FC = () => {
             <KeyboardAvoidingView
                 style={styles.keyboardAvoidingContainer}
                 behavior={Platform.OS === "ios" ? "padding" : undefined}
-                keyboardVerticalOffset={Platform.OS === "ios" ? (APP_CONSTANTS.NAVBAR_HEIGHT || 90) : 0}
+                keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
             >
                 {/* Non-blocking send error banner */}
                 {error && error !== "Could not load messages." && error !== "You cannot chat with this user." && (

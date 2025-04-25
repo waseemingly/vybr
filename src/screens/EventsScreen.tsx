@@ -7,43 +7,32 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { supabase, EventBooking } from "../lib/supabase"; // Adjust path
+import { supabase } from "../lib/supabase"; // Adjust path, remove EventBooking if unused
 import { useAuth } from "../hooks/useAuth"; // Adjust path
+import { APP_CONSTANTS } from "@/config/constants";
+import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator';
 
-// Define navigation stack parameters including BookingConfirmation
-type RootStackParamList = {
-  Events: undefined;
-  BookingConfirmation: {
-        eventId: string;
-        eventTitle: string;
-        quantity: number;
-        pricePerItemDisplay: string;
-        totalPriceDisplay: string;
-        bookingType: 'TICKETED' | 'RESERVATION';
-        rawPricePerItem: number | null;
-        rawTotalPrice: number | null;
-        rawFeePaid: number | null;
-        maxTickets: number | null;
-        maxReservations: number | null;
-    };
-  Profile: undefined;
-  AuthFlow: undefined;
-};
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+// Define navigation prop using imported types
+type NavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>;
 
-// Interface matching Supabase 'events' table
-interface SupabasePublicEvent {
+// Export interfaces for reuse
+export interface SupabasePublicEvent {
   id: string; title: string; description: string | null; event_datetime: string;
   location_text: string | null; poster_urls: string[]; tags_genres: string[]; tags_artists: string[]; tags_songs: string[];
-  organizer_id: string;
+  organizer_id: string; // We only get the ID initially
   event_type: string | null;
   booking_type: 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null;
   ticket_price: number | null; pass_fee_to_user: boolean | null;
   max_tickets: number | null; max_reservations: number | null;
 }
 
-// Interface for data mapped for UI
-interface MappedEvent {
+export interface OrganizerInfo {
+    userId: string;
+    name: string;
+    image: string | null;
+}
+
+export interface MappedEvent {
   id: string; title: string; images: string[]; date: string; time: string;
   venue: string; genres: string[]; artists: string[]; songs: string[];
   description: string;
@@ -51,13 +40,13 @@ interface MappedEvent {
   ticket_price: number | null;
   pass_fee_to_user: boolean;
   max_tickets: number | null; max_reservations: number | null;
-  organizer: { name: string; image: string; };
+  organizer: OrganizerInfo; // Use the separate interface
   isViewable: boolean;
 }
 
 // --- Constants and Helpers ---
 const DEFAULT_EVENT_IMAGE = "https://via.placeholder.com/800x450/D1D5DB/1F2937?text=No+Image";
-const DEFAULT_ORGANIZER_LOGO = "https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo";
+const DEFAULT_ORGANIZER_LOGO = APP_CONSTANTS.DEFAULT_ORGANIZER_LOGO || "https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo";
 const DEFAULT_ORGANIZER_NAME = "Event Organizer";
 const TRANSACTION_FEE = 0.50;
 
@@ -96,9 +85,10 @@ interface EventDetailModalProps {
     event: MappedEvent | null;
     visible: boolean;
     onClose: () => void;
-    navigation: NavigationProp; // Use typed navigation prop
+    navigation: NavigationProp;
 }
-const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visible, onClose, navigation }) => {
+
+export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visible, onClose, navigation }) => {
     const [quantity, setQuantity] = useState(1);
 
     useEffect(() => { if (visible) { setQuantity(1); } }, [visible]);
@@ -108,42 +98,51 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visible, onC
     const incrementQuantity = () => setQuantity(q => q + 1);
     const decrementQuantity = () => setQuantity(q => Math.max(1, q - 1));
 
-    let buttonText = "View Details";
-    let buttonIcon: React.ComponentProps<typeof Feather>['name'] = "info";
-    let canBookOrReserve = false;
-    const basePrice = event.ticket_price;
-
-    const pricePerItemDisplay = event.booking_type === 'TICKETED'
-                               ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user)
-                               : "Free";
-    const totalPriceDisplay = event.booking_type === 'TICKETED'
-                              ? formatDisplayTotalPrice(basePrice, event.pass_fee_to_user, quantity)
-                              : "$0.00";
-
-    if (event.booking_type === 'TICKETED') {
-        buttonIcon = "tag";
-        canBookOrReserve = true;
-        if (basePrice === 0) {
-            buttonText = quantity > 1 ? `Get ${quantity} Tickets` : "Get Ticket";
-        } else if (basePrice && basePrice > 0) {
-            buttonText = `Get ${quantity} Ticket${quantity > 1 ? 's' : ''} (${totalPriceDisplay})`;
-        } else {
-            buttonText = "Tickets Unavailable";
-            canBookOrReserve = false;
+    // --- Navigate to Organizer Profile ---
+    const handleOrganizerPress = () => {
+        if (event?.organizer?.userId) {
+            navigation.push('ViewOrganizerProfileScreen', { organizerUserId: event.organizer.userId });
+            onClose(); // Close the modal after navigating
         }
-    } else if (event.booking_type === 'RESERVATION') {
-        buttonText = `Reserve Spot${quantity > 1 ? 's' : ''} for ${quantity}`;
-        buttonIcon = "bookmark";
-        canBookOrReserve = true;
-    }
+    };
+    // ----------------------------------
+
+    // --- Booking Logic (Check type before navigating) ---
+     let canBookOrReserve = false;
+     if (event.booking_type === 'TICKETED' || event.booking_type === 'RESERVATION') {
+         canBookOrReserve = event.ticket_price !== null; // Allow booking if ticketed/reservation unless price is null (unavailable)
+     }
+     const basePrice = event.ticket_price;
+     const pricePerItemDisplay = event.booking_type === 'TICKETED'
+                                ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user)
+                                : "Free";
+     const totalPriceDisplay = event.booking_type === 'TICKETED'
+                               ? formatDisplayTotalPrice(basePrice, event.pass_fee_to_user, quantity)
+                               : "$0.00";
+
+     let buttonText = "View Details";
+     let buttonIcon: React.ComponentProps<typeof Feather>['name'] = "info";
+     if (event.booking_type === 'TICKETED') {
+         buttonIcon = "tag";
+         if (basePrice === 0) buttonText = quantity > 1 ? `Get ${quantity} Tickets` : "Get Ticket";
+         else if (basePrice && basePrice > 0) buttonText = `Get ${quantity} Ticket${quantity > 1 ? 's' : ''} (${totalPriceDisplay})`;
+         else { buttonText = "Tickets Unavailable"; canBookOrReserve = false; }
+     } else if (event.booking_type === 'RESERVATION') {
+         buttonText = `Reserve Spot${quantity > 1 ? 's' : ''} for ${quantity}`;
+         buttonIcon = "bookmark";
+     }
+    // --- End Booking Logic ---
 
     const handleProceedToConfirmation = () => {
-        if (!canBookOrReserve || !event) return;
+        // Ensure event exists and booking type is valid for confirmation screen
+        if (!event || (event.booking_type !== 'TICKETED' && event.booking_type !== 'RESERVATION')) {
+             console.warn("[EventDetailModal] Cannot proceed: Invalid booking type", event?.booking_type);
+             return;
+        }
 
         let rawPricePerItemValue: number | null = null;
         let rawTotalPriceValue: number | null = null;
         let rawFeePaidValue: number | null = null;
-
         if (event.booking_type === 'TICKETED' && event.ticket_price !== null && event.ticket_price >= 0) {
             rawPricePerItemValue = event.ticket_price;
             const finalPricePerItem = calculateFinalPricePerItem(event.ticket_price, event.pass_fee_to_user);
@@ -152,16 +151,11 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visible, onC
         }
 
         navigation.navigate('BookingConfirmation', {
-            eventId: event.id,
-            eventTitle: event.title,
-            quantity: quantity,
-            pricePerItemDisplay: pricePerItemDisplay,
-            totalPriceDisplay: totalPriceDisplay,
-            bookingType: event.booking_type,
-            rawPricePerItem: rawPricePerItemValue,
-            rawTotalPrice: rawTotalPriceValue,
-            rawFeePaid: rawFeePaidValue,
-            maxTickets: event.max_tickets,
+            eventId: event.id, eventTitle: event.title, quantity: quantity,
+            pricePerItemDisplay: pricePerItemDisplay, totalPriceDisplay: totalPriceDisplay,
+            bookingType: event.booking_type, // Pass validated type
+            rawPricePerItem: rawPricePerItemValue, rawTotalPrice: rawTotalPriceValue,
+            rawFeePaid: rawFeePaidValue, maxTickets: event.max_tickets,
             maxReservations: event.max_reservations,
         });
         onClose();
@@ -176,8 +170,18 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visible, onC
                   <Image source={{ uri: event.images[0] ?? DEFAULT_EVENT_IMAGE }} style={styles.modalImage} resizeMode="cover"/>
                   <View style={styles.modalBody}>
                       <Text style={styles.modalTitle}>{event.title}</Text>
-                      {/* Organizer Row */}
-                      <View style={styles.organizerRow}><View style={styles.organizerInfo}><Image source={{ uri: event.organizer.image }} style={styles.organizerImage} /><View><Text style={styles.organizerName}>{event.organizer.name}</Text><Text style={styles.organizerLabel}>Organizer</Text></View></View><TouchableOpacity style={styles.followButton} onPress={()=>Alert.alert("Follow")}><Feather name="heart" size={14} color="#3B82F6" /><Text style={styles.followButtonText}>Follow</Text></TouchableOpacity></View>
+                      {/* Organizer Row - Made Pressable */}
+                       <TouchableOpacity style={styles.organizerRow} onPress={handleOrganizerPress} activeOpacity={0.7} disabled={!event.organizer?.userId}>
+                           <View style={styles.organizerInfo}>
+                               {/* Use organizer data from MappedEvent */}
+                               <Image source={{ uri: event.organizer.image ?? DEFAULT_ORGANIZER_LOGO }} style={styles.organizerImage} />
+                               <View>
+                                   <Text style={styles.organizerName}>{event.organizer.name}</Text>
+                                   <Text style={styles.organizerLabel}>Organizer</Text>
+                               </View>
+                           </View>
+                           <Feather name="chevron-right" size={20} color={APP_CONSTANTS.COLORS.DISABLED} />
+                       </TouchableOpacity>
                       {/* Tags Display */}
                       <View style={styles.tagsScrollContainer}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tagsContainerModal}>{ [...event.genres, ...event.artists, ...event.songs].filter(t => t).map((tag, i) => (<View key={`${tag}-${i}`} style={styles.tagBadgeModal}><Text style={styles.tagTextModal}>{tag}</Text></View>)) }{ [...event.genres, ...event.artists, ...event.songs].filter(t => t).length === 0 && (<Text style={styles.noTagsText}>No tags provided</Text>) }</ScrollView></View>
                       {/* Event Info */}
@@ -204,10 +208,7 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visible, onC
                       )}
                       {/* Proceed Button */}
                       {canBookOrReserve && (
-                          <TouchableOpacity
-                              style={styles.bookNowButton}
-                              onPress={handleProceedToConfirmation}
-                          >
+                          <TouchableOpacity style={styles.bookNowButton} onPress={handleProceedToConfirmation} >
                               <Feather name={buttonIcon} size={18} color="#fff" />
                               <Text style={styles.bookNowButtonText}>{buttonText}</Text>
                           </TouchableOpacity>
@@ -225,30 +226,29 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visible, onC
 // --- End Event Detail Modal ---
 
 // --- Event Card Component ---
-interface EventCardProps { event: MappedEvent; onPress: () => void; isViewable: boolean; } // Removed onBookPress prop
-const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress, isViewable }) => {
-    const navigation = useNavigation<NavigationProp>(); // Use navigation hook inside the component
-    let buttonText = "View"; let buttonIcon: React.ComponentProps<typeof Feather>['name'] = "info"; let canBook = false;
-    let priceText = "Info Only";
-    const basePrice = event.ticket_price;
-
-    if(event.booking_type === 'TICKETED') {
-        buttonText = "Get Tickets"; buttonIcon = "tag"; canBook=true;
-        priceText = formatDisplayPricePerItem(basePrice, event.pass_fee_to_user);
-    } else if(event.booking_type === 'RESERVATION') {
-        buttonText = "Reserve"; buttonIcon = "bookmark"; canBook=true;
-        priceText="Reservation";
-    }
+interface EventCardProps { event: MappedEvent; onPress: () => void; isViewable: boolean; }
+export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress, isViewable }) => {
+    const navigation = useNavigation<NavigationProp>();
+    // --- Booking Logic (Check type before navigating) ---
+     let canBook = false;
+     if (event.booking_type === 'TICKETED' || event.booking_type === 'RESERVATION') {
+         canBook = event.ticket_price !== null; // Allow booking if ticketed/reservation unless price is null
+     }
+     const basePrice = event.ticket_price;
+     const priceText = event.booking_type === 'TICKETED'
+                      ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user)
+                      : event.booking_type === 'RESERVATION' ? "Reservation" : "Info Only";
+     let buttonText = "View";
+     let buttonIcon: React.ComponentProps<typeof Feather>['name'] = "info";
+     if (event.booking_type === 'TICKETED') { buttonText = "Get Tickets"; buttonIcon = "tag"; }
+     else if (event.booking_type === 'RESERVATION') { buttonText = "Reserve"; buttonIcon = "bookmark"; }
+    // --- End Booking Logic ---
 
     const handleBookPressOnCard = (e: GestureResponderEvent) => {
-        e.stopPropagation(); // Prevent card onPress from firing
-        if (canBook && event) {
-             const pricePerItemDisplayCard = event.booking_type === 'TICKETED'
-                                        ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user)
-                                        : "Free";
-             const totalPriceDisplayCard = event.booking_type === 'TICKETED'
-                                        ? formatDisplayTotalPrice(basePrice, event.pass_fee_to_user, 1)
-                                        : "$0.00";
+        e.stopPropagation();
+        if (event && (event.booking_type === 'TICKETED' || event.booking_type === 'RESERVATION')) {
+             const pricePerItemDisplayCard = event.booking_type === 'TICKETED' ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user) : "Free";
+             const totalPriceDisplayCard = event.booking_type === 'TICKETED' ? formatDisplayTotalPrice(basePrice, event.pass_fee_to_user, 1) : "$0.00";
              let rawPricePerItemValueCard: number | null = null;
              let rawTotalPriceValueCard: number | null = null;
              let rawFeePaidValueCard: number | null = null;
@@ -257,22 +257,16 @@ const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress, isView
                  rawTotalPriceValueCard = calculateFinalPricePerItem(event.ticket_price, event.pass_fee_to_user) * 1;
                  rawFeePaidValueCard = event.pass_fee_to_user ? TRANSACTION_FEE * 1 : 0;
              }
-
             navigation.navigate('BookingConfirmation', {
-                eventId: event.id,
-                eventTitle: event.title,
-                quantity: 1, // Default to 1 from card
-                pricePerItemDisplay: pricePerItemDisplayCard,
-                totalPriceDisplay: totalPriceDisplayCard,
-                bookingType: event.booking_type,
-                rawPricePerItem: rawPricePerItemValueCard,
-                rawTotalPrice: rawTotalPriceValueCard,
-                rawFeePaid: rawFeePaidValueCard,
-                maxTickets: event.max_tickets,
+                eventId: event.id, eventTitle: event.title, quantity: 1,
+                pricePerItemDisplay: pricePerItemDisplayCard, totalPriceDisplay: totalPriceDisplayCard,
+                bookingType: event.booking_type, // Pass validated type
+                rawPricePerItem: rawPricePerItemValueCard, rawTotalPrice: rawTotalPriceValueCard,
+                rawFeePaid: rawFeePaidValueCard, maxTickets: event.max_tickets,
                 maxReservations: event.max_reservations,
             });
         } else {
-            onPress(); // Default action: open modal
+            onPress(); // Open modal if not directly bookable
         }
     };
 
@@ -280,28 +274,29 @@ const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress, isView
 
     return (
         <TouchableOpacity style={styles.eventCard} activeOpacity={0.9} onPress={onPress}>
-            <View style={styles.imageContainer}><Image source={{ uri: event.images[0] ?? DEFAULT_EVENT_IMAGE }} style={styles.eventImage} /></View>
-            <View style={styles.cardContent}>
-                <Text style={styles.eventTitle} numberOfLines={2}>{event.title}</Text>
-                {/* Tags Display on Card */}
-                <View style={styles.tagsScrollContainer}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tagsContainerCard}>{ [...event.genres, ...event.artists].filter(t => t).slice(0, 4).map((tag, i) => (<View key={`${tag}-${i}-card`} style={styles.tagBadgeCard}><Text style={styles.tagTextCard}>{tag}</Text></View>)) }{ [...event.genres, ...event.artists].filter(t => t).length > 4 && (<Text style={styles.tagTextCard}>...</Text>) }{ [...event.genres, ...event.artists].filter(t => t).length === 0 && (<Text style={styles.noTagsTextCard}>No tags</Text>) }</ScrollView></View>
-                <View style={styles.eventInfoRow}><Feather name="calendar" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={1}>{event.date}</Text></View>
-                <View style={styles.eventInfoRow}><Feather name="clock" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={1}>{event.time}</Text></View>
-                <View style={styles.eventInfoRow}><Feather name="map-pin" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={1}>{event.venue}</Text></View>
-                <View style={styles.cardFooter}>
-                    <Text style={styles.priceText}>{priceText}</Text>
-                    <TouchableOpacity style={styles.bookButton} onPress={handleBookPressOnCard} disabled={!canBook && event.booking_type !== 'INFO_ONLY'} >
-                        <Feather name={buttonIcon} size={14} color="#fff" />
-                        <Text style={styles.bookButtonText}>{buttonText}</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
+             <View style={styles.imageContainer}><Image source={{ uri: event.images[0] ?? DEFAULT_EVENT_IMAGE }} style={styles.eventImage} /></View>
+             <View style={styles.cardContent}>
+                 <Text style={styles.eventTitle} numberOfLines={2}>{event.title}</Text>
+                 {/* Optional: Display organizer name on card */}
+                 <Text style={styles.cardOrganizerName} numberOfLines={1}>by {event.organizer.name}</Text>
+                 <View style={styles.tagsScrollContainer}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tagsContainerCard}>{ [...event.genres, ...event.artists].filter(t => t).slice(0, 4).map((tag, i) => (<View key={`${tag}-${i}-card`} style={styles.tagBadgeCard}><Text style={styles.tagTextCard}>{tag}</Text></View>)) }{ [...event.genres, ...event.artists].filter(t => t).length > 4 && (<Text style={styles.tagTextCard}>...</Text>) }{ [...event.genres, ...event.artists].filter(t => t).length === 0 && (<Text style={styles.noTagsTextCard}>No tags</Text>) }</ScrollView></View>
+                 <View style={styles.eventInfoRow}><Feather name="calendar" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={1}>{event.date}</Text></View>
+                 <View style={styles.eventInfoRow}><Feather name="clock" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={1}>{event.time}</Text></View>
+                 <View style={styles.eventInfoRow}><Feather name="map-pin" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={1}>{event.venue}</Text></View>
+                 <View style={styles.cardFooter}>
+                     <Text style={styles.priceText}>{priceText}</Text>
+                     <TouchableOpacity style={styles.bookButton} onPress={handleBookPressOnCard} disabled={!canBook && event.booking_type !== 'INFO_ONLY'} >
+                         <Feather name={buttonIcon} size={14} color="#fff" />
+                         <Text style={styles.bookButtonText}>{buttonText}</Text>
+                     </TouchableOpacity>
+                 </View>
+             </View>
         </TouchableOpacity>
     );
 });
 // --- End Event Card Component ---
 
-// --- Impression Logging Function ---
+// --- Impression Logging Function (Unchanged) ---
 const logImpression = async (eventId: string) => {
     console.log(`Logging impression for event: ${eventId}`);
     try {
@@ -314,7 +309,6 @@ const logImpression = async (eventId: string) => {
             source: 'feed' // Assuming impressions logged from the main feed
         });
         if (error) {
-            // Don't alert the user, just log the warning
             console.warn(`[Impression Log] Failed for event ${eventId}:`, error.message);
         }
     } catch (e) {
@@ -326,17 +320,16 @@ const logImpression = async (eventId: string) => {
 const EventsScreen: React.FC = () => {
     const { session } = useAuth();
     const [events, setEvents] = useState<MappedEvent[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoading, setIsLoading] = useState(false); // Combined loading state
     const [error, setError] = useState<string | null>(null);
     const [selectedEvent, setSelectedEvent] = useState<MappedEvent | null>(null);
     const [modalVisible, setModalVisible] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const navigation = useNavigation<NavigationProp>();
 
-    // Refs for FlatList viewability
     const viewabilityConfig = { itemVisiblePercentThreshold: 50 };
     const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{ item: MappedEvent; isViewable: boolean }> }) => {
-         setEvents(prevEvents => {
+        setEvents(prevEvents => {
             const viewableIds = new Map(viewableItems.map(v => [v.item.id, v.isViewable]));
             return prevEvents.map(event => {
                 const isNowViewable = viewableIds.get(event.id) ?? false;
@@ -347,22 +340,87 @@ const EventsScreen: React.FC = () => {
     const viewabilityConfigRef = useRef(viewabilityConfig);
     const onViewableItemsChangedRef = useRef(onViewableItemsChanged);
 
-    // Fetch upcoming events
-    const fetchEvents = useCallback(async () => {
-        console.log("Fetching public upcoming events...");
+    // Fetch upcoming events and associated organizer profiles
+    const fetchEventsAndOrganizers = useCallback(async () => {
+        console.log("Fetching events and organizers...");
         if (!refreshing) setIsLoading(true);
         setError(null);
+
         try {
-            const { data, error: fetchError } = await supabase
+            // 1. Fetch Events (only IDs needed for organizers initially)
+            const { data: eventData, error: eventsError } = await supabase
                 .from("events")
-                .select(`id, title, description, event_datetime, location_text, poster_urls, tags_genres, tags_artists, tags_songs, organizer_id, event_type, booking_type, ticket_price, pass_fee_to_user, max_tickets, max_reservations`)
-                .gt('event_datetime', new Date().toISOString()) // Only future events
+                .select(`
+                    id, title, description, event_datetime, location_text, poster_urls,
+                    tags_genres, tags_artists, tags_songs, organizer_id,
+                    event_type, booking_type, ticket_price, pass_fee_to_user,
+                    max_tickets, max_reservations
+                `)
+                .gt('event_datetime', new Date().toISOString())
                 .order("event_datetime", { ascending: true });
 
-            if (fetchError) throw fetchError;
+            if (eventsError) throw eventsError;
+            if (!eventData || eventData.length === 0) {
+                setEvents([]);
+                console.log("No upcoming events found.");
+                setIsLoading(false);
+                setRefreshing(false);
+                return;
+            }
 
-            const mappedEvents: MappedEvent[] = (data || []).map((event: any) => {
+            // 2. Extract Unique Organizer IDs
+            const organizerIds = [...new Set(eventData.map(event => event.organizer_id).filter(id => !!id))];
+            console.log("[EventsScreen] Unique organizer IDs:", organizerIds);
+
+            let organizerMap = new Map<string, OrganizerInfo>();
+
+            // 3. Fetch Organizer Profiles if IDs exist
+            if (organizerIds.length > 0) {
+                console.log(`[EventsScreen] Fetching profiles for ${organizerIds.length} organizers...`);
+                const { data: organizerProfiles, error: profilesError } = await supabase
+                    .from('organizer_profiles')
+                    .select('user_id, company_name, logo')
+                    .in('user_id', organizerIds);
+
+                if (profilesError) {
+                    console.warn("[EventsScreen] Error fetching organizer profiles:", profilesError);
+                    // Proceed without organizer names/logos if fetch fails
+                } else if (organizerProfiles) {
+                    console.log(`[EventsScreen] Successfully fetched ${organizerProfiles.length} organizer profiles.`);
+                    organizerProfiles.forEach(profile => {
+                        // Log each profile being added to the map
+                        console.log(`[EventsScreen] Mapping organizer: ID=${profile.user_id}, Name=${profile.company_name}`);
+                        organizerMap.set(profile.user_id, {
+                             userId: profile.user_id,
+                             name: profile.company_name ?? DEFAULT_ORGANIZER_NAME, // Use default name if company_name is null
+                             image: profile.logo ?? null
+                        });
+                    });
+                }
+            } else {
+                console.log("[EventsScreen] No organizer IDs found in events, skipping profile fetch.");
+            }
+
+            // 4. Map Events with Organizer Data
+            console.log("[EventsScreen] Mapping events to include organizer info...");
+            const mappedEvents: MappedEvent[] = eventData.map((event: SupabasePublicEvent) => {
                 const { date, time } = formatEventDateTime(event.event_datetime);
+                // Lookup organizer info using event.organizer_id
+                const organizerInfo = organizerMap.get(event.organizer_id);
+
+                // Log the lookup result for each event
+                if (organizerInfo) {
+                     // console.log(`[EventsScreen] Event ${event.id}: Found organizer ${organizerInfo.name} (ID: ${organizerInfo.userId}) in map.`);
+                } else {
+                     console.log(`[EventsScreen] Event ${event.id}: Organizer ID ${event.organizer_id} NOT found in map. Using defaults.`);
+                }
+
+                const finalOrganizerData: OrganizerInfo = organizerInfo || {
+                    userId: event.organizer_id, // Critical: Ensure userId is always set, even if defaulting
+                    name: DEFAULT_ORGANIZER_NAME,
+                    image: null
+                };
+
                 return {
                     id: event.id, title: event.title,
                     images: event.poster_urls?.length > 0 ? event.poster_urls : [DEFAULT_EVENT_IMAGE],
@@ -370,16 +428,20 @@ const EventsScreen: React.FC = () => {
                     venue: event.location_text ?? "N/A",
                     genres: event.tags_genres ?? [], artists: event.tags_artists ?? [], songs: event.tags_songs ?? [],
                     description: event.description ?? "No description.",
-                    booking_type: event.booking_type, ticket_price: event.ticket_price,
+                    booking_type: event.booking_type,
+                    ticket_price: event.ticket_price,
                     pass_fee_to_user: event.pass_fee_to_user ?? true,
-                    max_tickets: event.max_tickets, max_reservations: event.max_reservations,
-                    organizer: { name: DEFAULT_ORGANIZER_NAME, image: DEFAULT_ORGANIZER_LOGO },
-                    isViewable: false, // Initialize isViewable
+                    max_tickets: event.max_tickets,
+                    max_reservations: event.max_reservations,
+                    organizer: finalOrganizerData, // Assign the looked-up or default data
+                    isViewable: false,
                 };
             });
+
             setEvents(mappedEvents);
+
         } catch (err: any) {
-            console.error("Fetch Events Error:", err);
+            console.error("Fetch Events/Organizers Error:", err);
             setError(`Failed to fetch events. Please try again.`);
             setEvents([]);
         } finally {
@@ -388,17 +450,17 @@ const EventsScreen: React.FC = () => {
         }
     }, [refreshing]);
 
-    useFocusEffect(useCallback(() => { fetchEvents(); }, [fetchEvents]));
+    useFocusEffect(useCallback(() => { fetchEventsAndOrganizers(); }, [fetchEventsAndOrganizers]));
     const onRefresh = useCallback(() => { setRefreshing(true); }, []);
 
-    // Modal control
+    // Modal control (Unchanged)
     const handleEventPress = (event: MappedEvent) => { setSelectedEvent(event); setModalVisible(true); };
     const handleCloseModal = () => { setModalVisible(false); setSelectedEvent(null); };
 
-    // Main render logic
+    // Main render logic (Unchanged)
     const renderContent = () => {
         if (isLoading && !refreshing && events.length === 0) return <View style={styles.centeredContainer}><ActivityIndicator size="large" color="#3B82F6" /></View>;
-        if (error) return ( <View style={styles.centeredContainer}><Feather name="alert-triangle" size={40} color="#F87171" /><Text style={styles.errorText}>{error}</Text>{!isLoading && (<TouchableOpacity onPress={fetchEvents} style={styles.retryButton}><Text style={styles.retryButtonText}>Retry</Text></TouchableOpacity>)}</View>);
+        if (error) return ( <View style={styles.centeredContainer}><Feather name="alert-triangle" size={40} color="#F87171" /><Text style={styles.errorText}>{error}</Text>{!isLoading && (<TouchableOpacity onPress={fetchEventsAndOrganizers} style={styles.retryButton}><Text style={styles.retryButtonText}>Retry</Text></TouchableOpacity>)}</View>);
         if (!isLoading && !refreshing && events.length === 0) return ( <View style={styles.centeredContainer}><Feather name="coffee" size={40} color="#9CA3AF" /><Text style={styles.emptyText}>No Upcoming Events</Text><Text style={styles.emptySubText}>Check back later or refresh!</Text></View>);
         return (
             <FlatList
@@ -432,12 +494,11 @@ const EventsScreen: React.FC = () => {
                 onClose={handleCloseModal}
                 navigation={navigation} // Pass navigation prop
             />
-            {/* Booking overlay removed */}
         </SafeAreaView>
     );
 };
 
-// --- Styles ---
+// --- Styles --- (Add cardOrganizerName style)
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: "#f8fafc", },
     centeredContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#f8fafc', },
@@ -459,7 +520,8 @@ const styles = StyleSheet.create({
     imageContainer: { position: "relative", },
     eventImage: { width: "100%", aspectRatio: 16 / 9, backgroundColor: '#F3F4F6', },
     cardContent: { padding: 16, },
-    eventTitle: { fontSize: 18, fontWeight: "700", color: "#1F2937", marginBottom: 10, },
+    eventTitle: { fontSize: 18, fontWeight: "700", color: "#1F2937", marginBottom: 4, },
+    cardOrganizerName: { fontSize: 13, color: "#6B7280", marginBottom: 10 },
     tagsScrollContainer: { marginBottom: 12, },
     tagsContainerCard: { flexDirection: "row", flexWrap: "nowrap", alignItems: 'center' },
     tagBadgeCard: { backgroundColor: "rgba(59, 130, 246, 0.1)", paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8, marginRight: 6, marginBottom: 0, },
