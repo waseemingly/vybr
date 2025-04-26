@@ -128,47 +128,109 @@ const ViewOrganizerProfileScreen: React.FC = () => {
 
     const fetchStats = useCallback(async () => {
         if (!organizerUserId) return;
-        console.log(`[ViewOrganizerProfile] Fetching stats for organizer: ${organizerUserId}`);
+        console.log(`[ViewOrganizerProfile] Fetching stats via RPC for organizer: ${organizerUserId}`);
         if (!isRefreshing) setStatsLoading(true);
         try {
-            const [followerRes, eventRes] = await Promise.all([
-                supabase.from('organizer_follows').select('*', { count: 'exact', head: true }).eq('organizer_id', organizerUserId),
+            // Use Promise.all to fetch RPC count and direct event count concurrently
+            const [followerRpcRes, eventRes] = await Promise.all([
+                supabase.rpc('get_organizer_follower_count', { p_organizer_id: organizerUserId }),
                 supabase.from('events').select('*', { count: 'exact', head: true }).eq('organizer_id', organizerUserId)
             ]);
 
-            if (followerRes.error || eventRes.error) {
-                console.warn("[ViewOrganizerProfile] Error fetching stats:", followerRes.error || eventRes.error);
+            // Check RPC error
+            if (followerRpcRes.error) {
+                console.error("[ViewOrganizerProfile] RPC Error fetching follower count:", followerRpcRes.error);
+                throw followerRpcRes.error; // Throw to be caught below
             }
+             // Check direct select error
+            if (eventRes.error) {
+                console.warn("[ViewOrganizerProfile] Error fetching event count:", eventRes.error);
+                // Decide if you want to proceed without event count or throw
+            }
+
+            // Set stats using the results, ensuring default to 0
+            const followerCount = typeof followerRpcRes.data === 'number' ? followerRpcRes.data : 0;
+            const eventCount = eventRes.count ?? 0;
+            
             setStats({
-                followerCount: followerRes.count ?? 0,
-                eventCount: eventRes.count ?? 0
+                followerCount: followerCount,
+                eventCount: eventCount
             });
-             console.log(`[ViewOrganizerProfile] Stats fetched: Followers=${followerRes.count}, Events=${eventRes.count}`);
+
+            console.log(`[ViewOrganizerProfile] Stats fetched: Followers=${followerCount}, Events=${eventCount}`);
         } catch (err: any) {
-            console.error("[ViewOrganizerProfile] Error fetching stats:", err);
-            setStats({ followerCount: null, eventCount: null });
+            console.error("[ViewOrganizerProfile] Error in fetchStats:", err);
+            setStats({ followerCount: null, eventCount: null }); // Keep null default on error
         } finally {
             setStatsLoading(false);
         }
     }, [organizerUserId, isRefreshing]);
 
-    const loadAllData = useCallback(() => {
-        // Fetch profile first, then others can run in parallel
-        fetchOrganizerProfile().then(() => {
-            if (organizerUserId) { // Check if profile fetch was successful enough to get an ID
-                fetchFollowStatus();
-                fetchStats();
+    // Chain fetches in useFocusEffect
+    useFocusEffect(
+        useCallback(() => {
+            let isActive = true;
+
+            const loadData = async () => {
+                setError(null);
+                setProfileLoading(true);
+                setFollowLoading(true);
+                setStatsLoading(true);
+
+                try {
+                    await fetchOrganizerProfile();
+                    // Check if component is still mounted and profile fetch didn't immediately fail
+                    if (isActive && organizerUserId) { 
+                        // Run these only after profile fetch seems okay
+                        await Promise.all([fetchFollowStatus(), fetchStats()]);
+                    }
+                } catch (err) {
+                    // Error handled within individual fetch functions, but log here if needed
+                    console.error("[ViewOrganizerProfileScreen] Error during chained fetch:", err);
+                } finally {
+                    if (isActive) {
+                        setProfileLoading(false); // Ensure all loading states are false
+                        setFollowLoading(false);
+                        setStatsLoading(false);
+                    }
+                }
+            };
+
+            if (organizerUserId) { // Only run if we have an ID
+                loadData();
             }
-        });
-    }, [fetchOrganizerProfile, fetchFollowStatus, fetchStats, organizerUserId]);
+            
+            return () => {
+                isActive = false; // Cleanup function to prevent state updates on unmounted component
+            };
+        }, [organizerUserId, fetchOrganizerProfile, fetchFollowStatus, fetchStats]) // Dependencies
+    );
 
-    useFocusEffect(loadAllData);
-
-    const onRefresh = useCallback(() => {
+    const onRefresh = useCallback(async () => {
         setIsRefreshing(true);
-        loadAllData(); // Re-fetch everything
-        setIsRefreshing(false); // Set refreshing false after calls initiated
-    }, [loadAllData]);
+        setError(null);
+        // Reset loading states for refresh indicator
+        setProfileLoading(true);
+        setFollowLoading(true);
+        setStatsLoading(true);
+
+        try {
+            await fetchOrganizerProfile();
+            // Only fetch others if profile fetch worked and we still have the ID
+             if (organizerUserId) { 
+                await Promise.all([fetchFollowStatus(), fetchStats()]);
+             }
+        } catch (err) {
+            console.error("[ViewOrganizerProfileScreen] Error during refresh:", err);
+            setError("Failed to refresh data."); // Set a general refresh error
+        } finally {
+             // Ensure all loading states are reset after refresh attempt
+             setProfileLoading(false);
+             setFollowLoading(false);
+             setStatsLoading(false);
+             setIsRefreshing(false); // Stop the refresh indicator
+        }
+    }, [organizerUserId, fetchOrganizerProfile, fetchFollowStatus, fetchStats]);
 
     // --- Actions ---
     const handleFollowToggle = async () => {
@@ -184,10 +246,9 @@ const ViewOrganizerProfileScreen: React.FC = () => {
                     .eq('user_id', currentUserId)
                     .eq('organizer_id', organizerUserId);
                 if (error) throw error;
-                setIsFollowing(false);
-                // Optimistically decrement count
-                 setStats(prev => ({ ...prev, followerCount: Math.max(0, (prev.followerCount ?? 1) - 1) }));
                 console.log(`[ViewOrganizerProfile] Unfollowed successfully.`);
+                setIsFollowing(false); // Update UI state *after* success
+                fetchStats(); // Refresh stats immediately after DB success
 
             } else {
                 // Follow
@@ -196,18 +257,15 @@ const ViewOrganizerProfileScreen: React.FC = () => {
                     .from('organizer_follows')
                     .insert({ user_id: currentUserId, organizer_id: organizerUserId });
                 if (error) throw error;
-                setIsFollowing(true);
-                // Optimistically increment count
-                 setStats(prev => ({ ...prev, followerCount: (prev.followerCount ?? 0) + 1 }));
-                 console.log(`[ViewOrganizerProfile] Followed successfully.`);
+                console.log(`[ViewOrganizerProfile] Followed successfully.`);
+                setIsFollowing(true); // Update UI state *after* success
+                 fetchStats(); // Refresh stats immediately after DB success
             }
-            // Optional: Refresh stats after a delay to confirm count
-            // setTimeout(fetchStats, 1500);
         } catch (err: any) {
             console.error("[ViewOrganizerProfile] Error toggling follow:", err);
             Alert.alert("Error", `Could not ${isFollowing ? 'unfollow' : 'follow'} organizer: ${err.message}`);
             // Re-fetch actual status on error
-            fetchFollowStatus();
+            await fetchFollowStatus(); // Ensure status is correct after error
         } finally {
             setFollowLoading(false);
         }
@@ -278,7 +336,7 @@ const ViewOrganizerProfileScreen: React.FC = () => {
     }
 
     if (error) {
-        return <SafeAreaView style={styles.centered}><Feather name="alert-circle" size={40} color={APP_CONSTANTS.COLORS.ERROR} /><Text style={styles.errorText}>{error}</Text><TouchableOpacity onPress={loadAllData} style={styles.retryButton}><Text style={styles.retryButtonText}>Retry</Text></TouchableOpacity></SafeAreaView>;
+        return <SafeAreaView style={styles.centered}><Feather name="alert-circle" size={40} color={APP_CONSTANTS.COLORS.ERROR} /><Text style={styles.errorText}>{error}</Text><TouchableOpacity onPress={onRefresh} style={styles.retryButton}><Text style={styles.retryButtonText}>Retry</Text></TouchableOpacity></SafeAreaView>;
     }
 
     if (!organizerProfile) {

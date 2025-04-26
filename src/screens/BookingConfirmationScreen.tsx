@@ -148,14 +148,6 @@ const BookingConfirmationScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                    <Feather name="x" size={24} color="#6B7280" />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Confirm Your {actionTextProper}</Text>
-                <View style={{width: 30}} /> {/* Spacer */}
-            </View>
-
             <ScrollView contentContainerStyle={styles.content}>
                 <Text style={styles.eventTitle}>{eventTitle}</Text>
 
@@ -170,7 +162,6 @@ const BookingConfirmationScreen: React.FC = () => {
                     {bookingType === 'TICKETED' && (
                         <View style={styles.summaryItem}>
                             <Text style={styles.summaryLabel}>Price per Ticket</Text>
-                            {/* Use the formatted display string passed in params */}
                             <Text style={styles.summaryValue}>{pricePerItemDisplay}</Text>
                         </View>
                     )}
@@ -179,7 +170,6 @@ const BookingConfirmationScreen: React.FC = () => {
 
                     <View style={[styles.summaryItem, styles.totalItem]}>
                         <Text style={styles.summaryLabelTotal}>Total</Text>
-                         {/* Use the formatted display string passed in params */}
                         <Text style={styles.summaryValueTotal}>{totalPriceDisplay}</Text>
                     </View>
                      {rawFeePaid !== null && rawFeePaid > 0 && bookingType === 'TICKETED' &&(
@@ -224,28 +214,10 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#F9FAFB', // Light background
     },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB',
-        backgroundColor: 'white',
-    },
-    backButton: {
-        padding: 5,
-    },
-    headerTitle: {
-        flex: 1,
-        textAlign: 'center',
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#1F2937',
-    },
     content: {
         flexGrow: 1,
         padding: 24,
+        paddingTop: 40, // Add some top padding since the header is gone
     },
     eventTitle: {
         fontSize: 22,

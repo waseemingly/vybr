@@ -50,31 +50,47 @@ const OrganizerProfileScreen: React.FC = () => {
   // Fetch organizer stats (Add follower count query)
   const fetchOrganizerStats = useCallback(async () => {
       if (!userId) return;
-      if(!refreshing) setStatsLoading(true);
+      if (!refreshing) setStatsLoading(true);
       setStatsError(null);
       try {
-          const now=new Date().toISOString();
-          const [totalR, upcomingR, pastR, followerR] = await Promise.all([
-                supabase.from('events').select('*',{count:'exact',head:true}).eq('organizer_id',userId),
-                supabase.from('events').select('*',{count:'exact',head:true}).eq('organizer_id',userId).gt('event_datetime',now),
-                supabase.from('events').select('*',{count:'exact',head:true}).eq('organizer_id',userId).lte('event_datetime',now),
-                supabase.from('organizer_follows').select('*', {count: 'exact', head: true}).eq('organizer_id', userId) // <-- Fetch follower count
-           ]);
-          if (totalR.error||upcomingR.error||pastR.error||followerR.error) {
-             console.warn("Stats DB Error:", totalR.error || upcomingR.error || pastR.error || followerR.error);
-             throw new Error("Stats DB Error");
+          const now = new Date().toISOString();
+          // Use Promise.all but replace follower count with RPC call
+          const [totalR, upcomingR, pastR, followerRpcRes] = await Promise.all([
+              supabase.from('events').select('*.*', { count: 'exact', head: true }).eq('organizer_id', userId),
+              supabase.from('events').select('*.*', { count: 'exact', head: true }).eq('organizer_id', userId).gt('event_datetime', now),
+              supabase.from('events').select('*.*', { count: 'exact', head: true }).eq('organizer_id', userId).lte('event_datetime', now),
+              supabase.rpc('get_organizer_follower_count', { p_organizer_id: userId }) // <-- Use RPC function
+          ]);
+
+          // Check RPC error first
+          if (followerRpcRes.error) {
+              console.error("[OrganizerProfileScreen] RPC Error fetching follower count:", followerRpcRes.error);
+              throw new Error(`Follower Count RPC Error: ${followerRpcRes.error.message}`);
           }
-           setStats({
-               totalEvents: totalR.count ?? 0,
-               upcomingEvents: upcomingR.count ?? 0,
-               pastEvents: pastR.count ?? 0,
-               followerCount: followerR.count ?? 0 // <-- Set follower count
-           });
-      } catch (e:any){
+          // Check other errors
+          if (totalR.error || upcomingR.error || pastR.error) {
+              console.warn("Stats DB Error:", totalR.error || upcomingR.error || pastR.error);
+              // Decide if partial data is okay or throw
+              // For now, we proceed but the counts might be inaccurate if there was an error
+          }
+          
+          // Extract follower count from RPC result
+          const followerCount = typeof followerRpcRes.data === 'number' ? followerRpcRes.data : 0;
+          
+          setStats({
+              totalEvents: totalR.count ?? 0,
+              upcomingEvents: upcomingR.count ?? 0,
+              pastEvents: pastR.count ?? 0,
+              followerCount: followerCount // <-- Set follower count from RPC
+          });
+
+          console.log(`[OrganizerProfileScreen] Stats fetched: Followers=${followerCount}, Events=${totalR.count}`);
+
+      } catch (e: any) {
           console.error("Stats Err:", e);
           setStatsError(`Stats Error: ${e.message}`);
           // Reset all stats on error
-          setStats({totalEvents:null,upcomingEvents:null,pastEvents:null, followerCount: null});
+          setStats({ totalEvents: null, upcomingEvents: null, pastEvents: null, followerCount: null });
       } finally {
           setStatsLoading(false);
           setRefreshing(false);
@@ -88,10 +104,11 @@ const OrganizerProfileScreen: React.FC = () => {
   if (!session || !organizerProfile) return ( <SafeAreaView style={styles.centered}><Feather name="alert-circle" size={40} color="#FFA500" /><Text style={styles.errorText}>Profile Error</Text><Text style={styles.errorSubText}>{ !session?"Not logged in.":"Profile incomplete."}</Text><TouchableOpacity style={[styles.logoutButton,{marginTop:20,backgroundColor:!session?APP_CONSTANTS.COLORS.PRIMARY:'#EF4444'}]} onPress={()=>!session?navigation.navigate('Auth'):logout()}><Feather name={!session?"log-in":"log-out"} size={18} color="#FFF" /><Text style={styles.logoutButtonText}>{!session?"Go to Login":"Logout"}</Text></TouchableOpacity></SafeAreaView>);
 
   // Data Extraction (Keep as before)
-  const { companyName, logo, bio, email: contactEmail, phoneNumber, website, businessType, average_rating } = organizerProfile || {};
+  const { companyName, logo, bio, email: contactEmail, phoneNumber, website, businessType /* Removed average_rating */ } = organizerProfile || {};
   const businessTypeFormatted = formatBusinessType(businessType);
   const logoUrl = logo ?? DEFAULT_ORGANIZER_LOGO;
-  const displayRating = average_rating !== null && average_rating !== undefined ? average_rating.toFixed(1) : "N/A";
+  // Set displayRating based on stats if needed, or remove if not used
+  const displayRating = "N/A"; // Placeholder or derive from another source
   const reviews="N/A"; const location="N/A"; const specialties: string[]=[]; const recentEvents: any[]=[]; // Placeholders
 
   // openLink function (Keep as before)
@@ -133,7 +150,7 @@ const OrganizerProfileScreen: React.FC = () => {
                     <View style={styles.statDivider} />
                     <View style={styles.statItem}>
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                             <Feather name="star" size={14} color={average_rating !== null ? APP_CONSTANTS.COLORS.WARNING : APP_CONSTANTS.COLORS.DISABLED} style={{ marginRight: 4, marginTop: -2 }} />
+                             <Feather name="star" size={14} color={APP_CONSTANTS.COLORS.DISABLED} style={{ marginRight: 4, marginTop: -2 }} />
                              <Text style={styles.statValue}>{displayRating}</Text>
                         </View>
                         <Text style={styles.statLabel}>Rating</Text>

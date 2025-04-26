@@ -150,7 +150,11 @@ const MatchesScreen = () => {
             if (error) throw error;
             const blockedIds = new Set<string>();
             data?.forEach(item => {
-                blockedIds.add(item.blocker_id === session.user.id ? item.blocked_id : item.blocker_id);
+                if (session?.user && item.blocker_id === session.user.id) {
+                    blockedIds.add(item.blocked_id);
+                } else if (session?.user && item.blocked_id === session.user.id) {
+                    blockedIds.add(item.blocker_id);
+                }
             });
             console.log("[MatchesScreen] Fetched blocked user IDs:", blockedIds.size);
             return blockedIds;
@@ -274,11 +278,51 @@ const MatchesScreen = () => {
     };
 
     const handleInitiateChat = (match: FetchedMatchData) => {
-        console.log(`[MatchesScreen] Navigating to chat with ${match.userId}, but not marking as chatted yet.`);
+        const userIdToMark = match.userId;
+
+        // 1. Update the chatted IDs state
+        let updatedChattedIds = chattedUserIds; // Assume no change initially
+        if (!chattedUserIds.has(userIdToMark)) {
+            console.log(`[MatchesScreen] Marking user ${userIdToMark} as chatted.`);
+            updatedChattedIds = new Set(chattedUserIds);
+            updatedChattedIds.add(userIdToMark);
+            setChattedUserIds(updatedChattedIds); // Trigger state update (and async save)
+        }
+
+        // 2. Directly compute the new filtered list based on the *updated* IDs
+        // Use the 'updatedChattedIds' variable which holds the latest set
+        // console.log('[MatchesScreen] Directly recalculating filtered matches...');
+        // const newFiltered = matches.filter(m =>
+        //     !updatedChattedIds.has(m.userId) && !blockedUserIds.has(m.userId)
+        // );
+
+        // 3. Update the filteredMatches state
+        // setFilteredMatches(newFiltered);
+        // console.log(`[MatchesScreen] Filtered matches updated. New count: ${newFiltered.length}`);
+
+        // 4. Update the current index if needed (e.g., stay on current index if possible, or move to last)
+        // Note: This logic now relies on the filtering useEffect to update filteredMatches before the index potentially needs adjustment on re-render.
+        // The useEffect dependency array includes filteredMatches indirectly via matches/chattedIds/blockedIds.
+        // Let's keep the index adjustment simple for now, assuming the useEffect handles the list update promptly.
+        setCurrentMatchIndex(prevIndex => {
+            // Get the length of the list *after* the useEffect is expected to run
+            const newFilteredLength = matches.filter(m =>
+                !updatedChattedIds.has(m.userId) && !blockedUserIds.has(m.userId)
+            ).length;
+
+            if (newFilteredLength === 0) return 0;
+            // Simple approach: If previous index is now out of bounds, go to the new last item. Otherwise stay.
+            const adjustedIndex = Math.min(prevIndex, Math.max(0, newFilteredLength - 1));
+            // console.log(`[MatchesScreen] Adjusting index from ${prevIndex} for anticipated new list size ${newFilteredLength}. New index: ${adjustedIndex}`);
+            return adjustedIndex;
+        });
+
+        // 5. Navigate
+        console.log(`[MatchesScreen] Navigating to chat with ${userIdToMark}.`);
         navigation.navigate('IndividualChatScreen', {
-            matchUserId: match.userId,
+            matchUserId: userIdToMark,
             matchName: `${match.firstName || ''} ${match.lastName || ''}`.trim() || 'User',
-            matchProfilePicture: match.profilePicture, // Pass profile pic too
+            matchProfilePicture: match.profilePicture,
         });
     };
 
