@@ -49,25 +49,16 @@ import LoginScreen from "@/screens/auth/LoginScreen";
 import MusicLoverSignUpFlow from "@/screens/auth/MusicLoverSignUpFlow";
 import OrganizerSignUpFlow from "@/screens/auth/OrganizerSignUpFlow";
 
-import CreateGroupChatScreen from '@/screens/CreateGroupChatScreen'; // <-- IMPORT
-import GroupChatScreen from '@/screens/GroupChatScreen';         // <-- IMPORT
-import AddGroupMembersScreen from '@/screens/AddGroupMembersScreen'; // <-- IMPORT
-import ViewOrganizerProfileScreen from '@/screens/ViewOrganizerProfileScreen'; // <-- IMPORT
+// Group Chat Screens
+import CreateGroupChatScreen from '@/screens/CreateGroupChatScreen';
+import GroupChatScreen from '@/screens/GroupChatScreen';
+import GroupInfoScreen from '@/screens/GroupInfoScreen';       // <-- IMPORT GroupInfoScreen
+import AddGroupMembersScreen from '@/screens/AddGroupMembersScreen';
+
+// View Organizer Profile Screen (Now in Main Stack)
+import ViewOrganizerProfileScreen from '@/screens/ViewOrganizerProfileScreen';
 
 // --- Define Param Lists ---
-// export type RootStackParamList = {
-//     Auth: undefined;
-//     MusicLoverSignUpFlow: undefined;
-//     OrganizerSignUpFlow: undefined;
-//     MainApp: { screen?: keyof MainStackParamList, params?: { screen?: keyof UserTabParamList | keyof OrganizerTabParamList, params?: any } };
-//     IndividualChatScreen: {
-//       matchUserId: string;
-//       matchName: string;
-//       matchProfilePicture?: string | null;
-//     };
-//     OtherUserProfileScreen: { userId: string };
-//     NotFoundGlobal?: undefined;
-// };
 
 export type RootStackParamList = {
   Auth: undefined;
@@ -80,22 +71,27 @@ export type RootStackParamList = {
     matchProfilePicture?: string | null;
   };
   OtherUserProfileScreen: { userId: string };
-  // *** ADD Group Screens to Root Param List ***
+
+  // *** Group Chat Screens in Root Stack ***
   CreateGroupChatScreen: undefined;
   GroupChatScreen: {
       groupId: string;
-      groupName?: string | null;
-      groupImage?: string | null;
+      groupName?: string | null; // Pass initial name, might update
+      groupImage?: string | null; // Pass initial image, might update
   };
+   GroupInfoScreen: { // Screen for viewing/managing group details
+       groupId: string;
+       groupName: string; // Required from GroupChatScreen
+       groupImage: string | null; // Required from GroupChatScreen
+   };
   AddGroupMembersScreen: {
        groupId: string;
        groupName?: string | null;
   };
-  // *** END ADDITION ***
+  // *** END Group Chat Screens ***
 
-  // *** REMOVE View Organizer Profile Screen from Root ***
-  // ViewOrganizerProfileScreen: { organizerUserId: string };
-  // *** END REMOVAL ***
+  // ViewOrganizerProfileScreen REMOVED from RootStack
+  ChatsScreen: undefined;
 
   NotFoundGlobal?: undefined;
 };
@@ -121,9 +117,11 @@ export type MainStackParamList = {
     EditOrganizerProfileScreen: undefined;
     OrgManagePlanScreen: undefined;
     OrgBillingHistoryScreen: undefined;
-    // *** ADD View Organizer Profile Screen to MainStack ***
+
+    // *** ViewOrganizerProfileScreen moved to Main Stack ***
     ViewOrganizerProfileScreen: { organizerUserId: string };
-    // *** END ADDITION ***
+    // *** END Move ***
+
     NotFoundMain: undefined;
 };
 
@@ -143,14 +141,23 @@ export type OrganizerTabParamList = {
 
 // --- Create Navigators ---
 const RootStack = createNativeStackNavigator<RootStackParamList>();
-const AuthStackNav = createNativeStackNavigator();
+const AuthStackNav = createNativeStackNavigator(); // No param list needed if simple
 const MainStack = createNativeStackNavigator<MainStackParamList>();
 const UserTabNav = createBottomTabNavigator<UserTabParamList>();
 const OrganizerTabNav = createBottomTabNavigator<OrganizerTabParamList>();
 
 // --- Reusable Components ---
 const LoadingScreen = () => ( <View style={styles.loadingContainer}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View> );
-const AuthScreens = () => ( <AuthStackNav.Navigator screenOptions={{ headerShown: false }}><AuthStackNav.Screen name="Landing" component={LandingScreen} /><AuthStackNav.Screen name="MusicLoverLogin">{(props) => <LoginScreen {...props} userType="music_lover" />}</AuthStackNav.Screen><AuthStackNav.Screen name="OrganizerLogin">{(props) => <LoginScreen {...props} userType="organizer" />}</AuthStackNav.Screen></AuthStackNav.Navigator> );
+const AuthScreens = () => ( 
+  <AuthStackNav.Navigator screenOptions={{ headerShown: false }}>
+    <AuthStackNav.Screen name="Landing" component={LandingScreen} />
+    <AuthStackNav.Screen name="MusicLoverLogin">{(props) => <LoginScreen {...props} userType="music_lover" />}</AuthStackNav.Screen>
+    <AuthStackNav.Screen name="OrganizerLogin">{(props) => <LoginScreen {...props} userType="organizer" />}</AuthStackNav.Screen>
+    {/* Add SignUpFlow screens to AuthStackNav */}
+    <AuthStackNav.Screen name="MusicLoverSignUpFlow" component={MusicLoverSignUpFlow} />
+    <AuthStackNav.Screen name="OrganizerSignUpFlow" component={OrganizerSignUpFlow} />
+  </AuthStackNav.Navigator> 
+);
 const UserTabs = () => ( <UserTabNav.Navigator screenOptions={({ route }) => ({ tabBarIcon: ({ focused, color, size }) => { let iconName: keyof typeof Feather.glyphMap = "help-circle"; if (route.name === "Matches") iconName = "heart"; else if (route.name === "Chats") iconName = "message-square"; else if (route.name === "Search") iconName = "search"; else if (route.name === "Events") iconName = "calendar"; else if (route.name === "Profile") iconName = "user"; return <Feather name={iconName} size={size} color={color} />; }, tabBarActiveTintColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', tabBarInactiveTintColor: APP_CONSTANTS?.COLORS?.DISABLED || '#9CA3AF', tabBarStyle: styles.tabBarStyle, headerShown: false, tabBarShowLabel: true, })}><UserTabNav.Screen name="Matches" component={MatchesScreen} /><UserTabNav.Screen name="Chats" component={ChatsScreen} /><UserTabNav.Screen name="Search" component={SearchScreen} /><UserTabNav.Screen name="Events" component={EventsScreen} /><UserTabNav.Screen name="Profile" component={ProfileScreen} /></UserTabNav.Navigator> );
 const OrganizerTabs = () => ( <OrganizerTabNav.Navigator screenOptions={({ route }) => ({ tabBarIcon: ({ focused, color, size }) => { let iconName: keyof typeof Feather.glyphMap = "help-circle"; if (route.name === "Posts") iconName = "layout"; else if (route.name === "Create") iconName = "plus-circle"; else if (route.name === "OrganizerProfile") iconName = "briefcase"; return <Feather name={iconName} size={size} color={color} />; }, tabBarActiveTintColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', tabBarInactiveTintColor: APP_CONSTANTS?.COLORS?.DISABLED || '#9CA3AF', tabBarStyle: styles.tabBarStyle, headerShown: false, tabBarShowLabel: true, })}><OrganizerTabNav.Screen name="Posts" component={OrganizerPostsScreen} options={{ title: "Events" }} /><OrganizerTabNav.Screen name="Create" component={CreateEventScreen} options={{ title: "Create" }} /><OrganizerTabNav.Screen name="OrganizerProfile" component={OrganizerProfileScreen} options={{ title: "Profile" }} /></OrganizerTabNav.Navigator> );
 
@@ -187,7 +194,9 @@ const MainAppStack = () => {
         <MainStack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} options={{ title: 'Booking Confirmed' }} />
         <MainStack.Screen name="UpcomingEventsListScreen" component={UpcomingEventsListScreen} />
         <MainStack.Screen name="PastEventsListScreen" component={PastEventsListScreen} />
+        {/* *** ViewOrganizerProfileScreen now registered in Main Stack *** */}
         <MainStack.Screen name="ViewOrganizerProfileScreen" component={ViewOrganizerProfileScreen} />
+        {/* *** END Move *** */}
         <MainStack.Screen name="NotFoundMain" component={NotFoundScreen} options={{ title: 'Oops!' }} />
     </MainStack.Navigator>
   );
@@ -202,37 +211,7 @@ const AppNavigator = () => {
 
   if (loading) { return <LoadingScreen />; }
 
-//   return (
-//       <RootStack.Navigator screenOptions={{ headerShown: false }} >
-//         {!session ? (
-//           <RootStack.Screen name="Auth" component={AuthScreens} />
-//         ) : !isProfileComplete ? (
-//            <RootStack.Screen
-//              name={session.userType === 'music_lover' ? "MusicLoverSignUpFlow" : "OrganizerSignUpFlow"}
-//              component={session.userType === 'music_lover' ? MusicLoverSignUpFlow : OrganizerSignUpFlow}
-//              options={{ gestureEnabled: false }}
-//            />
-//         ) : (
-//           <>
-//             <RootStack.Screen name="MainApp" component={MainAppStack} />
-//             <RootStack.Screen
-//               name="IndividualChatScreen"
-//               component={IndividualChatScreen}
-//               options={{ headerShown: false }} // Header managed internally
-//             />
-//             <RootStack.Screen
-//               name="OtherUserProfileScreen"
-//               component={OtherUserProfileScreen}
-//               options={{ headerShown: false }} // Header managed internally
-//             />
-//           </>
-//         )}
-//       </RootStack.Navigator>
-//   );
-// };
-
   return (
-    // **** Must wrap in NavigationContainer ****
       <RootStack.Navigator screenOptions={{ headerShown: false }} >
         {!session ? (
           // 1. Not Logged In
@@ -246,7 +225,6 @@ const AppNavigator = () => {
           />
         ) : (
           // 3. Logged In AND Profile Complete
-          // Use React Fragment to group screens available in this state
           <>
             {/* Main App entry point (renders MainAppStack) */}
             <RootStack.Screen name="MainApp" component={MainAppStack} />
@@ -255,24 +233,29 @@ const AppNavigator = () => {
             <RootStack.Screen
               name="IndividualChatScreen"
               component={IndividualChatScreen}
-              options={{ headerShown: true, headerBackTitleVisible: false }} // Show header for this screen
+              options={{ headerShown: true, headerBackTitleVisible: false }} // Show header
             />
             <RootStack.Screen
               name="OtherUserProfileScreen"
               component={OtherUserProfileScreen}
-              options={{ headerShown: true, headerBackTitleVisible: false }} // Show header for this screen
+              options={{ headerShown: true, headerBackTitleVisible: false }} // Show header
             />
 
             {/* *** REGISTER NEW GROUP CHAT SCREENS HERE *** */}
             <RootStack.Screen
                 name="CreateGroupChatScreen"
                 component={CreateGroupChatScreen}
-                options={{ headerShown: true, title: 'Create Group', headerBackTitleVisible: false }}
+                options={{ headerShown: true, title: 'New Group', headerBackTitleVisible: false }}
             />
             <RootStack.Screen
                 name="GroupChatScreen"
                 component={GroupChatScreen}
-                options={{ headerShown: true, headerBackTitleVisible: false }} // Title set dynamically
+                options={{ headerShown: true, headerBackTitleVisible: false }} // Title set dynamically inside screen
+            />
+             <RootStack.Screen
+                name="GroupInfoScreen"
+                component={GroupInfoScreen}
+                options={{ headerShown: true, title: 'Group Info', headerBackTitleVisible: false }} // Title can also be set dynamically
             />
             <RootStack.Screen
                 name="AddGroupMembersScreen"
@@ -281,15 +264,7 @@ const AppNavigator = () => {
             />
             {/* *** END REGISTRATION *** */}
 
-            {/* *** REMOVE ViewOrganizerProfileScreen ROUTE from here *** */}
-            {/*
-            <RootStack.Screen
-              name="ViewOrganizerProfileScreen"
-              component={ViewOrganizerProfileScreen}
-              options={{ headerShown: true, headerBackTitleVisible: false }} // Title set dynamically in screen
-            />
-            */}
-             {/* *** END REMOVAL *** */}
+            {/* ViewOrganizerProfileScreen REMOVED from here */}
 
           </>
         )}

@@ -61,30 +61,28 @@ const OtherUserProfileScreen: React.FC = () => {
     const currentUserId = session?.user?.id;
 
     // --- Data Fetching (fetchFriendsCount, fetchProfileData, fetchInteractionStatus) ---
-    // These functions remain unchanged from previous versions
     const fetchFriendsCount = useCallback(async () => {
         if (!profileUserId) return;
-        console.log("[OtherUserProfileScreen] Fetching friends count for profile:", profileUserId);
+        console.log("[OtherUserProfileScreen] Fetching friends count via RPC for profile user:", profileUserId);
+        setFriendCount(0); // Reset before fetching
+        
         try {
-            const { count, error } = await supabase
-                .from('friends')
-                .select('*', { count: 'exact', head: true })
-                .or(`user_id_1.eq.${profileUserId},user_id_2.eq.${profileUserId}`)
-                .eq('status', 'accepted');
-
-            if (!error) {
-                setFriendCount(count ?? 0);
-                console.log("[OtherUserProfileScreen] Friend count fetched:", count ?? 0);
-            } else {
-                console.error("[OtherUserProfileScreen] Error fetching friend count:", error);
-                setFriendCount(0);
-            }
-        } catch (e) {
-            console.error("[OtherUserProfileScreen] Catch Error fetching friend count:", e);
-            setFriendCount(0);
+            // Call the new RPC function
+            const { data: countData, error } = await supabase.rpc('get_friend_count', {
+                user_id_to_check: profileUserId
+            });
+            
+            if (error) throw error;
+            
+            const count = countData ?? 0;
+            console.log(`[OtherUserProfileScreen] Friend count RPC result: ${count}`);
+            setFriendCount(count);
+            
+        } catch (err) {
+            console.error("[OtherUserProfileScreen] Error fetching friend count via RPC:", err);
+            // Keep the count at 0 to indicate error
         }
     }, [profileUserId]);
-
 
     const fetchProfileData = useCallback(async () => {
         if (!profileUserId) { setError("User ID not provided."); setIsLoading(false); return; }
@@ -121,6 +119,7 @@ const OtherUserProfileScreen: React.FC = () => {
                 lastName: profile.last_name,
                 username: profile.username,
                 profilePicture: profile.profile_picture,
+                email: session?.user?.email ?? 'N/A',
                 age: profile.age,
                 city: profile.city,
                 country: profile.country,
@@ -135,7 +134,7 @@ const OtherUserProfileScreen: React.FC = () => {
             setError(err.message || "Could not load profile.");
             setProfileData(null);
         }
-    }, [profileUserId, fetchFriendsCount]);
+    }, [profileUserId, fetchFriendsCount, session]);
 
 
     const fetchInteractionStatus = useCallback(async () => {
@@ -189,7 +188,7 @@ const OtherUserProfileScreen: React.FC = () => {
             // 3. Check Mute Status
             console.log("[OtherUserProfileScreen] Checking mute status...");
             const { count: muteCount, error: muteError } = await supabase
-                 .from('mutes')
+                 .from('muted_users')
                  .select('*', { count: 'exact', head: true })
                  .eq('muter_id', currentUserId)
                  .eq('muted_id', profileUserId);
@@ -218,30 +217,28 @@ const OtherUserProfileScreen: React.FC = () => {
         });
     }, [fetchProfileData]);
 
+    useFocusEffect(
+        useCallback(() => {
+            console.log(`[OtherUserProfileScreen] Focus effect triggered. Fetching interaction status and friend count.`);
+            if (currentUserId && profileUserId) {
+                fetchInteractionStatus();
+                fetchFriendsCount();
+            } else {
+                console.log("[OtherUserProfileScreen] Focus effect: Skipping fetch (missing IDs).");
+            }
+            return () => {
+                console.log("[OtherUserProfileScreen] Focus effect cleanup (screen unfocused).");
+            };
+        }, [fetchInteractionStatus, fetchFriendsCount, currentUserId, profileUserId])
+    );
 
-     useFocusEffect(
-         useCallback(() => {
-             console.log(`[OtherUserProfileScreen] Focus effect triggered. Fetching interaction status.`);
-             if (currentUserId && profileUserId) {
-                 fetchInteractionStatus();
-             } else {
-                 console.log("[OtherUserProfileScreen] Focus effect: Skipping interaction fetch (missing IDs).");
-             }
-             return () => {
-                 console.log("[OtherUserProfileScreen] Focus effect cleanup (screen unfocused).");
-             };
-         }, [fetchInteractionStatus, currentUserId, profileUserId])
-     );
-
-     useEffect(() => {
-         if (!isLoading && profileData && currentUserId && profileUserId) {
-             console.log("[OtherUserProfileScreen] Profile data available and not loading. Validating interaction status.");
-             fetchInteractionStatus();
-         } else if (!isLoading && !profileData && currentUserId && profileUserId) {
-             console.log("[OtherUserProfileScreen] Profile data *not* available after load. Validating interaction status (likely should be not_friends unless blocked).");
-             fetchInteractionStatus();
-         }
-     }, [profileData, isLoading, fetchInteractionStatus, currentUserId, profileUserId]);
+    useEffect(() => {
+        if (!isLoading && currentUserId && profileUserId) {
+            console.log("[OtherUserProfileScreen] Post-load effect: Fetching interaction status and friend count.");
+            fetchInteractionStatus();
+            fetchFriendsCount();
+        }
+    }, [profileData, isLoading, fetchInteractionStatus, fetchFriendsCount, currentUserId, profileUserId]);
 
     useEffect(() => {
         const getHeaderConfig = () => {
@@ -498,14 +495,24 @@ const OtherUserProfileScreen: React.FC = () => {
         setIsMuted(!currentlyMuted);
         try {
             if (currentlyMuted) {
-                const { error } = await supabase.from('mutes').delete().eq('muter_id', currentUserId).eq('muted_id', profileUserId);
+                const { error } = await supabase
+                    .from('muted_users')
+                    .delete()
+                    .eq('muter_id', currentUserId)
+                    .eq('muted_id', profileUserId);
                 if (error) throw error;
                 console.log(`[OtherUserProfileScreen] Successfully unmuted user ${profileUserId}`);
             } else {
-                const { error } = await supabase.from('mutes').upsert({ muter_id: currentUserId, muted_id: profileUserId });
+                const { error } = await supabase
+                    .from('muted_users')
+                    .upsert({ muter_id: currentUserId, muted_id: profileUserId });
                 if (error) throw error;
                 console.log(`[OtherUserProfileScreen] Successfully muted (or confirmed mute) for user ${profileUserId}`);
             }
+            // Refresh interaction status after muting/unmuting
+            await fetchInteractionStatus();
+            // Also refresh friend count to ensure data is in sync
+            await fetchFriendsCount();
         } catch (err: any) {
             console.error(`[OtherUserProfileScreen] Error ${currentlyMuted ? 'unmuting' : 'muting'} user:`, err);
             Alert.alert("Error", `Could not ${currentlyMuted ? 'unmute' : 'mute'} user. ${err.message || 'Please try again.'}`);
@@ -721,8 +728,8 @@ const OtherUserProfileScreen: React.FC = () => {
         const buttonStyle = [styles.actionButton, styles.friendButton];
         let iconName: React.ComponentProps<typeof Feather>['name'] = 'user-plus';
         let buttonText = 'Add Friend';
-        let onPress = handleAddFriendDirectly;
-        let disabled = isLoadingInteraction || currentStatus === 'blocked_by_you' || currentStatus === 'blocked_by_them' || currentStatus === 'error';
+        let onPress: () => void | Promise<void> = handleAddFriendDirectly;
+        let disabled = isLoadingInteraction || isBlocked || currentStatus === 'blocked_by_you' || currentStatus === 'error';
 
         switch (currentStatus) {
             case 'loading':
@@ -733,7 +740,7 @@ const OtherUserProfileScreen: React.FC = () => {
                 buttonText = 'Friends';
                 buttonStyle.length = 0;
                 buttonStyle.push(styles.actionButton, styles.friendsButton);
-                onPress = handleUnfriend; // Correctly calls the function that now opens the modal
+                onPress = handleUnfriend;
                 disabled = isLoadingInteraction;
                 break;
             case 'not_friends':
@@ -753,7 +760,6 @@ const OtherUserProfileScreen: React.FC = () => {
                  };
                  break;
             case 'blocked_by_you':
-            case 'blocked_by_them':
                 return null;
         }
 
@@ -764,11 +770,11 @@ const OtherUserProfileScreen: React.FC = () => {
                 disabled={disabled}
             >
                 {isLoadingInteraction ? (
-                     <ActivityIndicator size="small" color={currentStatus === 'friends' ? APP_CONSTANTS.COLORS.SUCCESS_DARK : APP_CONSTANTS.COLORS.WHITE} style={{ marginRight: 8 }}/>
+                     <ActivityIndicator size="small" color={friendshipStatus === 'friends' ? APP_CONSTANTS.COLORS.SUCCESS_DARK : APP_CONSTANTS.COLORS.WHITE} style={{ marginRight: 8 }}/>
                  ) : (
-                     <Feather name={iconName} size={16} color={currentStatus === 'friends' ? APP_CONSTANTS.COLORS.SUCCESS_DARK : APP_CONSTANTS.COLORS.WHITE} />
+                     <Feather name={iconName} size={16} color={friendshipStatus === 'friends' ? APP_CONSTANTS.COLORS.SUCCESS_DARK : APP_CONSTANTS.COLORS.WHITE} />
                  )}
-                <Text style={[styles.actionButtonText, currentStatus === 'friends' && styles.actionButtonTextDark]}>
+                <Text style={[styles.actionButtonText, friendshipStatus === 'friends' && styles.actionButtonTextDark]}>
                      {buttonText}
                  </Text>
             </TouchableOpacity>
@@ -777,7 +783,7 @@ const OtherUserProfileScreen: React.FC = () => {
 
      // renderMuteButton, renderBlockButton remain unchanged
      const renderMuteButton = () => {
-         if (isBlocked || friendshipStatus === 'blocked_by_them') return null;
+         if (isBlocked) return null;
 
          const iconName: React.ComponentProps<typeof Feather>['name'] = isMuted ? 'volume-x' : 'volume-2';
          const text = isMuted ? 'Unmute User' : 'Mute User';
@@ -791,24 +797,22 @@ const OtherUserProfileScreen: React.FC = () => {
      };
 
      const renderBlockButton = () => {
-        if (friendshipStatus === 'blocked_by_them') return null;
-
-         if (isBlocked) {
-             return (
-                 <TouchableOpacity style={[styles.actionButton, styles.unblockButton]} onPress={handleUnblock}>
-                     <Feather name="unlock" size={16} color={APP_CONSTANTS.COLORS.SUCCESS_DARK} />
-                     <Text style={[styles.actionButtonText, styles.unblockButtonText]}>Unblock User</Text>
-                 </TouchableOpacity>
-             );
-         } else {
-             return (
-                 <TouchableOpacity style={[styles.actionButton, styles.reportButton]} onPress={() => setReportModalVisible(true)}>
-                     <Feather name="alert-octagon" size={16} color={APP_CONSTANTS.COLORS.ERROR} />
-                     <Text style={[styles.actionButtonText, styles.reportButtonText]}>Report / Block</Text>
-                 </TouchableOpacity>
-             );
-         }
-     };
+        if (isBlocked) {
+            return (
+                <TouchableOpacity style={[styles.actionButton, styles.unblockButton]} onPress={handleUnblock}>
+                    <Feather name="unlock" size={16} color={APP_CONSTANTS.COLORS.SUCCESS_DARK} />
+                    <Text style={[styles.actionButtonText, styles.unblockButtonText]}>Unblock User</Text>
+                </TouchableOpacity>
+            );
+        } else {
+            return (
+                <TouchableOpacity style={[styles.actionButton, styles.reportButton]} onPress={() => setReportModalVisible(true)}>
+                    <Feather name="alert-octagon" size={16} color={APP_CONSTANTS.COLORS.ERROR} />
+                    <Text style={[styles.actionButtonText, styles.reportButtonText]}>Report / Block</Text>
+                </TouchableOpacity>
+            );
+        }
+    };
 
     // --- Main Return ---
     return (
@@ -889,7 +893,7 @@ const OtherUserProfileScreen: React.FC = () => {
                             {(userCity || userCountry) && (
                                 <View style={profileStyles.locationRow}>
                                     <Feather name="map-pin" size={12} color="#6B7280" style={{ marginRight: 4 }}/>
-                                    <Text style={profileStyles.location}>{userCity}{userCity && userCountry ? ', ' : ''}{userCountry}</Text>
+                                    <Text style={profileStyles.locationText}>{userCity}{userCity && userCountry ? ', ' : ''}{userCountry}</Text>
                                 </View>
                             )}
                         </View>
@@ -930,7 +934,7 @@ const OtherUserProfileScreen: React.FC = () => {
                  </ProfileSection>
 
                  {/* More Options Section */}
-                 {friendshipStatus !== 'blocked_by_them' && (
+                 {!isBlocked && (
                      <View style={styles.moreOptionsSection}>
                           <Text style={styles.moreOptionsTitle}>More Options</Text>
                           {renderMuteButton()}
@@ -983,7 +987,7 @@ const styles = StyleSheet.create({
     modalSubmitButtonText: { color: 'white', fontWeight: '600', },
     age: { fontSize: 14, color: "#6B7280", },
     locationSeparator: { color: "#D1D5DB", marginHorizontal: 6, fontSize: 14, },
-    location: { fontSize: 14, color: "#6B7280", marginLeft: 0, textAlign: 'center' },
+    locationText: { fontSize: 14, color: "#6B7280", marginLeft: 0, textAlign: 'center' },
  });
 
 const profileStyles = StyleSheet.create({
@@ -1018,6 +1022,7 @@ const profileStyles = StyleSheet.create({
     tagsContainer: { flexDirection: "row", flexWrap: "wrap", marginTop: 4, },
     genreTag: { backgroundColor: "rgba(59, 130, 246, 0.1)", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, marginRight: 8, marginBottom: 8, },
     genreTagText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontSize: 13, fontWeight: '500', },
+    locationText: { fontSize: 14, color: "#6B7280", marginLeft: 0, textAlign: 'center' },
 });
 
 
