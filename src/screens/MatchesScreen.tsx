@@ -55,6 +55,7 @@ const MatchesScreen = () => {
     const [chattedIdsLoaded, setChattedIdsLoaded] = useState(false); // Track storage load
     const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
     const chattedUserIdsRef = useRef(chattedUserIds); // Ref for saving
+    const [isCurrentUserPremium, setIsCurrentUserPremium] = useState<boolean>(false); // State for logged-in user's premium status
 
     // Keep Ref updated
     useEffect(() => {
@@ -110,6 +111,34 @@ const MatchesScreen = () => {
 
     }, [chattedUserIds, chattedIdsLoaded, session?.user?.id]); // Depend on state
 
+
+    // --- Fetch Logged-in User Premium Status ---
+    const fetchCurrentUserPremiumStatus = useCallback(async () => {
+        if (!session?.user?.id) {
+            setIsCurrentUserPremium(false);
+            return;
+        }
+        try {
+            const { data, error } = await supabase
+                .from('music_lover_profiles')
+                .select('is_premium')
+                .eq('user_id', session.user.id)
+                .single();
+
+            if (error) {
+                console.error("[MatchesScreen] Error fetching current user premium status:", error);
+                setIsCurrentUserPremium(false); // Assume not premium on error
+            } else if (data) {
+                setIsCurrentUserPremium(data.is_premium ?? false);
+                console.log("[MatchesScreen] Current user premium status:", data.is_premium);
+            } else {
+                setIsCurrentUserPremium(false); // Profile might not exist yet
+            }
+        } catch (err) {
+            console.error("[MatchesScreen] Exception fetching current user premium status:", err);
+            setIsCurrentUserPremium(false);
+        }
+    }, [session?.user?.id]);
 
     // --- Fetch Blocked Users ---
     const fetchBlockedUsers = useCallback(async () => {
@@ -171,13 +200,21 @@ const MatchesScreen = () => {
     // --- Initial Fetch ---
     useEffect(() => {
         if (!authLoading && session?.user?.id && chattedIdsLoaded) {
+            fetchCurrentUserPremiumStatus(); // Fetch premium status
             fetchMatchesAndBlocks();
         } else if (!authLoading && !session?.user?.id) {
-            setIsLoading(false); setError("Please log in."); setMatches([]); setFilteredMatches([]); setCurrentMatchIndex(0); setChattedUserIds(new Set()); setChattedIdsLoaded(true); // Ensure loaded flag is true on logout
+            setIsLoading(false);
+            setError("Please log in.");
+            setMatches([]);
+            setFilteredMatches([]);
+            setCurrentMatchIndex(0);
+            setChattedUserIds(new Set());
+            setChattedIdsLoaded(true); // Ensure loaded flag is true on logout
+            setIsCurrentUserPremium(false); // Reset premium status on logout
         } else if (!authLoading && session?.user?.id && !chattedIdsLoaded) {
             setIsLoading(true); // Explicitly set loading while waiting for chatted IDs
         }
-    }, [authLoading, session?.user?.id, chattedIdsLoaded, fetchMatchesAndBlocks]);
+    }, [authLoading, session?.user?.id, chattedIdsLoaded, fetchMatchesAndBlocks, fetchCurrentUserPremiumStatus]); // Added fetchCurrentUserPremiumStatus dependency
 
     // --- Re-apply filters ---
     useEffect(() => {
@@ -237,16 +274,11 @@ const MatchesScreen = () => {
     };
 
     const handleInitiateChat = (match: FetchedMatchData) => {
-        setChattedUserIds(prev => {
-            if (prev.has(match.userId)) return prev;
-            const newSet = new Set(prev);
-            newSet.add(match.userId);
-            console.log("[MatchesScreen] Added to chattedUserIds:", match.userId);
-            return newSet;
-        });
+        console.log(`[MatchesScreen] Navigating to chat with ${match.userId}, but not marking as chatted yet.`);
         navigation.navigate('IndividualChatScreen', {
             matchUserId: match.userId,
             matchName: `${match.firstName || ''} ${match.lastName || ''}`.trim() || 'User',
+            matchProfilePicture: match.profilePicture, // Pass profile pic too
         });
     };
 
@@ -278,7 +310,9 @@ const MatchesScreen = () => {
                     bio={currentMatchData.bio}
                     isPremium={currentMatchData.isPremium}
                     commonTags={currentMatchData.commonTags ?? []}
+                    compatibilityScore={currentMatchData.compatibilityScore}
                     onChatPress={() => handleInitiateChat(currentMatchData)}
+                    isViewerPremium={isCurrentUserPremium}
                 />
             </View>
         );

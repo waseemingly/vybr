@@ -29,6 +29,9 @@ type UserSettingsStackParamList = {
     UserManageSubscription: undefined; // Example
     UserBlockedList: undefined; // Example
     UserMutedList: undefined; // Example
+    LinkMusicServicesScreen: undefined; // <-- Add new screen route
+    UserBillingHistoryScreen: undefined; // <-- Add Billing History screen route
+    UpdateMusicFavoritesScreen: undefined; // <-- Add Update Music Favorites screen route
     // ... other user settings sub-screens
 };
 
@@ -318,6 +321,9 @@ const UserSettingsScreen: React.FC = () => {
     const navigateToMutedList = () => navigation.navigate('UserMutedListScreen' as never);
     const navigateToBlockedList = () => navigation.navigate('UserBlockedListScreen' as never);
     const navigateToUpgrade = () => navigation.navigate('UpgradeScreen' as never);
+    const navigateToLinkMusicServices = () => navigation.navigate('LinkMusicServicesScreen' as never);
+    const navigateToBillingHistory = () => navigation.navigate('UserBillingHistoryScreen' as never); // <-- Add handler
+    const navigateToUpdateMusicFavorites = () => navigation.navigate('UpdateMusicFavoritesScreen' as never); // Add new handler
     // -------------------------
 
     if (loadingSettings || authLoading) {
@@ -330,15 +336,6 @@ const UserSettingsScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-            {/* Header */}
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                     <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Settings</Text>
-                <View style={styles.headerRightPlaceholder} />
-            </View>
-
             {/* Content */}
             <ScrollView style={styles.scrollView}>
                 <SettingsSection title="Profile Settings">
@@ -347,21 +344,9 @@ const UserSettingsScreen: React.FC = () => {
                 </SettingsSection>
 
                 <SettingsSection title="Music Preferences">
-                    <SettingsItem label="Update Favorites" icon="sliders" onPress={() => Alert.alert("Navigate", "TODO: Go to Edit Music Prefs Screen")} />
-                    <SettingsItem label="Link Music Services" icon="link" onPress={() => Alert.alert("Link", "TODO: Implement Music Service Linking")} />
-                    {/* Show Music Profile Toggle - Temporarily Disabled */}
-                    {/* 
+                    <SettingsItem label="Update Favorites" icon="sliders" onPress={navigateToUpdateMusicFavorites} />
+                    <SettingsItem label="Link Music Services" icon="link" onPress={navigateToLinkMusicServices} />
                     <SettingsItem
-                        label="Show Music Profile to Friends"
-                        icon="share-2"
-                        toggleValue={showMusicProfile ?? true} 
-                        onToggleChange={handleMusicProfileToggle}
-                        isUpdating={updatingSetting === 'show_music_profile'}
-                        disabled={true} // Disabled until DB column exists
-                        // disabled={showMusicProfile === null} 
-                    /> 
-                    */}
-                     <SettingsItem
                         label="Show Music Profile to Friends"
                         icon="share-2"
                         value="(Coming Soon)"
@@ -374,7 +359,7 @@ const UserSettingsScreen: React.FC = () => {
                      <SettingsItem label="Muted Users" icon="volume-x" onPress={navigateToMutedList} /* value={musicLoverProfile?.mutedUsersCount ? `${musicLoverProfile.mutedUsersCount} users` : "N/A"} */ />
                      <SettingsItem label="Blocked Users" icon="slash" onPress={navigateToBlockedList} /* value={musicLoverProfile?.blockedUsersCount ? `${musicLoverProfile.blockedUsersCount} users` : "N/A"} */ />
                      <SettingsItem label="Active Sessions" icon="smartphone" onPress={() => Alert.alert("Not Implemented", "Listing sessions requires specific backend setup.")} value="Not available" disabled />
-                     <SettingsItem label="Log Out Everywhere Else" icon="log-out" onPress={handleLogoutAllDevices} />
+                     {/* <SettingsItem label="Log Out Everywhere Else" icon="log-out" onPress={handleLogoutAllDevices} /> */}
                  </SettingsSection>
 
                 <SettingsSection title="Notifications">
@@ -388,8 +373,7 @@ const UserSettingsScreen: React.FC = () => {
                 {isPremiumUser ? (
                      <SettingsSection title="Premium Subscription" isPremiumFeature isPremiumUser={isPremiumUser}>
                         <SettingsItem label="Manage Plan" icon="credit-card" onPress={navigateToManageSubscription} />
-                        <SettingsItem label="Billing History" icon="file-text" onPress={() => Alert.alert("Navigate", "TODO: Show Billing History")} />
-                        <SettingsItem label="Cancel Subscription" icon="x-circle" isDestructive onPress={() => Alert.alert("Cancel", "TODO: Implement Subscription Cancellation")} />
+                        <SettingsItem label="Billing History" icon="file-text" onPress={navigateToBillingHistory} />
                      </SettingsSection>
                  ) : (
                      <SettingsSection title="Upgrade to Premium">
@@ -422,10 +406,6 @@ const UserSettingsScreen: React.FC = () => {
 const styles = StyleSheet.create({
     centeredLoader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB' },
     container: { flex: 1, backgroundColor: '#F9FAFB', },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', backgroundColor: 'white', },
-    backButton: { padding: 4, },
-    headerTitle: { fontSize: 18, fontWeight: '600', color: '#1F2937', },
-    headerRightPlaceholder: { width: 32, },
     scrollView: { flex: 1, },
     sectionContainer: { marginTop: 12, backgroundColor: 'white', borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#E5E7EB', },
     sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, },

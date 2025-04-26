@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     View, Text, StyleSheet, FlatList, TouchableOpacity,
-    Image, ActivityIndicator, RefreshControl, ScrollView, Alert
+    Image, ActivityIndicator, RefreshControl, ScrollView, Alert, Dimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -18,6 +18,7 @@ import {
     MappedEvent, SupabasePublicEvent, OrganizerInfo,
     EventCard, EventDetailModal // Assuming EventCard/Modal are default/named exports
 } from '@/screens/EventsScreen';
+import ImageSwiper from '@/components/ImageSwiper';
 
 // Define Navigation and Route Types
 type UpcomingEventsListRouteProp = RouteProp<MainStackParamList, 'UpcomingEventsListScreen'>;
@@ -45,7 +46,13 @@ const OrganizerEventItemView: React.FC<{ item: MappedEvent, navigation: Upcoming
             style={organizerCardStyles.eventCard}
             onPress={() => handleAnalyticsPress(item.id)} // Pressing card goes to analytics
         >
-            <Image source={{ uri: item.images[0] ?? DEFAULT_EVENT_IMAGE }} style={organizerCardStyles.eventImage} />
+            <ImageSwiper
+                images={item.images}
+                defaultImage={DEFAULT_EVENT_IMAGE}
+                containerStyle={organizerCardStyles.eventImageContainer}
+                imageStyle={organizerCardStyles.eventImageStyle}
+                height={organizerCardStyles.eventImageStyle.height}
+             />
             <View style={organizerCardStyles.eventContent}>
                 <View style={organizerCardStyles.eventHeader}>
                     <Text style={organizerCardStyles.eventTitle} numberOfLines={2}>{item.title}</Text>
@@ -174,7 +181,10 @@ const UpcomingEventsListScreen: React.FC = () => {
         const screenTitle = isOrganizerViewingOwnEvents
             ? "My Upcoming Events"
             : `${organizerName ?? 'Organizer'}'s Upcoming Events`;
-        navigation.setOptions({ title: screenTitle });
+        navigation.setOptions({ 
+            title: screenTitle,
+            headerBackVisible: true,
+        });
     }, [navigation, organizerName, isOrganizerViewingOwnEvents]);
 
     // --- Modal State --- (Only needed for non-organizer view)
@@ -263,6 +273,18 @@ const styles = StyleSheet.create({
 const organizerCardStyles = StyleSheet.create({
      eventCard: { backgroundColor: "white", borderRadius: 12, overflow: "hidden", marginBottom: 16, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3, elevation: 2, borderWidth: 1, borderColor: '#E5E7EB'},
      eventImage: { width: "100%", aspectRatio: 16 / 9, backgroundColor: '#F3F4F6', borderBottomWidth: 1, borderColor: '#E5E7EB' },
+     eventImageStyle: {
+        height: (Dimensions.get('window').width - 32) * (9 / 16),
+     },
+     eventImageContainer: {
+        width: "100%",
+        aspectRatio: 16 / 9,
+        borderTopLeftRadius: 12,
+        borderTopRightRadius: 12,
+        backgroundColor: '#F3F4F6',
+        borderBottomWidth: 1,
+        borderColor: '#E5E7EB',
+     },
      eventContent: { padding: 16, },
      eventHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 },
      eventTitle: { fontSize: 17, fontWeight: "600", color: "#1F2937", flexShrink: 1, marginRight: 8 },

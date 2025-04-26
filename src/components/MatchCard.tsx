@@ -25,7 +25,9 @@ export interface MatchCardProps {
     bio: MusicLoverBio | null;
     isPremium: boolean;
     commonTags: string[];
+    compatibilityScore?: number; // Add compatibility score (optional number)
     onChatPress?: (userId: string) => void; // Changed to pass userId back
+    isViewerPremium?: boolean; // <<< Add prop for logged-in user's premium status
 }
 
 // --- Define Navigation Type for useNavigation ---
@@ -69,7 +71,9 @@ const MatchCard: React.FC<MatchCardProps> = ({
     bio,
     isPremium,
     commonTags,
+    compatibilityScore,
     onChatPress,
+    isViewerPremium,
 }) => {
     // Use the correctly typed navigation hook
     const navigation = useNavigation<MatchCardNavigationProp>();
@@ -151,7 +155,16 @@ const MatchCard: React.FC<MatchCardProps> = ({
 
                 {/* Info Container below Image */}
                 <View style={styles.infoContainer}>
-                    <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">{displayName}</Text>
+                    {/* Name and Score Row */}
+                    <View style={styles.nameRow}>
+                        <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">{displayName}</Text>
+                        {/* Compatibility Score Indicator - Show if logged-in user is premium */}
+                        {isViewerPremium && typeof compatibilityScore === 'number' && compatibilityScore >= 0 && (
+                            <View style={styles.compatibilityIndicator}>
+                                <Text style={styles.compatibilityScoreText}>{Math.round(compatibilityScore)}%</Text>
+                            </View>
+                        )}
+                    </View>
 
                      {/* Common Tags Section */}
                      {commonTags && commonTags.length > 0 && (
@@ -171,7 +184,6 @@ const MatchCard: React.FC<MatchCardProps> = ({
                              <Text style={styles.bioSectionTitle}>About {displayName.split(' ')[0]}</Text>
                             {allBioDetailsToDisplay.map((detail, index) => (
                                 <View key={`${id}-bio-${index}`} style={styles.bioDetailItem}>
-                                    {detail.key === 'musicTaste' && <Feather name="music" size={13} color="#6B7280" style={styles.bioDetailIcon} />}
                                     <Text style={styles.bioDetailLabel}>{detail.label}:</Text>
                                     <Text style={styles.bioDetailValue}>{detail.value}</Text>
                                 </View>
@@ -204,24 +216,93 @@ const styles = StyleSheet.create({
     premiumText: { color: '#856A00', fontSize: 10, fontWeight: 'bold', marginLeft: 4, textTransform: 'uppercase', },
     profileImage: { width: '100%', height: 300, backgroundColor: '#E5E7EB', },
     infoContainer: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10, alignItems: 'center', width: '100%', },
-    name: { fontSize: 24, fontWeight: 'bold', color: '#1F2937', marginBottom: 10, textAlign: 'center', },
-    commonTagsSection: { flexDirection: 'row', alignItems: 'flex-start', flexWrap: 'wrap', justifyContent: 'center', marginBottom: 16, paddingHorizontal: 5, width: '100%', },
-    commonTagsIcon: { marginRight: 5, marginTop: 1, },
-    commonTagsTitle: { fontSize: 13, fontWeight: '600', color: '#10B981', marginRight: 8, marginBottom: 5, },
-    tagsContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', flex: 1, },
+    nameRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 10,
+        width: '100%',
+        paddingHorizontal: 5,
+    },
+    name: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#1F2937',
+        textAlign: 'center',
+        flexShrink: 1,
+    },
+    commonTagsSection: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        flexWrap: 'nowrap',
+        justifyContent: 'flex-start',
+        marginBottom: 16,
+        paddingHorizontal: 5,
+        width: '100%',
+    },
+    commonTagsIcon: {
+        marginRight: 6,
+        marginTop: 2,
+    },
+    commonTagsTitle: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#10B981',
+        marginRight: 8,
+        lineHeight: 20,
+    },
+    tagsContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        flex: 1,
+        justifyContent: 'flex-start',
+    },
     tag: { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderRadius: 12, paddingVertical: 3, paddingHorizontal: 8, margin: 3, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.2)', },
     tagText: { color: '#059669', fontSize: 11, fontWeight: '500', },
     moreTagsText: { fontSize: 11, color: '#6B7280', marginLeft: 3, alignSelf: 'center', paddingVertical: 3, },
     bioDetailsSection: { width: '100%', marginTop: 0, marginBottom: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6', },
-    bioSectionTitle: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 12, textAlign: 'left', },
-    bioDetailItem: { flexDirection: 'row', marginBottom: 10, alignItems: 'flex-start', },
-    bioDetailIcon: { marginRight: 5, marginTop: 1.5, },
-    bioDetailLabel: { fontSize: 13, color: '#6B7280', fontWeight: '500', width: '40%', marginRight: 5, lineHeight: 18, },
-    bioDetailValue: { fontSize: 13, color: '#374151', flex: 1, textAlign: 'left', lineHeight: 18, },
+    bioSectionTitle: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 12, textAlign: 'left', width: '100%', },
+    bioDetailItem: {
+        flexDirection: 'row',
+        marginBottom: 10,
+        alignItems: 'flex-start',
+        width: '100%',
+    },
+    bioDetailLabel: {
+        fontSize: 13,
+        color: '#6B7280',
+        fontWeight: '500',
+        marginRight: 8,
+        lineHeight: 18,
+        textAlign: 'left',
+    },
+    bioDetailValue: {
+        fontSize: 13,
+        color: '#374151',
+        flex: 1,
+        textAlign: 'left',
+        lineHeight: 18,
+    },
      noBioText: { fontSize: 13, color: '#9CA3AF', fontStyle: 'italic', textAlign: 'center', marginTop: 10, marginBottom: 15, width: '100%', },
     actionsContainer: { flexDirection: 'row', justifyContent: 'center', paddingTop: 15, paddingBottom: 15, borderTopWidth: 1, borderTopColor: '#F3F4F6', backgroundColor: '#F9FAFB', },
     chatButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#3B82F6', paddingVertical: 10, paddingHorizontal: 25, borderRadius: 25, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 3, },
     chatButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', marginLeft: 8, },
+    compatibilityIndicator: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(59, 130, 246, 0.8)',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 12,
+        marginLeft: 10,
+        borderWidth: 1,
+        borderColor: 'rgba(59, 130, 246, 0.3)',
+    },
+    compatibilityScoreText: {
+        color: 'white',
+        fontSize: 12,
+        fontWeight: 'bold',
+    },
 });
 
 export default MatchCard;

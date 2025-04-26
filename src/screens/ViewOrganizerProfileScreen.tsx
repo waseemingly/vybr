@@ -9,6 +9,7 @@ import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { Linking } from 'react-native';
 
 // --- !!! ADJUST PATHS !!! ---
 import { supabase } from "@/lib/supabase"; // Assuming standard path
@@ -19,7 +20,8 @@ import { OrganizerProfile } from '@/hooks/useAuth'; // Import OrganizerProfile t
 // ----------------------------
 
 // --- Navigation and Route Types ---
-// Add ViewOrganizerProfileScreen to RootStackParamList if not already done
+// Ensure RootStackParamList defines: ViewOrganizerProfileScreen: { organizerUserId: string };
+type ViewOrganizerProfileRouteParams = { organizerUserId?: string };
 type ViewOrganizerProfileRouteProp = RouteProp<RootStackParamList, 'ViewOrganizerProfileScreen'>;
 type ViewOrganizerProfileNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>;
 
@@ -29,11 +31,24 @@ const DEFAULT_ORGANIZER_LOGO = APP_CONSTANTS?.DEFAULT_ORGANIZER_LOGO || 'https:/
 // --- Helper Functions ---
 const formatBusinessType = (type?: string | null): string | null => { if (!type) return null; return type.replace(/_/g, ' ').replace(/-/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' '); };
 
+// Helper to try opening links (add Linking import if not present)
+const tryOpenLink = async (url: string | null | undefined) => {
+    if (!url) return;
+    const supported = await Linking.canOpenURL(url);
+    if (supported) {
+        await Linking.openURL(url);
+    } else {
+        Alert.alert(`Don't know how to open this URL: ${url}`);
+    }
+};
+
 // --- Component ---
 const ViewOrganizerProfileScreen: React.FC = () => {
     const navigation = useNavigation<ViewOrganizerProfileNavigationProp>();
     const route = useRoute<ViewOrganizerProfileRouteProp>();
-    const { organizerUserId } = route.params; // Get organizer's user ID from route params
+    // Get organizer's user ID from route params, handling potential unknown type
+    const params = route.params as ViewOrganizerProfileRouteParams | undefined;
+    const organizerUserId = params?.organizerUserId;
     const { session, loading: authLoading } = useAuth(); // Get current user session
 
     const [organizerProfile, setOrganizerProfile] = useState<OrganizerProfile | null>(null);
@@ -51,8 +66,18 @@ const ViewOrganizerProfileScreen: React.FC = () => {
     const currentUserId = session?.user?.id;
 
     // --- Data Fetching ---
+    // Add check for organizerUserId at the beginning
+    useEffect(() => {
+        if (!organizerUserId) {
+            setError("Organizer ID not provided in route.");
+            setProfileLoading(false);
+            setStatsLoading(false);
+            setFollowLoading(false);
+        }
+    }, [organizerUserId]);
+
     const fetchOrganizerProfile = useCallback(async () => {
-        if (!organizerUserId) { setError("Organizer ID missing."); setProfileLoading(false); return; }
+        if (!organizerUserId) { setError("Organizer ID missing."); setProfileLoading(false); return; } // Guard added
         console.log(`[ViewOrganizerProfile] Fetching profile for organizer user ID: ${organizerUserId}`);
         if (!isRefreshing) setProfileLoading(true);
         setError(null);
@@ -60,6 +85,7 @@ const ViewOrganizerProfileScreen: React.FC = () => {
         try {
             const { data, error: profileError } = await supabase
                 .from('organizer_profiles')
+                // Select all fields based on the SQL schema
                 .select('*')
                 .eq('user_id', organizerUserId)
                 .maybeSingle();
@@ -240,7 +266,10 @@ const ViewOrganizerProfileScreen: React.FC = () => {
     // --- Render Logic ---
     useEffect(() => {
         // Set header title dynamically
-        navigation.setOptions({ title: organizerProfile?.companyName || 'Organizer Profile' });
+        navigation.setOptions({ 
+            title: organizerProfile?.companyName || 'Organizer Profile', 
+            headerBackVisible: true,
+        });
     }, [navigation, organizerProfile?.companyName]);
 
 
@@ -308,6 +337,31 @@ const ViewOrganizerProfileScreen: React.FC = () => {
                     <View style={styles.section}>
                         <Text style={styles.sectionTitle}>About</Text>
                         <Text style={styles.bioText}>{organizerProfile.bio}</Text>
+                    </View>
+                )}
+
+                {/* Contact Information Section - Using fields from SQL schema */}
+                {(organizerProfile.email || organizerProfile.phone_number || organizerProfile.website) && (
+                    <View style={styles.section}>
+                        <Text style={styles.sectionTitle}>Contact Information</Text>
+                        {organizerProfile.email && (
+                            <TouchableOpacity style={styles.contactRow} onPress={() => tryOpenLink(`mailto:${organizerProfile.email}`)}>
+                                <Feather name="mail" size={16} color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} />
+                                <Text style={styles.contactText} numberOfLines={1}>{organizerProfile.email}</Text>
+                            </TouchableOpacity>
+                        )}
+                        {organizerProfile.phone_number && (
+                            <TouchableOpacity style={styles.contactRow} onPress={() => tryOpenLink(`tel:${organizerProfile.phone_number}`)}>
+                                <Feather name="phone" size={16} color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} />
+                                <Text style={styles.contactText} numberOfLines={1}>{organizerProfile.phone_number}</Text>
+                            </TouchableOpacity>
+                        )}
+                        {organizerProfile.website && (
+                             <TouchableOpacity style={styles.contactRow} onPress={() => tryOpenLink(organizerProfile.website)}>
+                                <Feather name="globe" size={16} color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} />
+                                <Text style={styles.contactText} numberOfLines={1}>{organizerProfile.website.replace(/^https?:\/\//, '')}</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 )}
 
@@ -417,6 +471,20 @@ const styles = StyleSheet.create({
     linkButtonText: { flex: 1, marginLeft: 12, fontSize: 15, fontWeight: '500', color: '#374151' },
     reportButton: { borderBottomWidth: 0 }, // Remove border for last item in section
     reportButtonText: { color: APP_CONSTANTS.COLORS.ERROR },
+    // Contact Styles
+    contactRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F9FAFB',
+    },
+    contactText: {
+        marginLeft: 12,
+        fontSize: 15,
+        color: APP_CONSTANTS.COLORS.PRIMARY, // Make links look clickable
+        flexShrink: 1,
+    },
     // Modal Styles
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20, },
     modalContent: { backgroundColor: 'white', borderRadius: 12, padding: 24, width: '100%', maxWidth: 400, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5, },

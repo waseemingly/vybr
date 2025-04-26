@@ -11,44 +11,58 @@ import {
     ActivityIndicator,
     Keyboard,
     Platform,
-    Alert, // Ensure Alert is imported
+    Alert,
+    Modal,
+    Dimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase'; // Adjust path
-import { format, parseISO } from 'date-fns'; // Ensure date-fns is installed
+import { format, parseISO, isValid } from 'date-fns'; // Ensure date-fns is installed
+// import { BlurView } from 'expo-blur'; // Remove if not installed/used
+import { useAuth } from '@/hooks/useAuth';
+import { APP_CONSTANTS } from '@/config/constants';
+import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator';
+// import { formatEventType } from '@/utils/stringUtils'; // Assuming you have this - Define locally if not
+import ImageSwiper from '@/components/ImageSwiper'; // <-- Import ImageSwiper
+
+// Import necessary things from EventsScreen, including shared types
+import {
+    OrganizerInfo, // Import OrganizerInfo
+    EventDetailModal, // Import EventDetailModal
+    MappedEvent, // Import MappedEvent
+    SupabasePublicEvent // Import the definition from EventsScreen if needed, or redefine
+} from '@/screens/EventsScreen'; // Adjust path if needed
 
 // --- Define Types ---
 
 // 1. Navigation Param List (Adjust stack name and other screens as needed)
-type HomeStackParamList = {
-    Search: undefined;
-    EventDetail: { eventId: string };
-    // Add other screens in this stack
-};
+// Keep using the SearchScreenNavigationProp for internal navigation if needed
+// but note the modal doesn't use stack navigation in the same way.
+type SearchScreenNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>; // Use combined type
 
-// 2. Navigation Prop for this Screen
-type SearchScreenNavigationProp = NativeStackNavigationProp<HomeStackParamList, 'Search'>;
-
-// 3. Structure for Event data after processing RPC results
-interface EventSearchResult {
-    id: string;
-    title: string;
-    // IMPORTANT: Use the correct timestamp column name from your 'events' table
-    event_datetime: string; // Or event_date_start, etc.
-    venue_name: string | null;
-    // IMPORTANT: Use the correct image URL column name or logic for poster_urls
-    image_url: string | null;      // If you have a single image_url column
-    // poster_urls?: string[] | null; // If you have a poster_urls JSONB array
-    event_type: string | null;     // Assumes RPC returns this from events table
-    booking_type: string | null;   // Assumes RPC returns this from events table
-    ticket_price: number | null;   // Assumes RPC returns this from events table
-    organizer_id: string | null;   // Need organizer_id to fetch name (assumes RPC returns it)
-    organizer_profiles: {          // Manually added structure after fetch
-        company_name: string | null;
-    } | null;
+// Define the structure returned by the RPC (matching SupabasePublicEvent essentially)
+// Or re-import SupabasePublicEvent from EventsScreen if identical
+interface RpcEventResult {
+  id: string;
+  title: string;
+  description: string | null;
+  event_datetime: string;
+  location_text: string | null;
+  poster_urls: string[];
+  tags_genres: string[];
+  tags_artists: string[];
+  tags_songs: string[];
+  organizer_id: string | null; // Crucially includes organizer_id
+  event_type: string | null;
+  booking_type: 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null;
+  ticket_price: number | null;
+  pass_fee_to_user: boolean | null;
+  max_tickets: number | null;
+  max_reservations: number | null;
+  // Add other fields if your 'events' table has more and they are needed
 }
 
 // Type for dynamic popular searches
@@ -60,55 +74,60 @@ interface PopularSearchItem {
 
 // --- Helper Functions ---
 const formatEventType = (type: string | null): string => {
-    if (!type) return 'Event';
-    // Handle potential database ENUM values directly
-    return type
-        .replace(/_/g, ' ') // Replace underscores with spaces
-        .toLowerCase()
-        .split(' ')
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ');
+    if (!type) return "Event";
+    return type.replace(/_/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 };
+
+// --- Helper Functions from EventsScreen ---
+const DEFAULT_EVENT_IMAGE = "https://via.placeholder.com/800x450/D1D5DB/1F2937?text=No+Image";
+const DEFAULT_ORGANIZER_LOGO = APP_CONSTANTS.DEFAULT_ORGANIZER_LOGO || "https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo";
+const DEFAULT_ORGANIZER_NAME = "Event Organizer";
+
+const formatEventDateTime = (isoString: string | null): { date: string; time: string } => {
+  if (!isoString) return { date: "N/A", time: "N/A" };
+  try {
+    const d = new Date(isoString);
+    // Use a consistent format, maybe simpler for search results card
+    const datePart = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+    const timePart = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
+    return { date: datePart, time: timePart };
+  } catch (e) { return { date: "Invalid Date", time: "" }; }
+};
+
 
 // --- Component ---
 const SearchScreen = () => {
     const navigation = useNavigation<SearchScreenNavigationProp>();
     const [searchTerm, setSearchTerm] = useState("");
-    const [searchResults, setSearchResults] = useState<EventSearchResult[]>([]);
+    // State now holds MappedEvent for consistency with modal
+    const [searchResults, setSearchResults] = useState<MappedEvent[]>([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [isSearching, setIsSearching] = useState(false); // Tracks if results view is active
+    const [isSearching, setIsSearching] = useState(false);
     const [popularSearches, setPopularSearches] = useState<PopularSearchItem[]>([]);
     const [isLoadingPopular, setIsLoadingPopular] = useState(true);
+
+    // State for the modal
+    const [selectedEventDetail, setSelectedEventDetail] = useState<MappedEvent | null>(null);
+    const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
+
 
     // --- Fetch Popular Searches (Dynamic) ---
     const fetchPopularGenres = useCallback(async () => {
         console.log("Fetching popular genres...");
         setIsLoadingPopular(true);
         try {
-            // Call the RPC function created in Supabase SQL Editor
             const { data, error } = await supabase
-                .rpc('get_distinct_future_genres', { limit_count: 8 }); // Fetch up to 8
-
-            if (error) {
-                throw error; // Let the catch block handle it
-            }
-
+                .rpc('get_distinct_future_genres', { limit_count: 8 });
+            if (error) throw error;
             let popularItems: PopularSearchItem[] = [];
             if (data && Array.isArray(data)) {
-                 // Assign a default icon to each genre string returned
                 popularItems = data
-                    .filter((genreName): genreName is string => typeof genreName === 'string' && genreName.trim() !== '') // Ensure they are non-empty strings
-                    .map((genreName: string) => ({
-                        name: genreName,
-                        icon: 'music' // Default icon
-                    }));
+                    .filter((genreName): genreName is string => typeof genreName === 'string' && genreName.trim() !== '')
+                    .map((genreName: string) => ({ name: genreName, icon: 'music' }));
             }
-            console.log("Popular genres fetched:", popularItems);
             setPopularSearches(popularItems);
-
         } catch (error: any) {
             console.error("Error fetching popular genres:", error.message);
-            // Log error but don't show disruptive alert, default to empty
             setPopularSearches([]);
         } finally {
             setIsLoadingPopular(false);
@@ -121,15 +140,17 @@ const SearchScreen = () => {
     }, [fetchPopularGenres]);
 
 
-    // --- Fetch Event Search Results (Uses RPC with date filter inside) ---
-    const fetchEvents = useCallback(async (query: string): Promise<EventSearchResult[]> => {
+    // --- Fetch Event Search Results & Map to MappedEvent ---
+    const fetchAndMapEvents = useCallback(async (query: string): Promise<MappedEvent[]> => {
         if (!query.trim()) return [];
-
         console.log(`Searching events via RPC for: "${query}"`);
 
-        // Call the 'search_events_with_organizer' function (assumes it filters future dates)
-        const { data: eventsData, error: rpcError } = await supabase
-            .rpc('search_events_with_organizer', { search_term: query });
+        // 1. Fetch Events using the RPC (which returns SETOF events)
+        // Explicitly type the expected return data structure using correct Supabase RPC syntax
+        const { data: rawEventsData, error: rpcError } = await supabase
+            .rpc('search_events_with_organizer', { search_term: query }, { count: 'exact' }) // Pass function name and args
+            // Note: Supabase types might infer the return type, or you might need a cast
+            // Let's assume inference works first, or cast if needed: as { data: RpcEventResult[] | null; error: any; count: number | null };
 
         if (rpcError) {
             console.error("Error calling RPC search_events_with_organizer:", rpcError);
@@ -137,51 +158,89 @@ const SearchScreen = () => {
             return [];
         }
 
-        if (!eventsData || eventsData.length === 0) {
-             console.log("RPC returned no results.");
-             return [];
+        if (!rawEventsData || rawEventsData.length === 0) {
+            console.log("RPC returned no results.");
+            return [];
         }
 
-        // --- Manually Fetch Organizer Names ---
-        const organizerIds = eventsData
-            .map(event => event.organizer_id) // Make sure RPC returns organizer_id
-            .filter((id, index, self): id is string => id !== null && id !== undefined && self.indexOf(id) === index);
+        // Log the raw data structure from RPC to confirm fields
+        console.log("[SearchScreen] Raw data from RPC:", rawEventsData[0]);
 
-        let organizerMap: Record<string, { company_name: string | null }> = {};
+        // NOTE: The RPC returns SETOF events, so it only contains fields from the events table.
+        // We need a separate query to get organizer details.
 
+        // 2. Extract Unique Organizer IDs from the results
+        const organizerIds = [
+            ...new Set(
+                (rawEventsData as RpcEventResult[]) // Cast to ensure map works on the correct type
+                    .map(event => event?.organizer_id) // Get organizer_id or undefined
+                    .filter((id): id is string => typeof id === 'string' && id.length > 0) // Type guard: ensure id is a non-empty string
+            )
+        ];
+
+        let organizerMap = new Map<string, OrganizerInfo>();
+
+        // 3. Fetch Organizer Profiles if IDs exist
         if (organizerIds.length > 0) {
-            const { data: organizersData, error: orgError } = await supabase
+            console.log(`[SearchScreen] Fetching profiles for ${organizerIds.length} organizers found in search...`);
+            const { data: organizerProfiles, error: profilesError } = await supabase
                 .from('organizer_profiles')
-                .select('id, company_name')
-                .in('id', organizerIds);
+                .select('user_id, company_name, logo') // Select the fields we need
+                .in('user_id', organizerIds);
 
-            if (orgError) {
-                console.error("Error fetching organizer names:", orgError);
-            } else if (organizersData) {
-                organizerMap = organizersData.reduce((acc, org) => {
-                    acc[org.id] = { company_name: org.company_name };
-                    return acc;
-                }, {} as Record<string, { company_name: string | null }>);
+            if (profilesError) {
+                console.warn("[SearchScreen] Error fetching organizer profiles:", profilesError);
+            } else if (organizerProfiles) {
+                console.log(`[SearchScreen] Successfully fetched ${organizerProfiles.length} organizer profiles.`);
+                organizerProfiles.forEach(profile => {
+                    if (profile.user_id) {
+                        organizerMap.set(profile.user_id, {
+                            userId: profile.user_id,
+                            name: profile.company_name ?? DEFAULT_ORGANIZER_NAME,
+                            image: profile.logo ?? null
+                        });
+                    }
+                });
             }
         }
 
-        // --- Combine event data with organizer names ---
-        const results: EventSearchResult[] = eventsData.map(event => ({
-            // Map fields based on 'events' table structure returned by RPC
-            id: event.id,
-            title: event.title,
-            event_datetime: event.event_datetime, // ** Verify column name **
-            venue_name: event.venue_name,
-            image_url: event.image_url,           // ** Verify column name or use poster_urls **
-            event_type: event.event_type,
-            booking_type: event.booking_type,
-            ticket_price: event.ticket_price,
-            organizer_id: event.organizer_id,
-            organizer_profiles: event.organizer_id ? organizerMap[event.organizer_id] ?? null : null,
-            // poster_urls: event.poster_urls,    // ** Uncomment/use if needed **
-        }));
+        // 4. Map RpcEventResult to MappedEvent
+        // Ensure rawEventsData is correctly typed as RpcEventResult[] before mapping
+        const results: MappedEvent[] = (rawEventsData as RpcEventResult[]).map((event: RpcEventResult) => {
+            const { date, time } = formatEventDateTime(event.event_datetime);
 
-        console.log(`Found ${results.length} results via RPC (future events only).`);
+            const organizerInfo = event.organizer_id ? organizerMap.get(event.organizer_id) : null;
+
+            const finalOrganizerData: OrganizerInfo = organizerInfo || {
+                userId: event.organizer_id ?? '',
+                name: DEFAULT_ORGANIZER_NAME,
+                image: null
+            };
+
+            const posterUrls = event.poster_urls ?? [];
+
+            return {
+                id: event.id,
+                title: event.title ?? 'Untitled Event',
+                images: posterUrls.length > 0 ? posterUrls : [DEFAULT_EVENT_IMAGE],
+                date: date,
+                time: time,
+                venue: event.location_text ?? "Venue TBC",
+                genres: event.tags_genres ?? [],
+                artists: event.tags_artists ?? [],
+                songs: event.tags_songs ?? [],
+                description: event.description ?? "No description provided.",
+                booking_type: event.booking_type,
+                ticket_price: event.ticket_price,
+                pass_fee_to_user: event.pass_fee_to_user ?? true,
+                max_tickets: event.max_tickets,
+                max_reservations: event.max_reservations,
+                organizer: finalOrganizerData,
+                isViewable: false,
+            };
+        });
+
+        console.log(`Mapped ${results.length} results for search term "${query}".`);
         return results;
     }, []);
 
@@ -195,7 +254,7 @@ const SearchScreen = () => {
         setIsLoading(true);
         setSearchResults([]); // Clear previous results
         try {
-            const results = await fetchEvents(trimmedQuery);
+            const results = await fetchAndMapEvents(trimmedQuery); // Use the mapping function
             setSearchResults(results);
         } catch (err: any) {
             console.error("HandleSearch Catch Block:", err);
@@ -203,7 +262,7 @@ const SearchScreen = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [searchTerm, fetchEvents]); // Re-create if searchTerm or fetchEvents changes
+    }, [searchTerm, fetchAndMapEvents]);
 
     const handlePopularSearch = useCallback((query: string) => {
         if (!query) return;
@@ -214,7 +273,7 @@ const SearchScreen = () => {
         setIsSearching(true);
         setIsLoading(true);
         setSearchResults([]); // Clear previous results
-        fetchEvents(query).then(results => {
+        fetchAndMapEvents(query).then(results => { // Use mapping function
             setSearchResults(results);
         }).catch(err => {
             console.error("HandlePopularSearch Fetch Catch Block:", err);
@@ -222,7 +281,7 @@ const SearchScreen = () => {
         }).finally(() => {
             setIsLoading(false);
         });
-    }, [fetchEvents]); // Depends only on fetchEvents
+    }, [fetchAndMapEvents]);
 
     const handleClearSearch = () => {
         setIsSearching(false);
@@ -231,65 +290,61 @@ const SearchScreen = () => {
         Keyboard.dismiss();
     };
 
-    const navigateToEventDetail = (eventId: string) => {
-        console.log(`Navigating to EventDetail for eventId: ${eventId}`);
-        navigation.navigate('EventDetail', { eventId });
+    // --- Modal Handlers ---
+    const handleEventPress = (event: MappedEvent) => {
+        setSelectedEventDetail(event);
+        setIsDetailModalVisible(true);
     };
+
+    const handleCloseModal = () => {
+        setIsDetailModalVisible(false);
+        setSelectedEventDetail(null);
+    };
+    // --- End Modal Handlers ---
 
     // --- Render Functions ---
 
-    // Event Result Renderer (Using empty spacer for missing image, navigates on press)
-    const renderEventResult = ({ item }: { item: EventSearchResult }) => {
-        let formattedDate = 'Date TBC';
-        try {
-            // Use the correct date column name here
-            if (item.event_datetime && typeof item.event_datetime === 'string') {
-                formattedDate = format(parseISO(item.event_datetime), 'EEE, MMM d, yyyy');
-            }
-        } catch (e) { console.warn(`Failed to parse date: ${item.event_datetime}`, e); }
+    // Event Result Renderer - Modified to accept MappedEvent and use handleEventPress
+    const renderEventResult = ({ item }: { item: MappedEvent }) => { // Item is now MappedEvent
+        // Use data directly from MappedEvent (already formatted)
+        const venue = item.venue || 'Venue TBC';
+        const organizerName = item.organizer?.name || 'Organizer TBC'; // Use organizer from MappedEvent
 
-        const venue = item.venue_name || 'Venue TBC';
-        const organizerName = item.organizer_profiles?.company_name || 'Organizer TBC';
-        const formattedType = formatEventType(item.event_type);
+        // Note: We cannot display formattedType as event_type is not in the shared MappedEvent
+        // const formattedType = formatEventType(item.event_type); // Remove this line
 
+        // Simplified price display for card (can reuse logic from EventsScreen if needed)
         let priceDisplay = null;
         if (item.booking_type === 'TICKETED') {
-            priceDisplay = (item.ticket_price !== null && item.ticket_price > 0)
-                ? `$${item.ticket_price.toFixed(2)}`
-                : "Free";
+             priceDisplay = (item.ticket_price !== null && item.ticket_price >= 0)
+                 ? (item.ticket_price === 0 ? "Free" : `$${item.ticket_price.toFixed(2)}`)
+                 : "N/A";
         } else if (item.booking_type === 'RESERVATION') {
-            priceDisplay = "Reservation";
+             priceDisplay = "Reservation";
         }
 
-        // ** IMPORTANT: Adjust image URL logic based on your schema **
-        const imageUrl = item.image_url; // Use this if you have a single image_url text column
-        // const imageUrl = item.poster_urls?.[0]; // Use this if you have a poster_urls JSONB array
-
-        const hasValidImage = imageUrl && typeof imageUrl === 'string';
 
         return (
             <TouchableOpacity
                 style={styles.resultCard}
                 activeOpacity={0.7}
-                onPress={() => navigateToEventDetail(item.id)} // Navigation triggered here
+                onPress={() => handleEventPress(item)} // Use new handler to open modal
             >
-                {/* Conditionally render Image OR an empty spacer View */}
-                {hasValidImage ? (
-                    <Image
-                        source={{ uri: imageUrl }}
-                        style={styles.resultImage}
-                        resizeMode="cover"
-                    />
-                ) : (
-                    <View style={styles.resultImageSpacer} /> // Empty spacer
-                )}
-
+                <ImageSwiper
+                    images={item.images} // Use images from MappedEvent
+                    defaultImage={DEFAULT_EVENT_IMAGE}
+                    containerStyle={styles.resultImageContainer}
+                    imageStyle={styles.resultImageStyle}
+                    height={styles.resultImageStyle.height as number}
+                />
                 <View style={styles.resultContent}>
-                     <View style={styles.eventTypeBadgeFixed}>
+                     {/* Removed eventTypeBadgeFixed as event_type is not available */}
+                     {/* <View style={styles.eventTypeBadgeFixed}>
                          <Text style={styles.eventTypeBadgeText}>{formattedType}</Text>
-                     </View>
-                    <Text style={styles.resultTitle} numberOfLines={1}>{item.title}</Text>
-                    <Text style={styles.resultSubtitle} numberOfLines={1}>{formattedDate} • {venue}</Text>
+                     </View> */}
+                    <Text style={styles.resultTitle} numberOfLines={2}>{item.title}</Text>
+                    {/* Display date/time/venue from MappedEvent */}
+                    <Text style={styles.resultSubtitle} numberOfLines={1}>{item.date} at {item.time} • {venue}</Text>
                     <Text style={styles.resultOrganizer} numberOfLines={1}>By: {organizerName}</Text>
                 </View>
 
@@ -299,14 +354,18 @@ const SearchScreen = () => {
                          styles.priceTag,
                          priceDisplay === 'Free' && styles.priceTagFree,
                          priceDisplay === 'Reservation' && styles.priceTagReservation,
+                         priceDisplay === 'N/A' && styles.priceTagNA, // Add style for N/A
                      ]}>
-                         <Text style={styles.priceTagText}>{priceDisplay}</Text>
+                         <Text style={styles.priceTagText}>
+                             {priceDisplay === 'N/A' ? 'Info' : priceDisplay}
+                         </Text>
                      </View>
                  )}
                 <Feather name="chevron-right" size={20} color="#9CA3AF" style={styles.chevronIcon}/>
             </TouchableOpacity>
         );
     };
+
 
     // Initial View Renderer (Shows dynamic popular searches)
     const renderInitialView = () => (
@@ -362,7 +421,7 @@ const SearchScreen = () => {
         </ScrollView>
     );
 
-    // Results View Renderer (Unchanged structure)
+    // Results View Renderer (Unchanged structure, FlatList uses renderEventResult)
     const renderResultsView = () => (
          <View style={styles.resultsContainer}>
             <View style={styles.headerResults}>
@@ -385,7 +444,7 @@ const SearchScreen = () => {
             </View>
             <FlatList
                 data={searchResults}
-                renderItem={renderEventResult} // Renders items that navigate on press
+                renderItem={renderEventResult} // Renders items that now open the modal
                 keyExtractor={(item) => item.id}
                 contentContainerStyle={styles.resultsListContent}
                 ListEmptyComponent={() => ( // Show empty state only when not loading
@@ -411,13 +470,22 @@ const SearchScreen = () => {
     // --- Main Return ---
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
+            {/* Render initial or results view */}
             {!isSearching ? renderInitialView() : renderResultsView()}
+
+            {/* Add the Event Detail Modal */}
+            <EventDetailModal
+                event={selectedEventDetail}
+                visible={isDetailModalVisible}
+                onClose={handleCloseModal}
+                navigation={navigation} // Pass navigation prop
+            />
         </SafeAreaView>
     );
 };
 
 
-// --- Styles --- (Includes style for noPopularText and spacer)
+// --- Styles --- (Removed eventTypeBadgeFixed and related styles)
 const styles = StyleSheet.create({
     container: {
         flex: 1,
@@ -442,6 +510,12 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         margin: 16,
         padding: 16,
+        // Adding shadow for elevation feel
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1, },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+        elevation: 2,
     },
     searchInputContainer: {
         flexDirection: "row",
@@ -520,54 +594,42 @@ const styles = StyleSheet.create({
     // --- Result Card Styles ---
     resultCard: {
         flexDirection: "row",
-        alignItems: "center",
+        alignItems: "center", // Changed from center to stretch potentially? No, keep center
         backgroundColor: "white",
         borderRadius: 12,
         padding: 12,
         marginBottom: 12,
         borderWidth: 1,
-        borderColor: "#F3F4F6",
+        borderColor: "#F3F4F6", // Lighter border
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.05,
         shadowRadius: 2,
         elevation: 1,
     },
-    resultImage: { // Style for the actual Image component
-        width: 60,
-        height: 60,
-        borderRadius: 8,
-        marginRight: 12,
-        backgroundColor: '#E5E7EB' // Shows while image loads
+    // Styles for ImageSwiper in search results
+    resultImageContainer: {
+       width: 80, // Fixed width for search result card image
+       height: 80, // Make it square or adjust as needed
+       borderRadius: 8,
+       marginRight: 16,
+       backgroundColor: '#E5E7EB', // Background for loading/default
     },
-    resultImageSpacer: { // Style for the empty spacer View when no image
-        width: 60,          // Same width as image
-        height: 60,         // Same height as image
-        marginRight: 12,    // Same margin as image
+    resultImageStyle: {
+       height: 80, // Match container height
+       borderRadius: 8,
     },
     resultContent: {
         flex: 1,
-        marginRight: 8,
+        marginRight: 8, // Space before price/chevron
+        justifyContent: 'center', // Vertically center content in the flex container
     },
-    eventTypeBadgeFixed: { // Positioned within content flow
-        backgroundColor: '#6B7280',
-        borderRadius: 4,
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        alignSelf: 'flex-start',
-        marginBottom: 6,
-    },
-    eventTypeBadgeText: {
-        color: 'white',
-        fontSize: 10,
-        fontWeight: 'bold',
-    },
+    // Removed eventTypeBadgeFixed styles as it's no longer used
     resultTitle: {
-        fontSize: 16,
+        fontSize: 15, // Slightly smaller for card
         fontWeight: "600",
         color: "#1F2937",
-        marginBottom: 4,
-        marginTop: 0, // Reset top margin
+        marginBottom: 4, // Reduced margin
     },
     resultSubtitle: {
         fontSize: 13,
@@ -576,29 +638,31 @@ const styles = StyleSheet.create({
     },
     resultOrganizer: {
         fontSize: 12,
-        color: "#9CA3AF",
+        color: "#9CA3AF", // Lighter color for organizer
     },
     priceTag: {
-        backgroundColor: '#3B82F6',
+        // Position absolute to float top right? No, keep in flow, adjust container maybe.
+        // Let's try keeping it simple for now.
         borderRadius: 6,
         paddingHorizontal: 8,
         paddingVertical: 4,
-        marginLeft: 'auto',
-        alignSelf: 'flex-start',
+        marginLeft: 'auto', // Push to the right of result content
+        alignSelf: 'flex-start', // Align to top of its space
+        minWidth: 50, // Ensure minimum width
+        textAlign: 'center',
     },
-    priceTagFree: {
-        backgroundColor: '#10B981',
-    },
-    priceTagReservation: {
-        backgroundColor: '#F59E0B',
-    },
+    priceTagFree: { backgroundColor: '#10B981', }, // Green for Free
+    priceTagReservation: { backgroundColor: '#F59E0B', }, // Amber for Reservation
+    priceTagNA: { backgroundColor: '#9CA3AF', }, // Gray for N/A/Info
     priceTagText: {
         color: 'white',
-        fontSize: 12,
-        fontWeight: '600',
+        fontSize: 11, // Smaller text
+        fontWeight: '700', // Bolder
+        textAlign: 'center',
     },
     chevronIcon: {
-       marginLeft: 8,
+       marginLeft: 8, // Space between price and chevron
+       alignSelf: 'center', // Vertically align chevron
     },
 });
 

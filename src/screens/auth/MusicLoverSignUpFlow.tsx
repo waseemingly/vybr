@@ -15,6 +15,7 @@ import { APP_CONSTANTS } from '@/config/constants'; // Assuming path is correct
 import * as ImagePicker from 'expo-image-picker';
 // Import the specific types expected by createMusicLoverProfile and for the form state
 import { MusicLoverBio, CreateMusicLoverProfileData } from '@/hooks/useAuth'; // Assuming types are exported from useAuth
+import TermsModal from '@/components/TermsModal'; // Import the new modal
 
 // Step types
 type Step = 'account-details' | 'profile-details' | 'streaming-service' | 'subscription' | 'payment';
@@ -60,6 +61,61 @@ interface MusicLoverFormData {
     };
 }
 
+// --- Placeholder Terms Text (Replace with actual legal text) ---
+const termsAndConditionsText = `**Vybr Terms & Conditions (Placeholder)**
+
+**Last Updated: [Date]**
+
+Welcome to Vybr! Please read these Terms & Conditions ("Terms") carefully before using the Vybr mobile application ("Service").
+
+**1. Acceptance of Terms**
+By accessing or using the Service, you agree to be bound by these Terms. If you disagree with any part of the terms, you may not access the Service. **This is a placeholder text and not legally binding. You must consult with a legal professional to draft comprehensive and compliant Terms & Conditions for your specific service, location, and features.**
+
+**2. Description of Service**
+Vybr is a platform designed to connect music lovers and event organizers. Features include profile creation, event discovery, matching based on musical preferences, chat functionalities, and potential premium subscription services.
+
+**3. User Accounts**
+You are responsible for safeguarding your account information, including your password. You agree not to disclose your password to any third party. You must notify us immediately upon becoming aware of any breach of security or unauthorized use of your account. You must provide accurate and complete information when creating your account.
+
+**4. User Conduct**
+You agree not to use the Service to:
+   - Post unauthorized commercial communications (such as spam).
+   - Collect users' content or information, or otherwise access the Service using automated means.
+   - Engage in unlawful, misleading, malicious, or discriminatory activity.
+   - Bully, intimidate, or harass any user.
+   - Post content that is hate speech, threatening, pornographic, incites violence, or contains nudity or graphic/gratuitous violence.
+   - Do anything that could disable, overburden, or impair the proper working or appearance of Vybr.
+   - Violate any applicable laws or regulations.
+
+**5. Content Ownership**
+You retain ownership of the content you post on Vybr. By posting content, you grant Vybr a non-exclusive, transferable, sub-licensable, royalty-free, worldwide license to use, display, reproduce, and distribute such content on and through the Service.
+
+**6. Music Data & Privacy**
+If you link streaming services or manually input music preferences, you consent to Vybr analyzing this data to provide matching and recommendation features. Your privacy is important to us. Please review our Privacy Policy [Link to Privacy Policy - REQUIRED] for details on how we collect, use, and protect your information.
+
+**7. Premium Services & Payments (If Applicable)**
+Specific terms related to subscription fees, billing cycles, renewals, and cancellations for any premium features will be presented at the time of subscription.
+
+**8. Termination**
+We may terminate or suspend your account immediately, without prior notice or liability, for any reason whatsoever, including without limitation if you breach the Terms.
+
+**9. Disclaimers**
+The Service is provided on an "AS IS" and "AS AVAILABLE" basis. Vybr makes no warranties, expressed or implied, and hereby disclaims all other warranties including, without limitation, implied warranties of merchantability, fitness for a particular purpose, or non-infringement.
+
+**10. Limitation of Liability**
+In no event shall Vybr, nor its directors, employees, partners, agents, suppliers, or affiliates, be liable for any indirect, incidental, special, consequential or punitive damages arising out of your use of the Service.
+
+**11. Governing Law**
+These Terms shall be governed by the laws of [Your Jurisdiction - REQUIRED], without regard to its conflict of law provisions.
+
+**12. Changes to Terms**
+We reserve the right, at our sole discretion, to modify or replace these Terms at any time. We will provide notice of any changes by posting the new Terms on the Service.
+
+**13. Contact Us**
+If you have any questions about these Terms, please contact us at [Your Support Email/Contact Info - REQUIRED].
+
+**By checking the box, you acknowledge that you have read, understood, and agree to be bound by these Terms & Conditions.**`;
+
 const MusicLoverSignUpFlow = () => {
     const navigation = useNavigation();
     // Use functions from useAuth hook
@@ -87,6 +143,7 @@ const MusicLoverSignUpFlow = () => {
 
     // State variables
     const [currentStep, setCurrentStep] = useState<Step>('account-details');
+    const [isTermsModalVisible, setIsTermsModalVisible] = useState(false);
     const [isLoading, setIsLoading] = useState(false); // Component-level loading (e.g., payment sim)
     const [error, setError] = useState('');
     const slideAnim = useRef(new Animated.Value(0)).current; // Animation value
@@ -331,24 +388,40 @@ const MusicLoverSignUpFlow = () => {
                 // username: formData.username.trim(),
             });
 
-            if (signUpResult.error || !signUpResult.user?.id) {
-                const errorMsg = signUpResult.error?.message || 'Sign up failed. This username or email might already be taken.';
-                console.error('[MusicLoverSignUpFlow] signUp hook FAILED:', signUpResult.error || 'No user ID returned');
+            // Check for error property first (Type Guard)
+            if ('error' in signUpResult && signUpResult.error) {
+                const errorMsg = signUpResult.error?.message || 'Sign up failed. Unknown error.';
+                console.error('[MusicLoverSignUpFlow] signUp hook FAILED:', signUpResult.error);
                 setError(errorMsg);
                 setIsLoading(false);
                 return null;
+            } else if (!('user' in signUpResult) || !signUpResult.user?.id) {
+                // Handle case where signup succeeded technically but didn't return expected user data
+                console.error('[MusicLoverSignUpFlow] signUp hook SUCCEEDED but returned no user ID.');
+                setError('Sign up failed. Could not retrieve user details.');
+                setIsLoading(false);
+                return null;
             }
+
+            // If we reach here, signUpResult must be { user: { id: string, ... } }
             userId = signUpResult.user.id;
             console.log('[MusicLoverSignUpFlow] signUp hook SUCCEEDED. User ID:', userId);
 
             // 1b. Prepare Profile Data (using helper)
+            if (!userId) {
+                 console.error('[MusicLoverSignUpFlow] userId became null unexpectedly before profile creation.');
+                 setError('An internal error occurred. Please try again.');
+                 setIsLoading(false);
+                 return null;
+            }
             const profileDataForHook = prepareProfileData(userId);
 
             // 1c. Create Music Lover Profile in DB using the hook
             console.log('[MusicLoverSignUpFlow] Calling createMusicLoverProfile hook...');
             const profileResult = await createMusicLoverProfile(profileDataForHook);
 
-            if (profileResult.error) {
+            // Check for error property first (Type Guard)
+            if ('error' in profileResult && profileResult.error) {
                 let errorMsg = profileResult.error.message || 'Failed to save profile details.';
                 // Check for specific DB errors like unique username violation
                 if (profileResult.error?.code === '23505' && profileResult.error?.message?.includes('username')) {
@@ -400,7 +473,8 @@ const MusicLoverSignUpFlow = () => {
             // This call now also triggers navigation via checkSession({ navigateToProfile: true }) inside useAuth
             const updateResult = await updatePremiumStatus(userId, false);
 
-            if (updateResult.error) {
+            // Check for error property first (Type Guard)
+            if ('error' in updateResult && updateResult.error) {
                 console.error('[MusicLoverSignUpFlow] updatePremiumStatus(false) hook FAILED:', updateResult.error);
                 setError('Account created, but failed to set final status.');
                 Alert.alert('Status Error', 'Your account is set up, but there was an issue finalizing the status. You will have free tier access.');
@@ -464,7 +538,8 @@ const MusicLoverSignUpFlow = () => {
             console.log('[MusicLoverSignUpFlow] Calling updatePremiumStatus(true) hook...');
             const updateResult = await updatePremiumStatus(userId, true);
 
-            if (updateResult.error) {
+            // Check for error property first (Type Guard)
+            if ('error' in updateResult && updateResult.error) {
                 console.error('[MusicLoverSignUpFlow] updatePremiumStatus(true) hook FAILED:', updateResult.error);
                 setError('Payment succeeded but failed to activate premium status.');
                 Alert.alert('Activation Error', 'Payment succeeded and account created, but premium status could not be activated automatically. Please contact support.');
@@ -557,11 +632,18 @@ const MusicLoverSignUpFlow = () => {
             </View>
             {/* Terms */}
             <View style={styles.termsContainer}>
-                <TouchableOpacity style={[styles.checkbox, formData.termsAccepted && styles.checkboxChecked]} onPress={() => handleChange('termsAccepted', !formData.termsAccepted)} activeOpacity={0.7}>
+                <TouchableOpacity
+                    style={[styles.checkbox, formData.termsAccepted && styles.checkboxChecked]}
+                    onPress={() => handleChange('termsAccepted', !formData.termsAccepted)}
+                    activeOpacity={0.7}
+                >
                     {formData.termsAccepted && <Feather name="check" size={14} color="white" />}
                 </TouchableOpacity>
-                <Text style={styles.termsText} onPress={showTermsAndConditions}>
-                    I agree to the <Text style={styles.termsLink}>Terms and Conditions</Text> *
+                <Text style={styles.termsText}>
+                    I agree to the{' '}
+                    <Text style={styles.termsLink} onPress={() => setIsTermsModalVisible(true)}>{/* Open modal */}
+                        Terms and Conditions
+                    </Text> *
                 </Text>
             </View>
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -844,6 +926,12 @@ const MusicLoverSignUpFlow = () => {
                     {renderCurrentStep()}
                 </ScrollView>
 
+                {/* Terms Modal */}
+                <TermsModal
+                    visible={isTermsModalVisible}
+                    onClose={() => setIsTermsModalVisible(false)}
+                    termsText={termsAndConditionsText}
+                />
             </LinearGradient>
         </SafeAreaView>
     );

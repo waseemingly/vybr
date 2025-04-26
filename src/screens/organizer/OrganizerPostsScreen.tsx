@@ -9,6 +9,7 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { supabase } from "../../lib/supabase"; // Adjust path if needed
 import { useAuth } from "../../hooks/useAuth"; // Adjust path if needed
+import ImageSwiper from "../../components/ImageSwiper"; // <-- Import ImageSwiper
 
 // Define Param List to match AppNavigator's MainStackParamList for organizer flow
 type OrganizerStackParamList = {
@@ -31,7 +32,8 @@ interface SupabaseEventWithBookings {
 // Interface for UI display in this list
 interface OrganizerEventItem {
   id: string; title: string; date: string; time: string; venue: string;
-  image: string; status: "Upcoming" | "Completed" | "Ongoing";
+  images: string[]; // <-- Change from image: string
+  status: "Upcoming" | "Completed" | "Ongoing";
   booking_type: 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null;
   confirmedBookingsCount: number | null;
 }
@@ -102,7 +104,7 @@ const OrganizerPostsScreen = () => {
           return {
             id: event.id, title: event.title, date: date, time: time,
             venue: event.location_text ?? "N/A",
-            image: event.poster_urls?.[0] ?? DEFAULT_EVENT_IMAGE,
+            images: event.poster_urls?.length > 0 ? event.poster_urls : [DEFAULT_EVENT_IMAGE], // <-- Populate images array
             status: getEventStatus(event.event_datetime),
             booking_type: event.booking_type,
             confirmedBookingsCount: count,
@@ -141,7 +143,13 @@ const OrganizerPostsScreen = () => {
 
     return (
       <TouchableOpacity style={styles.eventCard} onPress={() => navigation.navigate("EventDetail", { eventId: item.id })}>
-        <Image source={{ uri: item.image }} style={styles.eventImage} />
+        <ImageSwiper
+            images={item.images}
+            defaultImage={DEFAULT_EVENT_IMAGE}
+            containerStyle={styles.eventImageContainer}
+            imageStyle={styles.eventImageStyle}
+            height={styles.eventImageStyle.height as number}
+         />
         <View style={styles.eventContent}>
           <View style={styles.eventHeader}><Text style={styles.eventTitle} numberOfLines={2}>{item.title}</Text><View style={[styles.statusBadge, { backgroundColor: isUpcoming ? "#EFF6FF":"#E0F2F1" }]}><Text style={[styles.statusText, { color: isUpcoming ? "#3B82F6":"#10B981" }]}>{item.status}</Text></View></View>
           <View style={styles.eventInfoRow}><Feather name="calendar" size={14} color="#6B7280" /><Text style={styles.eventInfoText}>{item.date} • {item.time}</Text></View>
@@ -208,6 +216,16 @@ const styles = StyleSheet.create({
   listContainer: { padding: 16, paddingBottom: 80, },
   eventCard: { backgroundColor: "white", borderRadius: 12, overflow: "hidden", marginBottom: 16, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3, elevation: 2, borderWidth: 1, borderColor: '#E5E7EB', },
   eventImage: { width: "100%", height: 160, backgroundColor: '#F3F4F6', },
+  eventImageStyle: {
+      height: 160,
+  },
+  eventImageContainer: {
+      width: "100%",
+      height: 160,
+      backgroundColor: '#F3F4F6',
+      borderTopLeftRadius: 12,
+      borderTopRightRadius: 12,
+  },
   eventContent: { padding: 16, },
   eventHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, },
   eventTitle: { fontSize: 18, fontWeight: "600", color: "#1F2937", flex: 1, marginRight: 8, },

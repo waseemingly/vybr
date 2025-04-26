@@ -110,6 +110,11 @@ const UserListScreen: React.FC = () => {
 
     useFocusEffect(useCallback(() => { fetchFollowers(); }, [fetchFollowers]));
 
+    // Add this useEffect to ensure back button is visible
+    useEffect(() => {
+        navigation.setOptions({ headerBackVisible: true });
+    }, [navigation]);
+
     const onRefresh = () => { fetchFollowers(true); };
 
     const renderFollowerItem = ({ item }: { item: FollowerUser }) => (

@@ -255,15 +255,6 @@ const OrganizerSettingsScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-            {/* Header */}
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                     <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Settings</Text>
-                <View style={styles.headerRightPlaceholder} />
-            </View>
-
             {/* Content */}
             <ScrollView style={styles.scrollView}>
                  <SettingsSection title="Profile Settings">
@@ -271,12 +262,7 @@ const OrganizerSettingsScreen: React.FC = () => {
                     <SettingsItem label="Change Profile Theme" icon="sun" onPress={() => Alert.alert("Theme", "TODO: Implement Theme Selection (Premium Only?)")} disabled={true /* Example: Add premium check */} />
                 </SettingsSection>
 
-                 <SettingsSection title="Privacy & Security">
-                     <SettingsItem label="Active Sessions" icon="smartphone" onPress={() => Alert.alert("Not Implemented", "Listing sessions requires specific backend setup.")} />
-                     <SettingsItem label="Log Out Everywhere Else" icon="log-out" onPress={handleLogoutAllDevices} />
-                 </SettingsSection>
-
-                <SettingsSection title="Notifications">
+                 <SettingsSection title="Notifications">
                     {/* Handle null state visually and disable toggle until loaded */}
                     <SettingsItem label="New Followers" icon="user-plus" toggleValue={notifications.notify_new_followers ?? true} onToggleChange={(v) => handleToggle('notify_new_followers', v)} isUpdating={updatingSetting === 'notify_new_followers'} disabled={notifications.notify_new_followers === null} />
                     <SettingsItem label="Event Engagement" icon="message-circle" toggleValue={notifications.notify_event_engagement ?? true} onToggleChange={(v) => handleToggle('notify_event_engagement', v)} isUpdating={updatingSetting === 'notify_event_engagement'} disabled={notifications.notify_event_engagement === null} />
@@ -312,7 +298,6 @@ const OrganizerSettingsScreen: React.FC = () => {
 const styles = StyleSheet.create({
     centeredLoader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB' },
     container: { flex: 1, backgroundColor: '#F9FAFB', },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', backgroundColor: 'white', },
     backButton: { padding: 4, },
     headerTitle: { fontSize: 18, fontWeight: '600', color: '#1F2937', },
     headerRightPlaceholder: { width: 32, },

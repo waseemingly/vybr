@@ -134,21 +134,6 @@ const EditUserProfileScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-            {/* Header */}
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                    <Feather name="x" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Edit Profile</Text>
-                <TouchableOpacity onPress={handleSave} disabled={isSaving} style={styles.saveButton}>
-                    {isSaving ? (
-                        <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} />
-                    ) : (
-                        <Text style={styles.saveButtonText}>Save</Text>
-                    )}
-                </TouchableOpacity>
-            </View>
-
             {/* Content */}
             <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
                 <Text style={styles.sectionTitle}>Basic Information</Text>
@@ -210,20 +195,6 @@ const EditUserProfileScreen: React.FC = () => {
 const styles = StyleSheet.create({
     centeredLoader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB' },
     container: { flex: 1, backgroundColor: '#F9FAFB' },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB',
-        backgroundColor: 'white',
-    },
-    backButton: { padding: 4 },
-    headerTitle: { fontSize: 18, fontWeight: '600', color: '#1F2937' },
-    saveButton: { paddingVertical: 4, paddingHorizontal: 8 },
-    saveButtonText: { fontSize: 16, fontWeight: '600', color: APP_CONSTANTS.COLORS.PRIMARY },
     scrollView: { flex: 1 },
     scrollContent: { padding: 20 },
     sectionTitle: {
