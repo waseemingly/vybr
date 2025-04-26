@@ -2,12 +2,14 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     View, StyleSheet, ActivityIndicator, Text, TouchableOpacity,
-    Platform, TextInput, SectionList, KeyboardAvoidingView, Keyboard
+    Platform, TextInput, SectionList, KeyboardAvoidingView, Keyboard,
+    Image
 } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -20,6 +22,9 @@ type RootNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 interface DbMessage { id: string; created_at: string; sender_id: string; receiver_id: string; content: string; }
 interface ChatMessage { _id: string; text: string; createdAt: Date; user: { _id: string; }; }
 interface MessageBubbleProps { message: ChatMessage; currentUserId: string | undefined; }
+
+// Add DEFAULT_PROFILE_PIC constant
+const DEFAULT_PROFILE_PIC = APP_CONSTANTS.DEFAULT_PROFILE_PIC;
 
 // Helper to format timestamps
 const formatTime = (date: Date) => date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
@@ -64,6 +69,7 @@ const IndividualChatScreen: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [isMatchMuted, setIsMatchMuted] = useState(false);
     const [isBlocked, setIsBlocked] = useState(false); // Covers block in either direction
+    const [isChatMutuallyInitiated, setIsChatMutuallyInitiated] = useState(false); // <<< NEW STATE
 
     const currentUserId = session?.user?.id;
     const flatListRef = useRef<SectionList<any>>(null);
@@ -71,6 +77,28 @@ const IndividualChatScreen: React.FC = () => {
     const mapDbMessageToChatMessage = useCallback((dbMessage: DbMessage): ChatMessage => ({
          _id: dbMessage.id, text: dbMessage.content, createdAt: new Date(dbMessage.created_at), user: { _id: dbMessage.sender_id, },
     }), []);
+
+    // --- Helper to add match user to chatted list in AsyncStorage --- // <<< NEW FUNCTION
+    const markChatAsInitiatedInStorage = useCallback(async (userIdToMark: string) => {
+        if (!currentUserId) return;
+        const storageKey = `@ChattedUserIds_${currentUserId}`;
+        try {
+            const existingJson = await AsyncStorage.getItem(storageKey);
+            const existingIds = existingJson ? JSON.parse(existingJson) : [];
+            const idSet = new Set<string>(existingIds);
+
+            if (!idSet.has(userIdToMark)) {
+                idSet.add(userIdToMark);
+                const newJson = JSON.stringify(Array.from(idSet));
+                await AsyncStorage.setItem(storageKey, newJson);
+                console.log(`[ChatScreen] Marked ${userIdToMark} as chatted in AsyncStorage.`);
+            } else {
+                // console.log(`[ChatScreen] ${userIdToMark} already marked as chatted.`);
+            }
+        } catch (e) {
+            console.error("[ChatScreen] Failed to update chatted IDs in storage:", e);
+        }
+    }, [currentUserId]);
 
     // --- Fetch Mute and Block Status ---
     const fetchInteractionStatus = useCallback(async () => {
@@ -118,6 +146,20 @@ const IndividualChatScreen: React.FC = () => {
          }
     }, [currentUserId, matchUserId, error]); // Added error to dependency to potentially clear it
 
+    // --- Check Mutual Initiation --- // <<< NEW FUNCTION
+    const checkMutualInitiation = useCallback((currentMessages: ChatMessage[]) => {
+        if (!currentUserId || !matchUserId) {
+            setIsChatMutuallyInitiated(false);
+            return false;
+        }
+        const currentUserSent = currentMessages.some(msg => msg.user._id === currentUserId);
+        const matchUserSent = currentMessages.some(msg => msg.user._id === matchUserId);
+        const mutuallyInitiated = currentUserSent && matchUserSent;
+        setIsChatMutuallyInitiated(mutuallyInitiated);
+        console.log(`[ChatScreen] Mutual initiation check: UserSent=${currentUserSent}, MatchSent=${matchUserSent}, Result=${mutuallyInitiated}`);
+        return mutuallyInitiated;
+    }, [currentUserId, matchUserId]);
+
     // --- Fetch Messages ---
     const fetchMessages = useCallback(async () => {
         if (!currentUserId || !matchUserId || isBlocked) { // Added block check
@@ -136,33 +178,51 @@ const IndividualChatScreen: React.FC = () => {
 
             if (fetchError) throw fetchError;
             if (data) {
-                setMessages(data.map(mapDbMessageToChatMessage));
+                const fetchedChatMessages = data.map(mapDbMessageToChatMessage);
+                setMessages(fetchedChatMessages);
+                checkMutualInitiation(fetchedChatMessages); // <<< Check initiation after fetch
                 console.log(`[ChatScreen] Fetched ${data.length} messages.`);
             } else {
                 setMessages([]);
+                setIsChatMutuallyInitiated(false); // <<< Reset if no messages
                  console.log(`[ChatScreen] No messages found.`);
             }
         } catch (err: any) {
             console.error("[ChatScreen] Error fetching messages:", err);
             setError("Could not load messages.");
             setMessages([]); // Clear messages on error
+            setIsChatMutuallyInitiated(false); // <<< Reset on error
         } finally {
             setLoading(false);
         }
-    }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage]); // isBlocked is crucial
+    }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage, checkMutualInitiation]); // isBlocked & checkMutualInitiation crucial
 
     // --- Send Message ---
     const sendMessage = useCallback(async (text: string) => {
          if (!currentUserId || !matchUserId || !text.trim() || isBlocked) { return; }
+
+         // Check if current user has sent a message before in this session
+         const currentUserHasSentBefore = messages.some(msg => msg.user._id === currentUserId);
+
          const tempId = `temp_${Date.now()}`;
          const newMessage: ChatMessage = { _id: tempId, text: text.trim(), createdAt: new Date(), user: { _id: currentUserId } };
+
          setMessages(previousMessages => [...previousMessages, newMessage]);
          setInputText('');
+         // Optimistically check initiation after adding temp message
+         setMessages(prev => { checkMutualInitiation(prev); return prev; });
          Keyboard.dismiss();
+
+         // If this is the first message from the current user, mark the chat in storage
+         if (!currentUserHasSentBefore) {
+             console.log("[ChatScreen] First message by current user. Marking chat in storage.");
+             markChatAsInitiatedInStorage(matchUserId);
+         }
+
          const { error: insertError } = await supabase.from('messages').insert({ sender_id: currentUserId, receiver_id: matchUserId, content: newMessage.text });
-         if (insertError) { console.error("Error sending message:", insertError); setError("Failed to send message."); setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempId)); setInputText(newMessage.text); }
+         if (insertError) { console.error("Error sending message:", insertError); setError("Failed to send message."); setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempId)); setInputText(newMessage.text); checkMutualInitiation(messages.filter(msg => msg._id !== tempId)); /* Recheck on failure */ }
          else { console.log("Message insert successful."); setError(null); } // Clear error on success
-    }, [currentUserId, matchUserId, isBlocked]);
+    }, [currentUserId, matchUserId, isBlocked, checkMutualInitiation, markChatAsInitiatedInStorage, messages]); // <<< Added dependencies
     const handleSendPress = () => { sendMessage(inputText); };
 
     // --- Effects ---
@@ -174,6 +234,7 @@ const IndividualChatScreen: React.FC = () => {
             // Update the name from route params in case it changed somehow
             const currentName = route.params.matchName || 'Chat';
             setDynamicMatchName(currentName);
+            const profilePicUri = route.params.matchProfilePicture; // Get profile picture URI
 
             // Fetch the latest mute/block status
              fetchInteractionStatus(); // This now also handles setting block error messages
@@ -190,17 +251,24 @@ const IndividualChatScreen: React.FC = () => {
                  ),
                  // Render header title component dynamically
                  headerTitle: () => {
-                    // Use the state variable for the name
+                    // Get the current state values directly during render
                     const isCurrentlyBlocked = isBlocked;
                     const isCurrentlyMuted = isMatchMuted;
-                    const title = isCurrentlyBlocked ? "User Unavailable" : (dynamicMatchName || 'Chat'); // Use dynamicMatchName state
+                    const title = isCurrentlyBlocked ? "User Unavailable" : (dynamicMatchName || 'Chat');
+                    const isMutuallyInitiated = isChatMutuallyInitiated; // <<< Get current state value
+                    const canNavigateToProfile = !isCurrentlyBlocked && isMutuallyInitiated; // <<< Recalculate here
 
                     return (
                         <TouchableOpacity
                             onPress={() => navigation.navigate('OtherUserProfileScreen', { userId: matchUserId })}
                             style={styles.headerTitleContainer}
-                            disabled={isCurrentlyBlocked}
+                            disabled={!canNavigateToProfile} // <<< Disable based on recalculation
                         >
+                           {/* Add Profile Picture Here */}
+                           <Image
+                                source={{ uri: profilePicUri ?? DEFAULT_PROFILE_PIC }}
+                                style={styles.headerProfileImage}
+                            />
                             <Text style={[styles.headerTitleText, isCurrentlyBlocked && styles.blockedText]} numberOfLines={1}>
                                 {title}
                             </Text>
@@ -214,7 +282,7 @@ const IndividualChatScreen: React.FC = () => {
                  headerStyle: { backgroundColor: 'white' },
              });
 
-        }, [navigation, matchUserId, route.params.matchName, fetchInteractionStatus, isBlocked, isMatchMuted]) // Add isBlocked/isMatchMuted to re-render header when they change
+        }, [navigation, matchUserId, route.params.matchName, route.params.matchProfilePicture, fetchInteractionStatus, isBlocked, isMatchMuted, isChatMutuallyInitiated]) // Add profile pic URI to dependencies
     );
 
     // Fetch initial messages AFTER checking block status
@@ -266,6 +334,9 @@ const IndividualChatScreen: React.FC = () => {
             .subscribe((status, err) => {
                  if (status === 'SUBSCRIBED') console.log('[ChatScreen] Realtime channel subscribed');
                  if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') { console.error(`[ChatScreen] Realtime error: ${status}`, err); setError('Realtime connection issue.'); }
+
+                 // Check initiation when message is added via subscription
+                 setMessages(prev => { checkMutualInitiation(prev); return prev; });
             });
 
         // Cleanup subscription
@@ -273,7 +344,7 @@ const IndividualChatScreen: React.FC = () => {
             console.log(`[ChatScreen] Unsubscribing from channel for ${matchUserId}`);
             supabase.removeChannel(channel);
         };
-    }, [currentUserId, matchUserId, mapDbMessageToChatMessage, isBlocked]); // isBlocked is crucial
+    }, [currentUserId, matchUserId, mapDbMessageToChatMessage, isBlocked, checkMutualInitiation]); // isBlocked & checkMutualInitiation crucial
 
     // Group messages by date for section headers
     const sections = useMemo(() => {
@@ -419,6 +490,13 @@ const styles = StyleSheet.create({
     sendButton: { backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', },
     sendButtonDisabled: { backgroundColor: '#9CA3AF', },
     headerTitleContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexShrink: 1 },
+    headerProfileImage: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        marginRight: 8,
+        backgroundColor: '#E5E7EB',
+    },
     headerTitleText: { fontSize: 17, fontWeight: '600', color: '#000000', textAlign: 'center', },
     muteIcon: { marginLeft: 6, },
     blockedText: { color: '#6B7280', fontStyle: 'italic', },

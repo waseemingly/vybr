@@ -50,31 +50,47 @@ const OrganizerProfileScreen: React.FC = () => {
   // Fetch organizer stats (Add follower count query)
   const fetchOrganizerStats = useCallback(async () => {
       if (!userId) return;
-      if(!refreshing) setStatsLoading(true);
+      if (!refreshing) setStatsLoading(true);
       setStatsError(null);
       try {
-          const now=new Date().toISOString();
-          const [totalR, upcomingR, pastR, followerR] = await Promise.all([
-                supabase.from('events').select('*',{count:'exact',head:true}).eq('organizer_id',userId),
-                supabase.from('events').select('*',{count:'exact',head:true}).eq('organizer_id',userId).gt('event_datetime',now),
-                supabase.from('events').select('*',{count:'exact',head:true}).eq('organizer_id',userId).lte('event_datetime',now),
-                supabase.from('organizer_follows').select('*', {count: 'exact', head: true}).eq('organizer_id', userId) // <-- Fetch follower count
-           ]);
-          if (totalR.error||upcomingR.error||pastR.error||followerR.error) {
-             console.warn("Stats DB Error:", totalR.error || upcomingR.error || pastR.error || followerR.error);
-             throw new Error("Stats DB Error");
+          const now = new Date().toISOString();
+          // Use Promise.all but replace follower count with RPC call
+          const [totalR, upcomingR, pastR, followerRpcRes] = await Promise.all([
+              supabase.from('events').select('*.*', { count: 'exact', head: true }).eq('organizer_id', userId),
+              supabase.from('events').select('*.*', { count: 'exact', head: true }).eq('organizer_id', userId).gt('event_datetime', now),
+              supabase.from('events').select('*.*', { count: 'exact', head: true }).eq('organizer_id', userId).lte('event_datetime', now),
+              supabase.rpc('get_organizer_follower_count', { p_organizer_id: userId }) // <-- Use RPC function
+          ]);
+
+          // Check RPC error first
+          if (followerRpcRes.error) {
+              console.error("[OrganizerProfileScreen] RPC Error fetching follower count:", followerRpcRes.error);
+              throw new Error(`Follower Count RPC Error: ${followerRpcRes.error.message}`);
           }
-           setStats({
-               totalEvents: totalR.count ?? 0,
-               upcomingEvents: upcomingR.count ?? 0,
-               pastEvents: pastR.count ?? 0,
-               followerCount: followerR.count ?? 0 // <-- Set follower count
-           });
-      } catch (e:any){
+          // Check other errors
+          if (totalR.error || upcomingR.error || pastR.error) {
+              console.warn("Stats DB Error:", totalR.error || upcomingR.error || pastR.error);
+              // Decide if partial data is okay or throw
+              // For now, we proceed but the counts might be inaccurate if there was an error
+          }
+          
+          // Extract follower count from RPC result
+          const followerCount = typeof followerRpcRes.data === 'number' ? followerRpcRes.data : 0;
+          
+          setStats({
+              totalEvents: totalR.count ?? 0,
+              upcomingEvents: upcomingR.count ?? 0,
+              pastEvents: pastR.count ?? 0,
+              followerCount: followerCount // <-- Set follower count from RPC
+          });
+
+          console.log(`[OrganizerProfileScreen] Stats fetched: Followers=${followerCount}, Events=${totalR.count}`);
+
+      } catch (e: any) {
           console.error("Stats Err:", e);
           setStatsError(`Stats Error: ${e.message}`);
           // Reset all stats on error
-          setStats({totalEvents:null,upcomingEvents:null,pastEvents:null, followerCount: null});
+          setStats({ totalEvents: null, upcomingEvents: null, pastEvents: null, followerCount: null });
       } finally {
           setStatsLoading(false);
           setRefreshing(false);
@@ -88,10 +104,12 @@ const OrganizerProfileScreen: React.FC = () => {
   if (!session || !organizerProfile) return ( <SafeAreaView style={styles.centered}><Feather name="alert-circle" size={40} color="#FFA500" /><Text style={styles.errorText}>Profile Error</Text><Text style={styles.errorSubText}>{ !session?"Not logged in.":"Profile incomplete."}</Text><TouchableOpacity style={[styles.logoutButton,{marginTop:20,backgroundColor:!session?APP_CONSTANTS.COLORS.PRIMARY:'#EF4444'}]} onPress={()=>!session?navigation.navigate('Auth'):logout()}><Feather name={!session?"log-in":"log-out"} size={18} color="#FFF" /><Text style={styles.logoutButtonText}>{!session?"Go to Login":"Logout"}</Text></TouchableOpacity></SafeAreaView>);
 
   // Data Extraction (Keep as before)
-  const { companyName, logo, bio, email: contactEmail, phoneNumber, website, businessType } = organizerProfile;
+  const { companyName, logo, bio, email: contactEmail, phoneNumber, website, businessType /* Removed average_rating */ } = organizerProfile || {};
   const businessTypeFormatted = formatBusinessType(businessType);
   const logoUrl = logo ?? DEFAULT_ORGANIZER_LOGO;
-  const rating="N/A"; const reviews="N/A"; const location="N/A"; const specialties: string[]=[]; const recentEvents: any[]=[]; // Placeholders
+  // Set displayRating based on stats if needed, or remove if not used
+  const displayRating = "N/A"; // Placeholder or derive from another source
+  const reviews="N/A"; const location="N/A"; const specialties: string[]=[]; const recentEvents: any[]=[]; // Placeholders
 
   // openLink function (Keep as before)
    const openLink = async (url: string | null | undefined, type: 'web' | 'email' | 'tel') => { if(!url)return; let fUrl=url; if(type==='email'&&!url.startsWith('mailto:'))fUrl=`mailto:${url}`; else if(type==='tel'&&!url.startsWith('tel:'))fUrl=`tel:${url.replace(/\s+/g,'')}`; else if(type==='web'&&!url.startsWith('http'))fUrl=`https://${url}`; try{const s=await Linking.canOpenURL(fUrl); if(s)await Linking.openURL(fUrl); else Alert.alert("Error",`Cannot open: ${url}`);}catch(e){Alert.alert("Error","Failed to open.");}};
@@ -130,7 +148,13 @@ const OrganizerProfileScreen: React.FC = () => {
                     <View style={styles.statDivider} />
                     <View style={styles.statItem}>{statsLoading?<ActivityIndicator size="small"/>:<Text style={styles.statValue}>{stats.totalEvents??'N/A'}</Text>}<Text style={styles.statLabel}>Events</Text></View>
                     <View style={styles.statDivider} />
-                    <View style={styles.statItem}><Text style={styles.statValue}>{rating}</Text><Text style={styles.statLabel}>Rating</Text></View>
+                    <View style={styles.statItem}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                             <Feather name="star" size={14} color={APP_CONSTANTS.COLORS.DISABLED} style={{ marginRight: 4, marginTop: -2 }} />
+                             <Text style={styles.statValue}>{displayRating}</Text>
+                        </View>
+                        <Text style={styles.statLabel}>Rating</Text>
+                    </View>
                 </View>
                 <Text style={styles.bio}>{bio ?? "No description."}</Text>
                 <TouchableOpacity style={styles.createEventButton} onPress={() => navigation.navigate('MainApp', { screen: 'OrganizerTabs', params: { screen: 'Create'} })} ><Feather name="plus" size={16} color="#FFF" /><Text style={styles.createEventButtonText}>Create New Event</Text></TouchableOpacity>
@@ -151,7 +175,7 @@ const OrganizerProfileScreen: React.FC = () => {
              </TouchableOpacity>
         </Section>
         <Section title="Performance" icon="bar-chart-2">
-          {statsLoading?<View style={styles.centered}><ActivityIndicator color={APP_CONSTANTS.COLORS.PRIMARY}/></View> : statsError?<Text style={[styles.errorText,{marginTop:0,marginBottom:10}]}>{statsError}</Text> : (<View style={styles.statsGrid}><View style={styles.statBox}><Feather name="calendar" size={24} color="#3B82F6" /><Text style={styles.statBoxValue}>{stats.upcomingEvents ?? 'N/A'}</Text><Text style={styles.statBoxLabel}>Upcoming</Text></View><View style={styles.statBox}><Feather name="check-circle" size={24} color="#10B981" /><Text style={styles.statBoxValue}>{stats.pastEvents ?? 'N/A'}</Text><Text style={styles.statBoxLabel}>Completed</Text></View><View style={styles.statBox}><Feather name="users" size={24} color="#F59E0B" /><Text style={styles.statBoxValue}>{reviews}</Text><Text style={styles.statBoxLabel}>Reviews</Text></View></View>)}
+          {statsLoading?<View style={styles.centered}><ActivityIndicator color={APP_CONSTANTS.COLORS.PRIMARY}/></View> : statsError?<Text style={[styles.errorText,{marginTop:0,marginBottom:10}]}>{statsError}</Text> : (<View style={styles.statsGrid}><View style={styles.statBox}><Feather name="calendar" size={24} color="#3B82F6" /><Text style={styles.statBoxValue}>{stats.upcomingEvents ?? 'N/A'}</Text><Text style={styles.statBoxLabel}>Upcoming</Text></View><View style={styles.statBox}><Feather name="check-circle" size={24} color="#10B981" /><Text style={styles.statBoxValue}>{stats.pastEvents ?? 'N/A'}</Text><Text style={styles.statBoxLabel}>Completed</Text></View><View style={styles.statBox}><Feather name="star" size={24} color="#F59E0B" /><Text style={styles.statBoxValue}>{displayRating}</Text><Text style={styles.statBoxLabel}>Avg Rating</Text></View></View>)}
         </Section>
         <TouchableOpacity style={styles.logoutButton} onPress={logout}><Feather name="log-out" size={18} color="#FFF" /><Text style={styles.logoutButtonText}>Logout</Text></TouchableOpacity>
          {/* Removed large mode switch button as it's in the header now */}

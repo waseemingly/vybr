@@ -271,20 +271,26 @@ const CreateGroupChatScreen = () => {
             // Step 1: Call RPC to create the group record (without image URL initially)
              console.log(`Calling RPC 'create_group_chat' with name: ${groupNameInput}, members:`, membersToCreate);
              const { data: newGroupData, error: rpcError } = await supabase.rpc(
-                 'create_group_chat', // Use the *updated* RPC below
+                 'create_group_chat', 
                  {
                      member_ids: membersToCreate,
                      group_name_input: groupNameInput,
-                     // group_image_input: null // Initially null or omit if handled separately
                  }
              );
 
              if (rpcError) {
                  throw new Error(rpcError.message || "Database error during group creation.");
              }
-             if (!newGroupData?.group_id) throw new Error("Group created, but failed to retrieve group ID.");
+             
+             // Added safety check to better handle the response structure
+             if (!newGroupData) throw new Error("Group creation failed - no data returned");
+             
+             // Extract the group_id safely with explicit type checking
+             const newGroupId = typeof newGroupData === 'object' && newGroupData !== null ? 
+                 (newGroupData.group_id || newGroupData.id || null) : null;
+                 
+             if (!newGroupId) throw new Error("Group created, but failed to retrieve group ID.");
 
-             const newGroupId = newGroupData.group_id;
              console.log("Group record created successfully via RPC, Group ID:", newGroupId);
 
              // Step 2: Upload image if selected
@@ -295,28 +301,37 @@ const CreateGroupChatScreen = () => {
                  // Step 3: If upload successful, update the group record with the image URL
                  if (uploadedImageUrl) {
                       console.log("[CreateGroupChat] Updating group record with image URL:", uploadedImageUrl);
-                     const { error: updateError } = await supabase
-                         .from('group_chats')
-                         .update({ group_image: uploadedImageUrl, updated_at: new Date().toISOString() }) // Update image and timestamp
-                         .eq('id', newGroupId)
-                         .select() // request the updated row back
-                         .single(); // expect a single row
-
-                     if (updateError) {
-                        // Log warning but proceed - group exists, image upload failed to save URL
-                         console.warn("[CreateGroupChat] Failed to update group with image URL:", updateError.message);
-                         Alert.alert("Warning", "Group created, but failed to save the group image. You can try adding it later.");
-                     } else {
-                         console.log("[CreateGroupChat] Group record updated with image URL.");
+                     try {
+                         const { error: updateError } = await supabase
+                             .from('group_chats')
+                             .update({ 
+                                 group_image: uploadedImageUrl, 
+                                 updated_at: new Date().toISOString() 
+                             })
+                             .eq('id', newGroupId);
+    
+                         if (updateError) {
+                             console.warn("[CreateGroupChat] Failed to update group with image URL:", updateError.message);
+                             Alert.alert("Warning", "Group created, but failed to save the group image. You can try adding it later.");
+                         } else {
+                             console.log("[CreateGroupChat] Group record updated with image URL.");
+                         }
+                     } catch (updateErr) {
+                         // Handle any exception during the update
+                         console.error("[CreateGroupChat] Exception during group image update:", updateErr);
+                         Alert.alert("Warning", "Group created, but an error occurred saving the group image.");
                      }
                  }
              }
 
+             // Get the final group name to use (from response or input)
+             const finalGroupName = newGroupData.group_name || groupNameInput;
+             
              // Step 4: Navigate to the new group chat screen
              navigation.replace('GroupChatScreen', {
                  groupId: newGroupId,
-                 groupName: newGroupData.group_name, // Use name from response
-                 groupImage: uploadedImageUrl ?? newGroupData.group_image, // Use uploaded URL if available, else from RPC (might be null)
+                 groupName: finalGroupName,
+                 groupImage: uploadedImageUrl || null, // Explicitly set null if no upload
              });
 
         } catch (err: any) {

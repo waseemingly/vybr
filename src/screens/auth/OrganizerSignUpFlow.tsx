@@ -1,6 +1,6 @@
 // components/Auth/OrganizerSignUpFlow.tsx (or wherever it resides)
-import React, { useState, useEffect } from 'react'; // Add useEffect
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image, Platform } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react'; // Add useRef
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image, Platform, Dimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -10,10 +10,58 @@ import { APP_CONSTANTS } from '@/config/constants';
 // Remove direct supabase import if not needed for other things
 // import { supabase } from '@/lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
+import TermsModal from '@/components/TermsModal'; // Import the modal
 
-// Step types remain the same
-type Step = 'company-details' | 'contact-branding' | 'payment';
-type BusinessType = 'venue' | 'promoter' | 'artist_management' | 'festival_organizer' | 'other';
+// --- Define types --- 
+// type Step = 'account-details' | 'profile-details' | 'payment';
+type BusinessType = 'venue' | 'promoter' | 'artist_management' | 'festival_organizer' | 'other' | '';
+// Correct the Step type definition based on usage in the component
+type Step = 'account-details' | 'profile-details' | 'payment';
+
+// Define window width for animations (Assuming SCREEN_WIDTH is needed)
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// --- Placeholder Terms Text (Defined outside component) ---
+const termsAndConditionsText = `**Vybr Organizer Terms & Conditions (Placeholder)**
+
+**Last Updated: [Date]**
+
+Welcome to Vybr for Organizers! Please read these Terms & Conditions ("Terms") carefully before using the Vybr mobile application ("Service") as an Event Organizer.
+
+**1. Acceptance of Terms**
+By accessing or using the Service as an Organizer, you agree to be bound by these Terms, in addition to the general Vybr Terms & Conditions applicable to all users. If you disagree with any part of these terms, you may not access the Service as an Organizer. **This is a placeholder text and not legally binding. You must consult with a legal professional to draft comprehensive and compliant Terms & Conditions.**
+
+**2. Description of Service for Organizers**
+Vybr allows verified Organizers to create event listings, manage event details, view attendee information (subject to privacy constraints), and potentially utilize promotional tools.
+
+**3. Organizer Account & Verification**
+You are responsible for maintaining the confidentiality of your Organizer account. You agree to provide accurate and verifiable information during the sign-up and verification process. Vybr reserves the right to approve or deny Organizer accounts.
+
+**4. Event Listings & Content**
+You are solely responsible for the accuracy, legality, and content of the events you list on Vybr. You warrant that you have all necessary rights and permissions to list and promote your events. You agree not to post misleading, fraudulent, or prohibited event content.
+
+**5. User Data & Privacy**
+You may receive access to limited information about users who interact with your events (e.g., attendees, followers). You agree to use this information solely for the purpose of managing your event and communicating relevant event information, in compliance with Vybr's Privacy Policy and all applicable data protection laws. Misuse of user data is strictly prohibited.
+
+**6. Fees & Payments (If Applicable)**
+Terms related to any listing fees, service charges, or payment processing for ticketed/paid events will be outlined in a separate Organizer Agreement or within the specific feature interface.
+
+**7. Organizer Conduct**
+You agree to conduct your activities on Vybr professionally and ethically. You will respond promptly to user inquiries related to your events. You will adhere to all general user conduct rules outlined in the main Vybr Terms & Conditions.
+
+**8. Indemnification**
+You agree to indemnify and hold harmless Vybr, its affiliates, officers, agents, and employees from any claim or demand made by any third party due to or arising out of your use of the Service as an Organizer, your violation of these Terms, or your violation of any rights of another.
+
+**9. Disclaimers & Liability**
+Refer to the main Vybr Terms & Conditions for general disclaimers and limitations of liability. Vybr is not responsible for the execution, quality, or safety of events listed by Organizers.
+
+**10. Governing Law & Changes**
+Refer to the main Vybr Terms & Conditions.
+
+**11. Contact Us**
+Refer to the main Vybr Terms & Conditions.
+
+**By checking the box, you acknowledge that you have read, understood, and agree to be bound by these Organizer Terms & Conditions.**`;
 
 const OrganizerSignUpFlow = () => {
   const navigation = useNavigation();
@@ -42,12 +90,13 @@ const OrganizerSignUpFlow = () => {
     },
   });
 
-  const [currentStep, setCurrentStep] = useState<Step>('company-details');
+  const [currentStep, setCurrentStep] = useState<Step>('account-details');
   // Use a local loading state, but consider authLoading for disabling actions during auth operations
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false); // Keep for logo upload UI feedback
   const [slideAnim] = useState(new Animated.Value(0));
+  const [isTermsModalVisible, setIsTermsModalVisible] = useState(false);
 
   // Request permissions on mount
   useEffect(() => {
@@ -103,7 +152,7 @@ const OrganizerSignUpFlow = () => {
   };
 
   // Validation functions (remain mostly the same)
-  const validateCompanyDetailsStep = () => {
+  const validateAccountDetailsStep = () => {
       // ... (keep existing validation)
     if (!formData.companyName.trim()) { setError('Please enter your company name'); return false; }
     if (!formData.email.trim()) { setError('Please enter your company email'); return false; }
@@ -116,7 +165,7 @@ const OrganizerSignUpFlow = () => {
     return true;
   };
 
-  const validateContactBrandingStep = () => {
+  const validateProfileDetailsStep = () => {
     // ... (keep existing validation - logo is optional)
      if (!formData.businessType) { setError('Please select your business type'); return false; }
     return true;
@@ -251,14 +300,14 @@ const OrganizerSignUpFlow = () => {
     setError(''); // Clear error before validation/action
 
     switch (currentStep) {
-      case 'company-details':
-        if (validateCompanyDetailsStep()) {
-          goToNextStep('contact-branding');
+      case 'account-details':
+        if (validateAccountDetailsStep()) {
+          goToNextStep('profile-details');
         }
         break;
 
-      case 'contact-branding':
-        if (validateContactBrandingStep()) {
+      case 'profile-details':
+        if (validateProfileDetailsStep()) {
           goToNextStep('payment');
         }
         break;
@@ -271,7 +320,7 @@ const OrganizerSignUpFlow = () => {
   };
 
   // Render company details step (No changes needed)
-  const renderCompanyDetailsStep = () => (
+  const renderAccountDetailsStep = () => (
       // ... No changes here ...
       <View style={styles.stepContent}>
           <Text style={styles.stepTitle}>Company Details</Text>
@@ -336,9 +385,9 @@ const OrganizerSignUpFlow = () => {
               </TouchableOpacity>
               <Text style={styles.termsText}>
                   I agree to the{' '}
-                  <Text style={styles.termsLink} onPress={showTermsAndConditions}>
-                      Terms and Conditions
-                  </Text>
+                  <Text style={styles.termsLink} onPress={() => setIsTermsModalVisible(true)}>
+                      Organizer Terms and Conditions
+                  </Text> *
               </Text>
           </View>
 
@@ -347,7 +396,7 @@ const OrganizerSignUpFlow = () => {
   );
 
   // Render contact and branding step (Update Logo Upload)
-  const renderContactBrandingStep = () => (
+  const renderProfileDetailsStep = () => (
       <View style={styles.stepContent}>
           <Text style={styles.stepTitle}>Contact & Branding</Text>
 
@@ -527,13 +576,13 @@ const OrganizerSignUpFlow = () => {
       const buttonAction = currentStep === 'payment' ? handleCompleteSignup : handleStepSubmit;
 
     switch (currentStep) {
-      case 'company-details':
-      case 'contact-branding':
+      case 'account-details':
+      case 'profile-details':
       case 'payment': // All steps now use the same structure
         return (
           <View style={styles.stepContainer}>
-            {currentStep === 'company-details' && renderCompanyDetailsStep()}
-            {currentStep === 'contact-branding' && renderContactBrandingStep()}
+            {currentStep === 'account-details' && renderAccountDetailsStep()}
+            {currentStep === 'profile-details' && renderProfileDetailsStep()}
             {currentStep === 'payment' && renderPaymentStep()}
 
             <TouchableOpacity
@@ -558,6 +607,17 @@ const OrganizerSignUpFlow = () => {
     }
   };
 
+  const goToPreviousStep = (prevStep: Step) => {
+    // Prevent back during loading
+    if (isLoading || authLoading) return;
+
+    Animated.timing(slideAnim, { toValue: SCREEN_WIDTH, duration: 300, useNativeDriver: true }).start(() => {
+      setCurrentStep(prevStep);
+      slideAnim.setValue(-SCREEN_WIDTH); // Move off-screen to the left
+      Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+    });
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient
@@ -569,10 +629,10 @@ const OrganizerSignUpFlow = () => {
             <TouchableOpacity
                 style={styles.backButton}
                 onPress={() => {
-                    if (currentStep === 'company-details') {
+                    if (currentStep === 'account-details') {
                         navigation.goBack();
                     } else {
-                        const steps: Step[] = ['company-details', 'contact-branding', 'payment'];
+                        const steps: Step[] = ['account-details', 'profile-details', 'payment'];
                         const currentIndex = steps.indexOf(currentStep);
                         if (currentIndex > 0) {
                             // Go back with animation (optional, reuse goToNextStep logic reversed?)
@@ -588,8 +648,8 @@ const OrganizerSignUpFlow = () => {
                 <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
             </TouchableOpacity>
             <View style={styles.stepIndicatorContainer}>
-                <View style={[styles.stepIndicator, currentStep === 'company-details' ? styles.stepIndicatorActive : {}]} />
-                <View style={[styles.stepIndicator, currentStep === 'contact-branding' ? styles.stepIndicatorActive : {}]} />
+                <View style={[styles.stepIndicator, currentStep === 'account-details' ? styles.stepIndicatorActive : {}]} />
+                <View style={[styles.stepIndicator, currentStep === 'profile-details' ? styles.stepIndicatorActive : {}]} />
                 <View style={[styles.stepIndicator, currentStep === 'payment' ? styles.stepIndicatorActive : {}]} />
             </View>
             {/* Add a placeholder view to balance the header if needed */}
@@ -610,6 +670,14 @@ const OrganizerSignUpFlow = () => {
             {renderCurrentStep()}
           </Animated.View>
         </ScrollView>
+
+        {/* Terms Modal */}
+        <TermsModal
+            visible={isTermsModalVisible}
+            onClose={() => setIsTermsModalVisible(false)}
+            termsText={termsAndConditionsText} // Uses the organizer-specific text
+            title="Organizer Terms & Conditions"
+        />
       </LinearGradient>
     </SafeAreaView>
   );

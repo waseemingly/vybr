@@ -9,6 +9,7 @@ import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { Linking } from 'react-native';
 
 // --- !!! ADJUST PATHS !!! ---
 import { supabase } from "@/lib/supabase"; // Assuming standard path
@@ -19,7 +20,8 @@ import { OrganizerProfile } from '@/hooks/useAuth'; // Import OrganizerProfile t
 // ----------------------------
 
 // --- Navigation and Route Types ---
-// Add ViewOrganizerProfileScreen to RootStackParamList if not already done
+// Ensure RootStackParamList defines: ViewOrganizerProfileScreen: { organizerUserId: string };
+type ViewOrganizerProfileRouteParams = { organizerUserId?: string };
 type ViewOrganizerProfileRouteProp = RouteProp<RootStackParamList, 'ViewOrganizerProfileScreen'>;
 type ViewOrganizerProfileNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>;
 
@@ -29,11 +31,24 @@ const DEFAULT_ORGANIZER_LOGO = APP_CONSTANTS?.DEFAULT_ORGANIZER_LOGO || 'https:/
 // --- Helper Functions ---
 const formatBusinessType = (type?: string | null): string | null => { if (!type) return null; return type.replace(/_/g, ' ').replace(/-/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' '); };
 
+// Helper to try opening links (add Linking import if not present)
+const tryOpenLink = async (url: string | null | undefined) => {
+    if (!url) return;
+    const supported = await Linking.canOpenURL(url);
+    if (supported) {
+        await Linking.openURL(url);
+    } else {
+        Alert.alert(`Don't know how to open this URL: ${url}`);
+    }
+};
+
 // --- Component ---
 const ViewOrganizerProfileScreen: React.FC = () => {
     const navigation = useNavigation<ViewOrganizerProfileNavigationProp>();
     const route = useRoute<ViewOrganizerProfileRouteProp>();
-    const { organizerUserId } = route.params; // Get organizer's user ID from route params
+    // Get organizer's user ID from route params, handling potential unknown type
+    const params = route.params as ViewOrganizerProfileRouteParams | undefined;
+    const organizerUserId = params?.organizerUserId;
     const { session, loading: authLoading } = useAuth(); // Get current user session
 
     const [organizerProfile, setOrganizerProfile] = useState<OrganizerProfile | null>(null);
@@ -51,8 +66,18 @@ const ViewOrganizerProfileScreen: React.FC = () => {
     const currentUserId = session?.user?.id;
 
     // --- Data Fetching ---
+    // Add check for organizerUserId at the beginning
+    useEffect(() => {
+        if (!organizerUserId) {
+            setError("Organizer ID not provided in route.");
+            setProfileLoading(false);
+            setStatsLoading(false);
+            setFollowLoading(false);
+        }
+    }, [organizerUserId]);
+
     const fetchOrganizerProfile = useCallback(async () => {
-        if (!organizerUserId) { setError("Organizer ID missing."); setProfileLoading(false); return; }
+        if (!organizerUserId) { setError("Organizer ID missing."); setProfileLoading(false); return; } // Guard added
         console.log(`[ViewOrganizerProfile] Fetching profile for organizer user ID: ${organizerUserId}`);
         if (!isRefreshing) setProfileLoading(true);
         setError(null);
@@ -60,6 +85,7 @@ const ViewOrganizerProfileScreen: React.FC = () => {
         try {
             const { data, error: profileError } = await supabase
                 .from('organizer_profiles')
+                // Select all fields based on the SQL schema
                 .select('*')
                 .eq('user_id', organizerUserId)
                 .maybeSingle();
@@ -102,47 +128,109 @@ const ViewOrganizerProfileScreen: React.FC = () => {
 
     const fetchStats = useCallback(async () => {
         if (!organizerUserId) return;
-        console.log(`[ViewOrganizerProfile] Fetching stats for organizer: ${organizerUserId}`);
+        console.log(`[ViewOrganizerProfile] Fetching stats via RPC for organizer: ${organizerUserId}`);
         if (!isRefreshing) setStatsLoading(true);
         try {
-            const [followerRes, eventRes] = await Promise.all([
-                supabase.from('organizer_follows').select('*', { count: 'exact', head: true }).eq('organizer_id', organizerUserId),
+            // Use Promise.all to fetch RPC count and direct event count concurrently
+            const [followerRpcRes, eventRes] = await Promise.all([
+                supabase.rpc('get_organizer_follower_count', { p_organizer_id: organizerUserId }),
                 supabase.from('events').select('*', { count: 'exact', head: true }).eq('organizer_id', organizerUserId)
             ]);
 
-            if (followerRes.error || eventRes.error) {
-                console.warn("[ViewOrganizerProfile] Error fetching stats:", followerRes.error || eventRes.error);
+            // Check RPC error
+            if (followerRpcRes.error) {
+                console.error("[ViewOrganizerProfile] RPC Error fetching follower count:", followerRpcRes.error);
+                throw followerRpcRes.error; // Throw to be caught below
             }
+             // Check direct select error
+            if (eventRes.error) {
+                console.warn("[ViewOrganizerProfile] Error fetching event count:", eventRes.error);
+                // Decide if you want to proceed without event count or throw
+            }
+
+            // Set stats using the results, ensuring default to 0
+            const followerCount = typeof followerRpcRes.data === 'number' ? followerRpcRes.data : 0;
+            const eventCount = eventRes.count ?? 0;
+            
             setStats({
-                followerCount: followerRes.count ?? 0,
-                eventCount: eventRes.count ?? 0
+                followerCount: followerCount,
+                eventCount: eventCount
             });
-             console.log(`[ViewOrganizerProfile] Stats fetched: Followers=${followerRes.count}, Events=${eventRes.count}`);
+
+            console.log(`[ViewOrganizerProfile] Stats fetched: Followers=${followerCount}, Events=${eventCount}`);
         } catch (err: any) {
-            console.error("[ViewOrganizerProfile] Error fetching stats:", err);
-            setStats({ followerCount: null, eventCount: null });
+            console.error("[ViewOrganizerProfile] Error in fetchStats:", err);
+            setStats({ followerCount: null, eventCount: null }); // Keep null default on error
         } finally {
             setStatsLoading(false);
         }
     }, [organizerUserId, isRefreshing]);
 
-    const loadAllData = useCallback(() => {
-        // Fetch profile first, then others can run in parallel
-        fetchOrganizerProfile().then(() => {
-            if (organizerUserId) { // Check if profile fetch was successful enough to get an ID
-                fetchFollowStatus();
-                fetchStats();
+    // Chain fetches in useFocusEffect
+    useFocusEffect(
+        useCallback(() => {
+            let isActive = true;
+
+            const loadData = async () => {
+                setError(null);
+                setProfileLoading(true);
+                setFollowLoading(true);
+                setStatsLoading(true);
+
+                try {
+                    await fetchOrganizerProfile();
+                    // Check if component is still mounted and profile fetch didn't immediately fail
+                    if (isActive && organizerUserId) { 
+                        // Run these only after profile fetch seems okay
+                        await Promise.all([fetchFollowStatus(), fetchStats()]);
+                    }
+                } catch (err) {
+                    // Error handled within individual fetch functions, but log here if needed
+                    console.error("[ViewOrganizerProfileScreen] Error during chained fetch:", err);
+                } finally {
+                    if (isActive) {
+                        setProfileLoading(false); // Ensure all loading states are false
+                        setFollowLoading(false);
+                        setStatsLoading(false);
+                    }
+                }
+            };
+
+            if (organizerUserId) { // Only run if we have an ID
+                loadData();
             }
-        });
-    }, [fetchOrganizerProfile, fetchFollowStatus, fetchStats, organizerUserId]);
+            
+            return () => {
+                isActive = false; // Cleanup function to prevent state updates on unmounted component
+            };
+        }, [organizerUserId, fetchOrganizerProfile, fetchFollowStatus, fetchStats]) // Dependencies
+    );
 
-    useFocusEffect(loadAllData);
-
-    const onRefresh = useCallback(() => {
+    const onRefresh = useCallback(async () => {
         setIsRefreshing(true);
-        loadAllData(); // Re-fetch everything
-        setIsRefreshing(false); // Set refreshing false after calls initiated
-    }, [loadAllData]);
+        setError(null);
+        // Reset loading states for refresh indicator
+        setProfileLoading(true);
+        setFollowLoading(true);
+        setStatsLoading(true);
+
+        try {
+            await fetchOrganizerProfile();
+            // Only fetch others if profile fetch worked and we still have the ID
+             if (organizerUserId) { 
+                await Promise.all([fetchFollowStatus(), fetchStats()]);
+             }
+        } catch (err) {
+            console.error("[ViewOrganizerProfileScreen] Error during refresh:", err);
+            setError("Failed to refresh data."); // Set a general refresh error
+        } finally {
+             // Ensure all loading states are reset after refresh attempt
+             setProfileLoading(false);
+             setFollowLoading(false);
+             setStatsLoading(false);
+             setIsRefreshing(false); // Stop the refresh indicator
+        }
+    }, [organizerUserId, fetchOrganizerProfile, fetchFollowStatus, fetchStats]);
 
     // --- Actions ---
     const handleFollowToggle = async () => {
@@ -158,10 +246,9 @@ const ViewOrganizerProfileScreen: React.FC = () => {
                     .eq('user_id', currentUserId)
                     .eq('organizer_id', organizerUserId);
                 if (error) throw error;
-                setIsFollowing(false);
-                // Optimistically decrement count
-                 setStats(prev => ({ ...prev, followerCount: Math.max(0, (prev.followerCount ?? 1) - 1) }));
                 console.log(`[ViewOrganizerProfile] Unfollowed successfully.`);
+                setIsFollowing(false); // Update UI state *after* success
+                fetchStats(); // Refresh stats immediately after DB success
 
             } else {
                 // Follow
@@ -170,18 +257,15 @@ const ViewOrganizerProfileScreen: React.FC = () => {
                     .from('organizer_follows')
                     .insert({ user_id: currentUserId, organizer_id: organizerUserId });
                 if (error) throw error;
-                setIsFollowing(true);
-                // Optimistically increment count
-                 setStats(prev => ({ ...prev, followerCount: (prev.followerCount ?? 0) + 1 }));
-                 console.log(`[ViewOrganizerProfile] Followed successfully.`);
+                console.log(`[ViewOrganizerProfile] Followed successfully.`);
+                setIsFollowing(true); // Update UI state *after* success
+                 fetchStats(); // Refresh stats immediately after DB success
             }
-            // Optional: Refresh stats after a delay to confirm count
-            // setTimeout(fetchStats, 1500);
         } catch (err: any) {
             console.error("[ViewOrganizerProfile] Error toggling follow:", err);
             Alert.alert("Error", `Could not ${isFollowing ? 'unfollow' : 'follow'} organizer: ${err.message}`);
             // Re-fetch actual status on error
-            fetchFollowStatus();
+            await fetchFollowStatus(); // Ensure status is correct after error
         } finally {
             setFollowLoading(false);
         }
@@ -240,7 +324,10 @@ const ViewOrganizerProfileScreen: React.FC = () => {
     // --- Render Logic ---
     useEffect(() => {
         // Set header title dynamically
-        navigation.setOptions({ title: organizerProfile?.companyName || 'Organizer Profile' });
+        navigation.setOptions({ 
+            title: organizerProfile?.companyName || 'Organizer Profile', 
+            headerBackVisible: true,
+        });
     }, [navigation, organizerProfile?.companyName]);
 
 
@@ -249,7 +336,7 @@ const ViewOrganizerProfileScreen: React.FC = () => {
     }
 
     if (error) {
-        return <SafeAreaView style={styles.centered}><Feather name="alert-circle" size={40} color={APP_CONSTANTS.COLORS.ERROR} /><Text style={styles.errorText}>{error}</Text><TouchableOpacity onPress={loadAllData} style={styles.retryButton}><Text style={styles.retryButtonText}>Retry</Text></TouchableOpacity></SafeAreaView>;
+        return <SafeAreaView style={styles.centered}><Feather name="alert-circle" size={40} color={APP_CONSTANTS.COLORS.ERROR} /><Text style={styles.errorText}>{error}</Text><TouchableOpacity onPress={onRefresh} style={styles.retryButton}><Text style={styles.retryButtonText}>Retry</Text></TouchableOpacity></SafeAreaView>;
     }
 
     if (!organizerProfile) {
@@ -308,6 +395,31 @@ const ViewOrganizerProfileScreen: React.FC = () => {
                     <View style={styles.section}>
                         <Text style={styles.sectionTitle}>About</Text>
                         <Text style={styles.bioText}>{organizerProfile.bio}</Text>
+                    </View>
+                )}
+
+                {/* Contact Information Section - Using fields from SQL schema */}
+                {(organizerProfile.email || organizerProfile.phone_number || organizerProfile.website) && (
+                    <View style={styles.section}>
+                        <Text style={styles.sectionTitle}>Contact Information</Text>
+                        {organizerProfile.email && (
+                            <TouchableOpacity style={styles.contactRow} onPress={() => tryOpenLink(`mailto:${organizerProfile.email}`)}>
+                                <Feather name="mail" size={16} color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} />
+                                <Text style={styles.contactText} numberOfLines={1}>{organizerProfile.email}</Text>
+                            </TouchableOpacity>
+                        )}
+                        {organizerProfile.phone_number && (
+                            <TouchableOpacity style={styles.contactRow} onPress={() => tryOpenLink(`tel:${organizerProfile.phone_number}`)}>
+                                <Feather name="phone" size={16} color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} />
+                                <Text style={styles.contactText} numberOfLines={1}>{organizerProfile.phone_number}</Text>
+                            </TouchableOpacity>
+                        )}
+                        {organizerProfile.website && (
+                             <TouchableOpacity style={styles.contactRow} onPress={() => tryOpenLink(organizerProfile.website)}>
+                                <Feather name="globe" size={16} color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} />
+                                <Text style={styles.contactText} numberOfLines={1}>{organizerProfile.website.replace(/^https?:\/\//, '')}</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 )}
 
@@ -417,6 +529,20 @@ const styles = StyleSheet.create({
     linkButtonText: { flex: 1, marginLeft: 12, fontSize: 15, fontWeight: '500', color: '#374151' },
     reportButton: { borderBottomWidth: 0 }, // Remove border for last item in section
     reportButtonText: { color: APP_CONSTANTS.COLORS.ERROR },
+    // Contact Styles
+    contactRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F9FAFB',
+    },
+    contactText: {
+        marginLeft: 12,
+        fontSize: 15,
+        color: APP_CONSTANTS.COLORS.PRIMARY, // Make links look clickable
+        flexShrink: 1,
+    },
     // Modal Styles
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20, },
     modalContent: { backgroundColor: 'white', borderRadius: 12, padding: 24, width: '100%', maxWidth: 400, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5, },

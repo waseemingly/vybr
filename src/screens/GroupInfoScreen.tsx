@@ -151,62 +151,137 @@ const GroupInfoScreen = () => {
     const pickAndUpdateImage = async () => {
         if (!(isCurrentUserAdmin || groupDetails?.can_members_edit_info) || processingAction) return;
 
-        let result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true, aspect: [1, 1], quality: 0.6,
-        });
-
-        if (!result.canceled && result.assets && result.assets[0].uri && groupId) {
-            const imageUri = result.assets[0].uri;
-            setProcessingAction('update_image');
-            let uploadedImageUrl: string | null = null;
-            try {
-                 // Re-use upload logic (could be extracted to a helper)
-                 const imageResponse = await fetch(imageUri);
-                 if (!imageResponse.ok) {
-                     throw new Error(`Failed to fetch image URI: ${imageResponse.statusText}`);
-                 }
-                 const blob = await imageResponse.blob();
-
-                 if (!blob) {
-                     throw new Error('Could not create blob from image URI.');
-                 }
-
-                 const fileExt = imageUri.split('.').pop()?.toLowerCase() || 'jpg';
-                 const path = `${groupId}/avatar.${Date.now()}.${fileExt}`;
-
-                 console.log(`[GroupInfoScreen] Uploading image to path: ${path}, content type: ${blob.type}`);
-
-                 const { data: uploadData, error: uploadError } = await supabase.storage
-                     .from('group-avatars')
-                     .upload(path, blob, {
-                         upsert: true,
-                         contentType: blob.type, // Explicitly set content type
-                     });
-
-                 if (uploadError) throw new Error(`Storage Upload Error: ${uploadError.message}`);
-                 if (!uploadData?.path) throw new Error("Image uploaded but failed to get path.");
-
-                 const { data: urlData } = supabase.storage.from('group-avatars').getPublicUrl(uploadData.path);
-                 uploadedImageUrl = urlData.publicUrl;
-
-                 // Call RPC to update the group image URL
-                 const { error: rpcError } = await supabase.rpc('update_group_image', {
-                     group_id_input: groupId,
-                     new_image_url: uploadedImageUrl
-                 });
-                 if (rpcError) throw rpcError;
-
-                 // Optimistic UI update (or rely on subscription below)
-                 setGroupDetails(prev => prev ? { ...prev, group_image: uploadedImageUrl } : null);
-                 Alert.alert("Success", "Group image updated.");
-
-            } catch (err: any) {
-                console.error("Error updating group image:", err);
-                Alert.alert("Error", `Could not update group image: ${err.message}`);
-            } finally {
-                setProcessingAction(null);
+        try {
+            let result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true, aspect: [1, 1], quality: 0.6,
+                // For web, request base64 to avoid CORS issues
+                base64: Platform.OS === 'web',
+            });
+    
+            if (!result.canceled && result.assets && result.assets[0].uri && groupId) {
+                const imageUri = result.assets[0].uri;
+                setProcessingAction('update_image');
+                let uploadedImageUrl: string | null = null;
+                
+                try {
+                    console.log(`[GroupInfoScreen] Starting image upload process with URI: ${imageUri.substring(0, 30)}...`);
+                    
+                    // Handle image differently based on platform
+                    let blob: Blob;
+                    if (Platform.OS === 'web' && result.assets[0].base64) {
+                        // Use base64 on web to avoid CORS issues with local URIs
+                        console.log('[GroupInfoScreen] Using base64 image data for web');
+                        const base64 = result.assets[0].base64;
+                        if (!base64) {
+                            throw new Error('Base64 data missing from image picker result on web');
+                        }
+                        
+                        // Convert base64 to blob
+                        const byteString = atob(base64);
+                        const ab = new ArrayBuffer(byteString.length);
+                        const ia = new Uint8Array(ab);
+                        for (let i = 0; i < byteString.length; i++) {
+                            ia[i] = byteString.charCodeAt(i);
+                        }
+                        
+                        // Determine mime type
+                        const mime = imageUri.match(/data:(.*?);base64/)?.[1] || 'image/jpeg';
+                        blob = new Blob([ab], { type: mime });
+                        console.log(`[GroupInfoScreen] Created blob from base64, size: ${blob.size}, type: ${blob.type}`);
+                    } else {
+                        // Fetch from URI for native platforms
+                        console.log('[GroupInfoScreen] Fetching image from URI');
+                        try {
+                            const imageResponse = await fetch(imageUri);
+                            if (!imageResponse.ok) {
+                                throw new Error(`Failed to fetch image URI: ${imageResponse.statusText}`);
+                            }
+                            blob = await imageResponse.blob();
+                            console.log(`[GroupInfoScreen] Created blob from fetch, size: ${blob.size}, type: ${blob.type}`);
+                        } catch (fetchErr: any) {
+                            console.error('[GroupInfoScreen] Error fetching image URI:', fetchErr);
+                            throw new Error(`Failed to fetch image: ${fetchErr.message}`);
+                        }
+                    }
+                    
+                    if (!blob) {
+                        throw new Error('Could not create blob from image.');
+                    }
+                    
+                    // Extract file extension and prepare upload path
+                    const fileExt = blob.type.split('/')?.[1] || 'jpg';
+                    const path = `${groupId}/avatar.${Date.now()}.${fileExt}`;
+                    
+                    console.log(`[GroupInfoScreen] Uploading image to path: ${path}, content type: ${blob.type}`);
+                    
+                    // Upload the image
+                    console.log('[GroupInfoScreen] Starting Supabase storage upload');
+                    const { data: uploadData, error: uploadError } = await supabase.storage
+                        .from('group-avatars')
+                        .upload(path, blob, {
+                            upsert: true,
+                            contentType: blob.type,
+                        });
+                    
+                    if (uploadError) {
+                        console.error('[GroupInfoScreen] Storage upload error:', uploadError);
+                        throw new Error(`Storage Upload Error: ${uploadError.message}`);
+                    }
+                    
+                    if (!uploadData?.path) {
+                        throw new Error("Image uploaded but failed to get path.");
+                    }
+                    
+                    console.log(`[GroupInfoScreen] Image uploaded successfully, path: ${uploadData.path}`);
+                    
+                    // Get the public URL
+                    console.log('[GroupInfoScreen] Getting public URL');
+                    const { data: urlData } = supabase.storage.from('group-avatars').getPublicUrl(uploadData.path);
+                    uploadedImageUrl = urlData.publicUrl;
+                    console.log(`[GroupInfoScreen] Got public URL: ${uploadedImageUrl}`);
+                    
+                    // Call RPC to update the group image URL
+                    console.log('[GroupInfoScreen] Calling update_group_image RPC function');
+                    const { data: rpcResult, error: rpcError } = await supabase.rpc('update_group_image', {
+                        group_id_input: groupId,
+                        image_url: uploadedImageUrl
+                    });
+                    
+                    if (rpcError) {
+                        console.error('[GroupInfoScreen] RPC error:', rpcError);
+                        throw rpcError;
+                    }
+                    
+                    // Check the result - our function now returns a boolean
+                    if (rpcResult === false) {
+                        throw new Error("Failed to update group image. Permission denied or group not found.");
+                    }
+                    
+                    console.log('[GroupInfoScreen] Group image updated successfully');
+                    
+                    // Optimistic UI update (or rely on subscription below)
+                    setGroupDetails(prev => prev ? { ...prev, group_image: uploadedImageUrl } : null);
+                    Alert.alert("Success", "Group image updated.");
+                    
+                } catch (err: any) {
+                    console.error("Error updating group image:", err);
+                    // More helpful error message based on error type
+                    if (err.message.includes('Failed to fetch')) {
+                        Alert.alert(
+                            "Connection Error", 
+                            "Network error occurred. Please check your internet connection and try again."
+                        );
+                    } else {
+                        Alert.alert("Error", `Could not update group image: ${err.message}`);
+                    }
+                } finally {
+                    setProcessingAction(null);
+                }
             }
+        } catch (pickerErr: any) {
+            console.error("Error with image picker:", pickerErr);
+            Alert.alert("Error", `Could not access image picker: ${pickerErr.message}`);
         }
     };
 
@@ -223,7 +298,10 @@ const GroupInfoScreen = () => {
                     setGroupDetails(prev => ({ ...prev, ...payload.new } as GroupDetails));
                     // Update header title if needed
                      if (payload.new.group_name && payload.new.group_name !== groupDetails?.group_name) {
-                         navigation.setOptions({ title: payload.new.group_name });
+                         navigation.setOptions({ 
+                             title: payload.new.group_name,
+                             headerBackVisible: true,
+                         });
                      }
                 }
             )

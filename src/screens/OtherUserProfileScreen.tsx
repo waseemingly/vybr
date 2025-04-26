@@ -35,6 +35,11 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ title, icon, children, 
 const bioDetailLabels: Record<keyof MusicLoverBio, string> = { firstSong: "First Concert / Memory", goToSong: "Go-To Song Right Now", mustListenAlbum: "Must-Listen Album", dreamConcert: "Dream Concert Lineup", musicTaste: "Music Taste Description", };
 // --- End Reusable Components ---
 
+interface ExpandedSections {
+    artists: boolean;
+    songs: boolean;
+}
+
 type OtherUserProfileRouteProp = RouteProp<RootStackParamList, 'OtherUserProfileScreen'>;
 type OtherUserProfileNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>;
 type FriendshipStatusDirect = 'not_friends' | 'friends' | 'blocked_by_you' | 'blocked_by_them' | 'loading' | 'error';
@@ -57,6 +62,7 @@ const OtherUserProfileScreen: React.FC = () => {
     const [isSubmittingReport, setIsSubmittingReport] = useState(false);
     // --- State for custom unfriend confirmation modal ---
     const [showUnfriendConfirmModal, setShowUnfriendConfirmModal] = useState(false);
+    const [expandedSections, setExpandedSections] = useState<ExpandedSections>({ artists: false, songs: false });
 
     const currentUserId = session?.user?.id;
 
@@ -91,7 +97,7 @@ const OtherUserProfileScreen: React.FC = () => {
         try {
             const { data: profile, error: profileError } = await supabase
                 .from('music_lover_profiles')
-                .select('id, user_id, first_name, last_name, username, profile_picture, age, city, country, is_premium, bio, music_data')
+                .select('id, user_id, first_name, last_name, username, profile_picture, age, city, country, is_premium, bio, music_data, favorite_artists, favorite_albums, favorite_songs')
                 .eq('user_id', profileUserId)
                 .single();
 
@@ -126,6 +132,9 @@ const OtherUserProfileScreen: React.FC = () => {
                 isPremium: profile.is_premium,
                 bio: profile.bio,
                 musicData: profile.music_data,
+                favorite_artists: profile.favorite_artists,
+                favorite_albums: profile.favorite_albums,
+                favorite_songs: profile.favorite_songs,
             });
             await fetchFriendsCount();
 
@@ -655,6 +664,9 @@ const OtherUserProfileScreen: React.FC = () => {
         }
     };
 
+    const toggleSection = (section: keyof ExpandedSections) => {
+        setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
+    };
 
     // --- Render Logic ---
     const showLoadingIndicator = isLoading || (friendshipStatus === 'loading' && !profileData);
@@ -718,6 +730,15 @@ const OtherUserProfileScreen: React.FC = () => {
     const isPremium = profileData.isPremium ?? false;
     const allBioDetails = profileData.bio ? Object.entries(profileData.bio).filter(([_, v]) => v && String(v).trim() !== '').map(([k, v]) => ({ label: bioDetailLabels[k as keyof MusicLoverBio] || k, value: String(v).trim() })) : [];
     const favoriteGenres = (profileData.musicData?.genres as string[]) ?? [];
+
+    // Parse favorite music strings
+    const parseCsvString = (str: string | null | undefined): string[] => {
+        if (!str) return [];
+        return str.split(',').map(s => s.trim()).filter(Boolean);
+    };
+    const favArtistsList = parseCsvString(profileData.favorite_artists);
+    const favAlbumsList = parseCsvString(profileData.favorite_albums);
+    const favSongsList = parseCsvString(profileData.favorite_songs);
 
     // --- Dynamic Action Buttons ---
     // renderFriendButton now calls handleUnfriend (which opens the modal)
@@ -933,6 +954,54 @@ const OtherUserProfileScreen: React.FC = () => {
                      </View>
                  </ProfileSection>
 
+                {/* Favorite Artists Section (matches ProfileScreen) */}
+                <ProfileSection title="Favorite Artists" icon="users" hasData={favArtistsList.length > 0}>
+                    <View style={profileStyles.listContainer}>
+                        {favArtistsList.slice(0, expandedSections.artists ? favArtistsList.length : 5).map((item, index) => (
+                            <View key={`artist-${index}`} style={profileStyles.listItem}>
+                                <Text style={profileStyles.listItemText}>{item}</Text>
+                                <Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            </View>
+                        ))}
+                    </View>
+                    {favArtistsList.length > 5 && (
+                        <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("artists")}>
+                            <Text style={profileStyles.seeAllButtonText}>{expandedSections.artists ? "See Less" : `See all ${favArtistsList.length}`}</Text>
+                            <Feather name={expandedSections.artists ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                        </TouchableOpacity>
+                    )}
+                </ProfileSection>
+
+                {/* Favorite Albums Section (matches ProfileScreen - no expand) */}
+                <ProfileSection title="Favorite Albums" icon="disc" hasData={favAlbumsList.length > 0}>
+                    <View style={profileStyles.listContainer}>
+                        {favAlbumsList.map((item, index) => (
+                            <View key={`album-${index}`} style={profileStyles.listItem}>
+                                <Text style={profileStyles.listItemText}>{item}</Text>
+                                <Feather name="disc" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            </View>
+                        ))}
+                    </View>
+                </ProfileSection>
+
+                {/* Favorite Songs Section (matches ProfileScreen) */}
+                <ProfileSection title="Favorite Songs" icon="music" hasData={favSongsList.length > 0}>
+                    <View style={profileStyles.listContainer}>
+                        {favSongsList.slice(0, expandedSections.songs ? favSongsList.length : 5).map((item, index) => (
+                            <View key={`song-${index}`} style={profileStyles.listItem}>
+                                <Text style={profileStyles.listItemText}>{item}</Text>
+                                <Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            </View>
+                        ))}
+                    </View>
+                    {favSongsList.length > 5 && (
+                        <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("songs")}>
+                            <Text style={profileStyles.seeAllButtonText}>{expandedSections.songs ? "See Less" : `See all ${favSongsList.length}`}</Text>
+                            <Feather name={expandedSections.songs ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                        </TouchableOpacity>
+                    )}
+                </ProfileSection>
+
                  {/* More Options Section */}
                  {!isBlocked && (
                      <View style={styles.moreOptionsSection}>
@@ -1023,6 +1092,12 @@ const profileStyles = StyleSheet.create({
     genreTag: { backgroundColor: "rgba(59, 130, 246, 0.1)", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, marginRight: 8, marginBottom: 8, },
     genreTagText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontSize: 13, fontWeight: '500', },
     locationText: { fontSize: 14, color: "#6B7280", marginLeft: 0, textAlign: 'center' },
+    listContainer: { marginTop: 4, },
+    listItem: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: "white", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, marginBottom: 8, borderWidth: 1, borderColor: "#F3F4F6", },
+    listItemText: { fontSize: 14, fontWeight: "500", color: "#1F2937", flexShrink: 1, paddingRight: 10 },
+    listItemSubtext: { fontSize: 12, color: "#6B7280", marginTop: 2, },
+    seeAllButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, marginTop: 4, },
+    seeAllButtonText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontSize: 14, fontWeight: '500', marginRight: 4, },
 });
 
 

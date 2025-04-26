@@ -30,6 +30,8 @@ import UserManageSubscriptionScreen from '@/screens/UserManageSubscriptionScreen
 import UserMutedListScreen from '@/screens/UserMutedListScreen';
 import UserBlockedListScreen from '@/screens/UserBlockedListScreen';
 import OrganizerListScreen from '@/screens/OrganizerListScreen';
+import UserBillingHistoryScreen from '@/screens/UserBillingHistoryScreen';
+import UpdateMusicFavoritesScreen from '@/screens/UpdateMusicFavoritesScreen';
 
 // Organizer Screens
 import OrganizerPostsScreen from "@/screens/organizer/OrganizerPostsScreen";
@@ -42,6 +44,9 @@ import OrgBillingHistoryScreen from '@/screens/organizer/OrgBillingHistoryScreen
 import UserListScreen from '@/screens/UserListScreen';
 import UpcomingEventsListScreen from '@/screens/UpcomingEventsListScreen';
 import PastEventsListScreen from '@/screens/PastEventsListScreen';
+
+// Attended Events Screen (New)
+import AttendedEventsScreen from '@/screens/AttendedEventsScreen'; // <-- IMPORT NEW SCREEN
 
 // Auth Screens
 import LandingScreen from "@/screens/auth/LandingScreen";
@@ -57,6 +62,9 @@ import AddGroupMembersScreen from '@/screens/AddGroupMembersScreen';
 
 // View Organizer Profile Screen (Now in Main Stack)
 import ViewOrganizerProfileScreen from '@/screens/ViewOrganizerProfileScreen';
+
+// Link Music Services Screen (Commented out due to linter error)
+import LinkMusicServicesScreen from '@/screens/LinkMusicServicesScreen'; // <-- IMPORT NEW SCREEN
 
 // --- Define Param Lists ---
 
@@ -117,10 +125,16 @@ export type MainStackParamList = {
     EditOrganizerProfileScreen: undefined;
     OrgManagePlanScreen: undefined;
     OrgBillingHistoryScreen: undefined;
+    UserBillingHistoryScreen: undefined;
+    UpdateMusicFavoritesScreen: undefined;
 
     // *** ViewOrganizerProfileScreen moved to Main Stack ***
     ViewOrganizerProfileScreen: { organizerUserId: string };
     // *** END Move ***
+
+    AttendedEventsScreen: undefined; // <-- ADD PARAM FOR NEW SCREEN
+
+    LinkMusicServicesScreen: undefined; // <-- Uncommented
 
     NotFoundMain: undefined;
 };
@@ -188,6 +202,10 @@ const MainAppStack = () => {
                  <MainStack.Screen name="FriendsListScreen" component={FriendsListScreen} options={{ title: 'Friends' }} />
                  <MainStack.Screen name="OrganizerListScreen" component={OrganizerListScreen} options={{ title: 'Following' }}/>
                  <MainStack.Screen name="UpgradeScreen" component={UpgradeScreen} options={{ title: 'Go Premium' }} />
+                 <MainStack.Screen name="AttendedEventsScreen" component={AttendedEventsScreen} options={{ title: 'Attended Events' }} />
+                 <MainStack.Screen name="UserBillingHistoryScreen" component={UserBillingHistoryScreen} options={{ title: 'Billing History' }} />
+                 <MainStack.Screen name="UpdateMusicFavoritesScreen" component={UpdateMusicFavoritesScreen} options={{ title: 'Music Favorites' }} />
+                 <MainStack.Screen name="LinkMusicServicesScreen" component={LinkMusicServicesScreen} options={{ title: 'Link Music Services' }} />
              </>
         )}
         {/* Screens accessible by both modes */}

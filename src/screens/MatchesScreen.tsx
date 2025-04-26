@@ -55,6 +55,7 @@ const MatchesScreen = () => {
     const [chattedIdsLoaded, setChattedIdsLoaded] = useState(false); // Track storage load
     const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
     const chattedUserIdsRef = useRef(chattedUserIds); // Ref for saving
+    const [isCurrentUserPremium, setIsCurrentUserPremium] = useState<boolean>(false); // State for logged-in user's premium status
 
     // Keep Ref updated
     useEffect(() => {
@@ -111,6 +112,34 @@ const MatchesScreen = () => {
     }, [chattedUserIds, chattedIdsLoaded, session?.user?.id]); // Depend on state
 
 
+    // --- Fetch Logged-in User Premium Status ---
+    const fetchCurrentUserPremiumStatus = useCallback(async () => {
+        if (!session?.user?.id) {
+            setIsCurrentUserPremium(false);
+            return;
+        }
+        try {
+            const { data, error } = await supabase
+                .from('music_lover_profiles')
+                .select('is_premium')
+                .eq('user_id', session.user.id)
+                .single();
+
+            if (error) {
+                console.error("[MatchesScreen] Error fetching current user premium status:", error);
+                setIsCurrentUserPremium(false); // Assume not premium on error
+            } else if (data) {
+                setIsCurrentUserPremium(data.is_premium ?? false);
+                console.log("[MatchesScreen] Current user premium status:", data.is_premium);
+            } else {
+                setIsCurrentUserPremium(false); // Profile might not exist yet
+            }
+        } catch (err) {
+            console.error("[MatchesScreen] Exception fetching current user premium status:", err);
+            setIsCurrentUserPremium(false);
+        }
+    }, [session?.user?.id]);
+
     // --- Fetch Blocked Users ---
     const fetchBlockedUsers = useCallback(async () => {
         if (!session?.user?.id) return new Set<string>();
@@ -121,7 +150,11 @@ const MatchesScreen = () => {
             if (error) throw error;
             const blockedIds = new Set<string>();
             data?.forEach(item => {
-                blockedIds.add(item.blocker_id === session.user.id ? item.blocked_id : item.blocker_id);
+                if (session?.user && item.blocker_id === session.user.id) {
+                    blockedIds.add(item.blocked_id);
+                } else if (session?.user && item.blocked_id === session.user.id) {
+                    blockedIds.add(item.blocker_id);
+                }
             });
             console.log("[MatchesScreen] Fetched blocked user IDs:", blockedIds.size);
             return blockedIds;
@@ -171,13 +204,21 @@ const MatchesScreen = () => {
     // --- Initial Fetch ---
     useEffect(() => {
         if (!authLoading && session?.user?.id && chattedIdsLoaded) {
+            fetchCurrentUserPremiumStatus(); // Fetch premium status
             fetchMatchesAndBlocks();
         } else if (!authLoading && !session?.user?.id) {
-            setIsLoading(false); setError("Please log in."); setMatches([]); setFilteredMatches([]); setCurrentMatchIndex(0); setChattedUserIds(new Set()); setChattedIdsLoaded(true); // Ensure loaded flag is true on logout
+            setIsLoading(false);
+            setError("Please log in.");
+            setMatches([]);
+            setFilteredMatches([]);
+            setCurrentMatchIndex(0);
+            setChattedUserIds(new Set());
+            setChattedIdsLoaded(true); // Ensure loaded flag is true on logout
+            setIsCurrentUserPremium(false); // Reset premium status on logout
         } else if (!authLoading && session?.user?.id && !chattedIdsLoaded) {
             setIsLoading(true); // Explicitly set loading while waiting for chatted IDs
         }
-    }, [authLoading, session?.user?.id, chattedIdsLoaded, fetchMatchesAndBlocks]);
+    }, [authLoading, session?.user?.id, chattedIdsLoaded, fetchMatchesAndBlocks, fetchCurrentUserPremiumStatus]); // Added fetchCurrentUserPremiumStatus dependency
 
     // --- Re-apply filters ---
     useEffect(() => {
@@ -237,16 +278,51 @@ const MatchesScreen = () => {
     };
 
     const handleInitiateChat = (match: FetchedMatchData) => {
-        setChattedUserIds(prev => {
-            if (prev.has(match.userId)) return prev;
-            const newSet = new Set(prev);
-            newSet.add(match.userId);
-            console.log("[MatchesScreen] Added to chattedUserIds:", match.userId);
-            return newSet;
+        const userIdToMark = match.userId;
+
+        // 1. Update the chatted IDs state
+        let updatedChattedIds = chattedUserIds; // Assume no change initially
+        if (!chattedUserIds.has(userIdToMark)) {
+            console.log(`[MatchesScreen] Marking user ${userIdToMark} as chatted.`);
+            updatedChattedIds = new Set(chattedUserIds);
+            updatedChattedIds.add(userIdToMark);
+            setChattedUserIds(updatedChattedIds); // Trigger state update (and async save)
+        }
+
+        // 2. Directly compute the new filtered list based on the *updated* IDs
+        // Use the 'updatedChattedIds' variable which holds the latest set
+        // console.log('[MatchesScreen] Directly recalculating filtered matches...');
+        // const newFiltered = matches.filter(m =>
+        //     !updatedChattedIds.has(m.userId) && !blockedUserIds.has(m.userId)
+        // );
+
+        // 3. Update the filteredMatches state
+        // setFilteredMatches(newFiltered);
+        // console.log(`[MatchesScreen] Filtered matches updated. New count: ${newFiltered.length}`);
+
+        // 4. Update the current index if needed (e.g., stay on current index if possible, or move to last)
+        // Note: This logic now relies on the filtering useEffect to update filteredMatches before the index potentially needs adjustment on re-render.
+        // The useEffect dependency array includes filteredMatches indirectly via matches/chattedIds/blockedIds.
+        // Let's keep the index adjustment simple for now, assuming the useEffect handles the list update promptly.
+        setCurrentMatchIndex(prevIndex => {
+            // Get the length of the list *after* the useEffect is expected to run
+            const newFilteredLength = matches.filter(m =>
+                !updatedChattedIds.has(m.userId) && !blockedUserIds.has(m.userId)
+            ).length;
+
+            if (newFilteredLength === 0) return 0;
+            // Simple approach: If previous index is now out of bounds, go to the new last item. Otherwise stay.
+            const adjustedIndex = Math.min(prevIndex, Math.max(0, newFilteredLength - 1));
+            // console.log(`[MatchesScreen] Adjusting index from ${prevIndex} for anticipated new list size ${newFilteredLength}. New index: ${adjustedIndex}`);
+            return adjustedIndex;
         });
+
+        // 5. Navigate
+        console.log(`[MatchesScreen] Navigating to chat with ${userIdToMark}.`);
         navigation.navigate('IndividualChatScreen', {
-            matchUserId: match.userId,
+            matchUserId: userIdToMark,
             matchName: `${match.firstName || ''} ${match.lastName || ''}`.trim() || 'User',
+            matchProfilePicture: match.profilePicture,
         });
     };
 
@@ -278,7 +354,9 @@ const MatchesScreen = () => {
                     bio={currentMatchData.bio}
                     isPremium={currentMatchData.isPremium}
                     commonTags={currentMatchData.commonTags ?? []}
+                    compatibilityScore={currentMatchData.compatibilityScore}
                     onChatPress={() => handleInitiateChat(currentMatchData)}
+                    isViewerPremium={isCurrentUserPremium}
                 />
             </View>
         );

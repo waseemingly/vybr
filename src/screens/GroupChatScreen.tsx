@@ -576,12 +576,12 @@ const GroupChatScreen: React.FC = () => {
                         source={{ uri: currentGroupImage ?? DEFAULT_GROUP_PIC }} // Use state variable or default
                         style={styles.headerGroupImage}
                         />
-                     <Text style={styles.headerTitleText} numberOfLines={1}>
+                     <Text style={styles.headerTitleText} > 
                          {currentGroupName}
                      </Text>
                  </TouchableOpacity>
              ),
-            headerTitleAlign: 'left', // Align the custom component to the left
+            headerBackVisible: true,
             headerRight: () => (
                 <View style={styles.headerButtons}>
                     {/* Conditionally render or disable Add Members button */}
@@ -626,7 +626,6 @@ const GroupChatScreen: React.FC = () => {
                      </TouchableOpacity>
                 </View>
             ),
-            headerBackTitleVisible: false, // Keep back button clean
         });
     // Update header if edit permissions change
     }, [navigation, currentGroupName, currentGroupImage, groupId, isCurrentUserAdmin, canMembersAddOthers, canMembersEditInfo]);

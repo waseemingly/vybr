@@ -19,6 +19,11 @@ export type MusicLoverBio = SupabaseMusicLoverBio;
 export interface MusicLoverProfile extends Omit<DbMusicLoverProfile, 'selected_streaming_service'> {
     termsAccepted?: boolean; // Keep this if not in base type
     selectedStreamingService?: string | null; // Add this field
+    secondary_streaming_services?: string[] | null; // <<< ADD THE NEW FIELD TYPE
+    // Add the favorite music fields
+    favorite_artists?: string | null;
+    favorite_albums?: string | null;
+    favorite_songs?: string | null;
 }
 
 // Data needed to create the profile (matches signup flow)
@@ -44,6 +49,7 @@ export type CreateOrganizerProfileData = Omit<DbOrganizerProfile, 'id' | 'user_i
 
 export interface OrganizerProfile extends DbOrganizerProfile {
     // Add any frontend-specific fields if needed
+    average_rating?: number | null;
 }
 
 // --- End Exported Types ---
@@ -336,7 +342,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         console.error("[AuthProvider] Error fetching music lover profile:", profileError);
                         // Don't throw, allow session to proceed but profile will be null
                     } else if (profileData) {
-                        console.log("[AuthProvider] Music lover profile fetched successfully.", profileData.id);
+                        console.log("[AuthProvider] Music lover profile fetched successfully:", profileData);
                         // Map DB snake_case to frontend camelCase
                         const fullProfile: MusicLoverProfile = {
                            id: profileData.id,
@@ -346,7 +352,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                            username: profileData.username,
                            email: profileData.email,
                            age: profileData.age,
-                           profilePicture: profileData.profile_picture, // Map snake_case to camelCase
+                           profilePicture: profileData.profile_picture,
                            bio: profileData.bio,
                            country: profileData.country,
                            city: profileData.city,
@@ -354,7 +360,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                            musicData: profileData.music_data,
                            selectedStreamingService: profileData.selected_streaming_service,
                            termsAccepted: profileData.terms_accepted,
+                           secondary_streaming_services: profileData.secondary_streaming_services ?? null, // <<< MAP THE NEW FIELD
+                           // Map the favorite music fields
+                           favorite_artists: profileData.favorite_artists ?? null,
+                           favorite_albums: profileData.favorite_albums ?? null,
+                           favorite_songs: profileData.favorite_songs ?? null,
                         };
+                        console.log("[AuthProvider] Setting musicLoverProfile state:", fullProfile);
                         setMusicLoverProfile(fullProfile);
                         if (currentSession) currentSession.musicLoverProfile = fullProfile;
                    } else {
@@ -364,9 +376,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     console.log("[AuthProvider] Fetching organizer profile...");
                      const { data: profileData, error: profileError } = await supabase
                         .from('organizer_profiles')
-                        .select('*')
+                        .select(`
+                            id,
+                            user_id,
+                            company_name,
+                            email,
+                            phone_number,
+                            logo,
+                            business_type,
+                            bio,
+                            website,
+                            average_rating, 
+                            created_at, 
+                            updated_at
+                         `)
                         .eq('user_id', userId)
-                    .maybeSingle();
+                        .maybeSingle();
 
                     if (profileError) {
                         console.error("[AuthProvider] Error fetching organizer profile:", profileError);
@@ -383,6 +408,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                            businessType: profileData.business_type,
                            bio: profileData.bio,
                            website: profileData.website,
+                           average_rating: profileData.average_rating,
                          };
                          setOrganizerProfile(fullProfile);
                          if (currentSession) currentSession.organizerProfile = fullProfile;
@@ -460,6 +486,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         await checkSession(); // Re-run the checkSession logic to fetch latest profiles
          console.log("[AuthProvider] Session data refreshed.");
     }, [checkSession]); // Depend on checkSession
+
+    // ---> ADD refreshUserProfile function <---
+    const refreshUserProfile = useCallback(async () => {
+        console.log("[AuthProvider] Refreshing user profile data...");
+        // Re-running checkSession also fetches the profile based on userType
+        await checkSession(); 
+        console.log("[AuthProvider] User profile data refreshed via checkSession.");
+    }, [checkSession]);
 
     // --- Initial Session Check on Mount ---
     useEffect(() => {
@@ -846,6 +880,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             logout,
             checkSession,
             refreshSessionData,
+            refreshUserProfile,
             createMusicLoverProfile,
             createOrganizerProfile,
             updatePremiumStatus,

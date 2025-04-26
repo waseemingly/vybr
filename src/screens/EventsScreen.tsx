@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, Image, FlatList, ScrollView, Modal,
   Dimensions, ActivityIndicator, RefreshControl, Alert, GestureResponderEvent,
+  Platform
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -11,6 +12,7 @@ import { supabase } from "../lib/supabase"; // Adjust path, remove EventBooking 
 import { useAuth } from "../hooks/useAuth"; // Adjust path
 import { APP_CONSTANTS } from "@/config/constants";
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator';
+import ImageSwiper from '@/components/ImageSwiper'; // <-- Import the new component
 
 // Define navigation prop using imported types
 type NavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>;
@@ -90,10 +92,39 @@ interface EventDetailModalProps {
 
 export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visible, onClose, navigation }) => {
     const [quantity, setQuantity] = useState(1);
+    const [currentImageIndex, setCurrentImageIndex] = useState(0);
+    const scrollViewRef = useRef<ScrollView>(null);
 
-    useEffect(() => { if (visible) { setQuantity(1); } }, [visible]);
+    useEffect(() => { if (visible) { setQuantity(1); setCurrentImageIndex(0); } }, [visible]);
 
     if (!event) return null;
+
+    const { width } = Dimensions.get('window');
+    const imageContainerWidth = width;
+    const images = event.images?.length > 0 ? event.images : [DEFAULT_EVENT_IMAGE];
+
+    const onScroll = (nativeEvent: any) => {
+      if (nativeEvent) {
+        const slide = Math.ceil(nativeEvent.contentOffset.x / nativeEvent.layoutMeasurement.width);
+        if (slide !== currentImageIndex) {
+          setCurrentImageIndex(slide);
+        }
+      }
+    };
+
+    const goToPrevious = () => {
+        if (currentImageIndex > 0) {
+            scrollViewRef.current?.scrollTo({ x: imageContainerWidth * (currentImageIndex - 1), animated: true });
+            setCurrentImageIndex(currentImageIndex - 1);
+        }
+    };
+
+    const goToNext = () => {
+        if (currentImageIndex < images.length - 1) {
+            scrollViewRef.current?.scrollTo({ x: imageContainerWidth * (currentImageIndex + 1), animated: true });
+            setCurrentImageIndex(currentImageIndex + 1);
+        }
+    };
 
     const incrementQuantity = () => setQuantity(q => q + 1);
     const decrementQuantity = () => setQuantity(q => Math.max(1, q - 1));
@@ -167,7 +198,54 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
             <View style={styles.modalContent}>
               <TouchableOpacity style={styles.closeButton} onPress={onClose}><Feather name="x" size={24} color="#6B7280" /></TouchableOpacity>
               <ScrollView showsVerticalScrollIndicator={false}>
-                  <Image source={{ uri: event.images[0] ?? DEFAULT_EVENT_IMAGE }} style={styles.modalImage} resizeMode="cover"/>
+                  <View style={styles.imageSwiperContainer}>
+                       <ScrollView
+                           ref={scrollViewRef}
+                           horizontal
+                           pagingEnabled
+                           showsHorizontalScrollIndicator={false}
+                           onMomentumScrollEnd={(e) => onScroll(e.nativeEvent)}
+                           scrollEventThrottle={16}
+                           style={{ width: imageContainerWidth, height: styles.modalImage.height }}
+                       >
+                           {images.map((uri, index) => (
+                               <Image
+                                   key={index}
+                                   source={{ uri: uri }}
+                                   style={[styles.modalImage, { width: imageContainerWidth }]}
+                                   resizeMode="cover"
+                               />
+                           ))}
+                       </ScrollView>
+                       {images.length > 1 && (
+                           <View style={styles.paginationContainer}>
+                               {images.map((_, index) => (
+                                   <View
+                                       key={index}
+                                       style={[styles.paginationDot, index === currentImageIndex ? styles.paginationDotActive : {}]}
+                                   />
+                               ))}
+                           </View>
+                       )}
+                       {Platform.OS === 'web' && images.length > 1 && (
+                           <>
+                               <TouchableOpacity
+                                   style={[styles.arrowButton, styles.arrowLeft]}
+                                   onPress={goToPrevious}
+                                   disabled={currentImageIndex === 0}
+                               >
+                                   <Feather name="chevron-left" size={28} color={currentImageIndex === 0 ? '#9CA3AF' : '#FFF'} />
+                               </TouchableOpacity>
+                               <TouchableOpacity
+                                   style={[styles.arrowButton, styles.arrowRight]}
+                                   onPress={goToNext}
+                                   disabled={currentImageIndex === images.length - 1}
+                               >
+                                   <Feather name="chevron-right" size={28} color={currentImageIndex === images.length - 1 ? '#9CA3AF' : '#FFF'} />
+                               </TouchableOpacity>
+                           </>
+                       )}
+                   </View>
                   <View style={styles.modalBody}>
                       <Text style={styles.modalTitle}>{event.title}</Text>
                       {/* Organizer Row - Made Pressable */}
@@ -274,7 +352,13 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress,
 
     return (
         <TouchableOpacity style={styles.eventCard} activeOpacity={0.9} onPress={onPress}>
-             <View style={styles.imageContainer}><Image source={{ uri: event.images[0] ?? DEFAULT_EVENT_IMAGE }} style={styles.eventImage} /></View>
+             <ImageSwiper
+                images={event.images}
+                defaultImage={DEFAULT_EVENT_IMAGE}
+                containerStyle={styles.eventImageContainer}
+                imageStyle={styles.eventImageStyle}
+                height={styles.eventImageStyle.height}
+             />
              <View style={styles.cardContent}>
                  <Text style={styles.eventTitle} numberOfLines={2}>{event.title}</Text>
                  {/* Optional: Display organizer name on card */}
@@ -519,6 +603,19 @@ const styles = StyleSheet.create({
     eventCard: { backgroundColor: "white", borderRadius: 12, overflow: "hidden", marginBottom: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 3, },
     imageContainer: { position: "relative", },
     eventImage: { width: "100%", aspectRatio: 16 / 9, backgroundColor: '#F3F4F6', },
+    // Define eventImageStyle FIRST
+    eventImageStyle: {
+        // Calculate height based on aspect ratio (approximate for initial render)
+        height: (Dimensions.get('window').width - 32) * (9 / 16), // 16px padding on each side
+    },
+    // Add styles for ImageSwiper in the card context
+    eventImageContainer: {
+        width: "100%",
+        aspectRatio: 16 / 9, // Maintain aspect ratio
+        borderTopLeftRadius: 12, // Match card radius
+        borderTopRightRadius: 12,
+        backgroundColor: '#F3F4F6',
+    },
     cardContent: { padding: 16, },
     eventTitle: { fontSize: 18, fontWeight: "700", color: "#1F2937", marginBottom: 4, },
     cardOrganizerName: { fontSize: 13, color: "#6B7280", marginBottom: 10 },
@@ -537,7 +634,47 @@ const styles = StyleSheet.create({
     modalContainer: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.6)", justifyContent: "flex-end", },
     modalContent: { backgroundColor: "white", borderTopLeftRadius: 24, borderTopRightRadius: 24, height: "90%", overflow: "hidden", },
     closeButton: { position: "absolute", top: 20, left: 16, zIndex: 10, backgroundColor: "rgba(230, 230, 230, 0.8)", borderRadius: 50, padding: 8, },
+    imageSwiperContainer: {
+        position: 'relative',
+        width: '100%',
+        height: 250,
+        backgroundColor: '#F3F4F6',
+    },
     modalImage: { width: "100%", height: 250, backgroundColor: '#F3F4F6', },
+    paginationContainer: {
+        position: 'absolute',
+        bottom: 15,
+        left: 0,
+        right: 0,
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    paginationDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: 'rgba(255, 255, 255, 0.6)',
+        marginHorizontal: 4,
+    },
+    paginationDotActive: {
+        backgroundColor: '#FFFFFF',
+    },
+    arrowButton: {
+        position: 'absolute',
+        top: '50%',
+        marginTop: -20,
+        padding: 6,
+        backgroundColor: 'rgba(0, 0, 0, 0.4)',
+        borderRadius: 20,
+        zIndex: 1,
+    },
+    arrowLeft: {
+        left: 15,
+    },
+    arrowRight: {
+        right: 15,
+    },
     modalBody: { padding: 20, paddingBottom: 40 },
     modalTitle: { fontSize: 24, fontWeight: "bold", color: "#1F2937", marginBottom: 16, },
     organizerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20, },

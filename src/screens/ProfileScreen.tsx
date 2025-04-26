@@ -138,10 +138,16 @@ const ProfileScreen: React.FC = () => {
     const userName = `${musicLoverProfile.firstName ?? ''} ${musicLoverProfile.lastName ?? ''}`.trim() || "User";
     const userAge = musicLoverProfile.age; const userCity = musicLoverProfile.city; const userCountry = musicLoverProfile.country;
     const allBioDetails = musicLoverProfile.bio ? Object.entries(musicLoverProfile.bio).filter(([_, v]) => v && String(v).trim() !== '').map(([k, v]) => ({ label: bioDetailLabels[k as keyof MusicLoverBio] || k.replace(/([A-Z])/g, ' $1').trim(), value: String(v).trim() })) : [];
-    const favoriteGenres = (musicLoverProfile.musicData?.genres as string[]) ?? [];
-    const favoriteArtists = (musicLoverProfile.musicData?.artists as string[]) ?? [];
-    const favoriteSongs = (musicLoverProfile.musicData?.songs as { title: string; artist: string }[]) ?? [];
-    const favoriteAlbums = musicLoverProfile.musicData?.albums?.map(a => ({ ...a, year: String(a.year) })) ?? [];
+    // Parse favorite music strings (assuming they exist on musicLoverProfile)
+    const parseCsvString = (str: string | null | undefined): string[] => {
+        if (!str) return [];
+        return str.split(',').map(s => s.trim()).filter(Boolean);
+    };
+    const favoriteGenres = (musicLoverProfile.musicData?.genres as string[]) ?? []; // Keep if still used for Genre section
+    // Now using the updated MusicLoverProfile type from useAuth
+    const favArtistsList = parseCsvString(musicLoverProfile.favorite_artists);
+    const favAlbumsList = parseCsvString(musicLoverProfile.favorite_albums);
+    const favSongsList = parseCsvString(musicLoverProfile.favorite_songs);
     const genreAnalyticsData = (musicLoverProfile.musicData?.analytics?.genreDistribution as { name: string; value: number }[] | undefined) ?? [];
 
     return (
@@ -179,22 +185,40 @@ const ProfileScreen: React.FC = () => {
                  <ProfileSection title="Music Taste Analytics" icon="bar-chart-2" isPremiumFeature isPremiumUser={isPremium} expanded={expandedSections.analytics} onToggle={() => toggleSection("analytics")} hasData={genreAnalyticsData.length > 0}>
                       <View style={styles.analyticsCard}><Text style={styles.analyticsTitle}>Genre Distribution</Text><View style={styles.pieChartPlaceholder}><Feather name="pie-chart" size={40} color={APP_CONSTANTS.COLORS.DISABLED} /><Text style={styles.placeholderText}>Analytics Chart</Text></View></View>
                  </ProfileSection>
-                 <ProfileSection title="Favorite Genres" icon="music" isPremiumUser={isPremium} hasData={favoriteGenres.length > 0}>
-                      <View style={styles.tagsContainer}>{favoriteGenres.map((g, i) => (<View key={i} style={styles.genreTag}><Text style={styles.genreTagText}>{g}</Text></View>))}</View>
+                 <ProfileSection title="Favorite Artists" icon="users" isPremiumUser={isPremium} expanded={expandedSections.artists} onToggle={() => toggleSection("artists")} hasData={favArtistsList.length > 0}>
+                      <View style={styles.listContainer}>{favArtistsList.slice(0, expandedSections.artists ? favArtistsList.length : 5).map((artist, i) => (
+                          <View key={`artist-${i}`} style={styles.listItem}>
+                              <Text style={styles.listItemText}>{artist}</Text>
+                              <Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                          </View>
+                      ))}</View>
+                      {favArtistsList.length > 5 && !expandedSections.artists && (<TouchableOpacity style={styles.seeAllButton} onPress={() => toggleSection("artists")}><Text style={styles.seeAllButtonText}>See all {favArtistsList.length}</Text><Feather name="chevron-down" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} /></TouchableOpacity>)}
                  </ProfileSection>
-                 <ProfileSection title="Favorite Artists" icon="users" isPremiumUser={isPremium} expanded={expandedSections.artists} onToggle={() => toggleSection("artists")} hasData={favoriteArtists.length > 0}>
-                      <View style={styles.listContainer}>{favoriteArtists.slice(0, expandedSections.artists ? favoriteArtists.length : 5).map((a, i) => (<View key={i} style={styles.listItem}><Text style={styles.listItemText}>{a}</Text><Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} /></View>))}</View>
-                      {favoriteArtists.length > 5 && !expandedSections.artists && (<TouchableOpacity style={styles.seeAllButton} onPress={() => toggleSection("artists")}><Text style={styles.seeAllButtonText}>See all {favoriteArtists.length}</Text><Feather name="chevron-down" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} /></TouchableOpacity>)}
+                 <ProfileSection title="Favorite Songs" icon="music" isPremiumUser={isPremium} expanded={expandedSections.songs} onToggle={() => toggleSection("songs")} hasData={favSongsList.length > 0}>
+                       <View style={styles.listContainer}>{favSongsList.slice(0, expandedSections.songs ? favSongsList.length : 5).map((song, i) => (
+                         <View key={`song-${i}`} style={styles.listItem}>
+                             <Text style={styles.listItemText}>{song}</Text>
+                             <Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                         </View>
+                       ))}</View>
+                      {favSongsList.length > 5 && !expandedSections.songs && (<TouchableOpacity style={styles.seeAllButton} onPress={() => toggleSection("songs")}><Text style={styles.seeAllButtonText}>See all {favSongsList.length}</Text><Feather name="chevron-down" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} /></TouchableOpacity>)}
                  </ProfileSection>
-                 <ProfileSection title="Favorite Songs" icon="headphones" isPremiumUser={isPremium} expanded={expandedSections.songs} onToggle={() => toggleSection("songs")} hasData={favoriteSongs.length > 0}>
-                       <View style={styles.listContainer}>{favoriteSongs.slice(0, expandedSections.songs ? favoriteSongs.length : 5).map((s, i) => (<View key={i} style={styles.listItem}><View><Text style={styles.listItemText}>{s.title}</Text><Text style={styles.listItemSubtext}>{s.artist}</Text></View><Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} /></View>))}</View>
-                      {favoriteSongs.length > 5 && !expandedSections.songs && (<TouchableOpacity style={styles.seeAllButton} onPress={() => toggleSection("songs")}><Text style={styles.seeAllButtonText}>See all {favoriteSongs.length}</Text><Feather name="chevron-down" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} /></TouchableOpacity>)}
-                 </ProfileSection>
-                 <ProfileSection title="Favorite Albums" icon="disc" isPremiumUser={isPremium} hasData={favoriteAlbums.length > 0}>
-                      <View style={styles.listContainer}>{favoriteAlbums.map((a, i) => (<View key={i} style={styles.listItem}><View><Text style={styles.listItemText}>{a.title}</Text><Text style={styles.listItemSubtext}>{a.artist} • {a.year}</Text></View><Feather name="disc" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} /></View>))}</View>
+                 <ProfileSection title="Favorite Albums" icon="disc" isPremiumUser={isPremium} hasData={favAlbumsList.length > 0}>
+                      <View style={styles.listContainer}>{favAlbumsList.map((album, i) => (
+                          <View key={`album-${i}`} style={styles.listItem}>
+                              <Text style={styles.listItemText}>{album}</Text>
+                              <Feather name="disc" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                          </View>
+                      ))}</View>
                  </ProfileSection>
                  <ProfileSection title="Match Radio" icon="radio" isPremiumFeature isPremiumUser={isPremium} hasData={true}>
                      {isPremium ? ( <View style={styles.premiumFeatureCard}><View style={styles.premiumFeatureHeader}><View><Text style={styles.premiumFeatureTitle}>AI Playlists</Text><Text style={styles.premiumFeatureSubtitle}>Blend taste w/ matches</Text></View><View style={styles.featureIconContainer}><Feather name="radio" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} /></View></View><TouchableOpacity style={styles.createButton} onPress={() => Alert.alert("Coming Soon!")}><Text style={styles.createButtonText}>Create Match Radio</Text></TouchableOpacity></View> ) : null }
+                 </ProfileSection>
+                 <ProfileSection title="My Attended Events" icon="check-square" isPremiumUser={isPremium}>
+                      <TouchableOpacity style={styles.linkButton} onPress={() => navigation.navigate('AttendedEventsScreen')}>
+                         <Text style={styles.linkButtonText}>View & Rate Past Events</Text>
+                         <Feather name="chevron-right" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                      </TouchableOpacity>
                  </ProfileSection>
 
                 {!isPremium && (<TouchableOpacity style={styles.buyPremiumButton} onPress={() => navigation.navigate('UpgradeScreen')}><Feather name="star" size={18} color="#FFF" /><Text style={styles.buyPremiumButtonText}>Upgrade to Premium</Text></TouchableOpacity>)}
@@ -282,6 +306,8 @@ const styles = StyleSheet.create({
     loadingText: { marginTop: 10, fontSize: 16, color: '#6B7280', },
     errorText: { marginTop: 15, fontSize: 18, fontWeight: '600', color: '#DC2626', textAlign: 'center', },
     errorSubText: { marginTop: 8, fontSize: 14, color: '#4B5563', textAlign: 'center', maxWidth: '85%', },
+    linkButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, marginTop: 4, },
+    linkButtonText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontSize: 14, fontWeight: '500', marginRight: 4, },
 });
 
 export default ProfileScreen;

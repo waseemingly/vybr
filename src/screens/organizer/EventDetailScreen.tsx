@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Dimensions,
-  ActivityIndicator, Alert, RefreshControl,
+  ActivityIndicator, Alert, RefreshControl, Platform
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
@@ -9,7 +9,7 @@ import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import { LineChart, PieChart } from "react-native-chart-kit";
-import { supabase, AttendeeAgeGroup, ImpressionTimePoint } from "../../lib/supabase"; // Adjust path
+import { supabase } from "../../lib/supabase"; // Adjust path
 
 // Define Param List to match AppNavigator
 type OrganizerStackParamList = {
@@ -37,7 +37,9 @@ interface SupabaseEventDetailData {
 // Mapped data for UI including analytics
 interface MappedEventDetail {
   id: string; title: string; description: string; date: string; time: string;
-  venue: string; image: string; artists: string[]; genres: string[]; songs: string[];
+  venue: string; 
+  images: string[];
+  artists: string[]; genres: string[]; songs: string[];
   status: "Upcoming" | "Completed" | "Ongoing";
   event_type: string | null;
   booking_type: 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null;
@@ -49,6 +51,18 @@ interface MappedEventDetail {
   ageDistribution: AttendeeAgeGroup[] | null;
   impressionsOverTime: ImpressionTimePoint[] | null;
 }
+
+// --- Define Missing Types Locally (Replace with actual imports if available) --- 
+interface AttendeeAgeGroup {
+  age_group: string;
+  count: number;
+}
+
+interface ImpressionTimePoint {
+  interval_start: string; // Assuming ISO string
+  impression_count: number;
+}
+// --- End Missing Type Definitions ---
 
 const DEFAULT_EVENT_IMAGE = "https://via.placeholder.com/800x450/D1D5DB/1F2937?text=No+Image";
 const formatDateTime = (isoString: string | null): { date: string; time: string } => { if(!isoString)return{date:"N/A",time:"N/A"};try{const d=new Date(isoString);const dt=d.toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'});const tm=d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit',hour12:true});return{date:dt,time:tm};}catch(e){return{date:"Invalid",time:""};}};
@@ -72,6 +86,8 @@ const EventDetailScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const scrollViewRef = useRef<ScrollView>(null);
 
   // Fetch event details AND analytics data
   const fetchEventData = useCallback(async () => {
@@ -93,7 +109,8 @@ const EventDetailScreen = () => {
         const baseMappedData: MappedEventDetail = {
           id: rawData.id, title: rawData.title, description: rawData.description ?? "N/A",
           date: date, time: time, venue: rawData.location_text ?? "N/A",
-          image: rawData.poster_urls?.[0] ?? DEFAULT_EVENT_IMAGE, artists: rawData.tags_artists ?? [],
+          images: rawData.poster_urls?.length > 0 ? rawData.poster_urls : [DEFAULT_EVENT_IMAGE],
+          artists: rawData.tags_artists ?? [],
           genres: rawData.tags_genres ?? [], songs: rawData.tags_songs ?? [], status: getEventStatus(rawData.event_datetime),
           event_type: rawData.event_type, booking_type: rawData.booking_type,
           max_tickets: rawData.max_tickets, max_reservations: rawData.max_reservations,
@@ -120,15 +137,15 @@ const EventDetailScreen = () => {
         // Process results
         let confirmedBookingsCount: number | null = null;
         if (!bookingsResult.error && bookingsResult.data) {
-            confirmedBookingsCount = bookingsResult.data.reduce((sum, row) => sum + (row.quantity || 0), 0);
+            confirmedBookingsCount = bookingsResult.data.reduce((sum: number, row: { quantity: number | null }) => sum + (row.quantity || 0), 0);
         } else { console.warn("Bookings count fetch warn:", bookingsResult.error?.message); }
 
-        let totalImpressions: number | null = impressionsResult.count;
+        let totalImpressions: number | null = (impressionsResult as any).count ?? null;
         if (impressionsResult.error) { console.warn("Impressions count fetch warn:", impressionsResult.error.message); totalImpressions = null; }
 
         let totalRevenue: number | null = null;
         if (rawData.booking_type === 'TICKETED' && !revenueResult.error && revenueResult.data) {
-             totalRevenue = revenueResult.data.reduce((sum, row) => sum + (row.total_price_paid || 0), 0);
+             totalRevenue = revenueResult.data.reduce((sum: number, row: { total_price_paid: number | null }) => sum + (row.total_price_paid || 0), 0);
         } else if (rawData.booking_type === 'TICKETED' && revenueResult.error) { console.warn("Revenue fetch warn:", revenueResult.error?.message); }
 
         let ageDistribution: AttendeeAgeGroup[] | null = null;
@@ -157,6 +174,35 @@ const EventDetailScreen = () => {
   const handleViewBookings = () => { if(event?.id && event.title) navigation.navigate('ViewBookings', { eventId: event.id, eventTitle: event.title }); else Alert.alert("Error", "Cannot view bookings without event details."); };
   const handleMoreOptions = () => { Alert.alert("More Options", "Future options: Duplicate Event, Cancel Event, etc."); };
 
+  // --- Image Swiper Logic ---
+  const { width } = Dimensions.get('window');
+  const imageContainerWidth = width;
+  const images = event?.images ?? [DEFAULT_EVENT_IMAGE];
+
+  const onScroll = (nativeEvent: any) => {
+    if (nativeEvent) {
+      const slide = Math.ceil(nativeEvent.contentOffset.x / nativeEvent.layoutMeasurement.width);
+      if (slide !== currentImageIndex) {
+        setCurrentImageIndex(slide);
+      }
+    }
+  };
+
+  const goToPrevious = () => {
+      if (currentImageIndex > 0) {
+          scrollViewRef.current?.scrollTo({ x: imageContainerWidth * (currentImageIndex - 1), animated: true });
+          setCurrentImageIndex(currentImageIndex - 1);
+      }
+  };
+
+  const goToNext = () => {
+      if (currentImageIndex < images.length - 1) {
+          scrollViewRef.current?.scrollTo({ x: imageContainerWidth * (currentImageIndex + 1), animated: true });
+          setCurrentImageIndex(currentImageIndex + 1);
+      }
+  };
+  // --- End Image Swiper Logic ---
+
   // Prepare chart data (handle cases with no/insufficient data)
   const lineChartData = {
       labels: event?.impressionsOverTime && event.impressionsOverTime.length > 0
@@ -164,10 +210,15 @@ const EventDetailScreen = () => {
                 : ["Start"], // Default label if no data
       datasets: [{
           data: event?.impressionsOverTime && event.impressionsOverTime.length > 0
-                ? event.impressionsOverTime.map(p => p.impression_count)
+                ? event.impressionsOverTime.reduce((acc: number[], point, index) => {
+                    // Calculate cumulative sum
+                    const prevTotal = index > 0 ? acc[index - 1] : 0;
+                    acc.push(prevTotal + point.impression_count);
+                    return acc;
+                  }, [])
                 : [0] // Default data point if no data
       }],
-      legend: ["Impressions / Day"]
+      legend: ["Cumulative Impressions"]
   };
   const pieChartData = event?.ageDistribution?.filter(g => g.count > 0) // Filter out zero-count groups
                         .map((group, index) => ({
@@ -193,10 +244,61 @@ const EventDetailScreen = () => {
 
   return (
     <SafeAreaView edges={["top"]} style={styles.container}>
-      <View style={styles.header}><TouchableOpacity style={styles.backButton} onPress={()=>navigation.goBack()}><Feather name="arrow-left" size={24} color="#3B82F6" /></TouchableOpacity><Text style={styles.headerTitle} numberOfLines={1}>Event Details</Text><TouchableOpacity style={styles.moreButton} onPress={handleMoreOptions}><Feather name="more-vertical" size={24} color="#3B82F6" /></TouchableOpacity></View>
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent} refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]} /> }>
-        <Image source={{ uri: event.image }} style={styles.coverImage} />
-        <View style={styles.statusBadgeContainer}><View style={[styles.statusBadge,{backgroundColor:event.status==="Upcoming"?"#EFF6FF":"#E0F2F1"}]}><Text style={[styles.statusText,{color:event.status==="Upcoming"?"#3B82F6":"#10B981"}]}>{event.status}</Text></View></View>
+        {/* --- Image Swiper Start --- */}
+         <View style={styles.imageSwiperContainer}>
+             <ScrollView
+                 ref={scrollViewRef}
+                 horizontal
+                 pagingEnabled
+                 showsHorizontalScrollIndicator={false}
+                 onMomentumScrollEnd={(e) => onScroll(e.nativeEvent)}
+                 scrollEventThrottle={16}
+                 style={{ width: imageContainerWidth, height: styles.coverImage.height }}
+             >
+                 {images.map((uri, index) => (
+                     <Image
+                         key={index}
+                         source={{ uri: uri }}
+                         style={[styles.coverImage, { width: imageContainerWidth }]}
+                         resizeMode="cover"
+                     />
+                 ))}
+             </ScrollView>
+             {/* Pagination Dots */}
+             {images.length > 1 && (
+                 <View style={styles.paginationContainer}>
+                     {images.map((_, index) => (
+                         <View
+                             key={index}
+                             style={[styles.paginationDot, index === currentImageIndex ? styles.paginationDotActive : {}]}
+                         />
+                     ))}
+                 </View>
+             )}
+             {/* Arrow Buttons (Web Only) */}
+             {Platform.OS === 'web' && images.length > 1 && (
+                 <>
+                     <TouchableOpacity
+                         style={[styles.arrowButton, styles.arrowLeft]}
+                         onPress={goToPrevious}
+                         disabled={currentImageIndex === 0}
+                     >
+                         <Feather name="chevron-left" size={28} color={currentImageIndex === 0 ? '#9CA3AF' : '#FFF'} />
+                     </TouchableOpacity>
+                     <TouchableOpacity
+                         style={[styles.arrowButton, styles.arrowRight]}
+                         onPress={goToNext}
+                         disabled={currentImageIndex === images.length - 1}
+                     >
+                         <Feather name="chevron-right" size={28} color={currentImageIndex === images.length - 1 ? '#9CA3AF' : '#FFF'} />
+                     </TouchableOpacity>
+                 </>
+             )}
+             {/* Status Badge is now inside the swiper container to overlay */}
+             <View style={styles.statusBadgeContainer}><View style={[styles.statusBadge,{backgroundColor:event.status==="Upcoming"?"#EFF6FF":"#E0F2F1"}]}><Text style={[styles.statusText,{color:event.status==="Upcoming"?"#3B82F6":"#10B981"}]}>{event.status}</Text></View></View>
+         </View>
+         {/* --- Image Swiper End --- */}
         <View style={styles.content}>
           <Text style={styles.title}>{event.title}</Text>
           <View style={styles.eventTypeContainer}><Feather name="info" size={16} color="#6B7280" style={styles.infoIcon}/><Text style={styles.infoTextBold}>Type:</Text><Text style={styles.infoText}> {formatEventType(event.event_type)}</Text></View>
@@ -223,7 +325,7 @@ const EventDetailScreen = () => {
                          <View style={styles.ticketHeader}><Text style={styles.ticketName}>{event.booking_type === 'TICKETED' ? 'Tickets Sold' : 'Reservations Made'}</Text><Text style={styles.ticketPrice}>{bookingsMade} / {isUnlimited ? 'Unlimited' : bookingLimit ?? 'N/A'}</Text></View>
                          {!isUnlimited && bookingLimit && bookingLimit > 0 && (<View style={styles.progressBarContainer}><View style={[styles.progressBar, { width: `${percentageSold}%` }]} /></View>)}
                          {!isUnlimited && bookingLimit && spotsRemaining !== null && spotsRemaining >= 0 && (<Text style={styles.ticketRemainingText}>{spotsRemaining} remaining</Text>)}
-                         {bookingLimit === 0 && event.booking_type !== 'INFO_ONLY' && (<Text style={styles.warningTextSmall}>Capacity set to 0. Booking disabled.</Text>)}
+                         {bookingLimit === 0 && (<Text style={styles.warningTextSmall}>Capacity set to 0. Booking disabled.</Text>)}
                       </View>
                       {bookingsMade > 0 ? (<TouchableOpacity style={styles.viewBookingsButtonFullWidth} onPress={handleViewBookings}><Text style={styles.viewBookingsText}>View Attendee List ({bookingsMade})</Text><Feather name="users" size={16} color="#3B82F6" /></TouchableOpacity>
                       ) : ( <Text style={styles.dataMissingTextSmall}>No {event.booking_type === 'TICKETED' ? 'tickets sold' : 'reservations made'} yet.</Text> )}
@@ -234,27 +336,43 @@ const EventDetailScreen = () => {
 
           {/* Audience Analytics Section */}
           <Section title="Audience Analytics" icon="bar-chart-2">
-            {analyticsLoading ? ( <View style={styles.dataMissingContainer}><ActivityIndicator color="#3B82F6"/><Text style={styles.dataMissingTextSmall}>Loading analytics...</Text></View> )
-             : (
-                <>
-                    <View style={styles.analyticItem}><Feather name="eye" size={16} color="#6B7280" style={styles.infoIcon}/><Text style={styles.infoTextBold}>Total Views:</Text><Text style={styles.infoText}> {event.totalImpressions ?? 'N/A'}</Text></View>
-                    {(event.impressionsOverTime && event.impressionsOverTime.length > 0) ? (
+             {analyticsLoading ? ( 
+                 <View style={styles.dataMissingContainer}><ActivityIndicator color="#3B82F6"/><Text style={styles.dataMissingTextSmall}>Loading analytics...</Text></View> 
+             ) : ( 
+                 // Only show analytics content if loading is finished
+                 <>
+                     <View style={styles.analyticItem}><Feather name="eye" size={16} color="#6B7280" style={styles.infoIcon}/><Text style={styles.infoTextBold}>Total Views:</Text><Text style={styles.infoText}> {event.totalImpressions !== null ? event.totalImpressions : 'N/A'}</Text></View>
+                     
+                     {/* Impressions Chart */}
+                     {(event.impressionsOverTime && event.impressionsOverTime.length > 1) ? ( // Require at least 2 points for a line
                          <View style={styles.chartContainer}>
-                            <Text style={styles.chartTitle}>Impressions Over Time</Text>
-                            <LineChart data={lineChartData} width={screenWidth - 64} height={220} chartConfig={chartConfig} bezier style={styles.chartStyle} />
+                             <Text style={styles.chartTitle}>Impressions Over Time</Text>
+                             <LineChart data={lineChartData} width={screenWidth - 64} height={220} chartConfig={chartConfig} bezier style={styles.chartStyle} />
                          </View>
                      ) : ( <Text style={styles.dataMissingTextSmall}>Not enough impression data for trend chart.</Text> )}
-                     {(pieChartData && pieChartData.length > 0) ? (
-                         <View style={styles.chartContainer}>
-                             <Text style={styles.chartTitle}>Attendee Age Distribution</Text>
-                             <PieChart data={pieChartData} width={screenWidth - 64} height={220} chartConfig={chartConfig} accessor={"population"} backgroundColor={"transparent"} paddingLeft={"15"} absolute style={styles.chartStyle} />
-                         </View>
-                     ) : ( <Text style={styles.dataMissingTextSmall}>No attendee age data available.</Text> )}
-                </>
-            )}
+                     
+                     {/* Age Distribution Chart */}
+                      {(pieChartData && pieChartData.length > 0) ? ( 
+                          <View style={styles.chartContainer}>
+                              <Text style={styles.chartTitle}>Attendee Age Distribution</Text>
+                              <PieChart data={pieChartData} width={screenWidth - 64} height={220} chartConfig={chartConfig} accessor={"population"} backgroundColor={"transparent"} paddingLeft={"15"} absolute style={styles.chartStyle} />
+                          </View>
+                      ) : ( 
+                          <View style={styles.dataMissingContainer}><Feather name="users" size={24} color="#9CA3AF" /><Text style={styles.dataMissingText}>No attendee age data available.</Text></View>
+                      )}
+                 </>
+             )}
           </Section>
 
-          <View style={styles.actionButtons}><TouchableOpacity style={styles.editButton} onPress={handleEdit}><Feather name="edit-2" size={18} color="#3B82F6" /><Text style={styles.editButtonText}>Edit Event</Text></TouchableOpacity><TouchableOpacity style={styles.promoteButton} onPress={handlePromote}><Feather name="trending-up" size={18} color="#FFFFFF" /><Text style={styles.promoteButtonText}>Promote Event</Text></TouchableOpacity></View>
+          {/* Action Buttons - Promote Removed */}
+          <View style={styles.actionButtons}>
+             <TouchableOpacity style={styles.editButtonFullWidth} onPress={handleEdit}>
+                 <Feather name="edit-2" size={18} color="#3B82F6" />
+                 <Text style={styles.editButtonText}>Edit Event</Text>
+             </TouchableOpacity>
+             {/* Add more buttons here if needed later, like View Bookings if not already present */}
+             {/* <TouchableOpacity style={styles.viewBookingsButton} onPress={handleViewBookings}><Feather name="users" size={18} color="#3B82F6" /><Text style={styles.viewBookingsButtonText}>View Bookings</Text></TouchableOpacity> */}
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -269,13 +387,50 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 16, fontWeight: '600', color: '#4B5563', marginTop: 10, textAlign: 'center' },
   retryButton: { backgroundColor: '#3B82F6', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, marginTop: 15 },
   retryButtonText: { color: '#FFF', fontWeight: '600' },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#F3F4F6", backgroundColor: "white" },
-  backButton: { padding: 8, marginRight: 8 },
-  headerTitle: { fontSize: 18, fontWeight: "600", color: "#1F2937", flex: 1, textAlign: 'center', marginHorizontal: 8 },
-  moreButton: { padding: 8, marginLeft: 8 },
   scrollContainer: { flex: 1 },
   scrollContent: { paddingBottom: 40 },
+  imageSwiperContainer: {
+      position: 'relative',
+      width: '100%',
+      height: 240,
+      backgroundColor: '#F3F4F6',
+  },
   coverImage: { width: "100%", height: 240, backgroundColor: '#F3F4F6' },
+  paginationContainer: {
+      position: 'absolute',
+      bottom: 15,
+      left: 0,
+      right: 0,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 2,
+  },
+  paginationDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: 'rgba(255, 255, 255, 0.6)',
+      marginHorizontal: 4,
+  },
+  paginationDotActive: {
+      backgroundColor: '#FFFFFF',
+  },
+  arrowButton: {
+      position: 'absolute',
+      top: '50%',
+      marginTop: -20,
+      padding: 6,
+      backgroundColor: 'rgba(0, 0, 0, 0.4)',
+      borderRadius: 20,
+      zIndex: 2,
+  },
+  arrowLeft: {
+      left: 15,
+  },
+  arrowRight: {
+      right: 15,
+  },
   statusBadgeContainer: { position: "absolute", top: 16, right: 16, zIndex: 10 },
   statusBadge: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, backgroundColor: 'rgba(255, 255, 255, 0.8)' },
   statusText: { fontSize: 12, fontWeight: "600" },
@@ -284,7 +439,7 @@ const styles = StyleSheet.create({
   eventTypeContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, },
   infoContainer: { marginBottom: 16 },
   infoRow: { flexDirection: "row", marginBottom: 12, alignItems: 'flex-start' },
-  infoIcon: { marginRight: 12, marginTop: 3, width: 16, textAlign: 'center' }, // Added width for alignment
+  infoIcon: { marginRight: 12, marginTop: 3, width: 16, textAlign: 'center' },
   infoText: { fontSize: 16, color: "#4B5563", flexShrink: 1 },
   infoTextBold: { fontSize: 16, color: "#374151", fontWeight: '600'},
   tagsContainer: { flexDirection: "row", flexWrap: "wrap", marginTop: 8 },
@@ -313,10 +468,8 @@ const styles = StyleSheet.create({
   chartTitle: { fontSize: 16, fontWeight: '600', color: '#374151', marginBottom: 8, textAlign: 'center' },
   chartStyle: { marginVertical: 8, borderRadius: 8 },
   actionButtons: { flexDirection: "row", marginTop: 24, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
-  editButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(59, 130, 246, 0.1)", paddingVertical: 12, borderRadius: 8, marginRight: 8 },
+  editButtonFullWidth: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(59, 130, 246, 0.1)", paddingVertical: 12, borderRadius: 8, },
   editButtonText: { color: "#3B82F6", fontWeight: "600", marginLeft: 8, fontSize: 16 },
-  promoteButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#3B82F6", paddingVertical: 12, borderRadius: 8, marginLeft: 8 },
-  promoteButtonText: { color: "white", fontWeight: "600", marginLeft: 8, fontSize: 16 },
 });
 
 export default EventDetailScreen;

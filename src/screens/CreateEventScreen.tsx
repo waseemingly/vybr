@@ -410,7 +410,11 @@ const CreateEventScreen: React.FC = () => {
 
               <View style={styles.formGroup}><Label>Location</Label><View style={styles.inputWithIcon}><Feather name="map-pin" size={16} color="#9CA3AF" style={styles.inputIcon} /><TextInput style={styles.iconInput} placeholder="e.g., The Fillmore, Online" value={formState.location} onChangeText={(text)=>handleChange("location",text)} accessibilityLabel="Event Location Input"/></View></View>
 
-              <View style={styles.formGroup}><Label>Event Type *</Label><View style={styles.pickerContainer}><Picker selectedValue={formState.eventType} onValueChange={(itemValue) => handleChange('eventType', itemValue as EventTypeValue)} style={styles.picker} itemStyle={styles.pickerItem} accessibilityLabel="Select Event Type Picker" prompt="Select Event Type">{eventTypeOptions.map(o=>(<Picker.Item key={o.value} label={o.label} value={o.value} enabled={o.value!==''} color={o.value === '' ? '#9CA3AF' : undefined}/>))}</Picker>{Platform.OS === 'ios' && formState.eventType && eventTypeOptions.find(o => o.value === formState.eventType) && ( <Text style={styles.iosPickerValueDisplay} pointerEvents="none">Selected: {eventTypeOptions.find(o => o.value === formState.eventType)?.label}</Text> )}</View>{!formState.eventType && (<Text style={styles.errorText}>Please select an event type.</Text>)}</View>
+              <View style={styles.formGroup}><Label>Event Type *</Label><View style={styles.pickerContainer}><Picker selectedValue={formState.eventType} onValueChange={(itemValue) => handleChange('eventType', itemValue as EventTypeValue)} style={styles.picker} itemStyle={styles.pickerItem} accessibilityLabel="Select Event Type Picker" prompt="Select Event Type">{eventTypeOptions.map(o=>(<Picker.Item key={o.value} label={o.label} value={o.value} enabled={o.value!==''} color={o.value === '' ? '#9CA3AF' : undefined}/>))}</Picker>{Platform.OS === 'ios' && formState.eventType && eventTypeOptions.find(o => o.value === formState.eventType) && ( 
+                 <View style={styles.iosPickerValueDisplayWrapper} pointerEvents="none">
+                     <Text style={styles.iosPickerValueDisplayText}>Selected: {eventTypeOptions.find(o => o.value === formState.eventType)?.label}</Text> 
+                 </View>
+              )}</View>{!formState.eventType && (<Text style={styles.errorText}>Please select an event type.</Text>)}</View>
 
               {formState.eventType && formState.eventType !== 'ADVERTISEMENT_ONLY' && (<View style={styles.formGroup}><Label>{currentBookingType==='TICKETED'?'Enable Ticket Sales?':'Enable Reservations?'}</Label><View style={styles.switchContainer}><Text style={styles.switchLabel}>{formState.bookingMode==='yes'?'Yes':'No (Info Only)'}</Text><Switch trackColor={{false:"#E5E7EB",true:"#60A5FA"}} thumbColor={formState.bookingMode==='yes'?"#3B82F6":"#f4f3f4"} ios_backgroundColor="#E5E7EB" onValueChange={(v)=>handleChange('bookingMode',v?'yes':'no')} value={formState.bookingMode==='yes'} accessibilityLabel={currentBookingType === 'TICKETED' ? 'Enable Ticket Sales Switch' : 'Enable Reservations Switch'} accessibilityHint={formState.bookingMode === 'yes' ? 'Booking enabled' : 'Booking disabled'}/></View></View>)}
 
@@ -469,7 +473,19 @@ const styles = StyleSheet.create({
     pickerContainer: { borderWidth: 1, borderColor: "#D1D5DB", borderRadius: 8, backgroundColor: "white", height: Platform.OS === 'ios' ? undefined : 48, justifyContent: 'center', paddingHorizontal: Platform.OS === 'ios' ? 10 : 0, },
     picker: { height: Platform.OS === 'ios' ? 180 : 48, },
     pickerItem: {},
-    iosPickerValueDisplay: { paddingHorizontal: 12, paddingVertical: Platform.OS === 'ios' ? 14 : 0, fontSize: 16, color: '#1F2937', position: 'absolute', left: 10, top: 0, bottom: 0, zIndex: -1, textAlignVertical: 'center', },
+    iosPickerValueDisplayWrapper: {
+        position: 'absolute',
+        left: 10,
+        top: 0,
+        bottom: 0,
+        justifyContent: 'center',
+        paddingHorizontal: 12, // Same horizontal padding as input
+        zIndex: -1, // Place behind the actual picker
+    },
+    iosPickerValueDisplayText: {
+        fontSize: 16,
+        color: '#1F2937',
+    },
     switchContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, height: 48 },
     switchLabel: { fontSize: 16, color: '#374151', marginRight: 10, flexShrink: 1 },
     webPickerContainer: {
