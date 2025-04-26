@@ -1,8 +1,8 @@
 // screens/IndividualChatScreen.tsx
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     View, StyleSheet, ActivityIndicator, Text, TouchableOpacity,
-    Platform, TextInput, FlatList, KeyboardAvoidingView, Keyboard
+    Platform, TextInput, SectionList, KeyboardAvoidingView, Keyboard
 } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -20,6 +20,10 @@ type RootNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 interface DbMessage { id: string; created_at: string; sender_id: string; receiver_id: string; content: string; }
 interface ChatMessage { _id: string; text: string; createdAt: Date; user: { _id: string; }; }
 interface MessageBubbleProps { message: ChatMessage; currentUserId: string | undefined; }
+
+// Helper to format timestamps
+const formatTime = (date: Date) => date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
 const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, currentUserId }) => {
     const isCurrentUser = message.user._id === currentUserId;
     return (
@@ -27,6 +31,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, curre
             <View style={[ styles.messageBubble, isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived ]}>
                 <Text style={isCurrentUser ? styles.messageTextSent : styles.messageTextReceived}>
                     {message.text}
+                </Text>
+                <Text style={styles.timeText}>
+                    {formatTime(message.createdAt)}
                 </Text>
             </View>
         </View>
@@ -59,7 +66,7 @@ const IndividualChatScreen: React.FC = () => {
     const [isBlocked, setIsBlocked] = useState(false); // Covers block in either direction
 
     const currentUserId = session?.user?.id;
-    const flatListRef = useRef<FlatList>(null);
+    const flatListRef = useRef<SectionList<any>>(null);
 
     const mapDbMessageToChatMessage = useCallback((dbMessage: DbMessage): ChatMessage => ({
          _id: dbMessage.id, text: dbMessage.content, createdAt: new Date(dbMessage.created_at), user: { _id: dbMessage.sender_id, },
@@ -268,6 +275,24 @@ const IndividualChatScreen: React.FC = () => {
         };
     }, [currentUserId, matchUserId, mapDbMessageToChatMessage, isBlocked]); // isBlocked is crucial
 
+    // Group messages by date for section headers
+    const sections = useMemo(() => {
+        const groups: Record<string, ChatMessage[]> = {};
+        messages.forEach(msg => {
+            const dateKey = new Date(msg.createdAt).toDateString();
+            (groups[dateKey] = groups[dateKey] || []).push(msg);
+        });
+        const sortedKeys = Object.keys(groups).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+        const today = new Date(), yesterday = new Date(today.getTime() - 86400000);
+        return sortedKeys.map(dateKey => {
+            const date = new Date(dateKey);
+            let title = date.toDateString() === today.toDateString() ? 'Today'
+                : date.toDateString() === yesterday.toDateString() ? 'Yesterday'
+                : (today.getTime() - date.getTime() <= 7 * 86400000) ? date.toLocaleDateString(undefined, { weekday: 'long' })
+                : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+            return { title, data: groups[dateKey] };
+        });
+    }, [messages]);
 
     // --- Render Logic ---
     if (loading && messages.length === 0 && !isBlocked) {
@@ -307,22 +332,43 @@ const IndividualChatScreen: React.FC = () => {
                     <View style={styles.errorBanner}><Text style={styles.errorBannerText}>{error}</Text></View>
                 )}
 
-                <FlatList
+                <SectionList
                     ref={flatListRef}
+                    sections={sections}
                     style={styles.messageList}
                     contentContainerStyle={styles.messageListContent}
-                    data={messages}
-                    keyExtractor={(item) => item._id} // Use message ID as key
+                    keyExtractor={(item) => item._id}
                     renderItem={({ item }) => <MessageBubble message={item} currentUserId={currentUserId} />}
-                    onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
-                    onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
-                    ListEmptyComponent={
-                        !loading ? // Only show if not loading
-                         <View style={styles.centered}><Text style={styles.noMessagesText}>Start the conversation!</Text></View>
-                         : null
-                    }
-                    // Add an inverted prop if you want newest messages at the bottom and list starts scrolled down
-                    // inverted={true} // Remember to reverse the 'data' array if using inverted
+                    renderSectionHeader={({ section: { title } }) => (
+                        <View style={styles.sectionHeader}>
+                            <Text style={styles.sectionHeaderText}>{title}</Text>
+                        </View>
+                    )}
+                    onContentSizeChange={() => {
+                        if (flatListRef.current && sections.length) {
+                            const lastSectionIndex = sections.length - 1;
+                            const lastItemIndex = sections[lastSectionIndex].data.length - 1;
+                            flatListRef.current.scrollToLocation({
+                                sectionIndex: lastSectionIndex,
+                                itemIndex: lastItemIndex,
+                                animated: false,
+                                viewPosition: 1
+                            });
+                        }
+                    }}
+                    onLayout={() => {
+                        if (flatListRef.current && sections.length) {
+                            const lastSectionIndex = sections.length - 1;
+                            const lastItemIndex = sections[lastSectionIndex].data.length - 1;
+                            flatListRef.current.scrollToLocation({
+                                sectionIndex: lastSectionIndex,
+                                itemIndex: lastItemIndex,
+                                animated: false,
+                                viewPosition: 1
+                            });
+                        }
+                    }}
+                    stickySectionHeadersEnabled
                 />
 
                 <View style={styles.inputToolbar}>
@@ -359,10 +405,8 @@ const styles = StyleSheet.create({
     errorBannerText: { color: '#B91C1C', fontSize: 13, textAlign: 'center', },
     noMessagesText: { color: '#6B7280', fontSize: 14, marginTop: 30 },
     messageList: { flex: 1, paddingHorizontal: 10, },
-    // If using inverted FlatList, add: transform: [{ scaleY: -1 }]
     messageListContent: { paddingVertical: 10, flexGrow: 1, justifyContent: 'flex-end' },
     messageRow: { flexDirection: 'row', marginVertical: 5, },
-    // If using inverted FlatList, add: transform: [{ scaleY: -1 }] to messageRow
     messageRowSent: { justifyContent: 'flex-end', },
     messageRowReceived: { justifyContent: 'flex-start', },
     messageBubble: { maxWidth: '75%', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 18, },
@@ -374,11 +418,25 @@ const styles = StyleSheet.create({
     textInput: { flex: 1, minHeight: 40, maxHeight: 120, backgroundColor: '#F3F4F6', borderRadius: 20, paddingHorizontal: 15, paddingVertical: Platform.OS === 'ios' ? 10 : 8, fontSize: 15, marginRight: 10, color: '#1F2937', },
     sendButton: { backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', },
     sendButtonDisabled: { backgroundColor: '#9CA3AF', },
-    // Header Styles
-     headerTitleContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexShrink: 1 },
+    headerTitleContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexShrink: 1 },
     headerTitleText: { fontSize: 17, fontWeight: '600', color: '#000000', textAlign: 'center', },
     muteIcon: { marginLeft: 6, },
-     blockedText: { color: '#6B7280', fontStyle: 'italic', },
+    blockedText: { color: '#6B7280', fontStyle: 'italic', },
+    timeText: {
+        fontSize: 11,
+        color: '#9CA3AF',
+        marginTop: 4,
+        alignSelf: 'flex-end',
+    },
+    sectionHeader: {
+        alignItems: 'center',
+        marginVertical: 10,
+    },
+    sectionHeaderText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#6B7280',
+    },
 });
 
 export default IndividualChatScreen;

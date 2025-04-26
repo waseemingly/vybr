@@ -1,15 +1,21 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
     StyleSheet,
     TouchableOpacity,
-    FlatList, // Use FlatList for potentially long lists
+    FlatList,
+    ActivityIndicator,
+    Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { MainStackParamList } from '../navigation/AppNavigator';
 import { APP_CONSTANTS } from '../config/constants'; // Adjust path if needed
+import { useAuth } from '../hooks/useAuth';
+import { supabase } from '../lib/supabase';
 
 // Sample data structure for a muted user
 interface MutedUser {
@@ -20,18 +26,89 @@ interface MutedUser {
 
 // Basic placeholder screen
 const UserMutedListScreen: React.FC = () => {
-    const navigation = useNavigation();
+    // Navigation prop for MainStack screens
+    type UserMutedListScreenNavigationProp = NativeStackNavigationProp<MainStackParamList, 'UserMutedListScreen'>;
+    const navigation = useNavigation<UserMutedListScreenNavigationProp>();
 
-    // Placeholder data - Replace with actual data fetching logic
-    const mutedUsers: MutedUser[] = [
-        // { id: '1', name: 'Muted User 1' },
-        // { id: '2', name: 'Muted User 2' },
-    ];
+    // Get current user and manage muted users state
+    const { session } = useAuth();
+    const currentUserId = session?.user?.id;
+    const [mutedUsers, setMutedUsers] = useState<MutedUser[]>([]);
+    const [loading, setLoading] = useState<boolean>(true);
+
+    // Fetch muted users from Supabase on mount or when user changes
+    useEffect(() => {
+        const fetchMutedUsers = async () => {
+            if (!currentUserId) {
+                setMutedUsers([]);
+                setLoading(false);
+                return;
+            }
+            try {
+                const { data: mutes, error: muteError } = await supabase
+                    .from('muted_users')
+                    .select('muted_id')
+                    .eq('muter_id', currentUserId);
+                if (muteError) throw muteError;
+                const mutedIds = (mutes || []).map((m: any) => m.muted_id);
+                if (mutedIds.length === 0) {
+                    setMutedUsers([]);
+                    setLoading(false);
+                    return;
+                }
+                const { data: profiles, error: profileError } = await supabase
+                    .from('music_lover_profiles')
+                    .select('user_id, first_name, last_name, username')
+                    .in('user_id', mutedIds);
+                if (profileError) throw profileError;
+                const usersMapped = mutedIds.map(id => {
+                    const profile = (profiles || []).find((p: any) => p.user_id === id);
+                    const name = profile
+                        ? `${profile.first_name?.trim() || ''} ${profile.last_name?.trim() || ''}`.trim() || profile.username || 'User'
+                        : 'User';
+                    return { id, name };
+                });
+                setMutedUsers(usersMapped);
+            } catch (err) {
+                console.error('[UserMutedListScreen] Error fetching muted users:', err);
+                Alert.alert('Error', 'Could not load muted users. Please try again.');
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchMutedUsers();
+    }, [currentUserId]);
+
+    // Unmute handler
+    const handleUnmute = async (userIdToUnmute: string) => {
+        if (!currentUserId) return;
+        try {
+            const { error } = await supabase
+                .from('muted_users')
+                .delete()
+                .eq('muter_id', currentUserId)
+                .eq('muted_id', userIdToUnmute);
+            if (error) throw error;
+            // Remove from local state
+            setMutedUsers(prev => prev.filter(u => u.id !== userIdToUnmute));
+        } catch (err) {
+            console.error('[UserMutedListScreen] Error unmuting user:', err);
+            Alert.alert('Error', 'Could not unmute the user. Please try again.');
+        }
+    };
 
     const renderItem = ({ item }: { item: MutedUser }) => (
         <View style={styles.itemContainer}>
-            <Text style={styles.itemName}>{item.name}</Text>
-            <TouchableOpacity style={styles.unmuteButton} onPress={() => {/* TODO: Implement unmute logic */} }>
+            <TouchableOpacity onPress={() => {
+                // Navigate to OtherUserProfileScreen on root navigator
+                const rootNav = navigation.getParent();
+                if (rootNav) {
+                    (rootNav as any).navigate('OtherUserProfileScreen', { userId: item.id });
+                }
+            }}>
+                <Text style={styles.itemName}>{item.name}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.unmuteButton} onPress={() => handleUnmute(item.id)}>
                 <Text style={styles.unmuteButtonText}>Unmute</Text>
             </TouchableOpacity>
         </View>
@@ -49,7 +126,11 @@ const UserMutedListScreen: React.FC = () => {
             </View>
 
             {/* Content */}
-            {mutedUsers.length > 0 ? (
+            {loading ? (
+                <View style={styles.emptyContainer}>
+                    <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </View>
+            ) : mutedUsers.length > 0 ? (
                 <FlatList
                     data={mutedUsers}
                     renderItem={renderItem}
