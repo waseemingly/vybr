@@ -9,6 +9,7 @@ import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navig
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import ImageView from 'react-native-image-viewing';
 
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
@@ -48,6 +49,9 @@ const GroupInfoScreen = () => {
     const [processingAction, setProcessingAction] = useState<string | null>(null);
     const [showTransferModal, setShowTransferModal] = useState(false);
     const [transferAdminId, setTransferAdminId] = useState<string | null>(null);
+    const [imageViewerVisible, setImageViewerVisible] = useState(false);
+    const [selectedImage, setSelectedImage] = useState<string | null>(null);
+    const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
     // --- Fetch Group Details & Members ---
     const fetchGroupInfo = useCallback(async () => {
@@ -130,11 +134,45 @@ const GroupInfoScreen = () => {
     };
 
     // --- Render Media Item ---
-     const renderMediaItem = ({ item }: { item: MediaMessage }) => (
-         <TouchableOpacity style={styles.mediaItemContainer} /* onPress={()=> openImageModal(item.imageUrl)} */ >
-             {item.imageUrl ? ( <RNImage source={{ uri: item.imageUrl }} style={styles.mediaThumbnail} resizeMode="cover"/> ) : ( <View style={[styles.mediaThumbnail, styles.mediaThumbnailPlaceholder]}><Feather name="image" size={20} color="#9CA3AF"/></View> )}
-         </TouchableOpacity>
-     );
+    const renderMediaItem = ({ item }: { item: MediaMessage }) => (
+        <TouchableOpacity 
+            style={styles.mediaItemContainer} 
+            onPress={() => {
+                if (item.imageUrl) {
+                    setSelectedImage(item.imageUrl);
+                    setImageViewerVisible(true);
+                }
+            }}
+        >
+            {item.imageUrl ? (
+                <RNImage 
+                    source={{ uri: item.imageUrl }} 
+                    style={styles.mediaThumbnail} 
+                    resizeMode="cover"
+                />
+            ) : (
+                <View style={[styles.mediaThumbnail, styles.mediaThumbnailPlaceholder]}>
+                    <Feather name="image" size={20} color="#9CA3AF"/>
+                </View>
+            )}
+        </TouchableOpacity>
+    );
+
+    // Update the image press handler
+    const handleImagePress = (imageUrl: string) => {
+        const index = mediaMessages.findIndex(msg => msg.imageUrl === imageUrl);
+        if (index !== -1) {
+            setSelectedImageIndex(index);
+            setSelectedImage(imageUrl);
+            setImageViewerVisible(true);
+        }
+    };
+
+    // Add handler for image index change
+    const handleImageIndexChange = (index: number) => {
+        setSelectedImageIndex(index);
+        setSelectedImage(mediaMessages[index].imageUrl);
+    };
 
     // --- Main Render ---
     if (isLoading) { return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View>; }
@@ -181,38 +219,56 @@ const GroupInfoScreen = () => {
                     </View>
                 )}
 
-                 {/* Media Section */}
-                 <View style={styles.mediaSection}>
-                     <Text style={styles.sectionHeader}>Shared Media</Text>
-                     {loadingMedia ? (
-                         <ActivityIndicator style={{ marginVertical: 20 }} color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'}/>
-                     ) : mediaMessages.length > 0 ? (
-                         <FlatList data={mediaMessages} renderItem={renderMediaItem} keyExtractor={(item) => item.id} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaListContent} />
-                     ) : (
-                         <Text style={styles.noMediaText}>No photos or videos shared yet.</Text>
-                     )}
-                 </View>
-
                 {/* Members List */}
-                 <View style={styles.membersSection}>
+                <View style={styles.membersSection}>
                     <Text style={styles.sectionHeader}>Members</Text>
                     <FlatList data={members} renderItem={renderMemberItem} keyExtractor={(item) => item.user_id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={styles.separator} />} />
                 </View>
 
                 {/* Danger Zone */}
                 <View style={styles.dangerZone}>
-                     <TouchableOpacity style={[styles.actionRow, styles.dangerActionRow]} onPress={handleLeaveGroup} disabled={!!processingAction} >
-                         <Feather name="log-out" size={22} color="#EF4444" style={styles.actionIcon} /><Text style={[styles.actionText, styles.dangerActionText]}>Leave Group</Text>{processingAction === 'leave' && <ActivityIndicator size="small" color="#EF4444" style={styles.actionSpinner}/>}
-                     </TouchableOpacity>
+                    <TouchableOpacity style={[styles.actionRow, styles.dangerActionRow]} onPress={handleLeaveGroup} disabled={!!processingAction} >
+                        <Feather name="log-out" size={22} color="#EF4444" style={styles.actionIcon} />
+                        <Text style={[styles.actionText, styles.dangerActionText]}>Leave Group</Text>
+                        {processingAction === 'leave' && <ActivityIndicator size="small" color="#EF4444" style={styles.actionSpinner}/>}
+                    </TouchableOpacity>
                     {(isCurrentUserAdmin) && (
                         <TouchableOpacity style={[styles.actionRow, styles.dangerActionRow]} onPress={handleDeleteGroup} disabled={!!processingAction} >
-                            <Feather name="trash-2" size={22} color="#EF4444" style={styles.actionIcon} /><Text style={[styles.actionText, styles.dangerActionText]}>Delete Group</Text>{processingAction === 'delete' && <ActivityIndicator size="small" color="#EF4444" style={styles.actionSpinner}/>}
+                            <Feather name="trash-2" size={22} color="#EF4444" style={styles.actionIcon} />
+                            <Text style={[styles.actionText, styles.dangerActionText]}>Delete Group</Text>
+                            {processingAction === 'delete' && <ActivityIndicator size="small" color="#EF4444" style={styles.actionSpinner}/>}
                         </TouchableOpacity>
                     )}
                 </View>
 
-                 {/* Transfer Modal */}
-                 <Modal visible={showTransferModal} transparent animationType="fade">
+                {/* Media Section */}
+                <View style={styles.mediaSection}>
+                    <Text style={styles.sectionHeader}>Shared Media</Text>
+                    {loadingMedia ? (
+                        <ActivityIndicator style={{ marginVertical: 20 }} color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'}/>
+                    ) : mediaMessages.length > 0 ? (
+                        <View style={styles.mediaGrid}>
+                            {mediaMessages.map((item) => (
+                                <TouchableOpacity 
+                                    key={item.id}
+                                    style={styles.mediaGridItem}
+                                    onPress={() => handleImagePress(item.imageUrl!)}
+                                >
+                                    <RNImage 
+                                        source={{ uri: item.imageUrl || '' }} 
+                                        style={styles.mediaGridImage} 
+                                        resizeMode="cover"
+                                    />
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    ) : (
+                        <Text style={styles.noMediaText}>No photos or videos shared yet.</Text>
+                    )}
+                </View>
+
+                {/* Transfer Modal */}
+                <Modal visible={showTransferModal} transparent animationType="fade">
                     {/* *** CORRECTED MODAL STRUCTURE *** */}
                     <Pressable style={styles.modalOverlay} onPress={()=>setShowTransferModal(false)}>
                         <Pressable style={styles.modalContent} onPress={() => {}}> {/* Prevent closing on modal content press */}
@@ -239,7 +295,17 @@ const GroupInfoScreen = () => {
                          {/* Closing </Pressable> for modalContent was here */}
                     </Pressable>
                     {/* *** The </View> was here - REMOVED *** */}
-                 </Modal>
+                </Modal>
+
+                <ImageView
+                    images={mediaMessages.map(msg => ({ uri: msg.imageUrl! }))}
+                    imageIndex={selectedImageIndex}
+                    visible={imageViewerVisible}
+                    onRequestClose={() => setImageViewerVisible(false)}
+                    swipeToCloseEnabled={true}
+                    doubleTapToZoomEnabled={true}
+                    onImageIndexChange={handleImageIndexChange}
+                />
 
             </ScrollView>
         </SafeAreaView>
@@ -268,12 +334,54 @@ const styles = StyleSheet.create({
      switchRow: { justifyContent: 'space-between', },
      switchLabel: { flex: 0.8, },
      // --- Styles for Media Section ---
-     mediaSection: { backgroundColor: 'white', borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#E5E7EB', marginTop: 16, marginBottom: 16, },
-     mediaListContent: { paddingHorizontal: 16, paddingVertical: 12, },
-     mediaItemContainer: { marginRight: 10, borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor: '#E5E7EB' },
-     mediaThumbnail: { width: 80, height: 80, backgroundColor: '#F3F4F6', borderRadius: 7, },
-     mediaThumbnailPlaceholder: { justifyContent: 'center', alignItems: 'center', },
-     noMediaText: { textAlign: 'center', color: '#9CA3AF', fontStyle: 'italic', marginVertical: 20, paddingHorizontal: 16, },
+     mediaSection: {
+         backgroundColor: 'white',
+         borderTopWidth: StyleSheet.hairlineWidth,
+         borderBottomWidth: StyleSheet.hairlineWidth,
+         borderColor: '#E5E7EB',
+         marginTop: 16,
+         marginBottom: 16,
+         padding: 16,
+     },
+     mediaGrid: {
+         flexDirection: 'row',
+         flexWrap: 'wrap',
+         marginHorizontal: -4,
+     },
+     mediaGridItem: {
+         width: '33.33%',
+         padding: 4,
+     },
+     mediaGridImage: {
+         width: '100%',
+         aspectRatio: 1,
+         borderRadius: 8,
+         backgroundColor: '#F3F4F6',
+     },
+     mediaItemContainer: {
+         marginRight: 10,
+         borderRadius: 8,
+         overflow: 'hidden',
+         borderWidth: 1,
+         borderColor: '#E5E7EB'
+     },
+     mediaThumbnail: {
+         width: 80,
+         height: 80,
+         backgroundColor: '#F3F4F6',
+         borderRadius: 7,
+     },
+     mediaThumbnailPlaceholder: {
+         justifyContent: 'center',
+         alignItems: 'center',
+     },
+     noMediaText: {
+         textAlign: 'center',
+         color: '#9CA3AF',
+         fontStyle: 'italic',
+         marginVertical: 20,
+         paddingHorizontal: 16,
+     },
      // --- End Media Section Styles ---
      membersSection: { backgroundColor: 'white', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E5E7EB', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E5E7EB', marginBottom: 16, },
      memberItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, },
