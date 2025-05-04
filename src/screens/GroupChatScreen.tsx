@@ -11,6 +11,7 @@ import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 import * as FileSystem from 'expo-file-system';
+import ImageView from 'react-native-image-viewing';
 
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
@@ -43,8 +44,12 @@ const DEFAULT_PROFILE_PIC = APP_CONSTANTS?.DEFAULT_PROFILE_PIC || 'https://via.p
 const DEFAULT_GROUP_PIC = 'https://placehold.co/40x40/e2e8f0/64748b?text=G';
 
 // --- GroupMessageBubble Component ---
-interface GroupMessageBubbleProps { message: ChatMessage; currentUserId: string | undefined; }
-const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({ message, currentUserId }) => {
+interface GroupMessageBubbleProps { 
+    message: ChatMessage; 
+    currentUserId: string | undefined;
+    onImagePress: (imageUri: string) => void;
+}
+const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({ message, currentUserId, onImagePress }) => {
     const isCurrentUser = message.user._id === currentUserId;
     const senderName = message.user.name;
 
@@ -59,13 +64,17 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({ mess
             <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
                 <View style={styles.messageContentContainer}>
                     {!isCurrentUser && senderName && senderName !== 'User' && ( <Text style={styles.senderName}>{senderName}</Text> )}
-                    <TouchableOpacity style={[ styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage ]} activeOpacity={0.8} /* onPress={()=> viewImage(message.image)} */>
-                         <Image
+                    <TouchableOpacity 
+                        style={[ styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage ]} 
+                        activeOpacity={0.8} 
+                        onPress={() => onImagePress(message.image!)}
+                    >
+                        <Image
                             source={{ uri: message.image }}
                             style={styles.chatImage}
                             resizeMode="cover"
                             onError={(e) => console.warn(`Failed load chat image ${message._id}: ${message.image}`, e.nativeEvent.error)}
-                         />
+                        />
                     </TouchableOpacity>
                     <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
@@ -119,6 +128,9 @@ const GroupChatScreen: React.FC = () => {
     const [canMembersAddOthers, setCanMembersAddOthers] = useState(false);
     const [canMembersEditInfo, setCanMembersEditInfo] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
+    const [imageViewerVisible, setImageViewerVisible] = useState(false);
+    const [selectedImage, setSelectedImage] = useState<string | null>(null);
+    const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
     // Memoized sections
     const sections = useMemo(() => { const groups: Record<string, ChatMessage[]> = {}; messages.forEach(msg => { const dateKey = msg.createdAt.toDateString(); if (!groups[dateKey]) groups[dateKey] = []; groups[dateKey].push(msg); }); const sortedKeys = Object.keys(groups).sort((a,b) => new Date(a).getTime() - new Date(b).getTime()); const today = new Date(); today.setHours(0,0,0,0); const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); const oneWeekAgo = new Date(today); oneWeekAgo.setDate(today.getDate() - 7); return sortedKeys.map(dateKey => { const date = new Date(dateKey); date.setHours(0,0,0,0); let title = 'Older'; if (date.getTime() === today.getTime()) title = 'Today'; else if (date.getTime() === yesterday.getTime()) title = 'Yesterday'; else if (date > oneWeekAgo) title = date.toLocaleDateString(undefined, { weekday:'long' }); else title = date.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' }); return { title, data: groups[dateKey] }; }); }, [messages]);
@@ -182,9 +194,10 @@ const GroupChatScreen: React.FC = () => {
         setSendError(null);
         console.log(`[pickAndSendImage] Processing asset. URI: ${imageUri}`);
 
+        let tempId: string | null = null;
         try {
             // Create a temporary message to show in the UI
-            const tempId = `temp_${Date.now()}_img`;
+            tempId = `temp_${Date.now()}_img`;
             const currentUserProfile = userProfileCache[currentUserId] || { name: 'You' };
             const optimisticMessage: ChatMessage = {
                 _id: tempId,
@@ -195,9 +208,10 @@ const GroupChatScreen: React.FC = () => {
                     name: currentUserProfile.name,
                     avatar: currentUserProfile.avatar
                 },
-                image: imageUri, // Show local URI while uploading
+                image: imageUri,
                 isSystemMessage: false
             };
+
             setMessages(prev => [...prev, optimisticMessage]);
 
             // Read the file data
@@ -272,10 +286,12 @@ const GroupChatScreen: React.FC = () => {
             ));
 
         } catch (err: any) {
-            console.error("[pickAndSendImage] Error:", err);
+            console.error('[pickAndSendImage] Error:', err);
             setSendError(`Failed to send image: ${err.message}`);
             // Remove the temporary message
-            setMessages(prev => prev.filter(msg => msg._id !== tempId));
+            if (tempId) {
+                setMessages(prev => prev.filter(msg => msg._id !== tempId));
+            }
         } finally {
             setIsUploading(false);
         }
@@ -293,6 +309,27 @@ const GroupChatScreen: React.FC = () => {
 
     // Effects
     useFocusEffect( useCallback(() => { fetchInitialData(); return () => {}; }, [fetchInitialData]) );
+
+    const handleImagePress = (imageUri: string) => {
+        // Find all image messages
+        const imageMessages = messages.filter(msg => msg.image);
+        const index = imageMessages.findIndex(msg => msg.image === imageUri);
+        if (index !== -1) {
+            setSelectedImageIndex(index);
+            setSelectedImage(imageUri);
+            setImageViewerVisible(true);
+        }
+    };
+
+    // Add handler for image index change
+    const handleImageIndexChange = (index: number) => {
+        const imageMessages = messages.filter(msg => msg.image);
+        const selectedImage = imageMessages[index]?.image;
+        if (selectedImage) {
+            setSelectedImageIndex(index);
+            setSelectedImage(selectedImage);
+        }
+    };
 
     // --- Render Logic ---
     if (loading && messages.length === 0) { return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View>; }
@@ -312,9 +349,23 @@ const GroupChatScreen: React.FC = () => {
                     style={styles.messageList}
                     contentContainerStyle={styles.messageListContent}
                     keyExtractor={(item, index) => item._id + index}
-                    renderItem={({ item }) => <GroupMessageBubble message={item} currentUserId={currentUserId} />}
-                    renderSectionHeader={({ section: { title } }) => ( <View style={styles.sectionHeader}><Text style={styles.sectionHeaderText}>{title}</Text></View> )}
-                    ListEmptyComponent={ !loading ? ( <View style={styles.centeredEmptyList}><Text style={styles.noMessagesText}>Be the first one to chat!</Text></View> ) : null }
+                    renderItem={({ item }) => (
+                        <GroupMessageBubble 
+                            message={item} 
+                            currentUserId={currentUserId} 
+                            onImagePress={handleImagePress}
+                        />
+                    )}
+                    renderSectionHeader={({ section: { title } }) => (
+                        <View style={styles.sectionHeader}>
+                            <Text style={styles.sectionHeaderText}>{title}</Text>
+                        </View>
+                    )}
+                    ListEmptyComponent={!loading ? (
+                        <View style={styles.centeredEmptyList}>
+                            <Text style={styles.noMessagesText}>Be the first one to chat!</Text>
+                        </View>
+                    ) : null}
                     stickySectionHeadersEnabled
                     keyboardShouldPersistTaps="handled"
                     maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
@@ -341,6 +392,18 @@ const GroupChatScreen: React.FC = () => {
                  <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setIsEditModalVisible(false)} />
                  <View style={styles.modalContent}><Text style={styles.modalTitle}>Edit Group Name</Text><TextInput style={styles.modalInput} value={editingName} onChangeText={setEditingName} placeholder="Enter new group name" maxLength={50} autoFocus={true} returnKeyType="done" onSubmitEditing={handleUpdateName} /><View style={styles.modalActions}><TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setIsEditModalVisible(false)} disabled={isUpdatingName}><Text style={styles.modalButtonTextCancel}>Cancel</Text></TouchableOpacity><TouchableOpacity style={[ styles.modalButton, styles.modalButtonSave, (isUpdatingName || !editingName.trim() || editingName.trim() === currentGroupName) && styles.modalButtonDisabled ]} onPress={handleUpdateName} disabled={isUpdatingName || !editingName.trim() || editingName.trim() === currentGroupName}>{isUpdatingName ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.modalButtonTextSave}>Save</Text>}</TouchableOpacity></View></View>
              </Modal>
+
+            <ImageView
+                images={messages
+                    .filter(msg => msg.image)
+                    .map(msg => ({ uri: msg.image! }))}
+                imageIndex={selectedImageIndex}
+                visible={imageViewerVisible}
+                onRequestClose={() => setImageViewerVisible(false)}
+                swipeToCloseEnabled={true}
+                doubleTapToZoomEnabled={true}
+                onImageIndexChange={handleImageIndexChange}
+            />
         </SafeAreaView>
     );
 };
