@@ -4,11 +4,9 @@
     "slug": "vybr",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": null,
     "newArchEnabled": true,
     "userInterfaceStyle": "light",
     "splash": {
-      "image": null,
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -21,13 +19,11 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": null,
         "backgroundColor": "#ffffff"
       },
       "package": "com.vybr.app"
     },
     "web": {
-      "favicon": null
     },
     "scheme": "vybr",
     "extra": {
