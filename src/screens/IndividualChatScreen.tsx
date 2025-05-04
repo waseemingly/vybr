@@ -3,13 +3,18 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
     View, StyleSheet, ActivityIndicator, Text, TouchableOpacity,
     Platform, TextInput, SectionList, KeyboardAvoidingView, Keyboard,
-    Image
+    Image, Alert, Modal
 } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import { decode } from 'base64-arraybuffer';
+import * as FileSystem from 'expo-file-system';
+import ImageView from 'react-native-image-viewing';
+import ImageViewer from 'react-native-image-viewing';
 
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -19,8 +24,8 @@ import { APP_CONSTANTS } from '@/config/constants';
 // Types and MessageBubble component
 type IndividualChatScreenRouteProp = RouteProp<RootStackParamList, 'IndividualChatScreen'>;
 type RootNavigationProp = NativeStackNavigationProp<RootStackParamList>;
-interface DbMessage { id: string; created_at: string; sender_id: string; receiver_id: string; content: string; }
-interface ChatMessage { _id: string; text: string; createdAt: Date; user: { _id: string; }; }
+interface DbMessage { id: string; created_at: string; sender_id: string; receiver_id: string; content: string; image_url?: string | null; }
+interface ChatMessage { _id: string; text: string; createdAt: Date; user: { _id: string; }; image?: string | null; }
 interface MessageBubbleProps { message: ChatMessage; currentUserId: string | undefined; }
 
 // Add DEFAULT_PROFILE_PIC constant
@@ -29,15 +34,41 @@ const DEFAULT_PROFILE_PIC = APP_CONSTANTS.DEFAULT_PROFILE_PIC;
 // Helper to format timestamps
 const formatTime = (date: Date) => date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
-const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, currentUserId }) => {
+const MessageBubble: React.FC<{ 
+    message: ChatMessage; 
+    currentUserId: string;
+    onImagePress: (imageUrl: string) => void;
+}> = React.memo(({ message, currentUserId, onImagePress }) => {
     const isCurrentUser = message.user._id === currentUserId;
+    const [imageError, setImageError] = useState(false);
+
     return (
-        <View style={[ styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived ]}>
-            <View style={[ styles.messageBubble, isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived ]}>
-                <Text style={isCurrentUser ? styles.messageTextSent : styles.messageTextReceived}>
-                    {message.text}
-                </Text>
-                <Text style={styles.timeText}>
+        <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
+            <View style={styles.messageContentContainer}>
+                {message.image ? (
+                    <TouchableOpacity 
+                        onPress={() => onImagePress(message.image!)}
+                        style={[styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage]}
+                    >
+                        <Image
+                            source={{ uri: message.image }}
+                            style={styles.chatImage}
+                            onError={() => setImageError(true)}
+                        />
+                        {imageError && (
+                            <View style={styles.imageErrorContainer}>
+                                <Text style={styles.imageErrorText}>Failed to load image</Text>
+                            </View>
+                        )}
+                    </TouchableOpacity>
+                ) : (
+                    <View style={[styles.messageBubble, isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived]}>
+                        <Text style={isCurrentUser ? styles.messageTextSent : styles.messageTextReceived}>
+                            {message.text}
+                        </Text>
+                    </View>
+                )}
+                <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                     {formatTime(message.createdAt)}
                 </Text>
             </View>
@@ -52,30 +83,29 @@ const IndividualChatScreen: React.FC = () => {
     const { session } = useAuth();
 
     const { matchUserId } = route.params;
-    // Use state for name to allow potential updates (though less likely needed here now)
     const [dynamicMatchName, setDynamicMatchName] = useState(route.params.matchName || 'Chat');
-
-    // Add an effect to update name when route params change
-    useEffect(() => {
-        if (route.params.matchName) {
-            setDynamicMatchName(route.params.matchName);
-            console.log(`[IndividualChatScreen] Updated match name: ${route.params.matchName}`);
-        }
-    }, [route.params.matchName]);
-
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isMatchMuted, setIsMatchMuted] = useState(false);
-    const [isBlocked, setIsBlocked] = useState(false); // Covers block in either direction
-    const [isChatMutuallyInitiated, setIsChatMutuallyInitiated] = useState(false); // <<< NEW STATE
+    const [isBlocked, setIsBlocked] = useState(false);
+    const [isChatMutuallyInitiated, setIsChatMutuallyInitiated] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
+    const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+    const [selectedImage, setSelectedImage] = useState<string | null>(null);
+    const [imageViewerVisible, setImageViewerVisible] = useState(false);
+    const [selectedImages, setSelectedImages] = useState<string[]>([]);
 
     const currentUserId = session?.user?.id;
     const flatListRef = useRef<SectionList<any>>(null);
 
     const mapDbMessageToChatMessage = useCallback((dbMessage: DbMessage): ChatMessage => ({
-         _id: dbMessage.id, text: dbMessage.content, createdAt: new Date(dbMessage.created_at), user: { _id: dbMessage.sender_id, },
+        _id: dbMessage.id,
+        text: dbMessage.content,
+        createdAt: new Date(dbMessage.created_at),
+        user: { _id: dbMessage.sender_id },
+        image: dbMessage.image_url || null
     }), []);
 
     // --- Helper to add match user to chatted list in AsyncStorage --- // <<< NEW FUNCTION
@@ -162,13 +192,13 @@ const IndividualChatScreen: React.FC = () => {
 
     // --- Fetch Messages ---
     const fetchMessages = useCallback(async () => {
-        if (!currentUserId || !matchUserId || isBlocked) { // Added block check
-             if (!isBlocked && currentUserId) setLoading(true); // Only set loading if not blocked
-             return; // Don't fetch if blocked or not logged in
-         }
+        if (!currentUserId || !matchUserId || isBlocked) {
+            if (!isBlocked && currentUserId) setLoading(true);
+            return;
+        }
         console.log(`[ChatScreen] Fetching messages for ${matchUserId}`);
-        setLoading(true); // Set loading true only when actually fetching
-        setError(null); // Clear previous errors before fetching
+        setLoading(true);
+        setError(null);
         try {
             const { data, error: fetchError } = await supabase
                 .from('messages')
@@ -180,22 +210,22 @@ const IndividualChatScreen: React.FC = () => {
             if (data) {
                 const fetchedChatMessages = data.map(mapDbMessageToChatMessage);
                 setMessages(fetchedChatMessages);
-                checkMutualInitiation(fetchedChatMessages); // <<< Check initiation after fetch
+                checkMutualInitiation(fetchedChatMessages);
                 console.log(`[ChatScreen] Fetched ${data.length} messages.`);
             } else {
                 setMessages([]);
-                setIsChatMutuallyInitiated(false); // <<< Reset if no messages
-                 console.log(`[ChatScreen] No messages found.`);
+                setIsChatMutuallyInitiated(false);
+                console.log(`[ChatScreen] No messages found.`);
             }
         } catch (err: any) {
             console.error("[ChatScreen] Error fetching messages:", err);
             setError("Could not load messages.");
-            setMessages([]); // Clear messages on error
-            setIsChatMutuallyInitiated(false); // <<< Reset on error
+            setMessages([]);
+            setIsChatMutuallyInitiated(false);
         } finally {
             setLoading(false);
         }
-    }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage, checkMutualInitiation]); // isBlocked & checkMutualInitiation crucial
+    }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage, checkMutualInitiation]);
 
     // --- Send Message ---
     const sendMessage = useCallback(async (text: string) => {
@@ -298,7 +328,6 @@ const IndividualChatScreen: React.FC = () => {
     // Real-time Subscription Setup
     useEffect(() => {
         if (!currentUserId || !matchUserId || isBlocked) {
-            // If blocked, ensure no subscription exists
             return () => { supabase.channel(`chat_${[currentUserId, matchUserId].sort().join('_')}`).unsubscribe(); };
         }
 
@@ -310,41 +339,32 @@ const IndividualChatScreen: React.FC = () => {
                 { event: 'INSERT', schema: 'public', table: 'messages',
                   filter: `or(and(sender_id.eq.${currentUserId},receiver_id.eq.${matchUserId}),and(sender_id.eq.${matchUserId},receiver_id.eq.${currentUserId}))` },
                 (payload) => {
-                    if (isBlocked) return; // Double check block status on receive
+                    if (isBlocked) return;
                     console.log('[ChatScreen] New message received via subscription:', payload.new);
                     const receivedMessage = mapDbMessageToChatMessage(payload.new as DbMessage);
-                     // Add message ONLY if it's from the OTHER user
                     if (receivedMessage.user._id === matchUserId) {
-                         setMessages(prevMessages => {
+                        setMessages(prevMessages => {
                             if (prevMessages.some(msg => msg._id === receivedMessage._id)) return prevMessages;
                             return [...prevMessages, receivedMessage];
-                         });
+                        });
                     } else if (receivedMessage.user._id === currentUserId) {
-                        // If message is from current user (sent from another device), replace temp message
                         setMessages(prevMessages =>
                             prevMessages.map(msg =>
                                 msg._id.startsWith('temp_') && msg.text === receivedMessage.text
-                                ? receivedMessage // Replace temp with real
+                                ? receivedMessage
                                 : msg
                             )
-                         );
+                        );
                     }
                 }
             )
-            .subscribe((status, err) => {
-                 if (status === 'SUBSCRIBED') console.log('[ChatScreen] Realtime channel subscribed');
-                 if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') { console.error(`[ChatScreen] Realtime error: ${status}`, err); setError('Realtime connection issue.'); }
+            .subscribe();
 
-                 // Check initiation when message is added via subscription
-                 setMessages(prev => { checkMutualInitiation(prev); return prev; });
-            });
-
-        // Cleanup subscription
         return () => {
             console.log(`[ChatScreen] Unsubscribing from channel for ${matchUserId}`);
             supabase.removeChannel(channel);
         };
-    }, [currentUserId, matchUserId, mapDbMessageToChatMessage, isBlocked, checkMutualInitiation]); // isBlocked & checkMutualInitiation crucial
+    }, [currentUserId, matchUserId, mapDbMessageToChatMessage, isBlocked]);
 
     // Group messages by date for section headers
     const sections = useMemo(() => {
@@ -364,6 +384,166 @@ const IndividualChatScreen: React.FC = () => {
             return { title, data: groups[dateKey] };
         });
     }, [messages]);
+
+    // Add image viewer handlers
+    const handleImagePress = (imageUrl: string) => {
+        // Get all images from messages
+        const allImages = messages
+            .filter(msg => msg.image)
+            .map(msg => msg.image!);
+        
+        // Find the index of the clicked image
+        const index = allImages.findIndex(img => img === imageUrl);
+        
+        if (index !== -1) {
+            setSelectedImages(allImages);
+            setSelectedImageIndex(index);
+            setImageViewerVisible(true);
+        }
+    };
+
+    // Update pickAndSendImage function
+    const pickAndSendImage = async () => {
+        if (!currentUserId || !matchUserId || isUploading) {
+            console.log('[pickAndSendImage] Aborted: Missing userId/matchUserId or already uploading.');
+            return;
+        }
+
+        console.log('[pickAndSendImage] Requesting media library permissions...');
+        const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permissionResult.granted) {
+            Alert.alert('Permission Required', 'Gallery access is needed to send images.');
+            console.log('[pickAndSendImage] Permission denied.');
+            return;
+        }
+        console.log('[pickAndSendImage] Permission granted.');
+
+        let result: ImagePicker.ImagePickerResult;
+        try {
+            console.log('[pickAndSendImage] Launching image library...');
+            result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                quality: 0.7,
+                allowsEditing: true,
+                base64: false,
+            });
+        } catch (pickerError: any) {
+            console.error('[pickAndSendImage] ImagePicker launch failed:', pickerError);
+            Alert.alert('Image Picker Error', `Failed to open gallery: ${pickerError.message}`);
+            return;
+        }
+
+        if (result.canceled) {
+            console.log('[pickAndSendImage] User cancelled image selection.');
+            return;
+        }
+
+        if (!result.assets || result.assets.length === 0 || !result.assets[0].uri) {
+            console.error('[pickAndSendImage] No valid asset/URI found in picker result:', result);
+            Alert.alert('Error', 'Could not get the selected image. Please try again.');
+            return;
+        }
+
+        const selectedAsset = result.assets[0];
+        const imageUri = selectedAsset.uri;
+
+        setIsUploading(true);
+        setError(null);
+        console.log(`[pickAndSendImage] Processing asset. URI: ${imageUri}`);
+
+        let tempId: string | null = null;
+        try {
+            // Create a temporary message to show in the UI
+            tempId = `temp_${Date.now()}_img`;
+            const optimisticMessage: ChatMessage = {
+                _id: tempId,
+                text: '[Image]',
+                createdAt: new Date(),
+                user: { _id: currentUserId },
+                image: imageUri
+            };
+
+            setMessages(prev => [...prev, optimisticMessage]);
+
+            // Read the file data
+            const fileInfo = await FileSystem.getInfoAsync(imageUri);
+            if (!fileInfo.exists) {
+                throw new Error('Selected file does not exist');
+            }
+
+            const fileData = await FileSystem.readAsStringAsync(imageUri, {
+                encoding: FileSystem.EncodingType.Base64
+            });
+
+            if (!fileData) {
+                throw new Error('Failed to read file data');
+            }
+
+            const fileName = `${currentUserId}-${Date.now()}.jpg`;
+            const filePath = `${currentUserId}/${matchUserId}/${fileName}`;
+
+            // Upload to Supabase Storage
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('individual-chat-images')
+                .upload(filePath, decode(fileData), {
+                    contentType: 'image/jpeg',
+                    cacheControl: '3600',
+                    upsert: false
+                });
+
+            if (uploadError) {
+                console.error('[Supabase Upload Error]:', uploadError);
+                throw new Error(`Upload failed: ${uploadError.message}`);
+            }
+
+            // Get public URL
+            const { data: urlData } = supabase.storage
+                .from('individual-chat-images')
+                .getPublicUrl(uploadData.path);
+
+            if (!urlData?.publicUrl) {
+                throw new Error('Failed to get public URL for uploaded image');
+            }
+
+            // Insert message record with image_url
+            const { data: insertedData, error: insertError } = await supabase
+                .from('messages')
+                .insert({
+                    sender_id: currentUserId,
+                    receiver_id: matchUserId,
+                    content: '[Image]',
+                    image_url: urlData.publicUrl
+                })
+                .select('id, created_at, image_url')
+                .single();
+
+            if (insertError) {
+                await supabase.storage.from('individual-chat-images').remove([filePath]);
+                throw insertError;
+            }
+
+            // Update the message with the final data
+            setMessages(prev => prev.map(msg => 
+                msg._id === tempId 
+                    ? { 
+                        ...optimisticMessage, 
+                        _id: insertedData.id,
+                        image: insertedData.image_url,
+                        createdAt: new Date(insertedData.created_at)
+                    } 
+                    : msg
+            ));
+
+        } catch (err: any) {
+            console.error('[pickAndSendImage] Error:', err);
+            setError(`Failed to send image: ${err.message}`);
+            if (tempId) {
+                setMessages(prev => prev.filter(msg => msg._id !== tempId));
+            }
+        } finally {
+            setIsUploading(false);
+        }
+    };
 
     // --- Render Logic ---
     if (loading && messages.length === 0 && !isBlocked) {
@@ -409,7 +589,7 @@ const IndividualChatScreen: React.FC = () => {
                     style={styles.messageList}
                     contentContainerStyle={styles.messageListContent}
                     keyExtractor={(item) => item._id}
-                    renderItem={({ item }) => <MessageBubble message={item} currentUserId={currentUserId} />}
+                    renderItem={({ item }) => <MessageBubble message={item} currentUserId={currentUserId} onImagePress={handleImagePress} />}
                     renderSectionHeader={({ section: { title } }) => (
                         <View style={styles.sectionHeader}>
                             <Text style={styles.sectionHeaderText}>{title}</Text>
@@ -443,6 +623,17 @@ const IndividualChatScreen: React.FC = () => {
                 />
 
                 <View style={styles.inputToolbar}>
+                    <TouchableOpacity 
+                        style={styles.attachButton} 
+                        onPress={pickAndSendImage} 
+                        disabled={isUploading || isBlocked}
+                    >
+                        {isUploading ? (
+                            <ActivityIndicator size="small" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
+                        ) : (
+                            <Feather name="paperclip" size={22} color="#52525b" />
+                        )}
+                    </TouchableOpacity>
                     <TextInput
                         style={styles.textInput}
                         value={inputText}
@@ -461,6 +652,18 @@ const IndividualChatScreen: React.FC = () => {
                     </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>
+
+            {imageViewerVisible && (
+                <ImageViewer
+                    images={selectedImages.map(url => ({ uri: url }))}
+                    imageIndex={selectedImageIndex}
+                    visible={imageViewerVisible}
+                    onRequestClose={() => setImageViewerVisible(false)}
+                    swipeToCloseEnabled={true}
+                    doubleTapToZoomEnabled={true}
+                    onImageIndexChange={(index) => setSelectedImageIndex(index)}
+                />
+            )}
         </SafeAreaView>
     );
 };
@@ -480,9 +683,38 @@ const styles = StyleSheet.create({
     messageRow: { flexDirection: 'row', marginVertical: 5, },
     messageRowSent: { justifyContent: 'flex-end', },
     messageRowReceived: { justifyContent: 'flex-start', },
-    messageBubble: { maxWidth: '75%', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 18, },
-    messageBubbleSent: { backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', borderBottomRightRadius: 4, },
-    messageBubbleReceived: { backgroundColor: '#E5E7EB', borderBottomLeftRadius: 4, },
+    messageContentContainer: {
+        maxWidth: '100%',
+    },
+    messageBubble: {
+        borderRadius: 15,
+        overflow: 'hidden',
+        padding: 0,
+        backgroundColor: 'transparent',
+        alignSelf: 'flex-start',
+        maxWidth: 210,
+        maxHeight: 210,
+    },
+    messageBubbleSent: {
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        borderBottomRightRadius: 4,
+        alignSelf: 'flex-end',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        flexWrap: 'wrap',
+    },
+    messageBubbleReceived: {
+        backgroundColor: '#E5E7EB',
+        borderBottomLeftRadius: 4,
+        alignSelf: 'flex-start',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        flexWrap: 'wrap',
+    },
     messageTextSent: { color: '#FFFFFF', fontSize: 15, },
     messageTextReceived: { color: '#1F2937', fontSize: 15, },
     inputToolbar: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 10, borderTopWidth: 1, borderTopColor: '#E5E7EB', backgroundColor: '#FFFFFF', },
@@ -501,10 +733,20 @@ const styles = StyleSheet.create({
     muteIcon: { marginLeft: 6, },
     blockedText: { color: '#6B7280', fontStyle: 'italic', },
     timeText: {
-        fontSize: 11,
+        fontSize: 10,
+    },
+    timeTextBelowBubble: {
+        marginTop: 2,
+        paddingHorizontal: 5,
         color: '#9CA3AF',
-        marginTop: 4,
+    },
+    timeTextSent: {
         alignSelf: 'flex-end',
+        marginRight: 5
+    },
+    timeTextReceived: {
+        alignSelf: 'flex-start',
+        marginLeft: 0
     },
     sectionHeader: {
         alignItems: 'center',
@@ -514,6 +756,52 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '600',
         color: '#6B7280',
+    },
+    imageBubble: {
+        borderRadius: 15,
+        overflow: 'hidden',
+        padding: 0,
+        backgroundColor: 'transparent',
+        alignSelf: 'flex-start',
+        maxWidth: 210,
+        maxHeight: 210,
+    },
+    messageBubbleSentImage: {
+        alignSelf: 'flex-end',
+        backgroundColor: 'transparent',
+        borderBottomRightRadius: 4,
+    },
+    messageBubbleReceivedImage: {
+        alignSelf: 'flex-start',
+        backgroundColor: 'transparent',
+        borderBottomLeftRadius: 4,
+    },
+    chatImage: {
+        width: 200,
+        height: 200,
+        borderRadius: 14,
+    },
+    imageErrorContainer: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.3)',
+    },
+    imageErrorText: {
+        color: '#fff',
+        fontSize: 12,
+    },
+    attachButton: {
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 5,
+        marginBottom: Platform.OS === 'ios' ? 0 : 1,
     },
 });
 
