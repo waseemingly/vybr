@@ -4,18 +4,21 @@ import {
     ActivityIndicator, Alert, Animated, Image, Platform,
     Dimensions
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 // Import specific icon sets from @expo/vector-icons
 import { FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Feather } from '@expo/vector-icons'; // Keep Feather for other icons
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/useAuth'; // Adjust import path as needed
+import { useSpotifyAuth } from '@/hooks/useSpotifyAuth'; // <<< ADD IMPORT
 import { APP_CONSTANTS } from '@/config/constants'; // Assuming path is correct
 import * as ImagePicker from 'expo-image-picker';
 // Import the specific types expected by createMusicLoverProfile and for the form state
 import { MusicLoverBio, CreateMusicLoverProfileData } from '@/hooks/useAuth'; // Assuming types are exported from useAuth
 import TermsModal from '@/components/TermsModal'; // Import the new modal
+// Import navigation types
+import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator'; // Import stack param lists
 
 // Step types
 type Step = 'account-details' | 'profile-details' | 'streaming-service' | 'subscription' | 'payment';
@@ -116,8 +119,11 @@ If you have any questions about these Terms, please contact us at [Your Support 
 
 **By checking the box, you acknowledge that you have read, understood, and agree to be bound by these Terms & Conditions.**`;
 
+// Define the specific navigation prop type for this screen
+type MusicLoverSignUpNavigationProp = NavigationProp<RootStackParamList & MainStackParamList>;
+
 const MusicLoverSignUpFlow = () => {
-    const navigation = useNavigation();
+    const navigation = useNavigation<MusicLoverSignUpNavigationProp>(); // Use the specific type
     // Use functions from useAuth hook
     const {
         signUp,
@@ -126,6 +132,14 @@ const MusicLoverSignUpFlow = () => {
         requestMediaLibraryPermissions, // Use this before picking
         loading: authLoading // Hook's loading state
     } = useAuth();
+    // Extract the forceFetchAndSaveSpotifyData function from the Spotify hook along with existing values
+    const {
+        login: spotifyLogin,
+        isLoggedIn: isSpotifyLoggedIn,
+        isLoading: isSpotifyLoading, // Loading state from Spotify hook
+        error: spotifyError, // Error state from Spotify hook
+        forceFetchAndSaveSpotifyData
+    } = useSpotifyAuth();
 
     // --- Update initial state ---
     const [formData, setFormData] = useState<MusicLoverFormData>({
@@ -245,9 +259,11 @@ const MusicLoverSignUpFlow = () => {
     const validateStreamingServiceStep = (): boolean => {
         console.log('[MusicLoverSignUpFlow] Validating Streaming Service Step...');
         setError('');
+        // Always return true - we've made selection optional
+        // If no streaming service is selected, we'll treat it as if 'None' was chosen
         if (!formData.selectedStreamingService) {
-            setError('Please select your primary streaming service.');
-            return false;
+            console.log('[MusicLoverSignUpFlow] No streaming service selected, treating as "None"');
+            setFormData(prev => ({ ...prev, selectedStreamingService: '' }));
         }
         console.log('[MusicLoverSignUpFlow] Streaming Service Step Validation PASSED.');
         return true;
@@ -452,7 +468,7 @@ const MusicLoverSignUpFlow = () => {
         // Removed finally block to allow chaining .finally() where called if needed
     };
 
-    // Completes signup for FREE tier
+    // Completes signup for FREE tier - MODIFIED NAVIGATION
     const handleFreeSignupCompletion = async () => {
         console.log('[MusicLoverSignUpFlow] handleFreeSignupCompletion called.');
         setIsLoading(true); // Ensure loading is true
@@ -478,27 +494,38 @@ const MusicLoverSignUpFlow = () => {
                 console.error('[MusicLoverSignUpFlow] updatePremiumStatus(false) hook FAILED:', updateResult.error);
                 setError('Account created, but failed to set final status.');
                 Alert.alert('Status Error', 'Your account is set up, but there was an issue finalizing the status. You will have free tier access.');
-                setIsLoading(false); // Stop loading on error *after* profile creation
             } else {
-                console.log('[MusicLoverSignUpFlow] updatePremiumStatus(false) hook SUCCEEDED. Waiting for AuthProvider navigation...');
-                // DO NOT set isLoading = false here. Let AuthProvider's checkSession handle navigation and loading state.
-                // Add a timeout as a fallback safety net in case navigation stalls
-                setTimeout(() => {
-                    // Check if component is still mounted and loading state hasn't changed
-                    if (isLoading || authLoading) {
-                        console.warn('[MusicLoverSignUpFlow] Navigation timeout after free signup - forcing loading state to false');
-                        setIsLoading(false);
-                    }
-                }, 7000); // Increased timeout slightly
+                console.log('[MusicLoverSignUpFlow] updatePremiumStatus(false) hook SUCCEEDED. Navigating to Profile...');
             }
-        } catch (err: any) {
-            console.error('[MusicLoverSignUpFlow] UNEXPECTED error during updatePremiumStatus(false) call:', err);
-            setError('An unexpected error occurred finalizing account status.');
+
+            // Always navigate to profile after attempt
+            navigation.reset({
+                index: 0,
+                routes: [{
+                    name: 'MainApp',
+                    params: {
+                        screen: 'UserTabs',
+                        params: { screen: 'Profile' }
+                    }
+                }],
+            });
+            // Set loading false AFTER navigation trigger
             setIsLoading(false);
+
+        } catch (err: any) {
+            console.error('[MusicLoverSignUpFlow] UNEXPECTED error in handleFreeSignupCompletion:', err);
+            setError(err.message || 'An unexpected error occurred during signup completion.');
+            setIsLoading(false); // Ensure loading stops on error
+
+            // Even with error, try to navigate to a safe screen if possible
+            navigation.reset({
+                index: 0,
+                routes: [{ name: 'Auth' }], // Go back to Auth on major error
+            });
         }
     };
 
-    // Completes signup for PREMIUM tier
+    // Completes signup for PREMIUM tier - SIMPLIFIED NAVIGATION
     const handlePremiumSignupCompletion = async () => {
         console.log('[MusicLoverSignUpFlow] handlePremiumSignupCompletion called.');
         if (!validatePaymentStep()) return; // Validate payment details first
@@ -527,9 +554,8 @@ const MusicLoverSignUpFlow = () => {
 
             if (!userId) {
                 console.error('[MusicLoverSignUpFlow] Account/Profile creation failed AFTER successful payment simulation.');
-                // Potentially needs manual intervention (refund? support contact?)
                 Alert.alert('Account Error', 'Payment was processed (simulated), but creating your account profile failed. Please contact support.');
-                // Loading state handled by handleAccountAndProfileCreation failure
+                // Loading should be false from handleAccountAndProfileCreation failure
                 return;
             }
             console.log(`[MusicLoverSignUpFlow] User ${userId} and profile created. Proceeding with premium status update.`);
@@ -545,15 +571,76 @@ const MusicLoverSignUpFlow = () => {
                 Alert.alert('Activation Error', 'Payment succeeded and account created, but premium status could not be activated automatically. Please contact support.');
                 setIsLoading(false); // Stop loading ONLY on error *after* account creation
             } else {
-                console.log('[MusicLoverSignUpFlow] updatePremiumStatus(true) hook SUCCEEDED. Waiting for AuthProvider navigation...');
-                // DO NOT set isLoading = false here. Let AuthProvider handle navigation.
-                // Add a timeout as a fallback safety net
-                setTimeout(() => {
-                    if (isLoading || authLoading) {
-                        console.warn('[MusicLoverSignUpFlow] Navigation timeout after premium signup - forcing loading state to false');
-                        setIsLoading(false);
+                console.log('[MusicLoverSignUpFlow] updatePremiumStatus(true) hook SUCCEEDED. Checking Spotify status before navigation...');
+                // SUCCESS - Check Spotify status BEFORE navigating
+                const spotifyConnected = isSpotifyLoggedIn; // Capture current state from the hook
+                const selectedSpotify = formData.selectedStreamingService === 'spotify';
+
+                if (selectedSpotify && spotifyConnected) {
+                    console.log('[MusicLoverSignUpFlow] Spotify selected and connected. Attempting immediate data fetch for premium...');
+                    try {
+                        await forceFetchAndSaveSpotifyData(userId, true); // Pass true for premium
+                        console.log('[MusicLoverSignUpFlow] Premium flow: Spotify data fetched/saved.');
+                        // Navigate to Profile (Standard)
+                        navigation.reset({
+                            index: 0,
+                            routes: [{
+                                name: 'MainApp',
+                                params: {
+                                    screen: 'UserTabs',
+                                    params: { screen: 'Profile' }
+                                }
+                            }],
+                        });
+                    } catch (err) {
+                        console.error('[MusicLoverSignUpFlow] Error fetching Spotify data in premium flow:', err);
+                        // Navigate to Profile with link flag as fallback
+                        navigation.reset({
+                            index: 0,
+                            routes: [{
+                                name: 'MainApp',
+                                params: {
+                                    screen: 'UserTabs',
+                                    params: {
+                                        screen: 'Profile',
+                                        params: { goToLinkMusic: true, autoLinkSpotify: true }
+                                    }
+                                }
+                            }],
+                        });
                     }
-                }, 7000); // Increased timeout
+                } else if (selectedSpotify && !spotifyConnected) {
+                    console.log('[MusicLoverSignUpFlow] Spotify selected but not connected. Navigating to Profile with link flag...');
+                    // Navigate to Profile with link flag
+                    navigation.reset({
+                        index: 0,
+                        routes: [{
+                            name: 'MainApp',
+                            params: {
+                                screen: 'UserTabs',
+                                params: {
+                                    screen: 'Profile',
+                                    params: { goToLinkMusic: true, autoLinkSpotify: true }
+                                }
+                            }
+                        }],
+                    });
+                } else {
+                    console.log('[MusicLoverSignUpFlow] Non-Spotify service or none selected. Navigating to Profile...');
+                    // Navigate to Profile (Standard)
+                    navigation.reset({
+                        index: 0,
+                        routes: [{
+                            name: 'MainApp',
+                            params: {
+                                screen: 'UserTabs',
+                                params: { screen: 'Profile' }
+                            }
+                        }],
+                    });
+                }
+                // Set loading false AFTER deciding navigation / attempting fetch
+                setIsLoading(false);
             }
         } catch (err: any) {
             console.error('[MusicLoverSignUpFlow] UNEXPECTED error in handlePremiumSignupCompletion:', err);
@@ -715,89 +802,273 @@ const MusicLoverSignUpFlow = () => {
         </View>
     );
 
-    // UPDATED: Render function for Streaming Service Step with actual icons
+    // Handle streaming service selection - UPDATED to make authentication optional for flow continuation
+    const handleStreamingServiceSelect = async (serviceId: StreamingServiceId) => {
+        console.log(`[MusicLoverSignUpFlow] Service selected: ${serviceId || 'None'}`);
+        setFormData(prev => ({ ...prev, selectedStreamingService: serviceId }));
+        setError(''); // Clear previous errors
+
+        if (serviceId === 'spotify') {
+            // If Spotify is selected, initiate the login flow
+            console.log('[MusicLoverSignUpFlow] Spotify selected, initiating Spotify login...');
+            try {
+                spotifyLogin(); // This opens the browser for Spotify auth
+                // Note: We don't immediately navigate - the useEffect watching isSpotifyLoggedIn will handle that
+            } catch (error) {
+                console.error('[MusicLoverSignUpFlow] Error initiating Spotify login:', error);
+                Alert.alert(
+                    "Spotify Connection Failed",
+                    "We couldn't connect to Spotify. You can try again later or continue without connecting.",
+                    [
+                        { text: "Continue Anyway", onPress: () => goToNextStep('subscription') }
+                    ]
+                );
+            }
+        } else {
+            // For other services (or 'None'), proceed directly
+            console.log(`[MusicLoverSignUpFlow] ${serviceId || 'None'} selected, proceeding to subscription step`);
+            validateStreamingServiceStep() && goToNextStep('subscription');
+        }
+    };
+
+    // When subscription choice changes, update the form and alert about Spotify if selected
+    const handleSubscriptionChange = (tier: SubscriptionTier) => {
+        setFormData(prev => ({ ...prev, subscriptionTier: tier }));
+
+        // If they already selected Spotify, remind them about the data limits
+        if (formData.selectedStreamingService === 'spotify') {
+            const message = tier === 'premium'
+                ? "With Premium, you'll get access to your top 10 artists, songs, albums, and genres from Spotify!"
+                : "With Free tier, you'll see your top 3 artists, songs, albums, and genres from Spotify. Upgrade to Premium for top 10!";
+
+            Alert.alert("Spotify Data Access", message, [{ text: "OK" }]);
+        }
+    };
+
+    // Effect to navigate after successful Spotify login during signup
+    useEffect(() => {
+        // Check if we are on the correct step, Spotify is selected, and login just completed
+        if (currentStep === 'streaming-service' && formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
+            console.log('[MusicLoverSignUpFlow] Spotify login successful, navigating to subscription step.');
+            goToNextStep('subscription');
+        }
+    }, [isSpotifyLoggedIn, currentStep, formData.selectedStreamingService]);
+
+    // Effect to handle Spotify login errors during signup
+    useEffect(() => {
+        if (currentStep === 'streaming-service' && formData.selectedStreamingService === 'spotify' && spotifyError) {
+            console.error('[MusicLoverSignUpFlow] Spotify login error detected:', spotifyError);
+            // Changed from setError to Alert to make it less blocking
+            Alert.alert(
+                "Spotify Connection Issue",
+                `We encountered a problem connecting to Spotify: ${spotifyError}. You can try again, select another service, or continue without connecting.`,
+                [
+                    { 
+                        text: "Try Again", 
+                        onPress: () => spotifyLogin() 
+                    },
+                    { 
+                        text: "Continue Anyway", 
+                        onPress: () => {
+                            // Allow user to continue to subscription step despite error
+                            goToNextStep('subscription');
+                        }
+                    }
+                ]
+            );
+        }
+    }, [spotifyError, currentStep, formData.selectedStreamingService]);
+
+    // Updated streaming service selection UI - ADDED CONTINUE BUTTON
     const renderStreamingServiceStep = () => (
-        <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Connect Your Music *</Text>
-            <Text style={styles.stepDescription}>
-                Select your primary streaming service. This helps us understand your taste!
+        <View style={styles.stepContainer}>
+            <Text style={styles.stepTitle}>Music Services</Text>
+            <Text style={styles.stepSubtitle}>
+                What streaming service do you use most?
             </Text>
 
-            <View style={styles.serviceIconContainer}>
-                {STREAMING_SERVICES.map((service) => {
-                    const isSelected = formData.selectedStreamingService === service.id;
-
-                    // Dynamic Icon Component Selection
-                    let IconComponent: React.ComponentType<any>;
-                    switch (service.iconSet) {
-                        case 'FontAwesome': IconComponent = FontAwesome; break;
-                        case 'MaterialCommunityIcons': IconComponent = MaterialCommunityIcons; break;
-                        default: IconComponent = Feather; // Fallback
-                    }
-
-                    return (
-                        <TouchableOpacity
-                            key={service.id}
-                            style={styles.serviceIconWrapper}
-                            onPress={() => handleChange('selectedStreamingService', service.id)}
-                            activeOpacity={0.7}
-                        >
-                            <View style={[
-                                styles.serviceIconBackground,
-                                { backgroundColor: isSelected ? service.color : APP_CONSTANTS.COLORS.BACKGROUND_LIGHT },
-                                isSelected && { borderColor: APP_CONSTANTS.COLORS.PRIMARY_DARK }
-                            ]}>
-                                <IconComponent
-                                    name={service.icon}
-                                    size={35}
-                                    color={isSelected ? '#FFFFFF' : service.color}
-                                />
+            <View style={styles.streamingServicesGrid}>
+                {STREAMING_SERVICES.map((service) => (
+                    <TouchableOpacity
+                        key={service.id}
+                        style={[
+                            styles.serviceCard,
+                            formData.selectedStreamingService === service.id && styles.selectedServiceCard
+                        ]}
+                        onPress={() => handleStreamingServiceSelect(service.id as StreamingServiceId)}
+                    >
+                        <View style={[styles.serviceIconContainer, { backgroundColor: service.color }]}>
+                            {service.iconSet === 'FontAwesome' && (
+                                <FontAwesome name={service.icon as any} size={28} color="#FFF" />
+                            )}
+                            {service.iconSet === 'MaterialCommunityIcons' && (
+                                <MaterialCommunityIcons name={service.icon as any} size={28} color="#FFF" />
+                            )}
+                        </View>
+                        <Text style={styles.serviceName}>{service.name}</Text>
+                        {formData.selectedStreamingService === service.id && (
+                            <View style={styles.checkmarkBadge}>
+                                <Feather name="check" size={16} color="#FFFFFF" />
                             </View>
-                            <Text style={[
-                                styles.serviceNameText,
-                                isSelected && styles.serviceNameTextSelected
-                            ]}>
-                                {service.name}
-                            </Text>
-                        </TouchableOpacity>
-                    );
-                })}
+                        )}
+                    </TouchableOpacity>
+                ))}
+
+                <TouchableOpacity
+                    style={[
+                        styles.serviceCard,
+                        formData.selectedStreamingService === '' && styles.selectedServiceCard
+                    ]}
+                    onPress={() => handleStreamingServiceSelect('')}
+                >
+                    <View style={[styles.serviceIconContainer, { backgroundColor: '#5C5C5C' }]}>
+                        <Feather name="zap-off" size={28} color="#FFF" />
+                    </View>
+                    <Text style={styles.serviceName}>None / Other</Text>
+                    {formData.selectedStreamingService === '' && (
+                        <View style={styles.checkmarkBadge}>
+                            <Feather name="check" size={16} color="#FFFFFF" />
+                        </View>
+                    )}
+                </TouchableOpacity>
+            </View>
+
+            {/* Add a button container with continue button */}
+            <View style={styles.buttonContainer}>
+                <TouchableOpacity 
+                    style={styles.secondaryButton} 
+                    onPress={() => goToPreviousStep('profile-details')}
+                >
+                    <Text style={styles.secondaryButtonText}>Back</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={styles.primaryButton}
+                    onPress={() => {
+                        // Allow continuation regardless of Spotify login state
+                        if (formData.selectedStreamingService) {
+                            goToNextStep('subscription');
+                        } else {
+                            setError('Please select a streaming service or "None / Other"');
+                        }
+                    }}
+                >
+                    <Text style={styles.primaryButtonText}>Continue</Text>
+                </TouchableOpacity>
             </View>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
-            <Text style={styles.requiredText}>* Required field</Text>
         </View>
     );
 
+    // Improved subscription plan selection UI
     const renderSubscriptionStep = () => (
-        <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Choose Your Plan *</Text>
-            <Text style={styles.stepDescription}> Unlock the full Vybr experience or start with the basics. </Text>
-            {/* Free Tier Option */}
-            <TouchableOpacity style={[styles.planOption, formData.subscriptionTier === 'free' && styles.planOptionSelected]} onPress={() => handleChange('subscriptionTier', 'free')} activeOpacity={0.8} >
-                <View style={styles.planHeader}>
-                    <Feather name="coffee" size={24} color={formData.subscriptionTier === 'free' ? APP_CONSTANTS.COLORS.PRIMARY : "#6B7280"} />
-                    <Text style={[styles.planTitle, formData.subscriptionTier === 'free' && styles.planTitleSelected]}>Free Tier</Text>
-                </View>
-                <Text style={styles.planDescription}>- Basic profile features</Text>
-                <Text style={styles.planDescription}>- Discover events & profiles</Text>
-                <Text style={styles.planDescription}>- Limited song/artist matching</Text>
-                <Text style={[styles.planPrice, formData.subscriptionTier === 'free' && styles.planPriceSelected]}>$0 / month</Text>
-            </TouchableOpacity>
-            {/* Premium Tier Option */}
-            <TouchableOpacity style={[styles.planOption, formData.subscriptionTier === 'premium' && styles.planOptionSelected]} onPress={() => handleChange('subscriptionTier', 'premium')} activeOpacity={0.8} >
-                <View style={styles.planHeader}>
-                    <Feather name="award" size={24} color={formData.subscriptionTier === 'premium' ? APP_CONSTANTS.COLORS.PRIMARY : "#6B7280"} />
-                    <Text style={[styles.planTitle, formData.subscriptionTier === 'premium' && styles.planTitleSelected]}>Premium Tier</Text>
-                </View>
-                <Text style={styles.planDescription}>- All Free features PLUS:</Text>
-                <Text style={styles.planDescription}>- Advanced music taste analytics</Text>
-                <Text style={styles.planDescription}>- Unlimited matching & Match Radio</Text>
-                <Text style={styles.planDescription}>- See who likes your profile</Text>
-                <Text style={[styles.planPrice, formData.subscriptionTier === 'premium' && styles.planPriceSelected]}>$4.99 / month</Text>
-            </TouchableOpacity>
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-            <Text style={styles.requiredText}>* Required field</Text>
+        <View style={styles.stepContainer}>
+            <Text style={styles.stepTitle}>Choose Your Plan</Text>
+            <Text style={styles.stepSubtitle}>Select a subscription plan that works for you</Text>
+
+            <View style={styles.subscriptionOptionsContainer}>
+                {/* Free Tier */}
+                <TouchableOpacity
+                    style={[
+                        styles.subscriptionCard,
+                        formData.subscriptionTier === 'free' && styles.selectedSubscriptionCard
+                    ]}
+                    onPress={() => handleSubscriptionChange('free')}
+                >
+                    <View style={styles.planHeader}>
+                        <Text style={styles.planTitle}>Free</Text>
+                        <Text style={styles.planPrice}>$0/month</Text>
+                    </View>
+                    
+                    <View style={styles.planFeaturesList}>
+                        <View style={styles.planFeatureItem}>
+                            <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            <Text style={styles.featureText}>Limited Profiles</Text>
+                        </View>
+                        <View style={styles.planFeatureItem}>
+                            <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            <Text style={styles.featureText}>Basic Music Matches</Text>
+                        </View>
+                        <View style={styles.planFeatureItem}>
+                            <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            <Text style={styles.featureText}>Top 3 Streaming Data</Text>
+                        </View>
+                    </View>
+                    
+                    {formData.subscriptionTier === 'free' && (
+                        <View style={styles.selectionBadge}>
+                            <Text style={styles.selectionBadgeText}>Current Selection</Text>
+                        </View>
+                    )}
+                </TouchableOpacity>
+
+                {/* Premium Tier */}
+                <TouchableOpacity
+                    style={[
+                        styles.subscriptionCard,
+                        styles.premiumCard,
+                        formData.subscriptionTier === 'premium' && styles.selectedSubscriptionCard
+                    ]}
+                    onPress={() => handleSubscriptionChange('premium')}
+                >
+                    <View style={styles.planHeader}>
+                        <Text style={styles.planTitle}>Premium</Text>
+                        <Text style={styles.planPrice}>$4.99/month</Text>
+                    </View>
+                    
+                    <View style={styles.planFeaturesList}>
+                        <View style={styles.planFeatureItem}>
+                            <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            <Text style={styles.featureText}>Unlimited Profiles</Text>
+                        </View>
+                        <View style={styles.planFeatureItem}>
+                            <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            <Text style={styles.featureText}>Advanced Matching</Text>
+                        </View>
+                        <View style={styles.planFeatureItem}>
+                            <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            <Text style={styles.featureText}>Top 10 Streaming Data</Text>
+                        </View>
+                        <View style={styles.planFeatureItem}>
+                            <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            <Text style={styles.featureText}>Music Analytics</Text>
+                        </View>
+                    </View>
+                    
+                    {formData.subscriptionTier === 'premium' && (
+                        <View style={[styles.selectionBadge, styles.premiumSelectionBadge]}>
+                            <Text style={styles.selectionBadgeText}>Current Selection</Text>
+                        </View>
+                    )}
+                </TouchableOpacity>
+            </View>
+
+            <View style={styles.buttonContainer}>
+                <TouchableOpacity 
+                    style={styles.secondaryButton} 
+                    onPress={() => goToPreviousStep('streaming-service')}
+                >
+                    <Text style={styles.secondaryButtonText}>Back</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={styles.primaryButton}
+                    onPress={() => {
+                        if (validateSubscriptionStep()) {
+                            if (formData.subscriptionTier === 'premium') {
+                                goToNextStep('payment');
+                            } else {
+                                handleStepSubmit();
+                            }
+                        }
+                    }}
+                >
+                    <Text style={styles.primaryButtonText}>
+                        {formData.subscriptionTier === 'premium' ? 'Continue' : 'Create Account'} 
+                    </Text>
+                </TouchableOpacity>
+            </View>
         </View>
     );
 
@@ -834,8 +1105,8 @@ const MusicLoverSignUpFlow = () => {
     // Render current step selector and action button
     const renderCurrentStep = () => {
         // Determine if button should be disabled (combine component and hook loading states)
-        const isButtonDisabled = isLoading || authLoading ||
-            (currentStep === 'streaming-service' && !formData.selectedStreamingService) ||
+        // IMPORTANT: No longer disable if Spotify is selected but not logged in
+        const isButtonDisabled = isLoading || authLoading || isSpotifyLoading || 
             (currentStep === 'subscription' && !formData.subscriptionTier);
 
         // Determine button text based on current step
@@ -859,23 +1130,24 @@ const MusicLoverSignUpFlow = () => {
                     {currentStep === 'payment' && renderPaymentStep()}
                 </Animated.View>
 
-                {/* Action Button */}
-                <TouchableOpacity
-                    style={[styles.continueButton, isButtonDisabled && styles.continueButtonDisabled]}
-                    onPress={handleStepSubmit} // Use central submit handler
-                    disabled={isButtonDisabled}
-                    activeOpacity={0.8}
-                >
-                    {isLoading || authLoading ? ( // Show loader if either state is true
-                        <ActivityIndicator color="white" size="small" />
-                    ) : (
-                        <Text style={styles.continueButtonText}>{buttonText}</Text>
-                    )}
-                </TouchableOpacity>
+                {/* Action Button - Only show for non-streaming-service steps since that one has its own button now */}
+                {currentStep !== 'streaming-service' && (
+                    <TouchableOpacity
+                        style={[styles.continueButton, isButtonDisabled && styles.continueButtonDisabled]}
+                        onPress={handleStepSubmit} // Use central submit handler
+                        disabled={isButtonDisabled}
+                        activeOpacity={0.8}
+                    >
+                        {isLoading || authLoading ? ( // Show loader if either state is true
+                            <ActivityIndicator color="white" size="small" />
+                        ) : (
+                            <Text style={styles.continueButtonText}>{buttonText}</Text>
+                        )}
+                    </TouchableOpacity>
+                )}
             </View>
         );
     };
-
 
     // Main Return JSX Structure
     return (
@@ -982,6 +1254,46 @@ const styles = StyleSheet.create({
     serviceIconBackground: { width: 75, height: 75, borderRadius: 37.5, justifyContent: 'center', alignItems: 'center', marginBottom: 10, borderWidth: 2.5, backgroundColor: APP_CONSTANTS.COLORS.BACKGROUND_LIGHT, borderColor: 'transparent', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 3 },
     serviceNameText: { fontSize: 13, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, fontWeight: '500', textAlign: 'center' },
     serviceNameTextSelected: { color: APP_CONSTANTS.COLORS.PRIMARY_DARK, fontWeight: '700' },
+    
+    // Button container for streaming service step
+    buttonContainer: { 
+        flexDirection: 'row', 
+        justifyContent: 'space-between', 
+        width: '100%', 
+        marginTop: 20
+    },
+    secondaryButton: { 
+        padding: 12, 
+        borderRadius: 8, 
+        borderWidth: 1, 
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY, 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        width: '45%'
+    },
+    secondaryButtonText: { 
+        color: APP_CONSTANTS.COLORS.PRIMARY, 
+        fontWeight: '600', 
+        fontSize: 16 
+    },
+    primaryButton: { 
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, 
+        padding: 12, 
+        borderRadius: 8, 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        width: '45%',
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2
+    },
+    primaryButtonText: { 
+        color: 'white', 
+        fontWeight: '600', 
+        fontSize: 16 
+    },
 
     // Subscription Plan Styles
     planOption: { backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1.5, borderColor: APP_CONSTANTS.COLORS.BORDER, padding: 18, marginBottom: 18, shadowColor: "#000000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3, elevation: 2, width: '100%' },
@@ -992,6 +1304,35 @@ const styles = StyleSheet.create({
     planDescription: { fontSize: 14, color: '#6B7280', marginBottom: 6, lineHeight: 19, marginLeft: 34 },
     planPrice: { fontSize: 16, fontWeight: '600', color: '#1F2937', marginTop: 12, marginLeft: 34 },
     planPriceSelected: { color: APP_CONSTANTS.COLORS.PRIMARY },
+
+    // New styles for Streaming Service Step
+    streamingServiceScrollView: { flex: 1 },
+    streamingServicesContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', alignItems: 'flex-start', marginTop: 20, marginBottom: 5, paddingHorizontal: 0 },
+    streamingServiceOption: { alignItems: 'center', width: '33%', marginBottom: 25, paddingHorizontal: 5 },
+    serviceName: { fontSize: 13, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, fontWeight: '500', textAlign: 'center' },
+    selectedServiceCheck: { position: 'absolute', top: 10, right: 10 },
+
+    // New styles for Subscription Step
+    subscriptionOptionsContainer: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginBottom: 20 },
+    subscriptionCard: { backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1.5, borderColor: APP_CONSTANTS.COLORS.BORDER, padding: 18, marginBottom: 18, shadowColor: "#000000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3, elevation: 2, width: '45%', height: 150 },
+    selectedSubscriptionCard: { borderColor: APP_CONSTANTS.COLORS.PRIMARY, backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}0A`, shadowColor: APP_CONSTANTS.COLORS.PRIMARY, shadowOpacity: 0.15, shadowRadius: 5, elevation: 4 },
+    planFeaturesList: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginTop: 12 },
+    planFeatureItem: { flexDirection: 'row', alignItems: 'center', marginRight: 10 },
+    selectionBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, padding: 4, borderRadius: 4 },
+    selectionBadgeText: { fontSize: 12, color: 'white', fontWeight: '600' },
+    premiumCard: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, padding: 4, borderRadius: 4 },
+    premiumSelectionBadge: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, padding: 4, borderRadius: 4 },
+
+    // New styles for Subscription Step
+    stepSubtitle: { fontSize: 15, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginBottom: 25, textAlign: 'center', lineHeight: 21 },
+    actionButtonsContainer: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginTop: 20 },
+    featureText: { fontSize: 14, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, fontWeight: '500' },
+
+    // New styles for Streaming Service Step
+    streamingServicesGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', alignItems: 'flex-start', marginTop: 20, marginBottom: 5, paddingHorizontal: 0 },
+    serviceCard: { alignItems: 'center', width: '33%', marginBottom: 25, paddingHorizontal: 5 },
+    selectedServiceCard: { borderColor: APP_CONSTANTS.COLORS.PRIMARY, borderWidth: 2 },
+    checkmarkBadge: { position: 'absolute', top: 10, right: 10, backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, padding: 4, borderRadius: 4 },
 });
 
 export default MusicLoverSignUpFlow;

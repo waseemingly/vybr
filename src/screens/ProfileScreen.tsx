@@ -1,21 +1,32 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
     View, Text, StyleSheet, TouchableOpacity, Image, ScrollView,
-    Dimensions, ActivityIndicator, Alert, Platform, RefreshControl
+    Dimensions, ActivityIndicator, Alert, Platform, RefreshControl,
+    FlatList
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useOrganizerMode } from "@/hooks/useOrganizerMode";
 import { useAuth, MusicLoverBio } from "@/hooks/useAuth";
+import { useStreamingData } from "@/hooks/useStreamingData";
+import { useSpotifyAuth } from '@/hooks/useSpotifyAuth';
 import { APP_CONSTANTS } from "@/config/constants";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { useNavigation, useFocusEffect, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RouteProp } from '@react-navigation/native';
 import { supabase } from "@/lib/supabase";
-import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator';
+import type { RootStackParamList, MainStackParamList, UserTabParamList, OrganizerTabParamList } from '@/navigation/AppNavigator';
 
 // --- Navigation Type ---
 type ProfileScreenNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>;
+type ProfileScreenRouteProp = RouteProp<UserTabParamList, 'Profile'>;
+
+// Used for route params from navigation
+type ProfileScreenRouteProps = {
+    goToLinkMusic?: boolean;
+    autoLinkSpotify?: boolean;
+};
 
 // --- Constants & Components ---
 const DEFAULT_PROFILE_PIC = APP_CONSTANTS?.DEFAULT_PROFILE_PIC || 'https://via.placeholder.com/150/CCCCCC/808080?text=No+Image';
@@ -61,20 +72,79 @@ const ProfileSection: React.FC<ProfileSectionProps> = (props) => {
 const bioDetailLabels: Record<keyof MusicLoverBio, string> = {
     firstSong: "First Concert / Memory", goToSong: "Go-To Song Right Now", mustListenAlbum: "Must-Listen Album", dreamConcert: "Dream Concert Lineup", musicTaste: "Music Taste Description",
 };
-interface ExpandedSections { artists: boolean; songs: boolean; analytics: boolean; }
+
+// --- Component Types ---
+type ExpandedSections = {
+    artists: boolean;
+    songs: boolean;
+    analytics: boolean;
+    tracks: boolean;
+    genres: boolean;
+    favArtists: boolean;
+    favSongs: boolean;
+};
 
 // --- ProfileScreen Component ---
 const ProfileScreen: React.FC = () => {
     const { session, loading: authLoading, logout, musicLoverProfile, refreshUserProfile } = useAuth();
     const { toggleOrganizerMode } = useOrganizerMode();
     const navigation = useNavigation<ProfileScreenNavigationProp>();
+    const route = useRoute();
+    const userId = session?.user?.id;
+    const { 
+        streamingData, loading: streamingDataLoading, 
+        topArtists, topTracks, topGenres, 
+        serviceId, hasData, fetchStreamingData, forceFetchSpotifyData 
+    } = useStreamingData(userId);
+    const { isLoggedIn: isSpotifyLoggedIn } = useSpotifyAuth();
 
-    const [expandedSections, setExpandedSections] = useState<ExpandedSections>({ artists: false, songs: false, analytics: true, });
+    const [expandedSections, setExpandedSections] = useState<ExpandedSections>({
+        artists: false,
+        songs: false,
+        analytics: true,
+        tracks: false,
+        genres: false,
+        favArtists: false,
+        favSongs: false,
+    });
     const [friendCount, setFriendCount] = useState<number>(0);
     const [followedOrganizersCount, setFollowedOrganizersCount] = useState<number>(0);
     const [countsLoading, setCountsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
-    const userId = session?.user?.id;
+    const [refreshingStreamingData, setRefreshingStreamingData] = useState(false);
+
+    // Handle navigation to LinkMusicServicesScreen if requested via params
+    useEffect(() => {
+        // Use any type to avoid TypeScript errors with route.params
+        const params = route.params as any;
+        if (params?.goToLinkMusic) {
+            console.log("[ProfileScreen] Detected goToLinkMusic flag. Navigating to LinkMusicServicesScreen...");
+            // Update the navigation params to avoid infinite loop
+            navigation.setParams({ goToLinkMusic: undefined, autoLinkSpotify: params.autoLinkSpotify });
+            // Navigate to LinkMusicServicesScreen with autoLinkSpotify flag if present
+                navigation.navigate('LinkMusicServicesScreen', { 
+                    autoLinkSpotify: params.autoLinkSpotify 
+                });
+        }
+    }, [navigation, route.params]);
+
+    // Fetch music streaming data if musicLoverProfile is loaded
+    useEffect(() => {
+        if (musicLoverProfile?.userId && !streamingDataLoading) {
+            console.log("[ProfileScreen] MusicLoverProfile loaded. Checking streaming data...");
+            fetchStreamingData();
+        }
+    }, [musicLoverProfile, fetchStreamingData, streamingDataLoading]);
+
+    // Add debug logging when streaming data changes
+    useEffect(() => {
+        if (serviceId) {
+            console.log(`[ProfileScreen] Streaming data loaded for service: ${serviceId}`);
+            console.log(`[ProfileScreen] Data summary: ${topArtists.length} artists, ${topTracks.length} tracks, ${topGenres.length} genres`);
+        } else if (!streamingDataLoading && musicLoverProfile?.userId) {
+            console.log("[ProfileScreen] No streaming data found. User may need to connect a service.");
+        }
+    }, [serviceId, topArtists, topTracks, topGenres, streamingDataLoading, musicLoverProfile]);
 
     // Fetch friend count and followed organizers count
     const fetchCounts = useCallback(async () => {
@@ -113,18 +183,133 @@ const ProfileScreen: React.FC = () => {
 
     const onRefresh = useCallback(async () => {
         setIsRefreshing(true);
-        try { await Promise.all([ refreshUserProfile(), fetchCounts() ]); }
-        catch (error) { console.error("Error during refresh:", error); Alert.alert("Refresh Failed", "Could not update profile data."); }
-        finally { setIsRefreshing(false); }
-    }, [refreshUserProfile, fetchCounts]);
+        try { 
+            await Promise.all([
+                refreshUserProfile(), 
+                fetchCounts(),
+                fetchStreamingData()
+            ]); 
+        }
+        catch (error) { 
+            console.error("Error during refresh:", error); 
+            Alert.alert("Refresh Failed", "Could not update profile data."); 
+        }
+        finally { 
+            setIsRefreshing(false); 
+        }
+    }, [refreshUserProfile, fetchCounts, fetchStreamingData]);
 
     const isPremium = musicLoverProfile?.isPremium ?? false;
 
     const toggleSection = (section: keyof ExpandedSections) => {
-        const isTrulyPremiumFeature = section === 'analytics';
-        if (isTrulyPremiumFeature && !isPremium) { Alert.alert("Premium Feature","Upgrade to Premium to see details.", [ { text: "Cancel", style: "cancel" }, { text: "Upgrade Now", onPress: () => navigation.navigate('UpgradeScreen') } ]); return; }
         setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
     };
+
+    // Handle manual refresh of Spotify data with simplified logic
+    const handleForceRefreshSpotify = async () => {
+        if (!musicLoverProfile) {
+            console.warn('[ProfileScreen] Cannot refresh Spotify data: Profile not loaded.');
+            return; // Safeguard
+        }
+        if (!userId) {
+            console.warn('[ProfileScreen] Cannot refresh Spotify data: User ID not found.');
+            return; // Safeguard
+        }
+
+        setRefreshingStreamingData(true);
+        console.log('[ProfileScreen] Force refreshing Spotify data...');
+        let success = false; // Track success
+
+        try {
+            const premium = !!musicLoverProfile.isPremium;
+            console.log(`[ProfileScreen] Calling forceFetchSpotifyData for ${premium ? 'premium' : 'free'} user (ID: ${userId})`);
+
+            // Call the hook function directly
+            success = await forceFetchSpotifyData(premium);
+
+            if (success) {
+                console.log('[ProfileScreen] forceFetchSpotifyData completed successfully.');
+                Alert.alert('Success!', 'Your Spotify data has been refreshed.');
+            } else {
+                console.error('[ProfileScreen] forceFetchSpotifyData completed but reported failure (check hook logs).');
+                Alert.alert('Refresh Partially Complete', 'We updated your Spotify data with available information. Some categories might be missing.');
+            }
+
+        } catch (error: any) {
+            console.error('[ProfileScreen] Error directly calling forceFetchSpotifyData:', error);
+            Alert.alert('Refresh Error', `An error occurred while refreshing: ${error.message || 'Unknown error'}`);
+            success = false; // Ensure success is false if an error is caught here
+            
+        } finally {
+            // Always try to fetch the latest data from Supabase after the attempt
+            console.log('[ProfileScreen] Refetching data from database after refresh attempt...');
+            await fetchStreamingData(true); // Fetch latest data from Supabase
+            
+            // Safely log the data summary *after* refetching
+            // Note: topArtists etc. might not be updated *immediately* due to state updates
+            // Consider logging inside a useEffect that depends on streamingData
+            console.log('[ProfileScreen] Refresh attempt finished.');
+            
+            setRefreshingStreamingData(false); // End loading indicator
+        }
+    };
+
+    // --- Auto-fetch Spotify data when screen focuses and conditions are met ---
+    useFocusEffect(
+        useCallback(() => {
+            const autoFetchSpotifyData = async () => {
+                // Conditions:
+                // 1. Have a userId
+                // 2. Spotify is logged in according to the hook
+                // 3. No streaming data is currently loaded for the month (streamingData is null)
+                // 4. Not already in a loading/refreshing state
+                if (userId && isSpotifyLoggedIn && !streamingData && !refreshingStreamingData && !streamingDataLoading) {
+                    console.log("[ProfileScreen Focus] Conditions met: Spotify connected, no data loaded, not refreshing. Triggering auto-fetch...");
+                    setRefreshingStreamingData(true); // Set loading flag
+
+                    try {
+                        // Fetch the premium status again directly here to ensure it's up-to-date
+                        let currentPremiumStatus = false;
+                        try {
+                            const { data: profileData } = await supabase
+                                .from('music_lover_profiles')
+                                .select('is_premium')
+                                .eq('user_id', userId)
+                                .single();
+                            currentPremiumStatus = profileData?.is_premium || false;
+                            console.log(`[ProfileScreen Focus] Refetched premium status: ${currentPremiumStatus}`);
+                        } catch (err) {
+                            console.error("[ProfileScreen Focus] Error checking premium status for auto-fetch:", err);
+                        }
+
+                        // Call the hook function with the latest premium status
+                        const success = await forceFetchSpotifyData(currentPremiumStatus);
+
+                        if (success) {
+                            console.log("[ProfileScreen Focus] Successfully auto-fetched and saved Spotify data!");
+                            // Data will be re-fetched automatically by fetchStreamingData due to state changes
+                        } else {
+                            console.error("[ProfileScreen Focus] Failed to auto-fetch Spotify data (check hook logs).");
+                            Alert.alert("Auto-Fetch Failed", "Couldn't automatically retrieve your Spotify data. Please try the refresh button.");
+                        }
+                    } catch (error) {
+                        console.error("[ProfileScreen Focus] Error during Spotify auto-fetch:", error);
+                        Alert.alert("Auto-Fetch Error", "An error occurred while trying to fetch your Spotify data.");
+                    } finally {
+                        // Ensure loading state is reset even if fetchStreamingData hasn't updated yet
+                        // Add a small delay to allow fetchStreamingData to potentially pick up changes
+                        setTimeout(() => {
+                           setRefreshingStreamingData(false);
+                        }, 500); 
+                    }
+                }
+            };
+
+            autoFetchSpotifyData();
+
+        }, [userId, isSpotifyLoggedIn, streamingData, refreshingStreamingData, streamingDataLoading, forceFetchSpotifyData, fetchStreamingData]) // Dependencies for useCallback
+    );
+    // --- End Auto-fetch --- 
 
     if (authLoading || (countsLoading && !isRefreshing)) {
          return (<SafeAreaView style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} /><Text style={styles.loadingText}>Loading Profile...</Text></SafeAreaView> );
@@ -146,16 +331,21 @@ const ProfileScreen: React.FC = () => {
     const favoriteGenres = (musicLoverProfile.musicData?.genres as string[]) ?? []; // Keep if still used for Genre section
     // Now using the updated MusicLoverProfile type from useAuth
     const favArtistsList = parseCsvString(musicLoverProfile.favorite_artists);
-    const favAlbumsList = parseCsvString(musicLoverProfile.favorite_albums);
     const favSongsList = parseCsvString(musicLoverProfile.favorite_songs);
     const genreAnalyticsData = (musicLoverProfile.musicData?.analytics?.genreDistribution as { name: string; value: number }[] | undefined) ?? [];
+    const favAlbumsList = parseCsvString(musicLoverProfile.favorite_albums); // Keep manual list
 
     return (
         <SafeAreaView edges={["top"]} style={styles.container}>
             <View style={styles.header}>
                 <View style={styles.headerTitleRow}>
                     <View style={styles.titleContainer}><Feather name="user" size={22} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} style={styles.headerIcon} /><Text style={styles.title}>My Profile</Text></View>
-                    <TouchableOpacity style={styles.settingsButton} onPress={() => navigation.navigate('UserSettingsScreen')} ><Feather name="settings" size={22} color={APP_CONSTANTS.COLORS.PRIMARY} /></TouchableOpacity>
+                    <TouchableOpacity 
+                        style={styles.settingsButton} 
+                        onPress={() => navigation.navigate('UserSettingsScreen')}
+                    >
+                        <Feather name="settings" size={22} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                    </TouchableOpacity>
                 </View>
             </View>
             <ScrollView style={styles.scrollViewContainer} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} refreshControl={ <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} tintColor={APP_CONSTANTS.COLORS.PRIMARY} /> } >
@@ -166,13 +356,27 @@ const ProfileScreen: React.FC = () => {
                         <View style={styles.nameContainer}><Text style={styles.name}>{userName}</Text>{isPremium && (<View style={styles.premiumBadgeName}><Feather name="award" size={10} color="#B8860B" /><Text style={styles.premiumTextName}>Premium</Text></View>)}</View>
                         <View style={styles.locationAgeContainer}>{userAge && <Text style={styles.age}>{userAge} y/o</Text>}{(userCity || userCountry) && (<>{userAge && <Text style={styles.locationSeparator}>•</Text>}<Feather name="map-pin" size={12} color="#6B7280" style={{ marginRight: 4 }}/><Text style={styles.location}>{userCity}{userCity && userCountry ? ', ' : ''}{userCountry}</Text></>)}</View>
                         <View style={styles.statsContainer}>
-                            <TouchableOpacity style={styles.statItemTouchable} onPress={() => navigation.navigate('FriendsListScreen')} disabled={friendCount === 0 && !countsLoading} >
-                                {countsLoading && !isRefreshing ? ( <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{height: 21}}/> ) : ( <Text style={styles.statValue}>{friendCount}</Text> )}
+                            <TouchableOpacity 
+                                style={styles.statItemTouchable} 
+                                disabled={friendCount === 0 && !countsLoading} 
+                            >
+                                {countsLoading && !isRefreshing ? (
+                                    <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{height: 21}}/>
+                                ) : (
+                                    <Text style={styles.statValue}>{friendCount}</Text>
+                                )}
                                 <Text style={styles.statLabel}>Friends</Text>
                             </TouchableOpacity>
                             <Separator vertical style={{ backgroundColor: '#E5E7EB' }}/>
-                            <TouchableOpacity style={styles.statItemTouchable} onPress={() => navigation.navigate('OrganizerListScreen')} disabled={followedOrganizersCount === 0 && !countsLoading} >
-                                {countsLoading && !isRefreshing ? ( <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{height: 21}}/> ) : ( <Text style={styles.statValue}>{followedOrganizersCount}</Text> )}
+                            <TouchableOpacity 
+                                style={styles.statItemTouchable} 
+                                disabled={followedOrganizersCount === 0 && !countsLoading} 
+                            >
+                                {countsLoading && !isRefreshing ? (
+                                    <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{height: 21}}/>
+                                ) : (
+                                    <Text style={styles.statValue}>{followedOrganizersCount}</Text>
+                                )}
                                 <Text style={styles.statLabel}>Following</Text>
                             </TouchableOpacity>
                         </View>
@@ -182,46 +386,302 @@ const ProfileScreen: React.FC = () => {
                 <ProfileSection title="Things About Me" icon="info" isPremiumUser={isPremium} hasData={allBioDetails.length > 0} >
                     <View style={styles.bioDetailsListContainer}>{allBioDetails.map((d, i) => (<View key={i} style={styles.bioDetailItem}><Text style={styles.bioDetailLabel}>{d.label}:</Text><Text style={styles.bioDetailValue}>{d.value}</Text></View>))}</View>
                 </ProfileSection>
-                 <ProfileSection title="Music Taste Analytics" icon="bar-chart-2" isPremiumFeature isPremiumUser={isPremium} expanded={expandedSections.analytics} onToggle={() => toggleSection("analytics")} hasData={genreAnalyticsData.length > 0}>
-                      <View style={styles.analyticsCard}><Text style={styles.analyticsTitle}>Genre Distribution</Text><View style={styles.pieChartPlaceholder}><Feather name="pie-chart" size={40} color={APP_CONSTANTS.COLORS.DISABLED} /><Text style={styles.placeholderText}>Analytics Chart</Text></View></View>
-                 </ProfileSection>
-                 <ProfileSection title="Favorite Artists" icon="users" isPremiumUser={isPremium} expanded={expandedSections.artists} onToggle={() => toggleSection("artists")} hasData={favArtistsList.length > 0}>
-                      <View style={styles.listContainer}>{favArtistsList.slice(0, expandedSections.artists ? favArtistsList.length : 5).map((artist, i) => (
-                          <View key={`artist-${i}`} style={styles.listItem}>
-                              <Text style={styles.listItemText}>{artist}</Text>
-                              <Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                
+                {/* Top Artists Section - From Spotify */}
+                <ProfileSection title="Top Artists" icon="users" expanded={expandedSections.artists} onToggle={() => toggleSection("artists")} hasData={topArtists.length > 0}>
+                    {/* Spotify Refresh Button - Show if Spotify is connected OR user has authenticated with Spotify */}
+                    {(serviceId === 'spotify' || isSpotifyLoggedIn) && (
+                        <TouchableOpacity 
+                            style={styles.refreshSpotifyButton}
+                            onPress={handleForceRefreshSpotify}
+                            disabled={refreshingStreamingData}
+                        >
+                            <View style={styles.refreshButtonContent}>
+                                <Feather 
+                                    name="refresh-cw" 
+                                    size={18} 
+                                    color={refreshingStreamingData ? APP_CONSTANTS.COLORS.TEXT_SECONDARY : APP_CONSTANTS.COLORS.PRIMARY} 
+                                    style={{marginRight: 8}} 
+                                />
+                                <Text style={[
+                                    styles.refreshButtonText, 
+                                    {color: refreshingStreamingData ? APP_CONSTANTS.COLORS.TEXT_SECONDARY : APP_CONSTANTS.COLORS.PRIMARY, fontWeight: '600'}
+                                ]}>
+                                    {refreshingStreamingData ? 'Refreshing...' : 'Refresh Spotify Data'}
+                                </Text>
+                                          </View>
+                            {refreshingStreamingData && (
+                                <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{marginLeft: 8}} />
+                            )}
+                        </TouchableOpacity>
+                    )}
+                    
+                      {topArtists.length > 0 ? (
+                          <View style={styles.listContainer}>
+                            {topArtists.map((artist, i) => (
+                                  <View key={`stream-artist-${i}`} style={styles.listItem}>
+                                      <Text style={styles.listItemText}>{artist.name}</Text>
+                                      <Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                  </View>
+                              ))}
+                              <Text style={styles.dataSourceText}>
+                                  Data from {serviceId || 'your streaming service'}
+                                  {!isPremium && topArtists.length === 3 && ' • Upgrade to Premium for top 10'}
+                              </Text>
                           </View>
-                      ))}</View>
-                      {favArtistsList.length > 5 && !expandedSections.artists && (<TouchableOpacity style={styles.seeAllButton} onPress={() => toggleSection("artists")}><Text style={styles.seeAllButtonText}>See all {favArtistsList.length}</Text><Feather name="chevron-down" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} /></TouchableOpacity>)}
-                 </ProfileSection>
-                 <ProfileSection title="Favorite Songs" icon="music" isPremiumUser={isPremium} expanded={expandedSections.songs} onToggle={() => toggleSection("songs")} hasData={favSongsList.length > 0}>
-                       <View style={styles.listContainer}>{favSongsList.slice(0, expandedSections.songs ? favSongsList.length : 5).map((song, i) => (
-                         <View key={`song-${i}`} style={styles.listItem}>
-                             <Text style={styles.listItemText}>{song}</Text>
-                             <Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                      ) : (
+                        refreshingStreamingData ? (
+                            <View style={styles.loadingContainer}>
+                                <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                <Text style={styles.loadingText}>Loading Spotify data...</Text>
+                            </View>
+                        ) : (
+                            <View style={styles.emptyStateContainer}>
+                                <Text style={styles.emptyStateText}>
+                                    {isSpotifyLoggedIn 
+                                        ? 'No data available yet. Try refreshing your Spotify data.' 
+                                        : 'Connect your streaming service to see top artists'}
+                                </Text>
+                                {!isSpotifyLoggedIn ? (
+                                    <TouchableOpacity 
+                                        style={styles.connectServiceButton} 
+                                        onPress={() => navigation.navigate('LinkMusicServicesScreen')}
+                                    >
+                                        <Text style={styles.connectServiceButtonText}>Connect Service</Text>
+                                    </TouchableOpacity>
+                                ) : (
+                                    <TouchableOpacity 
+                                        style={styles.refreshSpotifyButton}
+                                        onPress={handleForceRefreshSpotify}
+                                    >
+                                        <Text style={[styles.refreshButtonText, {color: APP_CONSTANTS.COLORS.PRIMARY}]}>
+                                            Refresh Spotify Data
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
+                                  </View>
+                        )
+                    )}
+                </ProfileSection>
+                
+                {/* Top Tracks Section - From Spotify */}
+                <ProfileSection title="Top Tracks" icon="music" expanded={expandedSections.tracks} onToggle={() => toggleSection("tracks")} hasData={topTracks.length > 0}>
+                    {/* Spotify Refresh Button - Include for consistency across sections */}
+                    {(serviceId === 'spotify' || isSpotifyLoggedIn) && (
+                        <TouchableOpacity 
+                            style={styles.refreshSpotifyButton}
+                            onPress={handleForceRefreshSpotify}
+                            disabled={refreshingStreamingData}
+                        >
+                            <View style={styles.refreshButtonContent}>
+                                <Feather 
+                                    name="refresh-cw" 
+                                    size={18} 
+                                    color={refreshingStreamingData ? APP_CONSTANTS.COLORS.TEXT_SECONDARY : APP_CONSTANTS.COLORS.PRIMARY} 
+                                    style={{marginRight: 8}} 
+                                />
+                                <Text style={[
+                                    styles.refreshButtonText, 
+                                    {color: refreshingStreamingData ? APP_CONSTANTS.COLORS.TEXT_SECONDARY : APP_CONSTANTS.COLORS.PRIMARY, fontWeight: '600'}
+                                ]}>
+                                    {refreshingStreamingData ? 'Refreshing...' : 'Refresh Spotify Data'}
+                                </Text>
+                          </View>
+                            {refreshingStreamingData && (
+                                <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{marginLeft: 8}} />
+                      )}
+                          </TouchableOpacity>
+                      )}
+                    
+                       {topTracks.length > 0 ? (
+                           <View style={styles.listContainer}>
+                            {topTracks.map((track, i) => (
+                                   <View key={`stream-track-${i}`} style={styles.listItem}>
+                                       <View style={styles.listItemDetails}>
+                                           <Text style={styles.listItemText}>{track.name}</Text>
+                                           <Text style={styles.listItemSubtext}>{track.artists.join(', ')}</Text>
+                                       </View>
+                                       <Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                   </View>
+                               ))}
+                               <Text style={styles.dataSourceText}>
+                                   Data from {serviceId || 'your streaming service'}
+                                   {!isPremium && topTracks.length === 3 && ' • Upgrade to Premium for top 10'}
+                               </Text>
+                           </View>
+                       ) : (
+                        <View style={styles.emptyStateContainer}>
+                            <Text style={styles.emptyStateText}>
+                                {isSpotifyLoggedIn 
+                                    ? 'No data available yet. Try refreshing your Spotify data.' 
+                                    : 'Connect your streaming service to see top tracks'}
+                            </Text>
+                            {!isSpotifyLoggedIn ? (
+                                <TouchableOpacity 
+                                    style={styles.connectServiceButton} 
+                                    onPress={() => navigation.navigate('LinkMusicServicesScreen')}
+                                >
+                                    <Text style={styles.connectServiceButtonText}>Connect Service</Text>
+                                </TouchableOpacity>
+                            ) : (
+                                <TouchableOpacity 
+                                    style={styles.refreshSpotifyButton}
+                                    onPress={handleForceRefreshSpotify}
+                                >
+                                    <Text style={[styles.refreshButtonText, {color: APP_CONSTANTS.COLORS.PRIMARY}]}>
+                                        Refresh Spotify Data
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                           </View>
+                       )}
+                </ProfileSection>
+                
+                {/* Top Genres Section - From Spotify */}
+                <ProfileSection title="Top Genres" icon="tag" expanded={expandedSections.genres} onToggle={() => toggleSection("genres")} hasData={topGenres.length > 0}>
+                    {/* Add Spotify Refresh Button */}
+                    {(serviceId === 'spotify' || isSpotifyLoggedIn) && (
+                        <TouchableOpacity 
+                            style={styles.refreshSpotifyButton}
+                            onPress={handleForceRefreshSpotify}
+                            disabled={refreshingStreamingData}
+                        >
+                            <View style={styles.refreshButtonContent}>
+                                <Feather 
+                                    name="refresh-cw" 
+                                    size={18} 
+                                    color={refreshingStreamingData ? APP_CONSTANTS.COLORS.TEXT_SECONDARY : APP_CONSTANTS.COLORS.PRIMARY} 
+                                    style={{marginRight: 8}} 
+                                />
+                                <Text style={[
+                                    styles.refreshButtonText, 
+                                    {color: refreshingStreamingData ? APP_CONSTANTS.COLORS.TEXT_SECONDARY : APP_CONSTANTS.COLORS.PRIMARY, fontWeight: '600'}
+                                ]}>
+                                    {refreshingStreamingData ? 'Refreshing...' : 'Refresh Spotify Data'}
+                                </Text>
+                            </View>
+                            {refreshingStreamingData && (
+                                <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{marginLeft: 8}} />
+                            )}
+                        </TouchableOpacity>
+                    )}
+                    
+                    {topGenres.length > 0 ? (
+                        <View style={styles.analyticsCard}>
+                            <View style={styles.tagsContainer}>
+                                {topGenres.map((genre, index) => (
+                                    <View key={`genre-${index}`} style={styles.genreTag}>
+                                        <Text style={styles.genreTagText}>{genre.name}</Text>
+                                    </View>
+                                ))}
+                            </View>
+                            <Text style={styles.dataSourceText}>
+                                Data from {serviceId || 'your streaming service'}
+                                {!isPremium && topGenres.length === 3 && ' • Upgrade to Premium for top 10'}
+                            </Text>
+                        </View>
+                    ) : (
+                        refreshingStreamingData ? (
+                            <View style={styles.loadingContainer}>
+                                <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                <Text style={styles.loadingText}>Loading Spotify data...</Text>
+                            </View>
+                        ) : (
+                            <View style={styles.emptyStateContainer}>
+                                <Text style={styles.emptyStateText}>
+                                    {isSpotifyLoggedIn 
+                                        ? 'No data available yet. Try refreshing your Spotify data.' 
+                                        : 'Connect your streaming service to see top genres'}
+                                </Text>
+                                {!isSpotifyLoggedIn ? (
+                                    <TouchableOpacity 
+                                        style={styles.connectServiceButton} 
+                                        onPress={() => navigation.navigate('LinkMusicServicesScreen')}
+                                    >
+                                        <Text style={styles.connectServiceButtonText}>Connect Service</Text>
+                                    </TouchableOpacity>
+                                ) : (
+                                    <TouchableOpacity 
+                                        style={styles.refreshSpotifyButton}
+                                        onPress={handleForceRefreshSpotify}
+                                    >
+                                        <Text style={[styles.refreshButtonText, {color: APP_CONSTANTS.COLORS.PRIMARY}]}>
+                                            Refresh Spotify Data
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        )
+                    )}
+                </ProfileSection>
+                
+                <ProfileSection title="Favorite Artists" icon="star" isPremiumUser={isPremium} expanded={expandedSections.favArtists} onToggle={() => toggleSection("favArtists")} hasData={favArtistsList.length > 0}>
+                    <View style={styles.listContainer}>
+                        {favArtistsList.slice(0, expandedSections.favArtists ? favArtistsList.length : 5).map((artist, i) => (
+                            <View key={`artist-${i}`} style={styles.listItem}>
+                                <Text style={styles.listItemText}>{artist}</Text>
+                                <Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            </View>
+                        ))}
+                    </View>
+                    {(favArtistsList.length > 5 && !expandedSections.favArtists) && (
+                        <TouchableOpacity style={styles.seeAllButton} onPress={() => toggleSection("favArtists")}>
+                            <Text style={styles.seeAllButtonText}>See all {favArtistsList.length}</Text>
+                            <Feather name="chevron-down" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                        </TouchableOpacity>
+                    )}
+                </ProfileSection>
+
+                <ProfileSection title="Favorite Songs" icon="star" isPremiumUser={isPremium} expanded={expandedSections.favSongs} onToggle={() => toggleSection("favSongs")} hasData={favSongsList.length > 0}>
+                    <View style={styles.listContainer}>
+                        {favSongsList.slice(0, expandedSections.favSongs ? favSongsList.length : 5).map((song, i) => (
+                            <View key={`song-${i}`} style={styles.listItem}>
+                                <Text style={styles.listItemText}>{song}</Text>
+                                <Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            </View>
+                        ))}
+                    </View>
+                    {(favSongsList.length > 5 && !expandedSections.favSongs) && (
+                        <TouchableOpacity style={styles.seeAllButton} onPress={() => toggleSection("favSongs")}>
+                            <Text style={styles.seeAllButtonText}>See all {favSongsList.length}</Text>
+                            <Feather name="chevron-down" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                        </TouchableOpacity>
+                    )}
+                </ProfileSection>
+                
+                <ProfileSection title="Favorite Albums" icon="star" isPremiumUser={isPremium} hasData={favAlbumsList.length > 0}>
+                         <View style={styles.listContainer}>
+                             {favAlbumsList.map((album, i) => (
+                                 <View key={`album-${i}`} style={styles.listItem}>
+                                     <Text style={styles.listItemText}>{album}</Text>
+                                     <Feather name="disc" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                 </View>
+                             ))}
                          </View>
-                       ))}</View>
-                      {favSongsList.length > 5 && !expandedSections.songs && (<TouchableOpacity style={styles.seeAllButton} onPress={() => toggleSection("songs")}><Text style={styles.seeAllButtonText}>See all {favSongsList.length}</Text><Feather name="chevron-down" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} /></TouchableOpacity>)}
                  </ProfileSection>
-                 <ProfileSection title="Favorite Albums" icon="disc" isPremiumUser={isPremium} hasData={favAlbumsList.length > 0}>
-                      <View style={styles.listContainer}>{favAlbumsList.map((album, i) => (
-                          <View key={`album-${i}`} style={styles.listItem}>
-                              <Text style={styles.listItemText}>{album}</Text>
-                              <Feather name="disc" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                          </View>
-                      ))}</View>
-                 </ProfileSection>
+
                  <ProfileSection title="Match Radio" icon="radio" isPremiumFeature isPremiumUser={isPremium} hasData={true}>
                      {isPremium ? ( <View style={styles.premiumFeatureCard}><View style={styles.premiumFeatureHeader}><View><Text style={styles.premiumFeatureTitle}>AI Playlists</Text><Text style={styles.premiumFeatureSubtitle}>Blend taste w/ matches</Text></View><View style={styles.featureIconContainer}><Feather name="radio" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} /></View></View><TouchableOpacity style={styles.createButton} onPress={() => Alert.alert("Coming Soon!")}><Text style={styles.createButtonText}>Create Match Radio</Text></TouchableOpacity></View> ) : null }
                  </ProfileSection>
                  <ProfileSection title="My Attended Events" icon="check-square" isPremiumUser={isPremium}>
-                      <TouchableOpacity style={styles.linkButton} onPress={() => navigation.navigate('AttendedEventsScreen')}>
+                      <TouchableOpacity 
+                          style={styles.linkButton} 
+                          // onPress={() => navigation.navigate('AttendedEventsScreen')} // TODO: Fix navigation path
+                      >
                          <Text style={styles.linkButtonText}>View & Rate Past Events</Text>
                          <Feather name="chevron-right" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
                       </TouchableOpacity>
                  </ProfileSection>
 
-                {!isPremium && (<TouchableOpacity style={styles.buyPremiumButton} onPress={() => navigation.navigate('UpgradeScreen')}><Feather name="star" size={18} color="#FFF" /><Text style={styles.buyPremiumButtonText}>Upgrade to Premium</Text></TouchableOpacity>)}
+                {!isPremium && (
+                    <TouchableOpacity 
+                        style={styles.buyPremiumButton} 
+                        // onPress={() => navigation.navigate('UpgradeScreen')} // TODO: Fix navigation path
+                    >
+                        <Feather name="star" size={18} color="#FFF" />
+                        <Text style={styles.buyPremiumButtonText}>Upgrade to Premium</Text>
+                    </TouchableOpacity>
+                )}
                 <TouchableOpacity style={styles.logoutButton} onPress={logout} ><Feather name="log-out" size={18} color="#FFF" /><Text style={styles.logoutButtonText}>Logout</Text></TouchableOpacity>
             </ScrollView>
         </SafeAreaView>
@@ -303,11 +763,21 @@ const styles = StyleSheet.create({
     logoutButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#EF4444", paddingVertical: 14, paddingHorizontal: 20, borderRadius: 8, marginTop: 8, marginBottom: 16, marginHorizontal: 16, },
     logoutButtonText: { color: "white", fontWeight: "600", fontSize: 16, marginLeft: 8, },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#F9FAFB', },
-    loadingText: { marginTop: 10, fontSize: 16, color: '#6B7280', },
     errorText: { marginTop: 15, fontSize: 18, fontWeight: '600', color: '#DC2626', textAlign: 'center', },
     errorSubText: { marginTop: 8, fontSize: 14, color: '#4B5563', textAlign: 'center', maxWidth: '85%', },
     linkButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, marginTop: 4, },
     linkButtonText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontSize: 14, fontWeight: '500', marginRight: 4, },
+    dataSourceText: { fontSize: 12, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginTop: 10, fontStyle: 'italic' },
+    listItemDetails: { flexDirection: "column", flex: 1, },
+    refreshSpotifyButton: { backgroundColor: "rgba(59, 130, 246, 0.1)", borderRadius: 8, padding: 12, marginTop: 8, marginBottom: 8, marginHorizontal: 16, },
+    refreshButtonContent: { flexDirection: "row", alignItems: "center", justifyContent: "center", },
+    refreshButtonText: { color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, fontSize: 14, fontWeight: '500', marginRight: 8, },
+    emptyStateContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#F9FAFB', borderRadius: 8, },
+    emptyStateText: { fontSize: 14, color: '#6B7280', textAlign: 'center', paddingVertical: 20, paddingHorizontal: 10, fontStyle: 'italic', },
+    connectServiceButton: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, padding: 12, borderRadius: 8, marginTop: 8, marginBottom: 8, marginHorizontal: 16, },
+    connectServiceButtonText: { color: "white", fontWeight: "600", fontSize: 14, },
+    loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
+    loadingText: { marginTop: 12, fontSize: 14, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY },
 });
 
 export default ProfileScreen;

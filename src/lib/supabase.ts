@@ -12,7 +12,19 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const supabase = createClient(
   supabaseUrl as string, 
-  supabaseKey as string
+  supabaseKey as string, 
+  {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+    },
+    global: {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+    },
+  }
 );
 
 export type UserTypes = 'music_lover' | 'organizer';
