@@ -7,6 +7,9 @@ import { Feather } from "@expo/vector-icons";
 import { useOrganizerMode } from "@/hooks/useOrganizerMode";
 import { useAuth } from "@/hooks/useAuth";
 import { APP_CONSTANTS } from "@/config/constants";
+import { NavigationContainer, RouteProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 
 // --- Import ALL your screens ---
 import MatchesScreen from "@/screens/MatchesScreen";
@@ -53,6 +56,8 @@ import LandingScreen from "@/screens/auth/LandingScreen";
 import LoginScreen from "@/screens/auth/LoginScreen";
 import MusicLoverSignUpFlow from "@/screens/auth/MusicLoverSignUpFlow";
 import OrganizerSignUpFlow from "@/screens/auth/OrganizerSignUpFlow";
+import SignUpScreen from '@/screens/auth/SignUpScreen';
+import ForgotPasswordScreen from '@/screens/auth/ForgotPasswordScreen';
 
 // Group Chat Screens
 import CreateGroupChatScreen from '@/screens/CreateGroupChatScreen';
@@ -68,11 +73,50 @@ import LinkMusicServicesScreen from '@/screens/LinkMusicServicesScreen'; // <-- 
 
 // --- Define Param Lists ---
 
-export type RootStackParamList = {
-  Auth: undefined;
+export type AuthStackParamList = {
+  LoginScreen: undefined;
+  SignUpScreen: undefined;
   MusicLoverSignUpFlow: undefined;
   OrganizerSignUpFlow: undefined;
-  MainApp: { screen?: keyof MainStackParamList, params?: { screen?: keyof UserTabParamList | keyof OrganizerTabParamList, params?: any } };
+  ForgotPasswordScreen: undefined;
+};
+
+export type MainStackParamList = {
+  LoadingScreen: undefined; // Could be used while checking auth state
+  UserTabs: { screen?: keyof UserTabParamList, params?: any }; // Entry point for User tabs
+  OrganizerTabs: { screen?: keyof OrganizerTabParamList, params?: any }; // Entry point for Organizer tabs
+  SettingsScreen: undefined;
+  EditProfileScreen: { userType: 'music_lover' | 'organizer' };
+  LinkMusicServicesScreen: { autoLinkSpotify?: boolean } | undefined; // <<< ADDED param, allow undefined
+  OtherUserProfileScreen: { userId: string };
+  EventDetailScreen: { eventId: number }; // Assuming event ID is a number
+  CreateEventScreen: undefined;
+  EditEventScreen: { eventId: number };
+  VenueProfileScreen: { venueId: number }; // Assuming venue ID is number
+  VenueDetailScreen: { venueId: number };
+  IndividualChatScreen: { matchUserId: string, matchName: string }; // User & Organizer Chat
+  NotificationsScreen: undefined;
+  // Add other main screens accessible outside tabs here (e.g., User/Org specific screens if not in tabs)
+};
+
+export type UserTabParamList = {
+    Matches: undefined;
+    Chats: undefined;
+    Search: undefined;
+    Events: undefined;
+    Profile: undefined;
+};
+
+export type OrganizerTabParamList = {
+    Posts: undefined;
+    Create: undefined;
+    OrganizerProfile: undefined;
+};
+
+// Combined Root Param List (Includes Auth, Main, and standalone screens)
+export type RootStackParamList = {
+  Auth: undefined; // Represents the AuthScreens navigator
+  MainApp: { screen?: keyof MainStackParamList, params?: { screen?: keyof UserTabParamList | keyof OrganizerTabParamList, params?: any } }; // Represents the MainAppStack navigator
   IndividualChatScreen: {
     matchUserId: string;
     matchName: string;
@@ -102,55 +146,9 @@ export type RootStackParamList = {
   ChatsScreen: undefined;
 
   NotFoundGlobal?: undefined;
-};
-
-export type MainStackParamList = {
-    UserTabs: { screen?: keyof UserTabParamList, params?: any };
-    OrganizerTabs: { screen?: keyof OrganizerTabParamList, params?: any };
-    EventDetail: { eventId: string };
-    EditEvent: { eventId: string };
-    BookingConfirmation: { eventId: string; eventTitle: string; quantity: number; pricePerItemDisplay: string; totalPriceDisplay: string; bookingType: 'TICKETED' | 'RESERVATION'; rawPricePerItem: number | null; rawTotalPrice: number | null; rawFeePaid: number | null; maxTickets: number | null; maxReservations: number | null; };
-    UserSettingsScreen: undefined;
-    OrganizerSettingsScreen: undefined;
-    EditUserProfileScreen: undefined;
-    UserManageSubscriptionScreen: undefined;
-    UserMutedListScreen: undefined;
-    UserBlockedListScreen: undefined;
-    FriendsListScreen: undefined;
-    OrganizerListScreen: undefined;
-    UserListScreen: undefined;
-    UpcomingEventsListScreen: { organizerUserId: string, organizerName?: string };
-    PastEventsListScreen: { organizerUserId: string, organizerName?: string };
-    UpgradeScreen: undefined;
-    EditOrganizerProfileScreen: undefined;
-    OrgManagePlanScreen: undefined;
-    OrgBillingHistoryScreen: undefined;
-    UserBillingHistoryScreen: undefined;
-    UpdateMusicFavoritesScreen: undefined;
-
-    // *** ViewOrganizerProfileScreen moved to Main Stack ***
-    ViewOrganizerProfileScreen: { organizerUserId: string };
-    // *** END Move ***
-
-    AttendedEventsScreen: undefined; // <-- ADD PARAM FOR NEW SCREEN
-
-    LinkMusicServicesScreen: undefined; // <-- Uncommented
-
-    NotFoundMain: undefined;
-};
-
-export type UserTabParamList = {
-    Matches: undefined;
-    Chats: undefined;
-    Search: undefined;
-    Events: undefined;
-    Profile: undefined;
-};
-
-export type OrganizerTabParamList = {
-    Posts: undefined;
-    Create: undefined;
-    OrganizerProfile: undefined;
+  // Include signup flows here for direct navigation if needed during incomplete profile state
+  MusicLoverSignUpFlow: undefined;
+  OrganizerSignUpFlow: undefined;
 };
 
 // --- Create Navigators ---

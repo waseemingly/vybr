@@ -21,6 +21,7 @@ import { APP_CONSTANTS } from "@/config/constants";
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from "@/navigation/AppNavigator";
+import { useSpotifyAuth } from '@/hooks/useSpotifyAuth'; // Import the Spotify hook
 
 // Interface
 interface FetchedMatchData {

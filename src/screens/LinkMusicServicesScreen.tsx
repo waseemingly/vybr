@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome, MaterialCommunityIcons, Feather } from '@expo/vector-icons'; // Import necessary icon sets
 import { useAuth } from '@/hooks/useAuth';
+import { useSpotifyAuth } from '@/hooks/useSpotifyAuth'; // Import the Spotify hook
 import { APP_CONSTANTS } from '@/config/constants';
 import { supabase } from '@/lib/supabase'; // <-- IMPORT supabase client
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -33,13 +34,24 @@ const STREAMING_SERVICES: { id: StreamingServiceId, name: string, icon: string, 
 type Props = NativeStackScreenProps<MainStackParamList, 'LinkMusicServicesScreen'>;
 
 // --- Component ---
-const LinkMusicServicesScreen: React.FC<Props> = ({ navigation }) => {
-    const { musicLoverProfile, loading: authLoading, session, refetchUserProfile } = useAuth();
+const LinkMusicServicesScreen: React.FC<Props> = ({ navigation, route }) => {
+    const { musicLoverProfile, loading: authLoading, session, refreshUserProfile } = useAuth();
+    const { 
+        login: spotifyLogin, 
+        isLoggedIn: isSpotifyLoggedIn, 
+        isUpdatingListeningData: isSpotifyUpdating, 
+        forceFetchAndSaveSpotifyData 
+    } = useSpotifyAuth();
     const [updating, setUpdating] = useState(false); // Use this state for the Supabase update
     const [analyzingServiceId, setAnalyzingServiceId] = useState<StreamingServiceId | null>(null); // Track analyzing state
+    const [fetchingSpotifyData, setFetchingSpotifyData] = useState(false);
+    
+    // NEW: Check for autoLinkSpotify parameter from route
+    const autoLinkSpotify = route.params?.autoLinkSpotify ?? false;
 
     // *** ADD this log to see the profile on render ***
     console.log("[LinkMusicServicesScreen] Rendering with musicLoverProfile:", JSON.stringify(musicLoverProfile, null, 2));
+    console.log("[LinkMusicServicesScreen] Route params:", JSON.stringify(route.params, null, 2));
 
     const userId = session?.user?.id;
     const primaryServiceId = musicLoverProfile?.selectedStreamingService;
@@ -48,6 +60,73 @@ const LinkMusicServicesScreen: React.FC<Props> = ({ navigation }) => {
 
     // *** ADD this log to see the derived linkedServices ***
     console.log("[LinkMusicServicesScreen] Derived linkedServices:", linkedServices);
+
+    // Effect to auto-initiate Spotify authentication if flag is set
+    useEffect(() => {
+        if (autoLinkSpotify && userId && !isSpotifyLoggedIn && !analyzingServiceId && !fetchingSpotifyData) {
+            console.log("[LinkMusicServicesScreen] Auto-linking Spotify detected. Initiating Spotify authentication...");
+            handleSpotifyLinking();
+        }
+    }, [autoLinkSpotify, userId, isSpotifyLoggedIn, analyzingServiceId, fetchingSpotifyData]);
+
+    // Helper function to check premium status
+    const checkPremiumStatus = async (): Promise<boolean> => {
+        if (!userId) return false;
+        try {
+            const { data, error } = await supabase
+                .from('music_lover_profiles')
+                .select('is_premium')
+                .eq('user_id', userId)
+                .single();
+            
+            if (error) throw error;
+            console.log("[checkPremiumStatus] Premium status:", data?.is_premium);
+            return data?.is_premium ?? false;
+        } catch (err) {
+            console.error("Error checking premium status:", err);
+            return false;
+        }
+    };
+
+    // Helper function to update Spotify link status in profile
+    const updateSpotifyLinkStatus = async (userId: string, isLinked: boolean): Promise<void> => {
+        try {
+            // Fetch current profile first
+            const { data: currentProfile, error: fetchError } = await supabase
+                .from('music_lover_profiles')
+                .select('secondary_streaming_services')
+                .eq('user_id', userId)
+                .single();
+
+            if (fetchError) throw fetchError;
+
+            // Update the services array
+            const currentServices = currentProfile?.secondary_streaming_services ?? [];
+            let updatedServices = [...currentServices];
+            
+            if (isLinked && !updatedServices.includes('spotify')) {
+                updatedServices.push('spotify');
+            } else if (!isLinked) {
+                updatedServices = updatedServices.filter(s => s !== 'spotify');
+            }
+            
+            // Only update if there's a change
+            if (JSON.stringify(currentServices) !== JSON.stringify(updatedServices)) {
+                const { error: updateError } = await supabase
+                    .from('music_lover_profiles')
+                    .update({ secondary_streaming_services: updatedServices })
+                    .eq('user_id', userId);
+                
+                if (updateError) throw updateError;
+                console.log(`Spotify link status updated to: ${isLinked ? 'linked' : 'unlinked'}`);
+            } else {
+                console.log("No change to Spotify link status needed");
+            }
+        } catch (error) {
+            console.error("Error updating Spotify link status:", error);
+            // Don't throw - handle gracefully
+        }
+    };
 
     const handleServicePress = async (serviceId: StreamingServiceId) => {
         if (serviceId === primaryServiceId) {
@@ -61,6 +140,12 @@ const LinkMusicServicesScreen: React.FC<Props> = ({ navigation }) => {
         }
 
         if (analyzingServiceId || updating || !userId) return; // Don't run if busy or no user ID
+
+        // Special handling for Spotify service
+        if (serviceId === 'spotify') {
+            await handleSpotifyLinking();
+            return;
+        }
 
         setAnalyzingServiceId(serviceId);
         setUpdating(true); // Indicate network activity for DB update
@@ -106,7 +191,7 @@ const LinkMusicServicesScreen: React.FC<Props> = ({ navigation }) => {
                 Alert.alert("Service Linked", `${STREAMING_SERVICES.find(s => s.id === serviceId)?.name} has been linked.`);
 
                 // Refetch the profile data to update the UI
-                await refetchUserProfile?.(); // Use the function from useAuth if available
+                await refreshUserProfile?.();
 
             } catch (error: any) {
                 console.error("Error linking streaming service:", error);
@@ -119,6 +204,109 @@ const LinkMusicServicesScreen: React.FC<Props> = ({ navigation }) => {
             }
         }, 10000); // Delay matches the visual "analyzing" time
     };
+
+    // Enhanced function to handle Spotify linking process with better error tracking
+    const handleSpotifyLinking = async () => {
+        if (!userId) {
+            Alert.alert("Error", "User profile not found. Please try again later.");
+            return;
+        }
+
+        console.log("[LinkMusicServicesScreen] Starting Spotify linking process...");
+        // Log the version of the app and other important information
+        console.log("[LinkMusicServicesScreen] Development mode:", __DEV__ ? "Yes" : "No");
+        console.log("[LinkMusicServicesScreen] Expected Redirect URI: http://127.0.0.1:8081/callback");
+        
+        setAnalyzingServiceId('spotify');
+        setFetchingSpotifyData(true);
+
+        try {
+            // 1. First initiate the Spotify login flow
+            console.log("[LinkMusicServicesScreen] Initiating Spotify login...");
+            Alert.alert(
+                "Connecting to Spotify",
+                "You'll be redirected to authorize the app. Make sure to allow the connection.",
+                [{ text: "OK", onPress: () => spotifyLogin() }]
+            );
+        } catch (error) {
+            console.error("Error during Spotify linking:", error);
+            Alert.alert("Error", "Failed to link Spotify. Please try again.");
+            setAnalyzingServiceId(null);
+            setFetchingSpotifyData(false);
+        }
+    };
+
+    // Effect to monitor Spotify login state and proceed with linking if logged in
+    useEffect(() => {
+        // If Spotify auth completed while we were analyzing
+        if (isSpotifyLoggedIn && analyzingServiceId === 'spotify') {
+            console.log("[LinkMusicServicesScreen] Spotify authentication completed. Proceeding to data fetching...");
+            
+            // Only continue if we're not already fetching data (avoid duplicate processing)
+            if (!fetchingSpotifyData) {
+                setFetchingSpotifyData(true);
+                
+                const completeSpotifyLinking = async () => {
+                    try {
+                        // Check premium status first
+                        const isPremium = await checkPremiumStatus();
+                        console.log(`[LinkMusicServicesScreen] User premium status: ${isPremium ? 'Premium' : 'Free'}`);
+                        
+                        // Get userId from context
+                        if (!userId) {
+                            throw new Error("User ID not found. Please log in again.");
+                        }
+                        
+                        // Update the profile to show Spotify is linked
+                        await updateSpotifyLinkStatus(userId, true);
+                        
+                        // Fetch streaming data from Spotify
+                        console.log("[LinkMusicServicesScreen] Initiating fetch of Spotify data...");
+                        const success = await forceFetchAndSaveSpotifyData(userId, isPremium);
+                        
+                        if (success) {
+                            console.log("[LinkMusicServicesScreen] Successfully fetched and saved Spotify data!");
+                            Alert.alert(
+                                "Success!",
+                                "Spotify has been linked to your account and your music data has been imported.",
+                                [{ text: "OK", onPress: () => {
+                                    // Navigate back to Profile screen
+                                    navigation.navigate('UserTabs', { screen: 'Profile' });
+                                }}]
+                            );
+                        } else {
+                            console.warn("[LinkMusicServicesScreen] Successfully linked Spotify but could not fetch data");
+                            Alert.alert(
+                                "Partially Complete",
+                                "Spotify has been linked to your account, but we couldn't fetch your music data. You can try refreshing from your profile.",
+                                [{ text: "OK", onPress: () => {
+                                    // Navigate back to Profile screen
+                                    navigation.navigate('UserTabs', { screen: 'Profile' });
+                                }}]
+                            );
+                        }
+                        
+                        // Update the UI by refreshing the profile
+                        await refreshUserProfile?.();
+                        
+                    } catch (error) {
+                        console.error("[LinkMusicServicesScreen] Error in Spotify linking process:", error);
+                        Alert.alert(
+                            "Error",
+                            "There was a problem linking your Spotify account. Please try again.",
+                            [{ text: "OK" }]
+                        );
+                    } finally {
+                        setAnalyzingServiceId(null);
+                        setFetchingSpotifyData(false);
+                    }
+                };
+                
+                // Slight delay for UX
+                setTimeout(completeSpotifyLinking, 1000);
+            }
+        }
+    }, [isSpotifyLoggedIn, analyzingServiceId, fetchingSpotifyData, userId, forceFetchAndSaveSpotifyData, refreshUserProfile, navigation]);
 
     if (authLoading) {
         return (
@@ -141,7 +329,7 @@ const LinkMusicServicesScreen: React.FC<Props> = ({ navigation }) => {
              <ScrollView contentContainerStyle={styles.scrollContent}>
                 <Text style={styles.title}>Linked Music Services</Text>
                 <Text style={styles.description}>
-                    Your primary service helps us understand your taste. You can link other services you use below (linking functionality coming soon!).
+                    Your primary service helps us understand your taste. You can link other services you use below.
                 </Text>
 
                 <View style={styles.serviceIconContainer}>
