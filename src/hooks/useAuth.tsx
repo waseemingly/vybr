@@ -770,34 +770,107 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
     // --- Login ---
     const login = async (credentials: LoginCredentials): Promise<{ error: any } | { user: any }> => {
-        console.log(`[AuthProvider] login: Attempting login for Type: ${credentials.userType}, Email: ${credentials.email}`);
-        // Keep loading true until checkSession finishes
-        // setLoading(true); // setLoading(true) is called within checkSession
+        console.log(`[AuthProvider] login: Starting login process`);
+        console.log(`[AuthProvider] login: Credentials received - Type: ${credentials.userType}, Email: ${credentials.email}, Username: ${credentials.username}`);
+        
         try {
-            const { email, password, userType } = credentials;
-            if (!email || !password || !userType) {
+            const { email, username, password, userType } = credentials;
+            
+            // Validate required fields
+            if ((!email && !username) || !password || !userType) {
                 console.error('[AuthProvider] login: Missing required fields.');
-                return { error: new Error('Please enter email, password, and select account type.') };
+                return { error: new Error('Please enter email/username, password, and select account type.') };
             }
 
-            console.log('[AuthProvider] login: Calling Supabase auth.signInWithPassword...');
-            const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+            // First try to authenticate with the provided input as email
+            const loginInput = email || username;
+            if (!loginInput) {
+                console.error('[AuthProvider] login: No login input provided');
+                return { error: new Error('Please enter email/username and password.') };
+            }
 
+            // Try to authenticate with the input as email first
+            console.log('[AuthProvider] login: First attempt - trying input as email:', loginInput);
+            const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+                email: loginInput,
+                password
+            });
+
+            // If email authentication fails, try username lookup
             if (loginError) {
-                console.error("[AuthProvider] login: Supabase signIn Error:", loginError);
-                if (loginError.message.includes('Invalid login credentials')) {
-                    return { error: { message: 'Invalid email or password. Please check and try again.' } };
+                console.log('[AuthProvider] login: Email authentication failed, trying username lookup for:', loginInput);
+                const { data: profileData, error: profileError } = await supabase
+                    .from('music_lover_profiles')
+                    .select('email, user_id')
+                    .eq('username', loginInput)
+                    .single();
+
+                if (profileError || !profileData?.email) {
+                    console.error('[AuthProvider] login: Username lookup failed:', profileError);
+                    return { error: { message: 'Invalid email/username or password.' } };
                 }
-                 setLoading(false); // Stop loading on login error
-                return { error: { message: `Login failed: ${loginError.message}` } };
+
+                const loginEmail = profileData.email;
+                console.log('[AuthProvider] login: Found email for username:', loginEmail);
+
+                // Try authentication again with the looked-up email
+                const { data: retryLoginData, error: retryLoginError } = await supabase.auth.signInWithPassword({
+                    email: loginEmail,
+                    password
+                });
+
+                if (retryLoginError) {
+                    console.error("[AuthProvider] login: Supabase signIn Error after username lookup:", retryLoginError);
+                    return { error: { message: 'Invalid email/username or password.' } };
+                }
+
+                if (!retryLoginData?.user) {
+                    console.error('[AuthProvider] login: Login successful but no user data returned.');
+                    return { error: new Error('Login failed: Could not retrieve user data.') };
+                }
+
+                console.log('[AuthProvider] login: Successfully authenticated user via username:', retryLoginData.user.id);
+                const userId = retryLoginData.user.id;
+
+                // --- Verify User Type from DB --- 
+                console.log('[AuthProvider] login: Verifying user type from DB...');
+                const { data: typeData, error: typeError } = await supabase
+                    .from('user_types') 
+                    .select('type')
+                    .eq('user_id', userId)
+                    .single();
+
+                if (typeError || !typeData) {
+                    console.error(`[AuthProvider] login: Failed to verify DB user type for ${userId}:`, typeError || 'No type data found');
+                    await logout();
+                    setLoading(false);
+                    return { error: { message: 'Login failed: Could not verify account type. Please contact support.' } };
+                }
+
+                const dbUserType = typeData.type as UserTypes;
+                console.log(`[AuthProvider] login: DB user type confirmed as: ${dbUserType}`);
+
+                if (dbUserType !== userType) {
+                    console.warn(`[AuthProvider] login: TYPE MISMATCH! User ${userId} tried logging in via ${userType} portal, but DB type is ${dbUserType}.`);
+                    await logout();
+                    setLoading(false);
+                    return { error: { message: `Incorrect login portal. This account is registered as a ${dbUserType === 'music_lover' ? 'Music Lover' : 'Organizer'}. Please use the correct login page.` } };
+                }
+
+                console.log('[AuthProvider] login: User type verified. Calling checkSession...');
+                setIsOrganizerMode(dbUserType === 'organizer');
+                await checkSession({ navigateToProfile: true });
+                return { user: retryLoginData.user };
             }
+
+            // If we get here, the first email authentication attempt was successful
             if (!loginData?.user) {
-                 console.error('[AuthProvider] login: Login successful but no user data returned.');
-                 setLoading(false); // Stop loading on login error
+                console.error('[AuthProvider] login: Login successful but no user data returned.');
                 return { error: new Error('Login failed: Could not retrieve user data.') };
             }
+
+            console.log('[AuthProvider] login: Successfully authenticated user via email:', loginData.user.id);
             const userId = loginData.user.id;
-            console.log('[AuthProvider] login: Sign in successful via Supabase Auth for user:', userId);
 
             // --- Verify User Type from DB --- 
             console.log('[AuthProvider] login: Verifying user type from DB...');
@@ -809,38 +882,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
             if (typeError || !typeData) {
                 console.error(`[AuthProvider] login: Failed to verify DB user type for ${userId}:`, typeError || 'No type data found');
-                await logout(); // Log out user if type can't be verified
-                 setLoading(false); // Stop loading
+                await logout();
+                setLoading(false);
                 return { error: { message: 'Login failed: Could not verify account type. Please contact support.' } };
             }
+
             const dbUserType = typeData.type as UserTypes;
             console.log(`[AuthProvider] login: DB user type confirmed as: ${dbUserType}`);
 
-            // --- Check Type Mismatch --- 
             if (dbUserType !== userType) {
-                console.warn(`[AuthProvider] login: TYPE MISMATCH! User ${userId} tried logging in via ${userType} portal, but DB type is ${dbUserType}. Signing out.`);
-                await logout(); // Log out user if type mismatch
-                 setLoading(false); // Stop loading
-                return { error: { message: `Incorrect login portal. This email is registered as a ${dbUserType === 'music_lover' ? 'Music Lover' : 'Organizer'}. Please use the correct login page.` } };
+                console.warn(`[AuthProvider] login: TYPE MISMATCH! User ${userId} tried logging in via ${userType} portal, but DB type is ${dbUserType}.`);
+                await logout();
+                setLoading(false);
+                return { error: { message: `Incorrect login portal. This account is registered as a ${dbUserType === 'music_lover' ? 'Music Lover' : 'Organizer'}. Please use the correct login page.` } };
             }
-            console.log('[AuthProvider] login: User type verified successfully.');
 
-            // --- Set Mode, Refresh Session & NAVIGATE --- 
-            // We MUST await checkSession here AND pass navigateToProfile: true
-            // so that the profile fetch completes before AppNavigator re-renders and checks isProfileComplete.
-            console.log('[AuthProvider] login: User type verified. Calling checkSession WITH navigation request...');
-            setIsOrganizerMode(dbUserType === 'organizer'); // Set mode based on verified type
-            await checkSession({ navigateToProfile: true }); 
-            console.log('[AuthProvider] login: checkSession completed after successful login.');
-
-            return { user: loginData.user }; // Return user, navigation is handled by checkSession
+            console.log('[AuthProvider] login: User type verified. Calling checkSession...');
+            setIsOrganizerMode(dbUserType === 'organizer');
+            await checkSession({ navigateToProfile: true });
+            return { user: loginData.user };
 
         } catch (error: any) {
             console.error('[AuthProvider] login: UNEXPECTED error:', error);
-            setLoading(false); // Ensure loading is stopped on unexpected error
+            setLoading(false);
             return { error: new Error('An unexpected error occurred during login.') };
-        } finally {
-            // setLoading(false); // Loading is handled within checkSession or error paths now
         }
     };
 

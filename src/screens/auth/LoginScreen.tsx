@@ -9,7 +9,7 @@ import { APP_CONSTANTS } from '@/config/constants';
 
 // Type for login form data
 interface LoginFormData {
-  email: string;
+  emailOrUsername: string;
   password: string;
 }
 
@@ -24,7 +24,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
   
   // Form state
   const [formData, setFormData] = useState<LoginFormData>({
-    email: '',
+    emailOrUsername: '',
     password: '',
   });
   
@@ -44,15 +44,16 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
       setIsLoading(true);
       
       // Validate form
-      if (!formData.email || !formData.password) {
-        setError('Please enter both email and password');
+      if (!formData.emailOrUsername || !formData.password) {
+        setError('Please enter both email/username and password');
         setIsLoading(false);
         return;
       }
       
       // Attempt login with Supabase
       const result = await login({
-        email: formData.email,
+        email: formData.emailOrUsername,
+        username: formData.emailOrUsername,
         password: formData.password,
         userType,
       });
@@ -81,13 +82,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
         {
           text: 'Send Reset Link',
           onPress: () => {
-            if (!formData.email) {
+            if (!formData.emailOrUsername) {
               Alert.alert('Email Required', 'Please enter your email address first');
               return;
             }
             
             // TODO: Implement password reset
-            Alert.alert('Password Reset', `A password reset link has been sent to ${formData.email}`);
+            Alert.alert('Password Reset', `A password reset link has been sent to ${formData.emailOrUsername}`);
           },
         },
       ],
@@ -134,8 +135,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
                 <TextInput
                   style={styles.input}
                   placeholder={`Enter your ${userType === 'music_lover' ? 'username or email' : 'company email'}`}
-                  value={formData.email}
-                  onChangeText={(text) => handleChange('email', text)}
+                  value={formData.emailOrUsername}
+                  onChangeText={(text) => handleChange('emailOrUsername', text)}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoComplete="email"
@@ -165,10 +166,10 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
               <TouchableOpacity
                 style={[
                   styles.loginButton,
-                  (!formData.email || !formData.password || isLoading) && styles.loginButtonDisabled
+                  (!formData.emailOrUsername || !formData.password || isLoading) && styles.loginButtonDisabled
                 ]}
                 onPress={handleSubmit}
-                disabled={!formData.email || !formData.password || isLoading}
+                disabled={!formData.emailOrUsername || !formData.password || isLoading}
               >
                 {isLoading ? (
                   <ActivityIndicator color="white" />
