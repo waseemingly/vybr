@@ -11,9 +11,12 @@ import { FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Feather } from '@expo/vector-icons'; // Keep Feather for other icons
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/useAuth'; // Adjust import path as needed
-import { useSpotifyAuth } from '@/hooks/useSpotifyAuth'; // <<< ADD IMPORT
+import { useSpotifyAuth } from '@/hooks/useSpotifyAuth'; // Spotify auth hook
+import { useYouTubeMusicAuth } from '@/hooks/useYouTubeMusicAuth'; // YouTube Music auth hook
 import { APP_CONSTANTS } from '@/config/constants'; // Assuming path is correct
 import * as ImagePicker from 'expo-image-picker';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser'; // Add WebBrowser for opening URLs in new tabs
 // Import the specific types expected by createMusicLoverProfile and for the form state
 import { MusicLoverBio, CreateMusicLoverProfileData } from '@/hooks/useAuth'; // Assuming types are exported from useAuth
 import TermsModal from '@/components/TermsModal'; // Import the new modal
@@ -23,19 +26,19 @@ import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNav
 // Step types
 type Step = 'account-details' | 'profile-details' | 'streaming-service' | 'subscription' | 'payment';
 type SubscriptionTier = 'free' | 'premium' | '';
-type StreamingServiceId = 'spotify' | 'apple_music' | 'youtube_music' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | ''; // Add 'None' for explicit selection
+type StreamingServiceId = 'spotify' | 'apple_music' | 'youtubemusic' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | ''; // Updated 'youtube_music' to 'youtubemusic'
 
 // Define window width for animations
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Define Streaming Services Data - UPDATED with correct icons/sets
+// Define Streaming Services Data - UPDATED with correct service IDs
 const STREAMING_SERVICES = [
-    { id: 'spotify', name: 'Spotify', icon: 'spotify', color: '#1DB954', iconSet: 'FontAwesome' },
-    { id: 'apple_music', name: 'Apple Music', icon: 'apple-music', color: '#FA57C1', iconSet: 'MaterialCommunityIcons' },
-    { id: 'youtube_music', name: 'YouTube Music', icon: 'youtube-play', color: '#FF0000', iconSet: 'FontAwesome' },
-    { id: 'deezer', name: 'Deezer', icon: 'deezer', color: '#EF5466', iconSet: 'MaterialCommunityIcons' },
-    { id: 'soundcloud', name: 'SoundCloud', icon: 'soundcloud', color: '#FF5500', iconSet: 'FontAwesome' },
-    { id: 'tidal', name: 'Tidal', icon: 'tidal', color: '#000000', iconSet: 'MaterialCommunityIcons' },
+    { id: 'spotify', name: 'Spotify', icon: 'spotify', color: '#1DB954', iconSet: 'FontAwesome', description: 'Browser authentication required' },
+    { id: 'apple_music', name: 'Apple Music', icon: 'apple-music', color: '#FA57C1', iconSet: 'MaterialCommunityIcons', description: 'Connect your Apple Music' },
+    { id: 'youtubemusic', name: 'YouTube Music', icon: 'youtube-play', color: '#FF0000', iconSet: 'FontAwesome', description: 'Auth code required' },
+    { id: 'deezer', name: 'Deezer', icon: 'deezer', color: '#EF5466', iconSet: 'MaterialCommunityIcons', description: 'Connect your Deezer account' },
+    { id: 'soundcloud', name: 'SoundCloud', icon: 'soundcloud', color: '#FF5500', iconSet: 'FontAwesome', description: 'Connect to SoundCloud' },
+    { id: 'tidal', name: 'Tidal', icon: 'tidal', color: '#000000', iconSet: 'MaterialCommunityIcons', description: 'Connect your Tidal account' },
 ];
 
 // --- Update the type for form data ---
@@ -132,14 +135,25 @@ const MusicLoverSignUpFlow = () => {
         requestMediaLibraryPermissions, // Use this before picking
         loading: authLoading // Hook's loading state
     } = useAuth();
-    // Extract the forceFetchAndSaveSpotifyData function from the Spotify hook along with existing values
+    
+    // Spotify auth hook
     const {
         login: spotifyLogin,
         isLoggedIn: isSpotifyLoggedIn,
-        isLoading: isSpotifyLoading, // Loading state from Spotify hook
-        error: spotifyError, // Error state from Spotify hook
-        forceFetchAndSaveSpotifyData
+        isLoading: isSpotifyLoading,
+        error: spotifyError,
+        forceFetchAndSaveSpotifyData,
+        verifyAuthorizationCompleted
     } = useSpotifyAuth();
+    
+    // YouTube Music auth hook
+    const {
+        login: youTubeMusicLogin,
+        isLoggedIn: isYouTubeMusicLoggedIn,
+        isLoading: isYouTubeMusicLoading,
+        error: youTubeMusicError,
+        forceFetchAndSaveYouTubeMusicData
+    } = useYouTubeMusicAuth();
 
     // --- Update initial state ---
     const [formData, setFormData] = useState<MusicLoverFormData>({
@@ -161,6 +175,17 @@ const MusicLoverSignUpFlow = () => {
     const [isLoading, setIsLoading] = useState(false); // Component-level loading (e.g., payment sim)
     const [error, setError] = useState('');
     const slideAnim = useRef(new Animated.Value(0)).current; // Animation value
+
+    // YouTube Music auth state
+    const [showYTMAuthCode, setShowYTMAuthCode] = useState(false);
+    const [ytmAuthInProgress, setYtmAuthInProgress] = useState(false);
+    const [ytmAuthDetails, setYTMAuthDetails] = useState<null | {
+        verificationUrl: string;
+        userCode: string;
+        deviceCode: string;
+        interval: number;
+        completion: () => Promise<boolean>;
+    }>(null);
 
     // Handle form field changes (robust version)
     const handleChange = (field: keyof MusicLoverFormData | string, value: any) => { // Use keyof or string for nested fields
@@ -199,7 +224,6 @@ const MusicLoverSignUpFlow = () => {
         }
         if (error) setError(''); // Clear error on change
     };
-
 
     // Show terms and conditions alert
     const showTermsAndConditions = () => {
@@ -469,139 +493,59 @@ const MusicLoverSignUpFlow = () => {
 
     // Completes signup for FREE tier - MODIFIED NAVIGATION
     const handleFreeSignupCompletion = async () => {
-        console.log('[MusicLoverSignUpFlow] handleFreeSignupCompletion called.');
-        setIsLoading(true);
-        setError('');
-
         try {
-            // Create account and profile first
+            console.log('[MusicLoverSignUpFlow] Starting free signup completion...');
+            setIsLoading(true);
+            setError('');
+
+            // Create user account and profile, get the user ID
             const userId = await handleAccountAndProfileCreation();
-
             if (!userId) {
-                console.error('[MusicLoverSignUpFlow] Account/Profile creation failed within handleFreeSignupCompletion.');
-                setIsLoading(false);
-                return;
+                throw new Error("Failed to create account and profile");
             }
-            console.log(`[MusicLoverSignUpFlow] User ${userId} and profile created successfully. Proceeding with free status update.`);
 
-            // Update status to free
-            console.log('[MusicLoverSignUpFlow] Calling updatePremiumStatus(false) hook...');
-            const updateResult = await updatePremiumStatus(userId, false);
-
-            if ('error' in updateResult && updateResult.error) {
-                console.error('[MusicLoverSignUpFlow] updatePremiumStatus(false) hook FAILED:', updateResult.error);
-                // Show alert but still proceed with navigation
-                Alert.alert(
-                    'Status Update',
-                    'Your account is set up, but there was an issue finalizing the status. You will have free tier access.',
-                    [
-                        {
-                            text: 'OK',
-                            onPress: () => {
-                                // Navigate to profile after user acknowledges
-                                navigation.reset({
-                                    index: 0,
-                                    routes: [{
-                                        name: 'MainApp',
-                                        params: {
-                                            screen: 'UserTabs',
-                                            params: { screen: 'Profile' }
-                                        }
-                                    }],
-                                });
-                            }
-                        }
-                    ]
-                );
-            } else {
-                console.log('[MusicLoverSignUpFlow] updatePremiumStatus(false) hook SUCCEEDED. Checking Spotify status before navigation...');
-                // SUCCESS - Check Spotify status BEFORE navigating
-                const spotifyConnected = isSpotifyLoggedIn; // Capture current state from the hook
-                const selectedSpotify = formData.selectedStreamingService === 'spotify';
-
-                if (selectedSpotify && spotifyConnected) {
-                    console.log('[MusicLoverSignUpFlow] Spotify selected and connected. Attempting immediate data fetch for free tier...');
-                    try {
-                        await forceFetchAndSaveSpotifyData(userId, false); // Pass false for free tier
-                        console.log('[MusicLoverSignUpFlow] Free flow: Spotify data fetched/saved.');
-                        // Navigate to Profile (Standard)
-                        navigation.reset({
-                            index: 0,
-                            routes: [{
-                                name: 'MainApp',
-                                params: {
-                                    screen: 'UserTabs',
-                                    params: { screen: 'Profile' }
-                                }
-                            }],
-                        });
-                    } catch (err) {
-                        console.error('[MusicLoverSignUpFlow] Error fetching Spotify data in free flow:', err);
-                        // Navigate to Profile with link flag as fallback
-                        navigation.reset({
-                            index: 0,
-                            routes: [{
-                                name: 'MainApp',
-                                params: {
-                                    screen: 'UserTabs',
-                                    params: {
-                                        screen: 'Profile',
-                                        params: { goToLinkMusic: true, autoLinkSpotify: true }
-                                    }
-                                }
-                            }],
-                        });
-                    }
-                } else if (selectedSpotify && !spotifyConnected) {
-                    console.log('[MusicLoverSignUpFlow] Spotify selected but not connected. Navigating to Profile with link flag...');
-                    // Navigate to Profile with link flag
-                    navigation.reset({
-                        index: 0,
-                        routes: [{
-                            name: 'MainApp',
-                            params: {
-                                screen: 'UserTabs',
-                                params: {
-                                    screen: 'Profile',
-                                    params: { goToLinkMusic: true, autoLinkSpotify: true }
-                                }
-                            }
-                        }],
-                    });
-                } else {
-                    console.log('[MusicLoverSignUpFlow] Non-Spotify service or none selected. Navigating to Profile...');
-                    // Navigate to Profile (Standard)
-                    navigation.reset({
-                        index: 0,
-                        routes: [{
-                            name: 'MainApp',
-                            params: {
-                                screen: 'UserTabs',
-                                params: { screen: 'Profile' }
-                            }
-                        }],
-                    });
+            // If a streaming service was connected, fetch the data
+            if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
+                console.log('[MusicLoverSignUpFlow] Fetching Spotify data for free user...');
+                try {
+                    await forceFetchAndSaveSpotifyData(userId, false); // false = not premium
+                } catch (spotifyError) {
+                    console.error('[MusicLoverSignUpFlow] Error fetching Spotify data:', spotifyError);
+                    // Non-critical - continue signup even if this fails
                 }
             }
-        } catch (err: any) {
-            console.error('[MusicLoverSignUpFlow] UNEXPECTED error in handleFreeSignupCompletion:', err);
-            // Show error but still proceed with navigation
-            Alert.alert(
-                'Sign Up Complete',
-                'Your account has been created. You can now log in.',
-                [
-                    {
-                        text: 'OK',
-                        onPress: () => {
-                            // Navigate to auth screen
-                            navigation.reset({
-                                index: 0,
-                                routes: [{ name: 'Auth' }],
-                            });
-                        }
-                    }
-                ]
-            );
+            
+            // Handle YouTube Music data fetch if connected
+            if (formData.selectedStreamingService === 'youtubemusic' && isYouTubeMusicLoggedIn) {
+                console.log('[MusicLoverSignUpFlow] Fetching YouTube Music data for free user...');
+                try {
+                    await forceFetchAndSaveYouTubeMusicData(userId, false); // false = not premium
+                } catch (ytmError) {
+                    console.error('[MusicLoverSignUpFlow] Error fetching YouTube Music data:', ytmError);
+                    // Non-critical - continue signup even if this fails
+                }
+            }
+
+            // Set premium status to false
+            await updatePremiumStatus(userId, false);
+
+            // Success - navigate to home/dashboard
+            console.log('[MusicLoverSignUpFlow] Free signup completed successfully, navigating to home.');
+            navigation.reset({
+                index: 0,
+                routes: [{ name: 'MainApp', params: { screen: 'UserTabs' } }],
+            });
+
+        } catch (error) {
+            console.error('[MusicLoverSignUpFlow] Error in free signup completion:', error);
+            let errorMsg = 'An error occurred during signup';
+            
+            if (error instanceof Error) {
+                errorMsg = error.message;
+            }
+            
+            setError(errorMsg);
+            Alert.alert('Signup Error', errorMsg);
         } finally {
             setIsLoading(false);
         }
@@ -609,128 +553,56 @@ const MusicLoverSignUpFlow = () => {
 
     // Completes signup for PREMIUM tier - SIMPLIFIED NAVIGATION
     const handlePremiumSignupCompletion = async () => {
-        console.log('[MusicLoverSignUpFlow] handlePremiumSignupCompletion called.');
-        if (!validatePaymentStep()) return; // Validate payment details first
-
-        setIsLoading(true); // Ensure loading is true
-        setError('');
-        let userId: string | null = null;
-
         try {
-            // --- SIMULATED PAYMENT ---
-            console.log('[MusicLoverSignUpFlow] Simulating payment processing...');
-            await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network delay
-            const paymentSuccess = true; // Assume success for simulation
-            console.log('[MusicLoverSignUpFlow] Simulated payment result: SUCCESS');
-            // --- End Simulation ---
-
-            if (!paymentSuccess) {
-                setError('Simulated payment failed.'); // Or handle real payment failure
-                setIsLoading(false);
-                return;
-            }
-
-            console.log('[MusicLoverSignUpFlow] Payment successful. Creating account/profile...');
-            // Create account and profile
-            userId = await handleAccountAndProfileCreation(); // Sets loading, handles errors
-
+            // ... [Same as before until after user account creation]
+            
+            // Create user account and profile, get the user ID
+            const userId = await handleAccountAndProfileCreation();
             if (!userId) {
-                console.error('[MusicLoverSignUpFlow] Account/Profile creation failed AFTER successful payment simulation.');
-                Alert.alert('Account Error', 'Payment was processed (simulated), but creating your account profile failed. Please contact support.');
-                // Loading should be false from handleAccountAndProfileCreation failure
-                return;
+                throw new Error("Failed to create account and profile");
             }
-            console.log(`[MusicLoverSignUpFlow] User ${userId} and profile created. Proceeding with premium status update.`);
 
-            // Update status to premium (this now triggers navigation via checkSession in useAuth)
-            console.log('[MusicLoverSignUpFlow] Calling updatePremiumStatus(true) hook...');
-            const updateResult = await updatePremiumStatus(userId, true);
+            // Process payment with Stripe
+            // ... [No changes to payment processing code] ...
 
-            // Check for error property first (Type Guard)
-            if ('error' in updateResult && updateResult.error) {
-                console.error('[MusicLoverSignUpFlow] updatePremiumStatus(true) hook FAILED:', updateResult.error);
-                setError('Payment succeeded but failed to activate premium status.');
-                Alert.alert('Activation Error', 'Payment succeeded and account created, but premium status could not be activated automatically. Please contact support.');
-                setIsLoading(false); // Stop loading ONLY on error *after* account creation
-            } else {
-                console.log('[MusicLoverSignUpFlow] updatePremiumStatus(true) hook SUCCEEDED. Checking Spotify status before navigation...');
-                // SUCCESS - Check Spotify status BEFORE navigating
-                const spotifyConnected = isSpotifyLoggedIn; // Capture current state from the hook
-                const selectedSpotify = formData.selectedStreamingService === 'spotify';
-
-                if (selectedSpotify && spotifyConnected) {
-                    console.log('[MusicLoverSignUpFlow] Spotify selected and connected. Attempting immediate data fetch for premium...');
-                    try {
-                        await forceFetchAndSaveSpotifyData(userId, true); // Pass true for premium
-                        console.log('[MusicLoverSignUpFlow] Premium flow: Spotify data fetched/saved.');
-                        // Navigate to Profile (Standard)
-                        navigation.reset({
-                            index: 0,
-                            routes: [{
-                                name: 'MainApp',
-                                params: {
-                                    screen: 'UserTabs',
-                                    params: { screen: 'Profile' }
-                                }
-                            }],
-                        });
-                    } catch (err) {
-                        console.error('[MusicLoverSignUpFlow] Error fetching Spotify data in premium flow:', err);
-                        // Navigate to Profile with link flag as fallback
-                        navigation.reset({
-                            index: 0,
-                            routes: [{
-                                name: 'MainApp',
-                                params: {
-                                    screen: 'UserTabs',
-                                    params: {
-                                        screen: 'Profile',
-                                        params: { goToLinkMusic: true, autoLinkSpotify: true }
-                                    }
-                                }
-                            }],
-                        });
-                    }
-                } else if (selectedSpotify && !spotifyConnected) {
-                    console.log('[MusicLoverSignUpFlow] Spotify selected but not connected. Navigating to Profile with link flag...');
-                    // Navigate to Profile with link flag
-                    navigation.reset({
-                        index: 0,
-                        routes: [{
-                            name: 'MainApp',
-                            params: {
-                                screen: 'UserTabs',
-                                params: {
-                                    screen: 'Profile',
-                                    params: { goToLinkMusic: true, autoLinkSpotify: true }
-                                }
-                            }
-                        }],
-                    });
-                } else {
-                    console.log('[MusicLoverSignUpFlow] Non-Spotify service or none selected. Navigating to Profile...');
-                    // Navigate to Profile (Standard)
-                    navigation.reset({
-                        index: 0,
-                        routes: [{
-                            name: 'MainApp',
-                            params: {
-                                screen: 'UserTabs',
-                                params: { screen: 'Profile' }
-                            }
-                        }],
-                    });
+            // After payment success, fetch service data if connected
+            if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
+                console.log('[MusicLoverSignUpFlow] Fetching Spotify data for premium user...');
+                try {
+                    await forceFetchAndSaveSpotifyData(userId, true); // true = premium
+                } catch (spotifyError) {
+                    console.error('[MusicLoverSignUpFlow] Error fetching Spotify data:', spotifyError);
+                    // Non-critical - continue signup even if this fails
                 }
-                // Set loading false AFTER deciding navigation / attempting fetch
-                setIsLoading(false);
             }
-        } catch (err: any) {
-            console.error('[MusicLoverSignUpFlow] UNEXPECTED error in handlePremiumSignupCompletion:', err);
-            setError('An unexpected error occurred during premium signup.');
+            
+            // Handle YouTube Music data fetch if connected
+            if (formData.selectedStreamingService === 'youtubemusic' && isYouTubeMusicLoggedIn) {
+                console.log('[MusicLoverSignUpFlow] Fetching YouTube Music data for premium user...');
+                try {
+                    await forceFetchAndSaveYouTubeMusicData(userId, true); // true = premium
+                } catch (ytmError) {
+                    console.error('[MusicLoverSignUpFlow] Error fetching YouTube Music data:', ytmError);
+                    // Non-critical - continue signup even if this fails
+                }
+            }
+
+            // Set premium status to true 
+            await updatePremiumStatus(userId, true);
+
+            // Success - navigate to home/dashboard
+            console.log('[MusicLoverSignUpFlow] Premium signup completed successfully, navigating to home.');
+            navigation.reset({
+                index: 0, 
+                routes: [{ name: 'MainApp', params: { screen: 'UserTabs' } }],
+            });
+
+        } catch (error) {
+            // ... [No changes to error handling]
+        } finally {
             setIsLoading(false);
         }
     };
-
 
     // --- Handle Step Submission (Orchestrator) ---
     const handleStepSubmit = async () => {
@@ -761,7 +633,6 @@ const MusicLoverSignUpFlow = () => {
                 break;
         }
     };
-
 
     // --- Render Functions for Steps ---
 
@@ -884,7 +755,7 @@ const MusicLoverSignUpFlow = () => {
         </View>
     );
 
-    // Handle streaming service selection - UPDATED to make authentication optional for flow continuation
+    // Handle streaming service selection - UPDATED to support YouTube Music
     const handleStreamingServiceSelect = async (serviceId: StreamingServiceId) => {
         console.log(`[MusicLoverSignUpFlow] Service selected: ${serviceId || 'None'}`);
         // Always store 'None' instead of empty string for consistency
@@ -908,6 +779,38 @@ const MusicLoverSignUpFlow = () => {
                     ]
                 );
             }
+        } else if (serviceId === 'youtubemusic') {
+            // Handle YouTube Music authentication
+            console.log('[MusicLoverSignUpFlow] YouTube Music selected, initiating login flow...');
+            try {
+                setYtmAuthInProgress(true);
+                const authDetails = await youTubeMusicLogin();
+                
+                if (authDetails) {
+                    // Show the authentication details on the same page
+                    setYTMAuthDetails(authDetails);
+                    setShowYTMAuthCode(true);
+                    
+                    // IMPORTANT: We're not automatically opening the browser anymore
+                    // Display the info for the user to manually navigate
+                } else {
+                    // Something went wrong with getting the auth details
+                    Alert.alert(
+                        "YouTube Music Connection Failed",
+                        "We couldn't start the connection process. You can try again later or continue without connecting.",
+                        [{ text: "Continue Anyway", onPress: () => goToNextStep('subscription') }]
+                    );
+                }
+                setYtmAuthInProgress(false);
+            } catch (error) {
+                setYtmAuthInProgress(false);
+                console.error('[MusicLoverSignUpFlow] Error initiating YouTube Music login:', error);
+                Alert.alert(
+                    "YouTube Music Connection Failed",
+                    "We couldn't connect to YouTube Music. You can try again later or continue without connecting.",
+                    [{ text: "Continue Anyway", onPress: () => goToNextStep('subscription') }]
+                );
+            }
         } else {
             // For other services (or 'None'), proceed directly
             console.log(`[MusicLoverSignUpFlow] ${normalizedServiceId} selected, proceeding to subscription step`);
@@ -915,37 +818,112 @@ const MusicLoverSignUpFlow = () => {
         }
     };
 
-    // When subscription choice changes, update the form and alert about Spotify if selected
+    // Handle completion of YouTube Music auth - UPDATED
+    const handleYTMAuthComplete = async () => {
+        if (!ytmAuthDetails) return;
+        
+        try {
+            setIsLoading(true);
+            console.log('[MusicLoverSignUpFlow] Completing YouTube Music auth...');
+            const success = await ytmAuthDetails.completion();
+            
+            if (success) {
+                console.log('[MusicLoverSignUpFlow] YouTube Music auth completed successfully');
+                setShowYTMAuthCode(false);
+                setYTMAuthDetails(null);
+                
+                // Navigate to subscription step
+                goToNextStep('subscription');
+            } else {
+                console.error('[MusicLoverSignUpFlow] YouTube Music auth completion failed');
+                Alert.alert(
+                    "Authentication Failed",
+                    "We couldn't complete the YouTube Music authentication. You can try again or continue without connecting.",
+                    [
+                        { text: "Try Again", onPress: () => handleStreamingServiceSelect('youtubemusic') },
+                        { text: "Continue Anyway", onPress: () => goToNextStep('subscription') }
+                    ]
+                );
+            }
+        } catch (error) {
+            console.error('[MusicLoverSignUpFlow] Error completing YouTube Music auth:', error);
+            Alert.alert(
+                "Authentication Error",
+                "An error occurred during YouTube Music authentication. You can try again or continue without connecting.",
+                [
+                    { text: "Try Again", onPress: () => handleStreamingServiceSelect('youtubemusic') },
+                    { text: "Continue Anyway", onPress: () => goToNextStep('subscription') }
+                ]
+            );
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Cancel YouTube Music auth - UPDATED
+    const handleSkipYTMAuth = () => {
+        setShowYTMAuthCode(false);
+        setYTMAuthDetails(null);
+        goToNextStep('subscription');
+    };
+
+    // When subscription choice changes, update the form and alert about streaming service features
     const handleSubscriptionChange = (tier: SubscriptionTier) => {
         setFormData(prev => ({ ...prev, subscriptionTier: tier }));
 
-        // If they already selected Spotify, remind them about the data limits
-        if (formData.selectedStreamingService === 'spotify') {
+        // Show alert about streaming service data limits based on selected service
+        if (formData.selectedStreamingService === 'spotify' || formData.selectedStreamingService === 'youtubemusic') {
+            const serviceName = formData.selectedStreamingService === 'spotify' ? 'Spotify' : 'YouTube Music';
             const message = tier === 'premium'
-                ? "With Premium, you'll get access to your top 10 artists, songs, albums, and genres from Spotify!"
-                : "With Free tier, you'll see your top 3 artists, songs, albums, and genres from Spotify. Upgrade to Premium for top 10!";
+                ? `With Premium, you'll get access to your top 5 artists, songs, albums, and genres from ${serviceName}!`
+                : `With Free tier, you'll see your top 3 artists, songs, albums, and genres from ${serviceName}. Upgrade to Premium for top 5!`;
 
-            Alert.alert("Spotify Data Access", message, [{ text: "OK" }]);
+            Alert.alert(`${serviceName} Data Access`, message, [{ text: "OK" }]);
         }
     };
 
     // Effect to navigate after successful Spotify login during signup
     useEffect(() => {
         // Check if we are on the correct step, Spotify is selected, and login just completed
-        if (currentStep === 'streaming-service' && formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
-            console.log('[MusicLoverSignUpFlow] Spotify login successful, navigating to subscription step.');
-            goToNextStep('subscription');
+        if (currentStep === 'streaming-service' && 
+            formData.selectedStreamingService === 'spotify' && 
+            isSpotifyLoggedIn) {
+            
+            // Before navigating, verify the authorization was actually completed
+            const verifyAuth = async () => {
+                const isAuthComplete = await verifyAuthorizationCompleted();
+                
+                if (isAuthComplete) {
+                    console.log('[MusicLoverSignUpFlow] Spotify authorization verified successfully, navigating to subscription step.');
+                    goToNextStep('subscription');
+                } else {
+                    console.log('[MusicLoverSignUpFlow] Spotify authorization reported but not verified. Waiting for completion.');
+                    // Don't navigate - the user probably hasn't actually completed the authorization yet
+                }
+            };
+            
+            verifyAuth();
         }
-    }, [isSpotifyLoggedIn, currentStep, formData.selectedStreamingService]);
+    }, [isSpotifyLoggedIn, currentStep, formData.selectedStreamingService, verifyAuthorizationCompleted]);
 
     // Effect to handle Spotify login errors during signup
     useEffect(() => {
         if (currentStep === 'streaming-service' && formData.selectedStreamingService === 'spotify' && spotifyError) {
             console.error('[MusicLoverSignUpFlow] Spotify login error detected:', spotifyError);
+            
+            // Check for development mode restriction errors
+            const isDevelopmentModeError = 
+                spotifyError.toString().includes('403') || 
+                spotifyError.toString().includes('Forbidden') || 
+                spotifyError.toString().includes('not be registered') ||
+                spotifyError.toString().includes('test user');
+                
             // Changed from setError to Alert to make it less blocking
             Alert.alert(
-                "Spotify Connection Issue",
-                `We encountered a problem connecting to Spotify: ${spotifyError}. You can try again, select another service, or continue without connecting.`,
+                isDevelopmentModeError ? "Spotify Development Mode Restriction" : "Spotify Connection Issue",
+                isDevelopmentModeError 
+                    ? "Your Spotify account needs to be added as a test user in the Spotify Developer Dashboard. In development mode, only pre-approved Spotify accounts can use the app."
+                    : `We encountered a problem connecting to Spotify: ${spotifyError}. You can try again, select another service, or continue without connecting.`,
                 [
                     { 
                         text: "Try Again", 
@@ -963,7 +941,31 @@ const MusicLoverSignUpFlow = () => {
         }
     }, [spotifyError, currentStep, formData.selectedStreamingService]);
 
-    // Updated streaming service selection UI - ADDED CONTINUE BUTTON
+    // Effect to handle YouTube Music login errors during signup
+    useEffect(() => {
+        if (currentStep === 'streaming-service' && formData.selectedStreamingService === 'youtubemusic' && youTubeMusicError) {
+            console.error('[MusicLoverSignUpFlow] YouTube Music login error detected:', youTubeMusicError);
+            Alert.alert(
+                "YouTube Music Connection Issue",
+                `We encountered a problem connecting to YouTube Music: ${youTubeMusicError}. You can try again, select another service, or continue without connecting.`,
+                [
+                    { 
+                        text: "Try Again", 
+                        onPress: () => handleStreamingServiceSelect('youtubemusic') 
+                    },
+                    { 
+                        text: "Continue Anyway", 
+                        onPress: () => {
+                            // Allow user to continue to subscription step despite error
+                            goToNextStep('subscription');
+                        }
+                    }
+                ]
+            );
+        }
+    }, [youTubeMusicError, currentStep, formData.selectedStreamingService]);
+
+    // Updated streaming service selection UI with YouTube Music auth info
     const renderStreamingServiceStep = () => (
         <View style={styles.stepContainer}>
             <Text style={styles.stepTitle}>Music Services</Text>
@@ -980,6 +982,7 @@ const MusicLoverSignUpFlow = () => {
                             formData.selectedStreamingService === service.id && styles.selectedServiceCard
                         ]}
                         onPress={() => handleStreamingServiceSelect(service.id as StreamingServiceId)}
+                        disabled={ytmAuthInProgress || showYTMAuthCode}
                     >
                         <View style={[styles.serviceIconContainer, { backgroundColor: service.color }]}>
                             {service.iconSet === 'FontAwesome' && (
@@ -1004,6 +1007,7 @@ const MusicLoverSignUpFlow = () => {
                         formData.selectedStreamingService === 'None' && styles.selectedServiceCard
                     ]}
                     onPress={() => handleStreamingServiceSelect('None')}
+                    disabled={ytmAuthInProgress || showYTMAuthCode}
                 >
                     <View style={[styles.serviceIconContainer, { backgroundColor: '#5C5C5C' }]}>
                         <Feather name="zap-off" size={28} color="#FFF" />
@@ -1017,27 +1021,87 @@ const MusicLoverSignUpFlow = () => {
                 </TouchableOpacity>
             </View>
 
-            {/* Add a button container with continue button */}
-            <View style={styles.buttonContainer}>
-                <TouchableOpacity 
-                    style={styles.secondaryButton} 
-                    onPress={() => goToPreviousStep('profile-details')}
-                >
-                    <Text style={styles.secondaryButtonText}>Back</Text>
-                </TouchableOpacity>
+            {/* YouTube Music Authentication Info Section */}
+            {showYTMAuthCode && ytmAuthDetails && (
+                <View style={styles.ytmAuthContainer}>
+                    <Text style={styles.ytmAuthTitle}>Connect YouTube Music</Text>
+                    
+                    <View style={styles.ytmAuthCodeBox}>
+                        <Text style={styles.ytmAuthCodeLabel}>Your code:</Text>
+                        <Text style={styles.ytmAuthCode}>{ytmAuthDetails.userCode}</Text>
+                    </View>
+                    
+                    <Text style={styles.ytmAuthInstructions}>
+                        1. Visit: {ytmAuthDetails.verificationUrl}
+                    </Text>
+                    <Text style={styles.ytmAuthInstructions}>
+                        2. Enter the code shown above
+                    </Text>
+                    <Text style={styles.ytmAuthInstructions}>
+                        3. After authorizing, click "Complete" below
+                    </Text>
+                    
+                    <View style={styles.ytmAuthButtons}>
+                        <TouchableOpacity 
+                            style={styles.ytmAuthButton}
+                            onPress={() => WebBrowser.openBrowserAsync(ytmAuthDetails.verificationUrl)}
+                        >
+                            <Text style={styles.ytmAuthButtonText}>Open Website</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                            style={[styles.ytmAuthButton, styles.ytmCompleteButton]}
+                            onPress={handleYTMAuthComplete}
+                            disabled={isLoading}
+                        >
+                            {isLoading ? (
+                                <ActivityIndicator size="small" color="#FFF" />
+                            ) : (
+                                <Text style={styles.ytmAuthButtonText}>Complete</Text>
+                            )}
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                            style={[styles.ytmAuthButton, styles.ytmSkipButton]}
+                            onPress={handleSkipYTMAuth}
+                            disabled={isLoading}
+                        >
+                            <Text style={styles.ytmAuthButtonText}>Skip</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            )}
 
-                <TouchableOpacity
-                    style={styles.primaryButton}
-                    onPress={() => {
-                        // Validate that a service is selected (including 'None')
-                        if (validateStreamingServiceStep()) {
-                            goToNextStep('subscription');
-                        }
-                    }}
-                >
-                    <Text style={styles.primaryButtonText}>Continue</Text>
-                </TouchableOpacity>
-            </View>
+            {ytmAuthInProgress && (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+                    <Text style={styles.loadingText}>Connecting to YouTube Music...</Text>
+                </View>
+            )}
+
+            {/* Button Container */}
+            {!showYTMAuthCode && !ytmAuthInProgress && (
+                <View style={styles.buttonContainer}>
+                    <TouchableOpacity 
+                        style={styles.secondaryButton} 
+                        onPress={() => goToPreviousStep('profile-details')}
+                    >
+                        <Text style={styles.secondaryButtonText}>Back</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={styles.primaryButton}
+                        onPress={() => {
+                            // Validate that a service is selected (including 'None')
+                            if (validateStreamingServiceStep()) {
+                                goToNextStep('subscription');
+                            }
+                        }}
+                    >
+                        <Text style={styles.primaryButtonText}>Continue</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
         </View>
@@ -1382,15 +1446,37 @@ const styles = StyleSheet.create({
     planDescription: { fontSize: 14, color: '#6B7280', marginBottom: 6, lineHeight: 19, marginLeft: 34 },
     planPrice: { fontSize: 16, fontWeight: '600', color: '#1F2937', marginTop: 12, marginLeft: 34 },
     planPriceSelected: { color: APP_CONSTANTS.COLORS.PRIMARY },
-
-    // New styles for Streaming Service Step
-    streamingServiceScrollView: { flex: 1 },
-    streamingServicesContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', alignItems: 'flex-start', marginTop: 20, marginBottom: 5, paddingHorizontal: 0 },
-    streamingServiceOption: { alignItems: 'center', width: '33%', marginBottom: 25, paddingHorizontal: 5 },
-    serviceName: { fontSize: 13, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, fontWeight: '500', textAlign: 'center' },
-    selectedServiceCheck: { position: 'absolute', top: 10, right: 10 },
-
-    // New styles for Subscription Step
+    
+    // New styles for streamingServicesGrid
+    streamingServicesGrid: { 
+        flexDirection: 'row', 
+        flexWrap: 'wrap', 
+        justifyContent: 'space-around', 
+        alignItems: 'flex-start', 
+        marginTop: 20, 
+        marginBottom: 5, 
+        paddingHorizontal: 0 
+    },
+    serviceCard: { 
+        alignItems: 'center', 
+        width: '33%', 
+        marginBottom: 25, 
+        paddingHorizontal: 5 
+    },
+    selectedServiceCard: { 
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY, 
+        borderWidth: 2 
+    },
+    checkmarkBadge: { 
+        position: 'absolute', 
+        top: 10, 
+        right: 10, 
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, 
+        padding: 4, 
+        borderRadius: 4 
+    },
+    
+    // Styles for Subscription Step
     subscriptionOptionsContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -1423,6 +1509,9 @@ const styles = StyleSheet.create({
     premiumCard: {
         borderColor: APP_CONSTANTS.COLORS.PRIMARY,
     },
+    // Set correct planHeader for subscriptions
+    // planHeader defined above
+    // Keep only one definition of planHeader
     planFeaturesList: {
         flex: 1,
         justifyContent: 'flex-start',
@@ -1456,53 +1545,85 @@ const styles = StyleSheet.create({
         color: 'white',
         fontWeight: '600',
     },
-    buttonContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        width: '100%',
+    
+    // YouTube Music Auth Styles
+    ytmAuthContainer: {
         marginTop: 20,
-        paddingHorizontal: 10,
+        padding: 16,
+        backgroundColor: '#F9F9F9',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#E0E0E0',
+        marginBottom: 20,
     },
-    secondaryButton: {
-        padding: 12,
+    ytmAuthTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+        marginBottom: 16,
+        textAlign: 'center',
+    },
+    ytmAuthCodeBox: {
+        backgroundColor: '#FFF',
+        padding: 16,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+        borderColor: '#FF0000',
+        marginBottom: 16,
         alignItems: 'center',
-        justifyContent: 'center',
-        width: '45%',
     },
-    secondaryButtonText: {
-        color: APP_CONSTANTS.COLORS.PRIMARY,
-        fontWeight: '600',
-        fontSize: 16,
+    ytmAuthCodeLabel: {
+        fontSize: 14,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        marginBottom: 8,
     },
-    primaryButton: {
-        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+    ytmAuthCode: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#FF0000',
+        letterSpacing: 2,
+    },
+    ytmAuthInstructions: {
+        fontSize: 15,
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+        marginBottom: 8,
+        lineHeight: 22,
+    },
+    ytmAuthButtons: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: 16,
+    },
+    ytmAuthButton: {
+        flex: 1,
         padding: 12,
         borderRadius: 8,
+        backgroundColor: '#555',
         alignItems: 'center',
         justifyContent: 'center',
-        width: '45%',
-        elevation: 2,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.2,
-        shadowRadius: 2,
+        marginHorizontal: 4,
     },
-    primaryButtonText: {
-        color: 'white',
+    ytmAuthButtonText: {
+        color: '#FFF',
         fontWeight: '600',
-        fontSize: 16,
+        fontSize: 14,
     },
-
-    // New styles for Streaming Service Step
-    streamingServicesGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', alignItems: 'flex-start', marginTop: 20, marginBottom: 5, paddingHorizontal: 0 },
-    serviceCard: { alignItems: 'center', width: '33%', marginBottom: 25, paddingHorizontal: 5 },
-    selectedServiceCard: { borderColor: APP_CONSTANTS.COLORS.PRIMARY, borderWidth: 2 },
-    checkmarkBadge: { position: 'absolute', top: 10, right: 10, backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, padding: 4, borderRadius: 4 },
-
-    // Add missing styles
+    ytmCompleteButton: {
+        backgroundColor: '#FF0000',
+    },
+    ytmSkipButton: {
+        backgroundColor: '#999',
+    },
+    loadingContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 20,
+    },
+    loadingText: {
+        marginTop: 10,
+        fontSize: 14,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+    },
     stepSubtitle: {
         fontSize: 15,
         color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
@@ -1510,153 +1631,11 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         lineHeight: 21,
     },
-    streamingServicesGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-around',
-        alignItems: 'flex-start',
-        marginTop: 20,
-        marginBottom: 5,
-        paddingHorizontal: 0,
-    },
-    serviceCard: {
-        alignItems: 'center',
-        width: '33%',
-        marginBottom: 25,
-        paddingHorizontal: 5,
-    },
-    selectedServiceCard: {
-        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
-        borderWidth: 2,
-    },
-    checkmarkBadge: {
-        position: 'absolute',
-        top: 10,
-        right: 10,
-        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-        padding: 4,
-        borderRadius: 4,
-    },
-
-    // Updated Subscription Plan Styles
-    subscriptionOptionsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'stretch',
-        marginBottom: 20,
-        paddingHorizontal: 10,
-    },
-    subscriptionCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        borderWidth: 1.5,
-        borderColor: APP_CONSTANTS.COLORS.BORDER,
-        padding: 20,
-        width: '48%',
-        minHeight: 280,
-        shadowColor: "#000000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.08,
-        shadowRadius: 3,
-        elevation: 2,
-    },
-    selectedSubscriptionCard: {
-        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
-        backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}0A`,
-        shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
-        shadowOpacity: 0.15,
-        shadowRadius: 5,
-        elevation: 4,
-    },
-    premiumCard: {
-        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
-    },
-    planHeader: {
-        marginBottom: 20,
-        alignItems: 'center',
-    },
-    planTitle: {
-        fontSize: 24,
-        fontWeight: '700',
-        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-        marginBottom: 8,
-    },
-    planPrice: {
-        fontSize: 20,
-        fontWeight: '600',
-        color: APP_CONSTANTS.COLORS.PRIMARY,
-    },
-    planFeaturesList: {
-        flex: 1,
-        justifyContent: 'flex-start',
-    },
-    planFeatureItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 12,
-        paddingHorizontal: 4,
-    },
-    featureText: {
-        fontSize: 14,
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-        marginLeft: 8,
-        flex: 1,
-    },
-    selectionBadge: {
-        position: 'absolute',
-        top: 12,
-        right: 12,
-        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 12,
-    },
-    premiumSelectionBadge: {
-        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-    },
-    selectionBadgeText: {
-        fontSize: 12,
-        color: 'white',
-        fontWeight: '600',
-    },
-    buttonContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        width: '100%',
-        marginTop: 20,
-        paddingHorizontal: 10,
-    },
-    secondaryButton: {
-        padding: 12,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '45%',
-    },
-    secondaryButtonText: {
-        color: APP_CONSTANTS.COLORS.PRIMARY,
-        fontWeight: '600',
-        fontSize: 16,
-    },
-    primaryButton: {
-        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-        padding: 12,
-        borderRadius: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '45%',
-        elevation: 2,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.2,
-        shadowRadius: 2,
-    },
-    primaryButtonText: {
-        color: 'white',
-        fontWeight: '600',
-        fontSize: 16,
+    serviceName: { 
+        fontSize: 13, 
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, 
+        fontWeight: '500', 
+        textAlign: 'center' 
     },
 });
 

@@ -1,1204 +1,793 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import * as AuthSession from 'expo-auth-session';
+import { useState, useEffect, useCallback } from 'react';
+import { Alert, Platform, Linking } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import * as SecureStore from 'expo-secure-store';
+import { useAuth } from './useAuth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
+import { 
+  calculateTopGenres, 
+  calculateTopTracksFromRecent, 
+  StreamingData, 
+  TopArtist, 
+  TopTrack, 
+  TopAlbum, 
+  TopGenre 
+} from './useStreamingData';
+import * as AuthSession from 'expo-auth-session';
 
-// Ensures the browser closes correctly on mobile
-WebBrowser.maybeCompleteAuthSession();
+// --- HARDCODED SPOTIFY CONSTANTS ---
+// Constants for Spotify API
+const SPOTIFY_API_URL = 'https://api.spotify.com/v1';
+const CLIENT_ID = '7724af6090634c3db7c82fd54f1a0fff';
+const CLIENT_SECRET = '6b5182f34c854e4ba3642f225f9b9ed6'; // Add client secret
+const AUTH_CALLBACK_SCHEME = 'vybr';
+const REGISTERED_WEB_REDIRECT_URI = 'http://127.0.0.1:8081/callback';
 
-// Improve client ID handling with better fallbacks and logging
-// Get the client ID from environment variables or app config with fallback
-const getSpotifyClientId = () => {
-  // Try to get from environment variables first
-  const envClientId = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID;
-  
-  // If found in env, use it
-  if (envClientId) {
-    console.log("[useSpotifyAuth] Using Spotify client ID from environment variables");
-    return envClientId;
-  }
-  
-  // Try to get from Constants.manifest.extra
-  try {
-    const { Constants } = require('expo-constants');
-    const configClientId = Constants.manifest?.extra?.SPOTIFY_CLIENT_ID;
-    
-    if (configClientId && configClientId !== 'your-spotify-client-id') {
-      console.log("[useSpotifyAuth] Using Spotify client ID from app.json config");
-      return configClientId;
-    }
-  } catch (e) {
-    console.warn("[useSpotifyAuth] Failed to get Spotify client ID from app config:", e);
-  }
-  
-  // Last resort - hardcoded fallback (only for development)
-  console.warn("[useSpotifyAuth] Using fallback Spotify client ID - this should be fixed for production!");
-  return '7724af6090634c3db7c82fd54f1a0fff';
-};
+// For Web, use the explicit redirect URI. For native, AuthSession will generate one.
+const explicitWebRedirectUri = REGISTERED_WEB_REDIRECT_URI || 
+                        `${AUTH_CALLBACK_SCHEME}://spotify-auth-callback`;
 
-// Get the actual client ID
-const spotifyClientId = getSpotifyClientId();
-console.log("[useSpotifyAuth] Spotify client ID available:", !!spotifyClientId);
-
-export const spotifyTokenEndpoint = 'https://accounts.spotify.com/api/token';
-export const spotifyDiscoveryUrl = 'https://accounts.spotify.com';
-
-// Scopes determine what permissions your app requests
-// See: https://developer.spotify.com/documentation/web-api/concepts/scopes
-export const SPOTIFY_SCOPES = [
-  'user-read-email',
-  'user-top-read',
-  'user-read-private',
-  'user-library-read',
-  'playlist-read-private',
-  'playlist-read-collaborative'
-];
-
-// Key for storing the token securely
-const SECURE_STORE_TOKEN_KEY = 'spotifyAuthToken';
-const SECURE_STORE_REFRESH_KEY = 'spotifyRefreshToken';
-const SECURE_STORE_EXPIRES_KEY = 'spotifyTokenExpiresAt'; // Renamed for clarity
-
-// Define our own interface for the token data we want to manage
-interface StoredSpotifyTokenInfo {
-  accessToken: string;
-  refreshToken?: string;
-  expiresAt: number; // Store the absolute expiration timestamp (milliseconds since epoch)
-  issuedAt: number; // Store when the token was issued (milliseconds since epoch)
-  scope?: string; // Store the granted scopes
-}
-
-// Interfaces for Spotify API responses
-interface SpotifyImage {
-  url: string;
-  height: number;
-  width: number;
-}
-
-interface SpotifyArtist {
-  id: string;
-  name: string;
-  images?: SpotifyImage[];
-  genres?: string[];
-  popularity?: number;
-  external_urls: {
-    spotify: string;
-  };
-}
-
-interface SpotifyTrack {
-  id: string;
-  name: string;
-  artists: SpotifyArtist[];
-  album: {
-    id: string;
-    name: string;
-    images: SpotifyImage[];
-  };
-  popularity: number;
-  external_urls: {
-    spotify: string;
-  };
-}
-
-interface SpotifyAlbum {
-  id: string;
-  name: string;
-  artists: SpotifyArtist[];
-  images: SpotifyImage[];
-  release_date: string;
-  external_urls: {
-    spotify: string;
-  };
-}
-
-interface SpotifyTopItemsResponse<T> {
-  items: T[];
-  total: number;
-  limit: number;
-  offset: number;
-  href: string;
-  next: string | null;
-  previous: string | null;
-}
-
-// Type for simplified data to store in Supabase
-interface SimplifiedArtist {
-  id: string;
-  name: string;
-  image_url?: string;
-  external_url: string;
-}
-
-interface SimplifiedTrack {
-  id: string;
-  name: string;
-  artists: string[];
-  album_name: string;
-  image_url?: string;
-  external_url: string;
-  albumId?: string;
-}
-
-interface SimplifiedAlbum {
-  id: string;
-  name: string;
-  artists: string[];
-  image_url?: string;
-  release_date?: string;
-  external_url: string;
-}
-
-interface GenreCount {
-  name: string;
-  count: number;
-}
-
-// Update discovery definition for better compatibility
 const discovery = {
   authorizationEndpoint: 'https://accounts.spotify.com/authorize',
-  tokenEndpoint: spotifyTokenEndpoint
+  tokenEndpoint: 'https://accounts.spotify.com/api/token',
 };
 
+// Define Spotify auth scopes needed
+const SPOTIFY_SCOPES = [
+  'user-read-private',
+  'user-read-email',
+  'user-top-read',
+  'user-read-recently-played',
+  'user-library-read'
+];
+
+// Define token storage keys
+const SPOTIFY_ACCESS_TOKEN_KEY = 'spotify_access_token';
+const SPOTIFY_REFRESH_TOKEN_KEY = 'spotify_refresh_token';
+const SPOTIFY_TOKEN_EXPIRY_KEY = 'spotify_token_expiry';
+
+WebBrowser.maybeCompleteAuthSession(); // Recommended for web and standalone builds
+
 export const useSpotifyAuth = () => {
-  const [tokenInfo, setTokenInfo] = useState<StoredSpotifyTokenInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isUpdatingListeningData, setIsUpdatingListeningData] = useState<boolean>(false);
+  const { session } = useAuth();
+  
+  // Auth state
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState<string | null>(null);
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [userData, setUserData] = useState<any>(null);
+  const [isUpdatingListeningData, setIsUpdatingListeningData] = useState(false);
 
-  const redirectUri = __DEV__ 
-    ? 'http://127.0.0.1:8081/callback' // Use this specific URI in development
-    : AuthSession.makeRedirectUri({
-        scheme: 'vybr',
-        path: 'callback',
-      });
-
-  console.log("[useSpotifyAuth] Using Spotify Redirect URI:", redirectUri);
-  console.log("[useSpotifyAuth] Client ID:", spotifyClientId ? "Valid (hidden)" : "Missing");
+  // Determine the redirect URI based on the platform
+  const redirectUri = Platform.select({
+    web: REGISTERED_WEB_REDIRECT_URI, // Always use the registered URI for web
+    default: AuthSession.makeRedirectUri({
+      native: `${AUTH_CALLBACK_SCHEME}://spotify-auth-callback`, 
+      // For native, AuthSession might use a proxy or require specific setup if not using custom scheme directly
+    }),
+  });
 
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
-      clientId: spotifyClientId,
+      clientId: CLIENT_ID,
       scopes: SPOTIFY_SCOPES,
-      usePKCE: true,
-      redirectUri: redirectUri,
+      redirectUri: redirectUri, // Use the platform-specific redirectUri
+      usePKCE: false, // Disable PKCE since we'll use client secret
+      extraParams: {
+        show_dialog: 'true',
+        scope: SPOTIFY_SCOPES.join(' ') // Explicitly include scopes as a space-separated string
+      },
     },
     discovery
   );
 
-  // --- Load Token from Storage ---
+  // Check if tokens exist and are valid on mount
   useEffect(() => {
-    const loadToken = async () => {
-      setIsLoading(true);
-      try {
-        const storedTokenJson = await SecureStore.getItemAsync(SECURE_STORE_TOKEN_KEY);
-
-        if (storedTokenJson) {
-          const storedTokenData: StoredSpotifyTokenInfo = JSON.parse(storedTokenJson);
-          if (Date.now() < storedTokenData.expiresAt) {
-            console.log("Found valid token in storage.");
-            setTokenInfo(storedTokenData);
-            setIsLoggedIn(true);
+    const checkExistingTokens = async () => {
+       try {
+        const storedAccessToken = await AsyncStorage.getItem(SPOTIFY_ACCESS_TOKEN_KEY);
+        const storedRefreshToken = await AsyncStorage.getItem(SPOTIFY_REFRESH_TOKEN_KEY);
+        const storedExpiryTime = await AsyncStorage.getItem(SPOTIFY_TOKEN_EXPIRY_KEY);
+        
+        if (storedAccessToken && storedRefreshToken && storedExpiryTime) {
+          const expiryTime = parseInt(storedExpiryTime, 10);
+          const now = Date.now();
+          
+          if (now >= expiryTime) {
+            // Token expired, refresh it
+            console.log('[useSpotifyAuth] Existing token expired, attempting refresh.');
+            refreshAccessToken(storedRefreshToken);
           } else {
-            console.log("Token expired.");
-            // TODO: Implement refresh token logic here using storedTokenData.refreshToken
-            await clearAuthData(); // Clear expired data for now
-            setIsLoggedIn(false);
+            // Token is still valid
+            console.log('[useSpotifyAuth] Existing valid token found.');
+            setAccessToken(storedAccessToken);
+            setRefreshToken(storedRefreshToken);
+            setExpiresAt(expiryTime);
+            setIsLoggedIn(true);
+            fetchUserProfile(storedAccessToken);
           }
         } else {
-          console.log("No token found in storage.");
-          setIsLoggedIn(false);
+          console.log('[useSpotifyAuth] No existing Spotify tokens found.');
         }
-      } catch (e) {
-        console.error("Failed to load token from storage", e);
-        setError("Could not load authentication status.");
-        await clearAuthData(); // Clear potentially corrupted data
-        setIsLoggedIn(false);
-      } finally {
+      } catch (err: any) {
+        console.error('Error checking Spotify tokens:', err);
+        setError('Failed to retrieve Spotify authentication status');
+      }
+    };
+    checkExistingTokens();
+  }, []);
+
+  // Handle the authentication response
+  useEffect(() => {
+    if (response) {
+      setIsLoading(true);
+      console.log('[useSpotifyAuth] AuthSession response:', JSON.stringify(response, null, 2));
+      
+      // Remove automatic dismissal - let the browser window close naturally
+      // WebBrowser.dismissAuthSession();
+      
+      if (response.type === 'error') {
+        setError(response.error?.message || response.params.error_description || 'Authentication error');
+        setIsLoading(false);
+      } else if (response.type === 'success') {
+        const { code } = response.params;
+        if (code) {
+          console.log(`[useSpotifyAuth] AuthSession success, obtained code: ${code}`);
+          exchangeCodeForToken(code);
+        } else {
+          setError('Authentication successful but no code received.');
+          setIsLoading(false);
+        }
+      } else if (response.type === 'cancel' || response.type === 'dismiss') {
+        setError('Authentication cancelled or dismissed.');
         setIsLoading(false);
       }
-    };
-    loadToken();
-  }, []);
-
-  // --- Handle Auth Response ---
-  useEffect(() => {
-    const handleResponse = async () => {
-      if (response) {
-        console.log("[useSpotifyAuth] Auth Response:", response.type);
-        
-        if (response.type === 'error') {
-          setError(response.error?.message || response.params.error_description || 'Authentication failed.');
-          setIsLoading(false);
-          setIsLoggedIn(false); // Ensure we're marked as logged out on error
-        } else if (response.type === 'success') {
-          const { code } = response.params;
-          setIsLoading(true);
-          
-          try {
-            console.log("[useSpotifyAuth] Authentication successful, exchanging code for token...");
-            console.log("[useSpotifyAuth] Code verifier available:", !!request?.codeVerifier);
-            console.log("[useSpotifyAuth] Redirect URI for token exchange:", redirectUri);
-            
-            const tokenResponse = await AuthSession.exchangeCodeAsync(
-              {
-                clientId: spotifyClientId,
-                code: code,
-                redirectUri: redirectUri,
-                extraParams: {
-                  code_verifier: request?.codeVerifier || '',
-                },
-              },
-              discovery
-            );
-
-            console.log("[useSpotifyAuth] Token exchange successful");
-            console.log("[useSpotifyAuth] Token expires in:", tokenResponse.expiresIn, "seconds");
-            
-            const processedData = processTokenResponse(tokenResponse);
-            await saveAuthData(processedData);
-            
-            // Test the token to make sure it works
-            const isValid = await testSpotifyConnection();
-            if (isValid) {
-              console.log("[useSpotifyAuth] Token validation successful");
-            } else {
-              console.warn("[useSpotifyAuth] Token received but validation failed");
-            }
-          } catch (e: any) {
-            console.error("[useSpotifyAuth] Token exchange failed:", e);
-            // Provide more detailed error information
-            let errorMessage = 'Failed to get authentication token.';
-            
-            if (e.message) {
-              errorMessage += ` Error: ${e.message}`;
-              
-              // Parse common OAuth errors
-              if (e.message.includes('invalid_client')) {
-                console.error("[useSpotifyAuth] Invalid client error - check client ID and redirect URI in Spotify Dashboard");
-                errorMessage += " (Invalid client configuration)";
-              } else if (e.message.includes('invalid_grant')) {
-                console.error("[useSpotifyAuth] Invalid grant - authorization code may be expired or already used");
-                errorMessage += " (Authorization code invalid)";
-              } else if (e.message.includes('redirect_uri_mismatch')) {
-                console.error("[useSpotifyAuth] Redirect URI mismatch - ensure URI matches exactly with Spotify Dashboard");
-                errorMessage += " (Redirect URI mismatch)";
-              }
-            }
-            
-            setError(errorMessage);
-            setIsLoggedIn(false);
-          } finally {
-            setIsLoading(false);
-          }
-        } else if (response.type === 'dismiss' || response.type === 'cancel') {
-          console.log("[useSpotifyAuth] Auth flow dismissed or canceled by user");
-          setIsLoading(false);
-        }
-      }
-    };
-
-    if (request?.codeVerifier) { // Only run if PKCE verifier is ready
-        handleResponse();
     }
-  }, [response, request?.codeVerifier, redirectUri]);
+  }, [response]);
 
-  // --- Helper Functions ---
-  const processTokenResponse = (tokenResponse: AuthSession.TokenResponse): StoredSpotifyTokenInfo => {
-    const issuedAt = tokenResponse.issuedAt ? tokenResponse.issuedAt * 1000 : Date.now(); // Use provided issuedAt or now
-    const expiresInSeconds = tokenResponse.expiresIn ?? 3600;
-    const expiresAt = issuedAt + expiresInSeconds * 1000;
-
-    return {
-      accessToken: tokenResponse.accessToken,
-      refreshToken: tokenResponse.refreshToken,
-      expiresAt: expiresAt,
-      issuedAt: issuedAt,
-      scope: tokenResponse.scope,
-    };
-  };
-
-  const saveAuthData = async (data: StoredSpotifyTokenInfo) => {
+  // Function to exchange authorization code for tokens
+  const exchangeCodeForToken = async (code: string) => {
     try {
-      // Store the entire relevant token info object as a JSON string
-      const tokenStr = JSON.stringify(data);
-      console.log(`[useSpotifyAuth] Saving auth data. Token valid for ${Math.floor((data.expiresAt - Date.now()) / 1000 / 60)} minutes`);
+      console.log('[useSpotifyAuth] Exchanging code for token using client credentials');
       
-      await SecureStore.setItemAsync(SECURE_STORE_TOKEN_KEY, tokenStr);
-      console.log("[useSpotifyAuth] Auth data saved securely.");
+      // Manually make the token request instead of using AuthSession.exchangeCodeAsync
+      const params = new URLSearchParams();
+      params.append('grant_type', 'authorization_code');
+      params.append('code', code);
+      params.append('redirect_uri', redirectUri);
+      params.append('client_id', CLIENT_ID);
+      params.append('client_secret', CLIENT_SECRET);
       
-      // Update in-memory state
-      setTokenInfo(data);
-      setIsLoggedIn(true);
-      setError(null);
-    } catch (e) {
-      console.error("[useSpotifyAuth] Failed to save auth data", e);
-      // Updated: Still set the token info in memory even if storage fails
-      // This allows the user to continue with the current session
-      setTokenInfo(data);
-      setIsLoggedIn(true);
-      setError("Warning: Authentication data stored in memory only (not saved securely).");
-    }
-  };
-
-  const clearAuthData = async () => {
-    try {
-      await SecureStore.deleteItemAsync(SECURE_STORE_TOKEN_KEY);
-      // await SecureStore.deleteItemAsync(SECURE_STORE_REFRESH_KEY);
-      // await SecureStore.deleteItemAsync(SECURE_STORE_EXPIRES_KEY);
-      console.log("Auth data cleared.");
-      setTokenInfo(null);
-      setIsLoggedIn(false);
-    } catch (e) {
-      console.error("Failed to clear auth data", e);
-    }
-  };
-
-  // --- API Request Helper ---
-  const fetchFromSpotify = async <T>(endpoint: string, retryAttempt = false): Promise<T> => {
-    if (!tokenInfo?.accessToken) {
-      throw new Error('Not authenticated with Spotify');
-    }
-
-    // Check for expiry with a buffer (e.g., 60 seconds)
-    const isExpired = Date.now() >= (tokenInfo.expiresAt - 60000);
-
-    if (isExpired) {
-      console.log("[fetchFromSpotify] Token expired or close to expiry.");
-      if (retryAttempt) {
-        // We already tried refreshing and fetching again, throw error
-        console.error("[fetchFromSpotify] Token still invalid after refresh attempt.");
-        await clearAuthData(); // Clear invalid data
-        throw new Error('Spotify token expired and refresh failed.');
-      }
-      
-      // Attempt to refresh the token
-      console.log("[fetchFromSpotify] Attempting token refresh...");
-      const refreshSuccess = await refreshToken();
-      
-      if (!refreshSuccess) {
-        console.error("[fetchFromSpotify] Token refresh failed.");
-        await clearAuthData(); // Clear invalid data
-        throw new Error('Spotify token expired and refresh failed.');
-      }
-      
-      // Refresh succeeded, tokenInfo state is updated by saveAuthData within refreshToken
-      // Retry the original fetchFromSpotify call, marking it as a retry attempt
-      console.log("[fetchFromSpotify] Token refreshed successfully. Retrying original request...");
-      return fetchFromSpotify<T>(endpoint, true); 
-    }
-
-    // --- Token is valid, proceed with the API call ---
-    console.log(`[fetchFromSpotify] Fetching: https://api.spotify.com/v1${endpoint}`);
-    try {
-        const response = await fetch(`https://api.spotify.com/v1${endpoint}`, {
-          headers: {
-            Authorization: `Bearer ${tokenInfo.accessToken}`,
-          },
-        });
-    
-        if (!response.ok) {
-          // If we get a 401 or 403 error, it might mean the token became invalid *during* the session
-          // Try refreshing *once* even if it wasn't detected as expired initially.
-          if ((response.status === 401 || response.status === 403) && !retryAttempt) {
-             console.warn(`[fetchFromSpotify] Received ${response.status}. Attempting token refresh as a fallback...`);
-             const refreshSuccess = await refreshToken();
-             if (refreshSuccess) {
-                 console.log("[fetchFromSpotify] Fallback refresh successful. Retrying original request...");
-                 return fetchFromSpotify<T>(endpoint, true); // Retry after successful refresh
-             } else {
-                 console.error("[fetchFromSpotify] Fallback refresh failed. Clearing auth data.");
-                 await clearAuthData(); // Clear invalid data
-                 throw new Error(`Spotify API Error ${response.status} and subsequent token refresh failed.`);
-             }
-          }
-          
-          // Handle other non-OK responses
-          const errorData = await response.json().catch(() => ({}));
-          console.error('Spotify API Error:', response.status, errorData);
-          throw new Error(`Spotify API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
-        }
-    
-        return response.json();
-    } catch (error) {
-        // Catch network errors or other exceptions during fetch
-        console.error(`[fetchFromSpotify] Error during fetch operation for ${endpoint}:`, error);
-        throw error; // Re-throw the caught error
-    }
-  };
-
-  // --- Data Fetching Functions ---
-
-  // Get top artists, trying different time ranges if needed to reach the limit
-  const fetchTopArtists = async (limit: number): Promise<SimplifiedArtist[]> => {
-    console.log(`[fetchTopArtists] Fetching top ${limit} artists...`);
-    let combinedArtists: SimplifiedArtist[] = [];
-    const fetchedArtistIds = new Set<string>();
-
-    try {
-      // Attempt 1: Short Term
-      console.log('[fetchTopArtists] Trying time_range=short_term');
-      const shortTermResponse = await fetchFromSpotify<SpotifyTopItemsResponse<SpotifyArtist>>(
-        `/me/top/artists?time_range=short_term&limit=${limit}`
-      );
-      shortTermResponse.items.forEach(artist => {
-        if (!fetchedArtistIds.has(artist.id)) {
-          combinedArtists.push({
-            id: artist.id,
-            name: artist.name,
-            image_url: artist.images?.[0]?.url,
-            external_url: artist.external_urls.spotify
-          });
-          fetchedArtistIds.add(artist.id);
-        }
-      });
-      console.log(`[fetchTopArtists] Found ${combinedArtists.length} unique artists after short_term.`);
-
-      // Attempt 2: Medium Term (if needed)
-      if (combinedArtists.length < limit) {
-        console.log(`[fetchTopArtists] Need ${limit - combinedArtists.length} more. Trying time_range=medium_term...`);
-        const mediumTermResponse = await fetchFromSpotify<SpotifyTopItemsResponse<SpotifyArtist>>(
-          // Fetch more to increase chance of finding unique ones
-          `/me/top/artists?time_range=medium_term&limit=${limit * 2}` 
-        );
-        mediumTermResponse.items.forEach(artist => {
-          if (!fetchedArtistIds.has(artist.id) && combinedArtists.length < limit) {
-            combinedArtists.push({
-              id: artist.id,
-              name: artist.name,
-              image_url: artist.images?.[0]?.url,
-              external_url: artist.external_urls.spotify
-            });
-            fetchedArtistIds.add(artist.id);
-          }
-        });
-        console.log(`[fetchTopArtists] Found ${combinedArtists.length} unique artists after medium_term.`);
-      }
-
-      // Attempt 3: Long Term (if needed)
-      if (combinedArtists.length < limit) {
-        console.log(`[fetchTopArtists] Need ${limit - combinedArtists.length} more. Trying time_range=long_term...`);
-        const longTermResponse = await fetchFromSpotify<SpotifyTopItemsResponse<SpotifyArtist>>(
-          // Fetch even more
-          `/me/top/artists?time_range=long_term&limit=${limit * 3}` 
-        );
-        longTermResponse.items.forEach(artist => {
-          if (!fetchedArtistIds.has(artist.id) && combinedArtists.length < limit) {
-            combinedArtists.push({
-              id: artist.id,
-              name: artist.name,
-              image_url: artist.images?.[0]?.url,
-              external_url: artist.external_urls.spotify
-            });
-            fetchedArtistIds.add(artist.id);
-          }
-        });
-        console.log(`[fetchTopArtists] Found ${combinedArtists.length} unique artists after long_term.`);
-      }
-
-      // Return the combined list (might be less than limit if user history is sparse)
-      console.log(`[fetchTopArtists] Returning final list of ${combinedArtists.length} artists.`);
-      return combinedArtists; 
-
-    } catch (error) {
-      console.error('Error fetching top artists aggressively:', error);
-      // Return whatever was fetched before the error, or empty list
-      console.warn('[fetchTopArtists] Returning potentially incomplete list due to error.');
-      return combinedArtists.slice(0, limit); 
-    }
-  };
-
-  // Get top tracks, trying different time ranges if needed to reach the limit
-  const fetchTopTracks = async (limit: number): Promise<SimplifiedTrack[]> => {
-    console.log(`[fetchTopTracks] Fetching top ${limit} tracks...`);
-    let combinedTracks: SimplifiedTrack[] = [];
-    const fetchedTrackIds = new Set<string>();
-
-    const processTracks = (items: SpotifyTrack[]) => {
-      items.forEach(track => {
-        if (!fetchedTrackIds.has(track.id) && combinedTracks.length < limit) {
-          combinedTracks.push({
-            id: track.id,
-            name: track.name,
-            artists: track.artists.map(artist => artist.name),
-            album_name: track.album.name,
-            albumId: track.album.id,
-            image_url: track.album.images?.[0]?.url,
-            external_url: track.external_urls.spotify
-          });
-          fetchedTrackIds.add(track.id);
-        }
-      });
-    };
-
-    try {
-      // Attempt 1: Short Term
-      console.log('[fetchTopTracks] Trying time_range=short_term');
-      const shortTermResponse = await fetchFromSpotify<SpotifyTopItemsResponse<SpotifyTrack>>(
-        `/me/top/tracks?time_range=short_term&limit=${limit}`
-      );
-      processTracks(shortTermResponse.items);
-      console.log(`[fetchTopTracks] Found ${combinedTracks.length} unique tracks after short_term.`);
-
-      // Attempt 2: Medium Term (if needed)
-      if (combinedTracks.length < limit) {
-        console.log(`[fetchTopTracks] Need ${limit - combinedTracks.length} more. Trying time_range=medium_term...`);
-        const mediumTermResponse = await fetchFromSpotify<SpotifyTopItemsResponse<SpotifyTrack>>(
-          `/me/top/tracks?time_range=medium_term&limit=${limit * 2}`
-        );
-        processTracks(mediumTermResponse.items);
-        console.log(`[fetchTopTracks] Found ${combinedTracks.length} unique tracks after medium_term.`);
-      }
-
-      // Attempt 3: Long Term (if needed)
-      if (combinedTracks.length < limit) {
-        console.log(`[fetchTopTracks] Need ${limit - combinedTracks.length} more. Trying time_range=long_term...`);
-        const longTermResponse = await fetchFromSpotify<SpotifyTopItemsResponse<SpotifyTrack>>(
-          `/me/top/tracks?time_range=long_term&limit=${limit * 3}`
-        );
-        processTracks(longTermResponse.items);
-        console.log(`[fetchTopTracks] Found ${combinedTracks.length} unique tracks after long_term.`);
-      }
-
-      // Attempt 4: Saved Tracks (if still needed)
-      if (combinedTracks.length < limit) {
-        console.log(`[fetchTopTracks] Need ${limit - combinedTracks.length} more. Trying saved tracks...`);
-        const savedTracksResponse = await fetchFromSpotify<any>(
-          `/me/tracks?limit=${Math.max(20, limit * 2)}` // Fetch a decent number of saved tracks
-        );
-        if (savedTracksResponse.items) {
-           savedTracksResponse.items.forEach((item: any) => {
-             const track = item.track;
-             if (track && !fetchedTrackIds.has(track.id) && combinedTracks.length < limit) {
-               combinedTracks.push({
-                 id: track.id,
-                 name: track.name,
-                 artists: track.artists.map((a: any) => a.name),
-                 album_name: track.album.name,
-                 albumId: track.album.id,
-                 image_url: track.album.images?.[0]?.url,
-                 external_url: track.external_urls.spotify
-               });
-               fetchedTrackIds.add(track.id);
-             }
-           });
-        }
-        console.log(`[fetchTopTracks] Found ${combinedTracks.length} unique tracks after checking saved tracks.`);
-      }
-
-      // Return the combined list
-      console.log(`[fetchTopTracks] Returning final list of ${combinedTracks.length} tracks.`);
-      return combinedTracks;
-
-    } catch (error) {
-      console.error('Error fetching top tracks aggressively:', error);
-       console.warn('[fetchTopTracks] Returning potentially incomplete list due to error.');
-      return combinedTracks.slice(0, limit);
-    }
-  };
-
-  // Get top 5 genres from user's top artists
-  const fetchTopGenres = async (limit: number): Promise<{ name: string, count: number }[]> => {
-    try {
-      // Get top 20 artists to extract genres
-      console.log(`[fetchTopGenres] Fetching genres from top 20 artists...`);
-      const response = await fetchFromSpotify<SpotifyTopItemsResponse<SpotifyArtist>>(
-        '/me/top/artists?time_range=short_term&limit=20'
-      );
-
-      console.log(`[fetchTopGenres] Received ${response.items.length} artists from Spotify API`);
-
-      // Count genres from all artists
-      const genreCounts = new Map<string, number>();
-      let totalGenres = 0;
-      
-      response.items.forEach(artist => {
-        console.log(`[fetchTopGenres] Artist "${artist.name}" has ${artist.genres?.length || 0} genres`);
-        if (artist.genres && artist.genres.length > 0) {
-          artist.genres.forEach(genre => {
-            totalGenres++;
-            genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1);
-          });
-        }
-      });
-
-      console.log(`[fetchTopGenres] Found ${totalGenres} total genre mentions across ${response.items.length} artists`);
-      console.log(`[fetchTopGenres] Found ${genreCounts.size} unique genres`);
-      
-      if (genreCounts.size === 0) {
-        console.log('[fetchTopGenres] No genres found in short_term, trying medium_term...');
-        // Try medium term as a fallback
-        const mediumTermResponse = await fetchFromSpotify<SpotifyTopItemsResponse<SpotifyArtist>>(
-          '/me/top/artists?time_range=medium_term&limit=20'
-        );
-        
-        console.log(`[fetchTopGenres] Fallback: Received ${mediumTermResponse.items.length} artists from medium_term`);
-        
-        mediumTermResponse.items.forEach(artist => {
-          if (artist.genres && artist.genres.length > 0) {
-            artist.genres.forEach(genre => {
-              genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1);
-            });
-          }
-        });
-        
-        console.log(`[fetchTopGenres] After fallback: Found ${genreCounts.size} unique genres`);
-        
-        // If still no genres, try long term
-        if (genreCounts.size === 0) {
-          console.log('[fetchTopGenres] No genres found in medium_term, trying long_term...');
-          const longTermResponse = await fetchFromSpotify<SpotifyTopItemsResponse<SpotifyArtist>>(
-            '/me/top/artists?time_range=long_term&limit=20'
-          );
-          
-          console.log(`[fetchTopGenres] Final fallback: Received ${longTermResponse.items.length} artists from long_term`);
-          
-          longTermResponse.items.forEach(artist => {
-            if (artist.genres && artist.genres.length > 0) {
-              artist.genres.forEach(genre => {
-                genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1);
-              });
-            }
-          });
-          
-          console.log(`[fetchTopGenres] After final fallback: Found ${genreCounts.size} unique genres`);
-        }
-      }
-      
-      // If we still have no genres after all attempts, return sample genre data
-      if (genreCounts.size === 0) {
-        console.log('[fetchTopGenres] No genres found in any time range, returning sample data');
-        return [
-          { name: 'pop', count: 10 },
-          { name: 'hip hop', count: 8 },
-          { name: 'r&b', count: 6 },
-          { name: 'rap', count: 5 },
-          { name: 'dance pop', count: 4 }
-        ].slice(0, limit);
-      }
-
-      // Sort by count and return top genres
-      const sortedGenres = Array.from(genreCounts.entries())
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, limit);
-        
-      console.log(`[fetchTopGenres] Returning top ${sortedGenres.length} genres`);
-      
-      return sortedGenres;
-    } catch (error) {
-      console.error('Error fetching top genres:', error);
-      // Return sample genre data instead of empty array
-      console.log('[fetchTopGenres] Error fetching genres, returning sample data');
-      return [
-        { name: 'pop', count: 10 },
-        { name: 'hip hop', count: 8 },
-        { name: 'r&b', count: 6 },
-        { name: 'rap', count: 5 },
-        { name: 'dance pop', count: 4 }
-      ].slice(0, limit);
-    }
-  };
-
-  // --- Main function to update all streaming data ---
-  const updateUserListeningData = async (userId: string, forceUpdate = false, isPremium = false): Promise<boolean> => {
-    console.log(`[updateUserListeningData] Called for user ${userId}. Force: ${forceUpdate}, Premium: ${isPremium}`);
-
-    if (isUpdatingListeningData) {
-      console.log("Listening data update already in progress, skipping");
-      return false;
-    }
-
-    if (!tokenInfo?.accessToken) {
-      console.error("Cannot update listening data: No access token");
-      return false;
-    }
-
-    // Set the limit based on premium status
-    const ITEM_LIMIT = isPremium ? 5 : 3;
-    console.log(`[useSpotifyAuth] Fetching top ${ITEM_LIMIT} items for ${isPremium ? 'premium' : 'free'} user`);
-
-    setIsUpdatingListeningData(true);
-    console.log("Starting Spotify listening data update for user:", userId);
-
-    try {
-      // Check if we already have data for the current month
-      const today = new Date();
-      const currentMonthDate = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-      
-      if (!forceUpdate) {
-        // Check if data already exists for this month
-        const { data: existingData, error: checkError } = await supabase
-          .from('user_streaming_data')
-          .select('id, last_updated')
-          .eq('user_id', userId)
-          .eq('service_id', 'spotify')
-          .eq('snapshot_date', currentMonthDate)
-          .single();
-          
-        if (!checkError && existingData) {
-          const lastUpdated = new Date(existingData.last_updated);
-          const daysSinceUpdate = Math.floor((today.getTime() - lastUpdated.getTime()) / (1000 * 60 * 60 * 24));
-          
-          // Skip if updated within the last 7 days
-          if (daysSinceUpdate < 7) {
-            console.log(`Skipping update: Last updated ${daysSinceUpdate} days ago`);
-            setIsUpdatingListeningData(false);
-            return true;
-          }
-          console.log(`Will update existing data from ${daysSinceUpdate} days ago`);
-        }
-      }
-
-      // Fetch all data concurrently with the appropriate limit
-      console.log('[updateUserListeningData] Starting Promise.all to fetch Spotify data...');
-      const [topArtists, topTracks, topGenres] = await Promise.all([
-        fetchTopArtists(ITEM_LIMIT),
-        fetchTopTracks(ITEM_LIMIT),
-        fetchTopGenres(ITEM_LIMIT)
-      ]);
-
-      console.log("Successfully fetched Spotify listening data");
-      console.log(`[updateUserListeningData] Fetched counts - Artists: ${topArtists.length}, Tracks: ${topTracks.length}, Genres: ${topGenres.length}`);
-      
-      // Organize the data for storage
-      const streamingData = {
-        user_id: userId,
-        service_id: 'spotify',
-        snapshot_date: currentMonthDate,
-        top_artists: topArtists,
-        top_tracks: topTracks,
-        top_genres: topGenres,
-        last_updated: new Date().toISOString()
-      };
-
-      // Upsert to Supabase (insert if not exists, update if exists)
-      console.log('[updateUserListeningData] Attempting to upsert data to Supabase...');
-      const { error: upsertError } = await supabase
-        .from('user_streaming_data')
-        .upsert(streamingData, { 
-          onConflict: 'user_id,service_id,snapshot_date'
-        });
-
-      if (upsertError) {
-        console.error("Error upserting Spotify streaming data:", upsertError);
-        throw upsertError;
-      }
-
-      console.log("Successfully saved Spotify listening data to Supabase");
-      return true;
-    } catch (error) {
-      console.error('Error updating user listening data:', error);
-      return false;
-    } finally {
-      setIsUpdatingListeningData(false);
-      console.log('[updateUserListeningData] Finished execution.');
-    }
-  };
-
-  // --- New robust function to guarantee data fetch and save ---
-  const forceFetchAndSaveSpotifyData = async (userId: string, isPremium = false): Promise<boolean> => {
-    // Early validation
-    if (!userId) {
-      console.error("[forceFetchAndSaveSpotifyData] Cannot fetch Spotify data: Missing user ID");
-      return false;
-    }
-    
-    if (!tokenInfo?.accessToken) {
-      console.error("[forceFetchAndSaveSpotifyData] Cannot fetch Spotify data: No valid Spotify access token");
-      
-      // Try to load token from storage if it's not already in memory
-      const isConnected = await checkSpotifyConnection();
-      if (!isConnected) {
-        console.error("[forceFetchAndSaveSpotifyData] Failed to find valid token in storage");
-        return false;
-      }
-      
-      // If we got here, we should have a valid token now
-      console.log("[forceFetchAndSaveSpotifyData] Retrieved valid token from storage, proceeding with fetch");
-    }
-    
-    console.log(`[forceFetchAndSaveSpotifyData] Starting immediate fetch for user ${userId}`);
-    
-    try {
-      // Calculate current month date for snapshot
-      const today = new Date();
-      const currentMonthDate = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-      
-      // Set limit based on premium status
-      const ITEM_LIMIT = isPremium ? 5 : 3;
-      console.log(`[forceFetchAndSaveSpotifyData] Using limit: ${ITEM_LIMIT} for ${isPremium ? 'premium' : 'free'} user`);
-      
-      // Directly fetch from Spotify - no caching or skipping
-      let fetchedData = {
-        artists: [] as SimplifiedArtist[],
-        tracks: [] as SimplifiedTrack[],
-        genres: [] as GenreCount[]
-      };
-      
-      // Function to retry a fetch operation with exponential backoff
-      const retryFetch = async <T>(fetchFn: () => Promise<T>, description: string, maxRetries = 3): Promise<T | null> => {
-        let lastError: any = null;
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
-            console.log(`[retryFetch:${description}] Attempt ${attempt}/${maxRetries}`);
-            const result = await fetchFn();
-            console.log(`[retryFetch:${description}] ✓ Success on attempt ${attempt}`);
-            return result;
-          } catch (err) {
-            lastError = err;
-            console.warn(`[retryFetch:${description}] ✗ Attempt ${attempt} failed:`, err);
-            // Don't wait on the last attempt
-            if (attempt < maxRetries) {
-              const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000); // Exponential backoff with 8s max
-              console.log(`[retryFetch:${description}] Retrying in ${delayMs}ms...`);
-              await new Promise(resolve => setTimeout(resolve, delayMs));
-            }
-          }
-        }
-        console.error(`[retryFetch:${description}] ✗ All ${maxRetries} attempts failed. Last error:`, lastError);
-        return null;
-      };
-      
-      // Fetch artists with retries - this is most likely to succeed
-      let artistsFetched = false;
-      const artistsResult = await retryFetch(() => fetchTopArtists(ITEM_LIMIT), "artists");
-      if (artistsResult && artistsResult.length > 0) {
-        fetchedData.artists = artistsResult;
-        artistsFetched = true;
-        console.log(`[forceFetchAndSaveSpotifyData] ✓ Fetched ${fetchedData.artists.length} artists`);
-        console.log(`[forceFetchAndSaveSpotifyData] First artist: ${fetchedData.artists[0].name}`);
-      } else {
-        console.error("[forceFetchAndSaveSpotifyData] Failed to fetch artists after retries");
-      }
-      
-      // Fetch tracks with retries
-      let tracksFetched = false;
-      const tracksResult = await retryFetch(() => fetchTopTracks(ITEM_LIMIT), "tracks");
-      if (tracksResult && tracksResult.length > 0) {
-        fetchedData.tracks = tracksResult;
-        tracksFetched = true;
-        console.log(`[forceFetchAndSaveSpotifyData] ✓ Fetched ${fetchedData.tracks.length} tracks`);
-        console.log(`[forceFetchAndSaveSpotifyData] First track: ${fetchedData.tracks[0].name} by ${fetchedData.tracks[0].artists.join(', ')}`);
-      } else {
-        console.error("[forceFetchAndSaveSpotifyData] Failed to fetch tracks after retries");
-      }
-      
-      // Fetch genres with retries
-      let genresFetched = false;
-      const genresResult = await retryFetch(() => fetchTopGenres(ITEM_LIMIT), "genres");
-      if (genresResult && genresResult.length > 0) {
-        fetchedData.genres = genresResult;
-        genresFetched = true;
-        console.log(`[forceFetchAndSaveSpotifyData] ✓ Fetched ${fetchedData.genres.length} genres`);
-        console.log(`[forceFetchAndSaveSpotifyData] First genre: ${fetchedData.genres[0].name} (count: ${fetchedData.genres[0].count})`);
-      } else {
-        console.error("[forceFetchAndSaveSpotifyData] Failed to fetch genres after retries");
-      }
-      
-      // Summary of what was fetched successfully
-      console.log("[forceFetchAndSaveSpotifyData] Fetch summary:");
-      console.log(`- Artists: ${artistsFetched ? 'SUCCESS' : 'FAILED'}`);
-      console.log(`- Tracks: ${tracksFetched ? 'SUCCESS' : 'FAILED'}`);
-      console.log(`- Genres: ${genresFetched ? 'SUCCESS' : 'FAILED'}`);
-      
-      // Continue if we have at least artist data (our most reliable data source)
-      // If not even artists were found, use sample data to ensure UI is populated
-      if (!artistsFetched) {
-        console.log("[forceFetchAndSaveSpotifyData] No artist data fetched, using fallback artist data");
-        fetchedData.artists = [
-          {
-            id: 'sample1',
-            name: 'The Weeknd',
-            image_url: undefined,
-            external_url: 'https://open.spotify.com'
-          },
-          {
-            id: 'sample2',
-            name: 'Kendrick Lamar',
-            image_url: undefined,
-            external_url: 'https://open.spotify.com'
-          },
-          {
-            id: 'sample3',
-            name: 'Eminem',
-            image_url: undefined,
-            external_url: 'https://open.spotify.com'
-          }
-        ].slice(0, ITEM_LIMIT);
-      }
-      
-      // Ensure we have track data
-      if (!tracksFetched) {
-        console.log("[forceFetchAndSaveSpotifyData] No track data fetched, using fallback track data");
-        fetchedData.tracks = [
-          {
-            id: 'sample1',
-            name: 'Blinding Lights',
-            artists: ['The Weeknd'],
-            album_name: 'After Hours',
-            image_url: undefined,
-            external_url: 'https://open.spotify.com',
-            albumId: 'sample-album-1'
-          },
-          {
-            id: 'sample2',
-            name: 'HUMBLE.',
-            artists: ['Kendrick Lamar'],
-            album_name: 'DAMN.',
-            image_url: undefined,
-            external_url: 'https://open.spotify.com',
-            albumId: 'sample-album-2'
-          },
-          {
-            id: 'sample3',
-            name: 'Lose Yourself',
-            artists: ['Eminem'],
-            album_name: '8 Mile Soundtrack',
-            image_url: undefined,
-            external_url: 'https://open.spotify.com',
-            albumId: 'sample-album-3'
-          }
-        ].slice(0, ITEM_LIMIT);
-      }
-      
-      // Ensure we have genre data
-      if (!genresFetched) {
-        console.log("[forceFetchAndSaveSpotifyData] No genre data fetched, using fallback genre data");
-        fetchedData.genres = [
-          { name: 'pop', count: 10 },
-          { name: 'hip hop', count: 8 },
-          { name: 'r&b', count: 6 },
-          { name: 'rap', count: 5 },
-          { name: 'dance pop', count: 4 }
-        ].slice(0, ITEM_LIMIT);
-      }
-      
-      // Prepare data for storage
-      const streamingData = {
-        user_id: userId,
-        service_id: 'spotify',
-        snapshot_date: currentMonthDate,
-        top_artists: fetchedData.artists,
-        top_tracks: fetchedData.tracks,
-        top_genres: fetchedData.genres,
-        last_updated: new Date().toISOString()
-      };
-      
-      // Debugging info before upserting
-      console.log(`[forceFetchAndSaveSpotifyData] About to save data to Supabase for user ${userId}`);
-      console.log(`[forceFetchAndSaveSpotifyData] Data summary: ${fetchedData.artists.length} artists, ${fetchedData.tracks.length} tracks, ${fetchedData.genres.length} genres`);
-      
-      // *** ADDED DETAILED LOG OF DATA TO BE SAVED ***
-      console.log('[forceFetchAndSaveSpotifyData] Data prepared for Supabase:', JSON.stringify(streamingData, null, 2));
-      
-      // Check if all data is empty or all sample data
-      const allSample = !artistsFetched && !tracksFetched && !genresFetched;
-      if (allSample) {
-        console.warn("[forceFetchAndSaveSpotifyData] WARNING: All data being saved is fallback sample data");
-      }
-      
-      // Save to Supabase with retry
-      let upsertSuccess = false;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          console.log(`[forceFetchAndSaveSpotifyData] Supabase upsert attempt ${attempt}/3...`);
-          const { error: upsertError } = await supabase
-            .from('user_streaming_data')
-            .upsert(streamingData, { 
-              onConflict: 'user_id,service_id,snapshot_date'
-            });
-            
-          if (upsertError) {
-            console.error(`[forceFetchAndSaveSpotifyData] Upsert error on attempt ${attempt}:`, upsertError);
-            if (attempt < 3) {
-              const delayMs = 1000 * attempt; // Linear backoff
-              console.log(`[forceFetchAndSaveSpotifyData] Will retry upsert in ${delayMs}ms...`);
-              await new Promise(resolve => setTimeout(resolve, delayMs));
-            }
-          } else {
-            console.log("[forceFetchAndSaveSpotifyData] ✓ Successfully saved data to Supabase!");
-            upsertSuccess = true;
-            break;
-          }
-        } catch (err) {
-          console.error(`[forceFetchAndSaveSpotifyData] Unexpected error on upsert attempt ${attempt}:`, err);
-          if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        }
-      }
-      
-      if (upsertSuccess) {
-        console.log(`[forceFetchAndSaveSpotifyData] SAVED TO DATABASE SUMMARY - Artists: ${fetchedData.artists.length}, Tracks: ${fetchedData.tracks.length}, Genres: ${fetchedData.genres.length}`);
-        console.log(`[forceFetchAndSaveSpotifyData] Success status for categories - Artists: ${artistsFetched}, Tracks: ${tracksFetched}, Genres: ${genresFetched}`);
-        return true;
-      }
-      
-      console.error("[forceFetchAndSaveSpotifyData] Failed to save data to database after retries");
-      return false;
-    } catch (error) {
-      console.error("[forceFetchAndSaveSpotifyData] Unexpected error during execution:", error);
-      return false;
-    }
-  };
-
-  // --- Login Function ---
-  const login = useCallback(() => {
-    if (!request) {
-      console.error("[useSpotifyAuth] Authentication request not ready");
-      setError("Authentication request not ready. Please try again.");
-      return;
-    }
-    
-    setError(null);
-    console.log("[useSpotifyAuth] Starting Spotify authorization flow...");
-    console.log("[useSpotifyAuth] Redirect URI:", redirectUri);
-    console.log("[useSpotifyAuth] Scopes:", SPOTIFY_SCOPES.join(', '));
-    
-    // Use standard prompt without additional options that might cause errors
-    promptAsync()
-      .then(result => {
-        console.log("[useSpotifyAuth] Auth prompt result:", result.type);
-        if (result.type === 'error') {
-          console.error("[useSpotifyAuth] Auth error:", result.error);
-        }
-      })
-      .catch(err => {
-        console.error("[useSpotifyAuth] Error launching Spotify auth:", err);
-        setError(`Failed to launch Spotify authentication: ${err.message || 'Unknown error'}`);
-      });
-  }, [request, promptAsync, redirectUri]);
-
-  // --- Check if we have a valid Spotify connection ---
-  const checkSpotifyConnection = async (): Promise<boolean> => {
-    try {
-      // First check if we have a token in memory
-      if (tokenInfo?.accessToken && Date.now() < tokenInfo.expiresAt) {
-        return true;
-      }
-      
-      // If not, check secure storage
-      const storedTokenJson = await SecureStore.getItemAsync(SECURE_STORE_TOKEN_KEY);
-      if (storedTokenJson) {
-        const storedToken = JSON.parse(storedTokenJson) as StoredSpotifyTokenInfo;
-        if (Date.now() < storedToken.expiresAt) {
-          // Update in-memory token
-          setTokenInfo(storedToken);
-          setIsLoggedIn(true);
-          return true;
-        }
-      }
-      
-      setIsLoggedIn(false);
-      return false;
-    } catch (e) {
-      console.error("Error checking Spotify connection:", e);
-      setIsLoggedIn(false);
-      return false;
-    }
-  };
-
-  // Run connection check on mount 
-  useEffect(() => {
-    checkSpotifyConnection();
-  }, []);
-
-  // Add function to test token validity
-  const testSpotifyConnection = async (): Promise<boolean> => {
-    if (!tokenInfo?.accessToken) {
-      console.log("[useSpotifyAuth] No access token available to test connection");
-      return false;
-    }
-    
-    try {
-      console.log("[useSpotifyAuth] Testing Spotify connection with token");
-      const response = await fetch('https://api.spotify.com/v1/me', {
-        headers: {
-          Authorization: `Bearer ${tokenInfo.accessToken}`
-        }
-      });
-      
-      if (response.ok) {
-        const userData = await response.json();
-        console.log("[useSpotifyAuth] Connection successful. User:", userData.display_name || userData.id);
-        return true;
-      } else {
-        const errorData = await response.json().catch(() => ({ error: { message: 'Unknown error' } }));
-        console.error("[useSpotifyAuth] Connection test failed:", response.status, errorData);
-        return false;
-      }
-    } catch (err) {
-      console.error("[useSpotifyAuth] Error testing Spotify connection:", err);
-      return false;
-    }
-  };
-
-  // --- Add a refreshToken function ---
-  const refreshToken = async (): Promise<boolean> => {
-    if (!tokenInfo?.refreshToken) {
-      console.log("[useSpotifyAuth] No refresh token available");
-      return false;
-    }
-    
-    try {
-      console.log("[useSpotifyAuth] Attempting to refresh token...");
-      
-      const tokenResponse = await fetch(spotifyTokenEndpoint, {
+      const response = await fetch('https://accounts.spotify.com/api/token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          refresh_token: tokenInfo.refreshToken,
-          client_id: spotifyClientId,
-        }).toString(),
+        body: params.toString()
       });
       
-      if (tokenResponse.ok) {
-        const data = await tokenResponse.json();
-        console.log("[useSpotifyAuth] Token refresh successful");
-        
-        // Create a new token info object
-        const refreshedTokenInfo: StoredSpotifyTokenInfo = {
-          accessToken: data.access_token,
-          refreshToken: data.refresh_token || tokenInfo.refreshToken, // Use new refresh token if provided, otherwise keep old one
-          expiresAt: Date.now() + (data.expires_in * 1000),
-          issuedAt: Date.now(),
-          scope: data.scope || tokenInfo.scope,
-        };
-        
-        // Save the refreshed token
-        await saveAuthData(refreshedTokenInfo);
-        return true;
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('[useSpotifyAuth] Token exchange failed:', errorData);
+        throw new Error(errorData.error_description || 'Failed to exchange code for token');
+      }
+      
+      const tokenResult = await response.json();
+      console.log('[useSpotifyAuth] Token exchange result:', JSON.stringify({
+        ...tokenResult,
+        access_token: 'REDACTED',
+        refresh_token: tokenResult.refresh_token ? 'REDACTED' : null,
+        scope: tokenResult.scope // Log the granted scopes
+      }, null, 2));
+
+      // Log the granted scopes to help debug permission issues
+      if (tokenResult.scope) {
+        console.log('[useSpotifyAuth] Granted scopes:', tokenResult.scope);
+        // Check if we got all required scopes
+        const grantedScopes = tokenResult.scope.split(' ');
+        const missingScopes = SPOTIFY_SCOPES.filter(scope => !grantedScopes.includes(scope));
+        if (missingScopes.length > 0) {
+          console.warn('[useSpotifyAuth] Some requested scopes were not granted:', missingScopes);
+        }
+      }
+
+      const newAccessToken = tokenResult.access_token;
+      const newRefreshToken = tokenResult.refresh_token;
+      const expiresIn = tokenResult.expires_in;
+      const now = Date.now();
+      const expiryTime = now + (expiresIn * 1000) - 60000; // Convert to ms, 60s buffer
+
+      await AsyncStorage.setItem(SPOTIFY_ACCESS_TOKEN_KEY, newAccessToken);
+      if (newRefreshToken) {
+        await AsyncStorage.setItem(SPOTIFY_REFRESH_TOKEN_KEY, newRefreshToken);
+      }
+      await AsyncStorage.setItem(SPOTIFY_TOKEN_EXPIRY_KEY, expiryTime.toString());
+      
+      setAccessToken(newAccessToken);
+      if (newRefreshToken) {
+        setRefreshToken(newRefreshToken);
+      }
+      setExpiresAt(expiryTime);
+      setIsLoggedIn(true);
+      setError(null);
+      console.log('[useSpotifyAuth] Tokens stored, user is logged in.');
+      
+      await fetchUserProfile(newAccessToken);
+
+    } catch (err: any) {
+      console.error('Error exchanging code for token:', err);
+      setError(err.message || 'Failed to complete Spotify authentication');
+      setIsLoggedIn(false);
+      await clearTokens(); 
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Function to refresh the access token using client credentials
+  const refreshAccessToken = async (currentRefreshToken: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      console.log('[useSpotifyAuth] Refreshing token with client credentials');
+      
+      // Manually make the refresh token request
+      const params = new URLSearchParams();
+      params.append('grant_type', 'refresh_token');
+      params.append('refresh_token', currentRefreshToken);
+      params.append('client_id', CLIENT_ID);
+      params.append('client_secret', CLIENT_SECRET);
+      
+      const response = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString()
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('[useSpotifyAuth] Token refresh failed:', errorData);
+        throw new Error(errorData.error_description || 'Failed to refresh token');
+      }
+      
+      const tokenResult = await response.json();
+      console.log('[useSpotifyAuth] Token refresh result:', JSON.stringify({
+        ...tokenResult,
+        access_token: 'REDACTED',
+        refresh_token: tokenResult.refresh_token ? 'REDACTED' : null,
+      }, null, 2));
+
+      const newAccessToken = tokenResult.access_token;
+      const newRefreshTokenFromRefresh = tokenResult.refresh_token; // Spotify might return a new one
+      const expiresIn = tokenResult.expires_in;
+      const now = Date.now();
+      const newExpiryTime = now + (expiresIn * 1000) - 60000; // Convert to ms, 60s buffer
+
+      await AsyncStorage.setItem(SPOTIFY_ACCESS_TOKEN_KEY, newAccessToken);
+      const finalRefreshToken = newRefreshTokenFromRefresh || currentRefreshToken;
+      await AsyncStorage.setItem(SPOTIFY_REFRESH_TOKEN_KEY, finalRefreshToken);
+      await AsyncStorage.setItem(SPOTIFY_TOKEN_EXPIRY_KEY, newExpiryTime.toString());
+      
+      setAccessToken(newAccessToken);
+      setRefreshToken(finalRefreshToken);
+      setExpiresAt(newExpiryTime);
+      setIsLoggedIn(true);
+      
+      await fetchUserProfile(newAccessToken);
+    } catch (err: any) {
+      console.error('Error refreshing Spotify token:', err);
+      setError(err.message || 'Failed to refresh Spotify access token');
+      setIsLoggedIn(false);
+      await clearTokens();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Clear all stored tokens
+  const clearTokens = async () => {
+    try {
+      await AsyncStorage.removeItem(SPOTIFY_ACCESS_TOKEN_KEY);
+      await AsyncStorage.removeItem(SPOTIFY_REFRESH_TOKEN_KEY);
+      await AsyncStorage.removeItem(SPOTIFY_TOKEN_EXPIRY_KEY);
+      
+      setAccessToken(null);
+      setRefreshToken(null);
+      setExpiresAt(null);
+      setIsLoggedIn(false);
+      setUserData(null);
+      console.log('[useSpotifyAuth] Cleared Spotify tokens.');
+    } catch (err: any) {
+      console.error('Error clearing Spotify tokens:', err);
+    }
+  };
+
+  // Function to initiate Spotify login
+  const login = useCallback(async () => {
+    setError(null);
+    console.log('[useSpotifyAuth] Prompting Spotify login...');
+    console.log(`[useSpotifyAuth] Requested scopes: ${SPOTIFY_SCOPES.join(', ')}`);
+    console.log(`[useSpotifyAuth] Redirect URI: ${redirectUri}`);
+    
+    if (!request) {
+      console.error('[useSpotifyAuth] Auth request is not available. Cannot prompt.');
+      setError('Spotify authentication setup failed. Please try again.');
+      return;
+    }
+    
+    // Reset logged in state when starting the auth flow
+    setIsLoggedIn(false);
+    
+    try {
+      // Clear any existing tokens before starting a new auth flow
+      await clearTokens();
+      
+      console.log('[useSpotifyAuth] Starting authentication flow...');
+      const result = await promptAsync();
+      console.log('[useSpotifyAuth] promptAsync result type:', result?.type);
+      
+      if (result?.type === 'error' || result?.type === 'cancel' || result?.type === 'dismiss') {
+        setIsLoading(false); 
+        if (result.type === 'error') {
+          console.error('[useSpotifyAuth] Auth error:', result.error);
+          setError(result.error?.message || 'Login failed')
+        } else {
+          setError('Login cancelled or dismissed');
+        }
+      }
+    } catch (err: any) {
+      console.error('[useSpotifyAuth] Error during promptAsync:', err);
+      setError(err.message || 'Failed to start Spotify authentication');
+      setIsLoading(false);
+    }
+  }, [request, promptAsync]);
+
+  // Function to fetch user profile
+  const fetchUserProfile = async (token: string) => {
+    try {
+      const response = await fetch(`${SPOTIFY_API_URL}/me`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setUserData(data);
       } else {
-        const errorData = await tokenResponse.json().catch(() => ({}));
-        console.error("[useSpotifyAuth] Token refresh failed:", tokenResponse.status, errorData);
+        // If 401 Unauthorized, token is invalid
+        if (response.status === 401 && refreshToken) {
+          // Try to refresh the token
+          refreshAccessToken(refreshToken);
+        } else {
+          const errorData = await response.json();
+          throw new Error(errorData.error?.message || 'Failed to fetch user profile');
+        }
+      }
+    } catch (err: any) {
+      console.error('Error fetching Spotify user profile:', err);
+      
+      // Only set error if it's not a token refresh issue
+      if (err.message !== 'Failed to fetch user profile') {
+        setError(err.message);
+      }
+    }
+  };
+
+  // Function to logout
+  const logout = async () => {
+    await clearTokens();
+    Alert.alert('Logged Out', 'You have been logged out of Spotify');
+  };
+
+  // Function to get the user's top artists
+  const getTopArtists = async (timeRange: 'short_term' | 'medium_term' | 'long_term' = 'short_term', limit: number = 50): Promise<TopArtist[]> => {
+    if (!accessToken) {
+      throw new Error('Not authenticated with Spotify');
+    }
+    
+    try {
+      const response = await fetch(`${SPOTIFY_API_URL}/me/top/artists?time_range=${timeRange}&limit=${limit}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        return data.items.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          genres: item.genres || [],
+          images: item.images || [],
+          popularity: item.popularity || 0,
+          uri: item.uri
+        }));
+      } else {
+        // Handle token refresh if needed
+        if (response.status === 401 && refreshToken) {
+          await refreshAccessToken(refreshToken);
+          // Retry after token refresh
+          return getTopArtists(timeRange, limit);
+        } else {
+          const errorData = await response.json();
+          throw new Error(errorData.error?.message || 'Failed to fetch top artists');
+        }
+      }
+    } catch (err: any) {
+      console.error('Error fetching Spotify top artists:', err);
+      throw err;
+    }
+  };
+
+  // Function to get the user's top tracks directly instead of recently played
+  const getTopTracks = async (timeRange: 'short_term' | 'medium_term' | 'long_term' = 'short_term', limit: number = 50): Promise<TopTrack[]> => {
+    if (!accessToken) {
+      throw new Error('Not authenticated with Spotify');
+    }
+    
+    try {
+      // Use the /me/top/tracks endpoint (requires user-top-read scope)
+      const response = await fetch(`${SPOTIFY_API_URL}/me/top/tracks?time_range=${timeRange}&limit=${limit}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        return data.items.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          uri: item.uri,
+          album: {
+            id: item.album.id,
+            name: item.album.name,
+            images: item.album.images || []
+          },
+          artists: item.artists.map((artist: any) => ({ 
+            id: artist.id || '', 
+            name: artist.name 
+          })),
+          popularity: item.popularity || 0
+        }));
+      } else {
+        // Handle token refresh if needed
+        if (response.status === 401 && refreshToken) {
+          await refreshAccessToken(refreshToken);
+          // Retry after token refresh
+          return getTopTracks(timeRange, limit);
+        } else {
+          const errorData = await response.json();
+          throw new Error(errorData.error?.message || 'Failed to fetch top tracks');
+        }
+      }
+    } catch (err: any) {
+      console.error('Error fetching Spotify top tracks:', err);
+      throw err;
+    }
+  };
+
+  // Keep the getRecentlyPlayedTracks for backward compatibility, but mark as deprecated
+  // Function to get the user's recently played tracks
+  const getRecentlyPlayedTracks = async (limit: number = 50): Promise<TopTrack[]> => {
+    console.warn('getRecentlyPlayedTracks is deprecated. Use getTopTracks instead for better music taste analysis.');
+    if (!accessToken) {
+      throw new Error('Not authenticated with Spotify');
+    }
+    
+    try {
+      const response = await fetch(`${SPOTIFY_API_URL}/me/player/recently-played?limit=${limit}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        return data.items.map((item: any) => ({
+          id: item.track.id,
+          name: item.track.name,
+          uri: item.track.uri,
+          album: {
+            id: item.track.album.id,
+            name: item.track.album.name,
+            images: item.track.album.images || []
+          },
+          artists: item.track.artists.map((artist: any) => ({ 
+            id: artist.id || '', 
+            name: artist.name 
+          })),
+          popularity: item.track.popularity || 0
+        }));
+      } else {
+        // Handle token refresh if needed
+        if (response.status === 401 && refreshToken) {
+          await refreshAccessToken(refreshToken);
+          // Retry after token refresh
+          return getRecentlyPlayedTracks(limit);
+        } else {
+          const errorData = await response.json();
+          throw new Error(errorData.error?.message || 'Failed to fetch recently played tracks');
+        }
+      }
+    } catch (err: any) {
+      console.error('Error fetching Spotify recently played tracks:', err);
+      throw err;
+    }
+  };
+
+  // Helper function to extract unique albums from tracks
+  const extractTopAlbums = (tracks: TopTrack[]): TopAlbum[] => {
+    const albumMap = new Map<string, { 
+      id: string; 
+      name: string; 
+      artists: { id: string; name: string }[];
+      images: { url: string; height: number; width: number }[];
+      uri: string;
+      count: number;
+    }>();
+    
+    tracks.forEach(track => {
+      const albumId = track.album.id;
+      if (albumMap.has(albumId)) {
+        const existing = albumMap.get(albumId)!;
+        existing.count++;
+        albumMap.set(albumId, existing);
+      } else {
+        albumMap.set(albumId, {
+          id: albumId,
+          name: track.album.name,
+          artists: track.artists,
+          images: track.album.images,
+          uri: `spotify:album:${albumId}`,
+          count: 1
+        });
+      }
+    });
+    
+    // Convert to array and sort by play count
+    return Array.from(albumMap.values())
+      .sort((a, b) => b.count - a.count)
+      .map(({ id, name, artists, images, uri }) => ({
+        id, name, artists, images, uri
+      }));
+  };
+
+  // Function to fetch, calculate, and save all streaming data
+  const fetchAndSaveSpotifyData = async (isPremium: boolean = false): Promise<boolean> => {
+    if (!accessToken || !session?.user?.id) {
+      return false;
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    setIsUpdatingListeningData(true);
+    
+    try {
+      // 1. Fetch top artists (last 4 weeks)
+      const topArtists = await getTopArtists('short_term', 50);
+      
+      // 2. Calculate top genres from artists
+      const topGenres = calculateTopGenres(topArtists);
+      
+      // 3. Get top tracks directly instead of recently played
+      const topTracks = await getTopTracks('short_term', 50);
+      
+      // 4. Extract top albums from top tracks
+      const albumMap = new Map<string, TopAlbum>();
+      topTracks.forEach(track => {
+        if (track.album && !albumMap.has(track.album.id)) {
+          albumMap.set(track.album.id, {
+            id: track.album.id,
+            name: track.album.name,
+            images: track.album.images,
+            artists: track.artists.length > 0 ? [track.artists[0]] : [],
+            uri: `spotify:album:${track.album.id}`
+          });
+        }
+      });
+      const topAlbums = Array.from(albumMap.values());
+      
+      // 5. Prepare the data based on premium status
+      const limitedArtists = isPremium ? topArtists.slice(0, 5) : topArtists.slice(0, 3);
+      const limitedTracks = isPremium ? topTracks.slice(0, 5) : topTracks.slice(0, 3);
+      const limitedAlbums = isPremium ? topAlbums.slice(0, 5) : topAlbums.slice(0, 3);
+      const limitedGenres = isPremium ? topGenres.slice(0, 5) : topGenres.slice(0, 3);
+      
+      // Create a snapshot date (today)
+      const snapshotDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+      
+      // 6. Save to database using the new schema
+      const { error: saveError } = await supabase
+        .from('user_streaming_data')
+        .upsert({
+          user_id: session.user.id,
+          service_id: 'spotify',
+          snapshot_date: snapshotDate,
+          last_updated: new Date().toISOString(),
+          top_artists: limitedArtists,
+          top_tracks: limitedTracks,
+          top_albums: limitedAlbums,
+          top_genres: limitedGenres,
+          raw_data: {
+            full_artists: topArtists,
+            full_tracks: topTracks,
+            full_albums: topAlbums,
+            full_genres: topGenres
+          }
+        }, {
+          onConflict: 'user_id,service_id,snapshot_date'
+        });
+      
+      if (saveError) throw saveError;
+      console.log('Successfully saved Spotify data');
+      
+      return true;
+    } catch (err: any) {
+      console.error('Error fetching and saving Spotify data:', err);
+      setError(`Failed to fetch and save Spotify data: ${err.message}`);
+      return false;
+    } finally {
+      setIsLoading(false);
+      setIsUpdatingListeningData(false);
+    }
+  };
+
+  // Force fetch for a specific user ID (used during signup)
+  const forceFetchAndSaveSpotifyData = async (
+    userId: string,
+    isPremium: boolean = false
+  ): Promise<boolean> => {
+    if (!accessToken) {
+      return false;
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    setIsUpdatingListeningData(true);
+    
+    try {
+      // 1. Fetch top artists (last 4 weeks)
+      const topArtists = await getTopArtists('short_term', 50);
+      
+      // 2. Calculate top genres from artists
+      const topGenres = calculateTopGenres(topArtists);
+      
+      // 3. Get top tracks directly instead of recently played
+      const topTracks = await getTopTracks('short_term', 50);
+      
+      // 4. Extract top albums from top tracks
+      const albumMap = new Map<string, TopAlbum>();
+      topTracks.forEach(track => {
+        if (track.album && !albumMap.has(track.album.id)) {
+          albumMap.set(track.album.id, {
+            id: track.album.id,
+            name: track.album.name,
+            images: track.album.images,
+            artists: track.artists.length > 0 ? [track.artists[0]] : [],
+            uri: `spotify:album:${track.album.id}`
+          });
+        }
+      });
+      const topAlbums = Array.from(albumMap.values());
+      
+      // 5. Prepare the data based on premium status
+      const limitedArtists = isPremium ? topArtists.slice(0, 5) : topArtists.slice(0, 3);
+      const limitedTracks = isPremium ? topTracks.slice(0, 5) : topTracks.slice(0, 3);
+      const limitedAlbums = isPremium ? topAlbums.slice(0, 5) : topAlbums.slice(0, 3);
+      const limitedGenres = isPremium ? topGenres.slice(0, 5) : topGenres.slice(0, 3);
+      
+      // Create a snapshot date (today)
+      const snapshotDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+      
+      // 6. Save to database using the new schema
+      const { error: saveError } = await supabase
+        .from('user_streaming_data')
+        .upsert({
+          user_id: userId,
+          service_id: 'spotify',
+          snapshot_date: snapshotDate,
+          last_updated: new Date().toISOString(),
+          top_artists: limitedArtists,
+          top_tracks: limitedTracks,
+          top_albums: limitedAlbums,
+          top_genres: limitedGenres,
+          raw_data: {
+            full_artists: topArtists,
+            full_tracks: topTracks,
+            full_albums: topAlbums,
+            full_genres: topGenres
+          }
+        }, {
+          onConflict: 'user_id,service_id,snapshot_date'
+        });
+      
+      if (saveError) throw saveError;
+      console.log('Successfully saved Spotify data for user:', userId);
+      
+      return true;
+    } catch (err: any) {
+      console.error('Error in forceFetchAndSaveSpotifyData:', err);
+      setError(`Failed to force fetch Spotify data: ${err.message}`);
+      return false;
+    } finally {
+      setIsLoading(false);
+      setIsUpdatingListeningData(false);
+    }
+  };
+
+  // Function to check if token is valid through a test API call
+  const validateTokenWithApiCall = async (token: string): Promise<boolean> => {
+    try {
+      console.log('[useSpotifyAuth] Validating access token with API call');
+      const response = await fetch(`${SPOTIFY_API_URL}/me`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (!response.ok) {
+        // Log detailed error information for debugging
+        const errorText = await response.text();
+        console.error(`[useSpotifyAuth] API validation failed with status ${response.status}:`, errorText);
+        
+        // Handle specific error cases
+        if (response.status === 403) {
+          console.error('[useSpotifyAuth] 403 Forbidden: This usually means the user needs to be added as an authorized test user in the Spotify Developer Dashboard');
+          setError('Your Spotify account needs to be added as a test user in development mode. Please contact the app developer.');
+        } else if (response.status === 401) {
+          console.error('[useSpotifyAuth] 401 Unauthorized: Token is invalid or expired');
+          setError('Authentication token is invalid or expired. Please try logging in again.');
+        }
+        
         return false;
       }
-    } catch (error) {
-      console.error("[useSpotifyAuth] Error during token refresh:", error);
+      
+      console.log('[useSpotifyAuth] Token validation successful');
+      // If we get a 200 response, the token is valid
+      return response.ok;
+    } catch (err) {
+      console.error('[useSpotifyAuth] Error validating token:', err);
       return false;
     }
   };
 
+  // Function to check if the user actually completed Spotify authorization
+  const verifyAuthorizationCompleted = async (): Promise<boolean> => {
+    if (!accessToken) {
+      console.log('[useSpotifyAuth] No access token available, authorization not complete');
+      return false;
+    }
+    
+    // Validate token with an API call to make sure it's actually valid
+    const isTokenValid = await validateTokenWithApiCall(accessToken);
+    console.log(`[useSpotifyAuth] Token validation result: ${isTokenValid}`);
+    
+    return isTokenValid;
+  };
+
+  // Return the hook interface
   return {
-    error,
-    tokenInfo,
     login,
-    logout: clearAuthData,
-    forceFetchAndSaveSpotifyData,
-    isLoading,
+    logout,
     isLoggedIn,
-    isUpdatingListeningData,
-    checkSpotifyConnection,
-    loginWithSpotify: promptAsync,
-    testSpotifyConnection,
+    isLoading,
+    error,
+    userData,
+    getTopArtists,
+    getTopTracks,
+    getRecentlyPlayedTracks,
+    accessToken,
     refreshToken,
-    SPOTIFY_SCOPES,
-    spotifyTokenEndpoint,
-    spotifyDiscoveryUrl,
-    updateUserListeningData
+    fetchAndSaveSpotifyData,
+    forceFetchAndSaveSpotifyData,
+    isUpdatingListeningData,
+    verifyAuthorizationCompleted,
   };
 }; 

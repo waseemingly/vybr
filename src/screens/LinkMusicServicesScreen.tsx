@@ -17,6 +17,8 @@ import { APP_CONSTANTS } from '@/config/constants';
 import { supabase } from '@/lib/supabase'; // <-- IMPORT supabase client
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MainStackParamList } from '@/navigation/AppNavigator'; // Assuming types are here
+import { useStreamingData } from '@/hooks/useStreamingData';
+import { useYouTubeMusicAuth } from '@/hooks/useYouTubeMusicAuth';
 
 // --- Define Streaming Services Data (Consider moving to a shared file) ---
 // Copied from MusicLoverSignUpFlow for now
@@ -60,6 +62,17 @@ const LinkMusicServicesScreen: React.FC<Props> = ({ navigation, route }) => {
 
     // *** ADD this log to see the derived linkedServices ***
     console.log("[LinkMusicServicesScreen] Derived linkedServices:", linkedServices);
+
+    const { isLoggedIn: isYouTubeMusicLoggedIn } = useYouTubeMusicAuth();
+
+    const { 
+        isServiceConnected, 
+        loading: streamingDataLoading,
+        hasData
+    } = useStreamingData(session?.user?.id, {
+        isSpotifyLoggedIn,
+        isYouTubeMusicLoggedIn
+    });
 
     // Effect to auto-initiate Spotify authentication if flag is set
     useEffect(() => {
@@ -225,7 +238,8 @@ const LinkMusicServicesScreen: React.FC<Props> = ({ navigation, route }) => {
             console.log("[LinkMusicServicesScreen] Initiating Spotify login...");
             Alert.alert(
                 "Connecting to Spotify",
-                "You'll be redirected to authorize the app. Make sure to allow the connection.",
+                "You'll be redirected to authorize the app. " + 
+                (__DEV__ ? "NOTE: In development mode, your Spotify account must be added as an authorized test user in the Spotify Dashboard." : "Make sure to allow the connection."),
                 [{ text: "OK", onPress: () => spotifyLogin() }]
             );
         } catch (error) {
@@ -289,13 +303,27 @@ const LinkMusicServicesScreen: React.FC<Props> = ({ navigation, route }) => {
                         // Update the UI by refreshing the profile
                         await refreshUserProfile?.();
                         
-                    } catch (error) {
+                    } catch (error: any) {
                         console.error("[LinkMusicServicesScreen] Error in Spotify linking process:", error);
-                        Alert.alert(
-                            "Error",
-                            "There was a problem linking your Spotify account. Please try again.",
-                            [{ text: "OK" }]
-                        );
+                        
+                        // Check if this might be a 403 error (common in development mode)
+                        if (error.message && (
+                            error.message.includes("403") || 
+                            error.message.includes("Forbidden") || 
+                            error.message.includes("test user")
+                        )) {
+                            Alert.alert(
+                                "Spotify Development Mode Restriction",
+                                "This account needs to be added as an authorized test user in the Spotify Developer Dashboard. In development mode, only pre-approved Spotify accounts can use the app.",
+                                [{ text: "OK" }]
+                            );
+                        } else {
+                            Alert.alert(
+                                "Error",
+                                "There was a problem linking your Spotify account. Please try again.",
+                                [{ text: "OK" }]
+                            );
+                        }
                     } finally {
                         setAnalyzingServiceId(null);
                         setFetchingSpotifyData(false);

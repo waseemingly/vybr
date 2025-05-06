@@ -1,180 +1,362 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { useSpotifyAuth } from '@/hooks/useSpotifyAuth';
+import { useAuth } from './useAuth';
 
-// Types for streaming service data
-export interface StreamingArtist {
+// Type definitions
+export type TopArtist = {
   id: string;
   name: string;
-  image_url?: string;
-  external_url: string;
-}
+  genres: string[];
+  images: { url: string; height: number; width: number }[];
+  popularity: number;
+  uri: string;
+};
 
-export interface StreamingTrack {
+export type TopTrack = {
   id: string;
   name: string;
-  artists: string[];
-  album_name: string;
-  image_url?: string;
-  external_url: string;
-}
+  uri: string;
+  album: {
+    id: string;
+    name: string;
+    images: { url: string; height: number; width: number }[];
+  };
+  artists: { id: string; name: string }[];
+  popularity: number;
+  played_count?: number; // For recently played calculation
+};
 
-export interface StreamingGenre {
+export type TopAlbum = {
+  id: string;
+  name: string;
+  artists: {
+    id: string;
+    name: string;
+  }[];
+  images: { url: string; height: number; width: number }[];
+  uri: string;
+};
+
+export type TopGenre = {
   name: string;
   count: number;
-}
+  score: number;
+};
 
-export interface UserStreamingData {
-  id: string;
-  user_id: string;
-  service_id: string;
-  snapshot_date: string;
-  last_updated: string;
-  top_artists: StreamingArtist[];
-  top_tracks: StreamingTrack[];
-  top_genres: StreamingGenre[];
+export type StreamingData = {
+  top_artists: TopArtist[];
+  top_tracks: TopTrack[];
+  top_albums: TopAlbum[];
+  top_genres: TopGenre[];
   raw_data?: any;
-}
+};
 
-export const useStreamingData = (userId?: string) => {
-  const [streamingData, setStreamingData] = useState<UserStreamingData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const { isLoggedIn: isSpotifyLoggedIn, forceFetchAndSaveSpotifyData, updateUserListeningData } = useSpotifyAuth();
+export type StreamingServiceId = 'spotify' | 'apple_music' | 'youtubemusic' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | '';
 
-  // Derived state
-  const serviceId = streamingData?.service_id || null;
-  const topArtists = streamingData?.top_artists || [];
-  const topTracks = streamingData?.top_tracks || [];
-  const topGenres = streamingData?.top_genres || [];
-  const hasData = !!(topArtists.length || topTracks.length || topGenres.length);
+// Helper utility functions (outside the hook)
+export const calculateTopGenres = (artists: TopArtist[]): TopGenre[] => {
+  // Create a map to track genres and their scores
+  const genreMap = new Map<string, { count: number; score: number }>();
 
-  // Fetch streaming data from Supabase
-  const fetchStreamingData = useCallback(async (forceRefresh: boolean = false) => {
-    if (!userId) {
-      setError('No user ID provided');
-      setLoading(false);
-      return;
-    }
-
-    // Check if the user is on a premium plan to determine how much data we show
-    let isPremium = false;
-    try {
-      const { data: profileData } = await supabase
-        .from('music_lover_profiles')
-        .select('is_premium')
-        .eq('user_id', userId)
-        .single();
+  // Process each artist
+  artists.forEach((artist) => {
+    const artistPopularity = artist.popularity || 50; // Default to 50 if missing
+    
+    // Process each genre for this artist
+    artist.genres.forEach((genre) => {
+      const genreData = genreMap.get(genre) || { count: 0, score: 0 };
       
-      isPremium = profileData?.is_premium || false;
-      console.log("[useStreamingData] User premium status:", isPremium ? "Premium" : "Free");
-    } catch (err) {
-      console.error("Error checking premium status:", err);
-    }
+      // Increment count and add weighted score (popularity as weight)
+      genreData.count += 1;
+      genreData.score += artistPopularity;
+      
+      genreMap.set(genre, genreData);
+    });
+  });
 
+  // Convert map to array of TopGenre objects
+  const topGenres: TopGenre[] = Array.from(genreMap.entries()).map(([name, data]) => ({
+    name,
+    count: data.count,
+    score: data.score,
+  }));
+
+  // Sort by score (descending)
+  topGenres.sort((a, b) => b.score - a.score);
+
+  return topGenres;
+};
+
+// This function is deprecated - we now get top tracks directly from Spotify API
+// Kept for backwards compatibility but no longer used in the main data flow
+export const calculateTopTracksFromRecent = (recentTracks: TopTrack[]): TopTrack[] => {
+  // Create a map to track track counts
+  const trackMap = new Map<string, TopTrack & { played_count: number }>();
+
+  // Process each track
+  recentTracks.forEach((track) => {
+    const trackId = track.id;
+    
+    if (trackMap.has(trackId)) {
+      // Increment play count if track already in map
+      const existingTrack = trackMap.get(trackId)!;
+      existingTrack.played_count = (existingTrack.played_count || 0) + 1;
+      trackMap.set(trackId, existingTrack);
+    } else {
+      // Add new track to map with play count of 1
+      trackMap.set(trackId, { ...track, played_count: 1 });
+    }
+  });
+
+  // Convert map to array
+  const topTracks: TopTrack[] = Array.from(trackMap.values());
+
+  // Sort by play count (descending)
+  topTracks.sort((a, b) => (b.played_count || 0) - (a.played_count || 0));
+
+  return topTracks;
+};
+
+// Hook for streaming data operations
+export const useStreamingData = (userId?: string | null, authProps?: {
+  isSpotifyLoggedIn: boolean; 
+  isYouTubeMusicLoggedIn: boolean;
+}) => {
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [serviceId, setServiceId] = useState<StreamingServiceId | null>(null);
+  const [topArtists, setTopArtists] = useState<TopArtist[]>([]);
+  const [topTracks, setTopTracks] = useState<TopTrack[]>([]);
+  const [topGenres, setTopGenres] = useState<TopGenre[]>([]);
+  const [topAlbums, setTopAlbums] = useState<TopAlbum[]>([]);
+  const [streamingData, setStreamingData] = useState<StreamingData | null>(null);
+  const [hasData, setHasData] = useState<boolean>(false);
+  
+  // Save streaming data to database
+  const saveStreamingData = async (
+    serviceId: StreamingServiceId,
+    data: StreamingData,
+    isPremium: boolean
+  ): Promise<{ success: boolean; error?: string }> => {
     try {
       setLoading(true);
-      setError(null);
-
-      const today = new Date();
-      const currentMonthDate = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-
-      console.log(`Looking for streaming data for user ${userId} for date ${currentMonthDate}`);
       
+      if (!userId) {
+        throw new Error("User ID is required to save streaming data");
+      }
+
+      // Prepare the data based on premium status
+      const limitedArtists = isPremium ? data.top_artists.slice(0, 5) : data.top_artists.slice(0, 3);
+      const limitedTracks = isPremium ? data.top_tracks.slice(0, 5) : data.top_tracks.slice(0, 3);
+      const limitedAlbums = isPremium ? data.top_albums.slice(0, 5) : data.top_albums.slice(0, 3);
+      const limitedGenres = isPremium ? data.top_genres.slice(0, 5) : data.top_genres.slice(0, 3);
+      
+      // Create a snapshot date (today)
+      const snapshotDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+
+      // Save to Supabase using the new schema
+      const { error } = await supabase
+        .from('user_streaming_data')
+        .upsert({
+          user_id: userId,
+          service_id: serviceId,
+          snapshot_date: snapshotDate,
+          last_updated: new Date().toISOString(),
+          top_artists: limitedArtists,
+          top_tracks: limitedTracks,
+          top_albums: limitedAlbums, 
+          top_genres: limitedGenres,
+          raw_data: {
+            full_artists: data.top_artists,
+            full_tracks: data.top_tracks,
+            full_albums: data.top_albums,
+            full_genres: data.top_genres
+          }
+        }, {
+          onConflict: 'user_id,service_id,snapshot_date'
+        });
+
+      if (error) throw error;
+
+      console.log(`Saved streaming data for ${serviceId}`);
+      return { success: true };
+    } catch (error) {
+      console.error('Error saving streaming data:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error saving streaming data' 
+      };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get user's streaming data from database
+  const getUserStreamingData = async (
+    serviceId: StreamingServiceId
+  ): Promise<{ data: StreamingData | null; error?: string }> => {
+    try {
+      setLoading(true);
+      
+      if (!userId) {
+        return { data: null, error: "User ID is required to fetch streaming data" };
+      }
+
+      // Get the most recent snapshot for this user and service
       const { data, error } = await supabase
         .from('user_streaming_data')
         .select('*')
         .eq('user_id', userId)
-        .eq('snapshot_date', currentMonthDate)
-        .order('last_updated', { ascending: false })
-        .limit(1);
+        .eq('service_id', serviceId)
+        .order('snapshot_date', { ascending: false })
+        .limit(1)
+        .single();
 
       if (error) {
-        console.error("Error fetching streaming data:", error);
-        setError(error.message);
-        return;
+        // If no data found, return null without error
+        if (error.code === 'PGRST116') {
+          return { data: null };
+        }
+        throw error;
       }
 
-      if (data && data.length > 0) {
-        console.log("Retrieved streaming data:", data[0].service_id);
-        setStreamingData(data[0]);
-      } else {
-        console.log("No streaming data found in database");
-        setStreamingData(null);
-        
-        // Try to update from Spotify if connected and we don't have data
-        if (isSpotifyLoggedIn && forceRefresh) {
-          console.log("Spotify is connected, attempting to fetch new data");
-          const dataUpdated = await updateUserListeningData(userId, true, isPremium);
-          
-          if (dataUpdated) {
-            console.log("Spotify data updated, fetching again");
-            // Fetch again now that we've updated
-            const { data: updatedData, error: updatedError } = await supabase
-              .from('user_streaming_data')
-              .select('*')
-              .eq('user_id', userId)
-              .eq('snapshot_date', currentMonthDate)
-              .order('last_updated', { ascending: false })
-              .limit(1);
-            
-            if (!updatedError && updatedData && updatedData.length > 0) {
-              console.log("Retrieved updated streaming data:", updatedData[0].service_id);
-              setStreamingData(updatedData[0]);
-            } else if (updatedError) {
-              console.error("Error fetching updated streaming data:", updatedError);
-            }
-          }
-        }
+      if (!data) {
+        return { data: null };
       }
-    } catch (err: any) {
-      console.error("Error in fetchStreamingData:", err);
-      setError(err.message || 'An error occurred');
+
+      // Convert to StreamingData format for compatibility
+      const streamingData: StreamingData = {
+        top_artists: data.top_artists || [],
+        top_tracks: data.top_tracks || [],
+        top_albums: data.top_albums || [],
+        top_genres: data.top_genres || [],
+        raw_data: data.raw_data
+      };
+
+      return { data: streamingData };
+    } catch (error) {
+      console.error('Error getting streaming data:', error);
+      return { 
+        data: null, 
+        error: error instanceof Error ? error.message : 'Unknown error fetching streaming data' 
+      };
     } finally {
       setLoading(false);
     }
-  }, [userId, isSpotifyLoggedIn, updateUserListeningData]);
+  };
 
-  // Load data when the component mounts or userId changes
-  useEffect(() => {
-    fetchStreamingData();
-  }, [fetchStreamingData]);
-
-  // ADDED: Direct function to force fetch data from Spotify and save it
-  const forceFetchSpotifyData = useCallback(async (isPremium: boolean = false) => {
-    if (!userId) {
-      console.error("Cannot force fetch Spotify data: No user ID provided");
-      return false;
-    }
-    
-    if (!isSpotifyLoggedIn) {
-      console.error("Cannot force fetch Spotify data: Not logged in to Spotify");
-      return false;
-    }
-    
-    console.log("Forcing fetch and save of Spotify data...");
-    const success = await forceFetchAndSaveSpotifyData(userId, isPremium);
-    
-    if (success) {
-      // If successful, refresh the component data
-      await fetchStreamingData(true);
-      return true;
-    }
-    
+  // Check if a service is connected
+  const isServiceConnected = (service: string): boolean => {
+    if (!authProps) return false;
+    if (service === 'spotify') return authProps.isSpotifyLoggedIn;
+    if (service === 'youtubemusic') return authProps.isYouTubeMusicLoggedIn;
     return false;
-  }, [userId, isSpotifyLoggedIn, forceFetchAndSaveSpotifyData, fetchStreamingData]);
+  };
 
-  // Returned hook values
+  // Force fetch data from a specific service - here we'll need to pass the forceFetch function
+  const forceFetchServiceData = async (
+    service: 'spotify' | 'youtubemusic',
+    isPremium: boolean,
+    forceFetchCallback?: (userId: string, isPremium: boolean) => Promise<boolean>
+  ): Promise<boolean> => {
+    if (!userId || !forceFetchCallback) return false;
+    
+    try {
+      setLoading(true);
+      return await forceFetchCallback(userId, isPremium);
+    } catch (error) {
+      console.error(`Error force fetching ${service} data:`, error);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch streaming data for the current user
+  const fetchStreamingData = async (forceRefresh = false) => {
+    if (!userId) return;
+    
+    try {
+      setLoading(true);
+      
+      // Check main services
+      const services: StreamingServiceId[] = ['spotify', 'youtubemusic'];
+      
+      // Try each service
+      for (const service of services) {
+        if (isServiceConnected(service)) {
+          console.log(`[useStreamingData] Fetching data for service: ${service}`);
+          const result = await getUserStreamingData(service);
+          
+          if (result.data) {
+            setStreamingData(result.data);
+            setServiceId(service);
+            setTopArtists(result.data.top_artists || []);
+            setTopTracks(result.data.top_tracks || []);
+            setTopGenres(result.data.top_genres || []);
+            setTopAlbums(result.data.top_albums || []);
+            setHasData(true);
+            console.log(`[useStreamingData] Successfully loaded data for ${service}`);
+            return;
+          } else {
+            console.log(`[useStreamingData] No data found for ${service}`);
+          }
+        } else {
+          console.log(`[useStreamingData] Service ${service} is not connected`);
+        }
+      }
+      
+      // If we get here, no data was found
+      console.log(`[useStreamingData] No streaming data found for any connected service`);
+      setHasData(false);
+      
+    } catch (error) {
+      console.error('[useStreamingData] Error in fetchStreamingData:', error);
+      setHasData(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Check user's premium status
+  const checkPremiumStatus = async (userId: string): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase
+        .from('music_lover_profiles')
+        .select('is_premium')
+        .eq('user_id', userId)
+        .single();
+        
+      if (error) throw error;
+      return data?.is_premium ?? false;
+    } catch (err) {
+      console.error("Error checking premium status:", err);
+      return false;
+    }
+  };
+
+  // Fetch data on hook initialization or userId change
+  useEffect(() => {
+    if (userId) {
+      fetchStreamingData();
+    }
+  }, [userId]);
+
   return {
-    streamingData,
     loading,
     error,
-    fetchStreamingData,
-    forceFetchSpotifyData, // Export the new function
-    serviceId,
+    streamingData,
     topArtists,
     topTracks,
     topGenres,
-    hasData
+    topAlbums,
+    serviceId,
+    hasData,
+    saveStreamingData,
+    getUserStreamingData,
+    isServiceConnected,
+    fetchStreamingData,
+    forceFetchServiceData,
+    checkPremiumStatus
   };
 }; 

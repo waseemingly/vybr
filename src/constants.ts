@@ -1,3 +1,5 @@
+// src/config/constants.ts
+
 // Application-wide constants
 
 // Define a type for the COLORS object for better type checking
@@ -30,85 +32,106 @@ type AppColors = {
 };
 
 // Define the overall type for APP_CONSTANTS
+// --- THIS IS THE INTERFACE THAT NEEDS THE 'SPOTIFY' KEY ---
 interface AppConstantsType {
   COLORS: AppColors;
   CONFIG: {
-    APP_NAME: string;
-    APP_SCHEME: string;
-    APP_SLOGAN: string;
+      APP_NAME: string;
+      APP_SCHEME: string; // Used for deep linking schemes (e.g., 'vybr')
+      APP_SLOGAN: string;
   };
   BUSINESS: {
-    COST_PER_TICKET: number;
-    COST_PER_DINER: number;
-    COST_PER_THOUSAND_IMPRESSIONS: number;
-    TICKET_COST_PERCENTAGE: number;
-    DINER_COST_FIXED: number;
-    ADVERTISING_COST_PER_IMPRESSION: number;
+      COST_PER_TICKET: number;
+      COST_PER_DINER: number;
+      COST_PER_THOUSAND_IMPRESSIONS: number;
+      TICKET_COST_PERCENTAGE: number;
+      DINER_COST_FIXED: number;
+      ADVERTISING_COST_PER_IMPRESSION: number;
   };
   API: {
-    SPOTIFY_AUTH_CALLBACK: string;
-    AUTH_REDIRECT_URL: string;
+      // General API settings if needed
+      AUTH_REDIRECT_URL: string; // General auth callback (if different from specific services)
   };
+  // --- ADD THE SPOTIFY TYPE DEFINITION HERE ---
+  SPOTIFY: { // Group Spotify-specific constants
+      CLIENT_ID: string;
+      API_BASE_URL: string;
+      AUTH_CALLBACK_SCHEME: string; // The scheme part ('vybr') if using custom scheme redirects.
+      REGISTERED_WEB_REDIRECT_URI?: string; // Optional: Store the specific registered web URI if needed directly
+  };
+  // --- END OF ADDED SPOTIFY TYPE ---
   DEFAULT_PROFILE_PIC: string;
   NAVBAR_HEIGHT: number;
 }
+// --- END OF INTERFACE DEFINITION ---
 
+// --- THE ACTUAL OBJECT VALUE ---
 export const APP_CONSTANTS: AppConstantsType = {
-  // Color scheme
+  // Color scheme (Assuming these are correct as per your design)
   COLORS: {
-    PRIMARY: '#3B82F6',
-    PRIMARY_LIGHT: '#93C5FD', // Light shade of primary for background, selected items, etc.
-    PRIMARY_DARK: '#1D4ED8', // Darker shade of primary for borders, etc.
-    SECONDARY: '#60A5FA',
-    TERTIARY: '#93C5FD',
-    BACKGROUND: 'white',
-    BACKGROUND_LIGHT: '#F9FAFB',
-    TEXT_PRIMARY: '#111827',
-    TEXT_SECONDARY: '#6B7280',
-    TEXT_TERTIARY: '#9CA3AF',
-    BORDER: '#E5E7EB',
-    BORDER_LIGHT: '#F3F4F6', // Lighter border color for subtle separators
-    BORDER_DARK: '#D1D5DB', // Darker border color for more emphasis
-    ERROR: '#EF4444',
-    SUCCESS: '#10B981',
-    SUCCESS_LIGHT: '#D1FAE5', // Light green for success backgrounds
-    SUCCESS_DARK: '#059669', // Darker green for success text
-    WARNING: '#F59E0B',
-    WARNING_LIGHT: '#FEF3C7', // Light yellow for warning backgrounds
-    WARNING_DARK: '#D97706', // Darker yellow for warning text
-    DISABLED: '#94A3B8',
-    WHITE: '#FFFFFF',
-    PREMIUM_LIGHT_BG: 'rgba(255, 215, 0, 0.15)', // Light gold for premium features background
-    PREMIUM_BORDER: 'rgba(255, 215, 0, 0.4)', // Gold border for premium features
-    PREMIUM_DARK: '#B8860B', // Dark gold for premium text
+      PRIMARY: '#3B82F6',
+      PRIMARY_LIGHT: '#93C5FD',
+      PRIMARY_DARK: '#1D4ED8',
+      SECONDARY: '#60A5FA',
+      TERTIARY: '#93C5FD',
+      BACKGROUND: 'white',
+      BACKGROUND_LIGHT: '#F9FAFB',
+      TEXT_PRIMARY: '#111827',
+      TEXT_SECONDARY: '#6B7280',
+      TEXT_TERTIARY: '#9CA3AF',
+      BORDER: '#E5E7EB',
+      BORDER_LIGHT: '#F3F4F6',
+      BORDER_DARK: '#D1D5DB',
+      ERROR: '#EF4444',
+      SUCCESS: '#10B981',
+      SUCCESS_LIGHT: '#D1FAE5',
+      SUCCESS_DARK: '#059669',
+      WARNING: '#F59E0B',
+      WARNING_LIGHT: '#FEF3C7',
+      WARNING_DARK: '#D97706',
+      DISABLED: '#94A3B8',
+      WHITE: '#FFFFFF',
+      PREMIUM_LIGHT_BG: 'rgba(255, 215, 0, 0.15)',
+      PREMIUM_BORDER: 'rgba(255, 215, 0, 0.4)',
+      PREMIUM_DARK: '#B8860B',
   },
-  
+
   // App configuration
   CONFIG: {
-    APP_NAME: 'vybr',
-    APP_SCHEME: 'com.vybr.app',
-    APP_SLOGAN: 'Connect through music',
+      APP_NAME: 'vybr',
+      APP_SCHEME: 'vybr', // Your app's custom URL scheme
+      APP_SLOGAN: 'Connect through music',
   },
-  
-  // Business values
+
+  // Business values (Assuming these are correct)
   BUSINESS: {
-    COST_PER_TICKET: 0.50,
-    COST_PER_DINER: 0.50,
-    COST_PER_THOUSAND_IMPRESSIONS: 7.50,
-    TICKET_COST_PERCENTAGE: 5, // 5% of ticket sales
-    DINER_COST_FIXED: 2, // $2 per diner
-    ADVERTISING_COST_PER_IMPRESSION: 0.001, // $0.001 per impression
+      COST_PER_TICKET: 0.50,
+      COST_PER_DINER: 0.50,
+      COST_PER_THOUSAND_IMPRESSIONS: 7.50,
+      TICKET_COST_PERCENTAGE: 5, // 5%
+      DINER_COST_FIXED: 2, // $2
+      ADVERTISING_COST_PER_IMPRESSION: 0.001, // $0.001
   },
-  
-  // API endpoints
+
+  // API endpoints and general settings
   API: {
-    SPOTIFY_AUTH_CALLBACK: 'vybr://spotify-auth-callback',
-    AUTH_REDIRECT_URL: 'vybr://auth/callback',
+      AUTH_REDIRECT_URL: `${'vybr'}://auth/callback`, // Constructed using CONFIG.APP_SCHEME
   },
-  
+
+  // Spotify specific constants (Matches the type definition above)
+  SPOTIFY: {
+      CLIENT_ID: '7724af6090634c3db7c82fd54f1a0fff', // Correct Client ID from screenshot
+      API_BASE_URL: 'https://api.spotify.com/v1',
+      AUTH_CALLBACK_SCHEME: 'vybr', // Your app's scheme - Ensure 'vybr://<path>' is registered if used!
+      REGISTERED_WEB_REDIRECT_URI: 'http://127.0.0.1:8081/callback', // The one currently registered
+      // **ACTION NEEDED:** Go to your Spotify Dashboard and add any other Redirect URIs
+      // generated by AuthSession.makeRedirectUri() for your development/testing environments
+      // (e.g., `exp://192.168.1.100:8081`, `vybr://callback`, etc.)
+  },
+
   // Default assets
   DEFAULT_PROFILE_PIC: 'https://via.placeholder.com/150/CCCCCC/808080?text=No+Image',
-  
+
   // Layout dimensions
   NAVBAR_HEIGHT: 90,
-}; 
+};
