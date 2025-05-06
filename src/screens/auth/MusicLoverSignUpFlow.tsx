@@ -23,7 +23,7 @@ import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNav
 // Step types
 type Step = 'account-details' | 'profile-details' | 'streaming-service' | 'subscription' | 'payment';
 type SubscriptionTier = 'free' | 'premium' | '';
-type StreamingServiceId = 'spotify' | 'apple_music' | 'youtube_music' | 'deezer' | 'soundcloud' | 'tidal' | ''; // Add '' for initial state
+type StreamingServiceId = 'spotify' | 'apple_music' | 'youtube_music' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | ''; // Add 'None' for explicit selection
 
 // Define window width for animations
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -259,11 +259,10 @@ const MusicLoverSignUpFlow = () => {
     const validateStreamingServiceStep = (): boolean => {
         console.log('[MusicLoverSignUpFlow] Validating Streaming Service Step...');
         setError('');
-        // Always return true - we've made selection optional
-        // If no streaming service is selected, we'll treat it as if 'None' was chosen
+        // Require a valid streaming service selection
         if (!formData.selectedStreamingService) {
-            console.log('[MusicLoverSignUpFlow] No streaming service selected, treating as "None"');
-            setFormData(prev => ({ ...prev, selectedStreamingService: '' }));
+            setError('Please select a streaming service or "None / Other"');
+            return false;
         }
         console.log('[MusicLoverSignUpFlow] Streaming Service Step Validation PASSED.');
         return true;
@@ -358,29 +357,34 @@ const MusicLoverSignUpFlow = () => {
 
     // Helper to consolidate profile data creation before calling the hook
     const prepareProfileData = (userId: string): CreateMusicLoverProfileData => {
-         const ageValue = formData.age && /^\d+$/.test(formData.age) ? parseInt(formData.age, 10) : null;
-         return {
-            userId: userId,
+        // Validate age input
+        const age = formData.age ? parseInt(formData.age) : null;
+        if (age !== null && (isNaN(age) || age < 13 || age > 120)) {
+            throw new Error('Please enter a valid age between 13 and 120');
+        }
+
+        return {
+            userId,
             firstName: formData.firstName.trim(),
             lastName: formData.lastName.trim(),
             username: formData.username.trim(),
-            email: formData.email.trim(), // Pass email for profile table
-            termsAccepted: formData.termsAccepted,
-            profilePictureUri: formData.profilePictureUri || undefined,
-            profilePictureMimeType: formData.profilePictureMimeType, // Pass mimeType hint
-            age: ageValue,
-            country: formData.country.trim() || undefined,
-            city: formData.city.trim() || undefined,
-            bio: { // Ensure all bio fields are passed
+            email: formData.email.trim(),
+            age,
+            bio: {
                 firstSong: formData.bio.firstSong?.trim() || '',
                 goToSong: formData.bio.goToSong?.trim() || '',
                 mustListenAlbum: formData.bio.mustListenAlbum?.trim() || '',
                 dreamConcert: formData.bio.dreamConcert?.trim() || '',
                 musicTaste: formData.bio.musicTaste?.trim() || '',
             },
-            selectedStreamingService: formData.selectedStreamingService, // Pass the selected service ID
+            country: formData.country?.trim() || undefined,
+            city: formData.city?.trim() || undefined,
+            termsAccepted: formData.termsAccepted,
+            selectedStreamingService: formData.selectedStreamingService || 'None', // Default to 'None' if empty
+            profilePictureUri: formData.profilePictureUri,
+            profilePictureMimeType: formData.profilePictureMimeType,
         };
-    }
+    };
 
     // Creates Auth user AND DB profile record
     const handleAccountAndProfileCreation = async (): Promise<string | null> => {
@@ -471,57 +475,83 @@ const MusicLoverSignUpFlow = () => {
     // Completes signup for FREE tier - MODIFIED NAVIGATION
     const handleFreeSignupCompletion = async () => {
         console.log('[MusicLoverSignUpFlow] handleFreeSignupCompletion called.');
-        setIsLoading(true); // Ensure loading is true
+        setIsLoading(true);
         setError('');
 
         // Create account and profile first
-        const userId = await handleAccountAndProfileCreation(); // This sets isLoading true and handles its own errors
+        const userId = await handleAccountAndProfileCreation();
 
         if (!userId) {
             console.error('[MusicLoverSignUpFlow] Account/Profile creation failed within handleFreeSignupCompletion.');
-            // Error is already set, loading should already be false from handleAccountAndProfileCreation failure
+            setIsLoading(false);
             return;
         }
         console.log(`[MusicLoverSignUpFlow] User ${userId} and profile created successfully. Proceeding with free status update.`);
 
         try {
             console.log('[MusicLoverSignUpFlow] Calling updatePremiumStatus(false) hook...');
-            // This call now also triggers navigation via checkSession({ navigateToProfile: true }) inside useAuth
             const updateResult = await updatePremiumStatus(userId, false);
 
-            // Check for error property first (Type Guard)
             if ('error' in updateResult && updateResult.error) {
                 console.error('[MusicLoverSignUpFlow] updatePremiumStatus(false) hook FAILED:', updateResult.error);
-                setError('Account created, but failed to set final status.');
-                Alert.alert('Status Error', 'Your account is set up, but there was an issue finalizing the status. You will have free tier access.');
+                // Show alert but still proceed with navigation
+                Alert.alert(
+                    'Status Update',
+                    'Your account is set up, but there was an issue finalizing the status. You will have free tier access.',
+                    [
+                        {
+                            text: 'OK',
+                            onPress: () => {
+                                // Navigate to profile after user acknowledges
+                                navigation.reset({
+                                    index: 0,
+                                    routes: [{
+                                        name: 'MainApp',
+                                        params: {
+                                            screen: 'UserTabs',
+                                            params: { screen: 'Profile' }
+                                        }
+                                    }],
+                                });
+                            }
+                        }
+                    ]
+                );
             } else {
                 console.log('[MusicLoverSignUpFlow] updatePremiumStatus(false) hook SUCCEEDED. Navigating to Profile...');
+                // Navigate to profile on success
+                navigation.reset({
+                    index: 0,
+                    routes: [{
+                        name: 'MainApp',
+                        params: {
+                            screen: 'UserTabs',
+                            params: { screen: 'Profile' }
+                        }
+                    }],
+                });
             }
-
-            // Always navigate to profile after attempt
-            navigation.reset({
-                index: 0,
-                routes: [{
-                    name: 'MainApp',
-                    params: {
-                        screen: 'UserTabs',
-                        params: { screen: 'Profile' }
-                    }
-                }],
-            });
-            // Set loading false AFTER navigation trigger
-            setIsLoading(false);
-
         } catch (err: any) {
             console.error('[MusicLoverSignUpFlow] UNEXPECTED error in handleFreeSignupCompletion:', err);
-            setError(err.message || 'An unexpected error occurred during signup completion.');
-            setIsLoading(false); // Ensure loading stops on error
-
-            // Even with error, try to navigate to a safe screen if possible
-            navigation.reset({
-                index: 0,
-                routes: [{ name: 'Auth' }], // Go back to Auth on major error
-            });
+            // Show error but still proceed with navigation
+            Alert.alert(
+                'Sign Up Complete',
+                'Your account has been created. You can now log in.',
+                [
+                    {
+                        text: 'OK',
+                        onPress: () => {
+                            // Navigate to auth screen
+                            navigation.reset({
+                                index: 0,
+                                routes: [{ name: 'Auth' }],
+                            });
+                        }
+                    }
+                ]
+            );
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -805,7 +835,9 @@ const MusicLoverSignUpFlow = () => {
     // Handle streaming service selection - UPDATED to make authentication optional for flow continuation
     const handleStreamingServiceSelect = async (serviceId: StreamingServiceId) => {
         console.log(`[MusicLoverSignUpFlow] Service selected: ${serviceId || 'None'}`);
-        setFormData(prev => ({ ...prev, selectedStreamingService: serviceId }));
+        // Always store 'None' instead of empty string for consistency
+        const normalizedServiceId = serviceId || 'None';
+        setFormData(prev => ({ ...prev, selectedStreamingService: normalizedServiceId as StreamingServiceId }));
         setError(''); // Clear previous errors
 
         if (serviceId === 'spotify') {
@@ -826,7 +858,7 @@ const MusicLoverSignUpFlow = () => {
             }
         } else {
             // For other services (or 'None'), proceed directly
-            console.log(`[MusicLoverSignUpFlow] ${serviceId || 'None'} selected, proceeding to subscription step`);
+            console.log(`[MusicLoverSignUpFlow] ${normalizedServiceId} selected, proceeding to subscription step`);
             validateStreamingServiceStep() && goToNextStep('subscription');
         }
     };
@@ -917,15 +949,15 @@ const MusicLoverSignUpFlow = () => {
                 <TouchableOpacity
                     style={[
                         styles.serviceCard,
-                        formData.selectedStreamingService === '' && styles.selectedServiceCard
+                        formData.selectedStreamingService === 'None' && styles.selectedServiceCard
                     ]}
-                    onPress={() => handleStreamingServiceSelect('')}
+                    onPress={() => handleStreamingServiceSelect('None')}
                 >
                     <View style={[styles.serviceIconContainer, { backgroundColor: '#5C5C5C' }]}>
                         <Feather name="zap-off" size={28} color="#FFF" />
                     </View>
                     <Text style={styles.serviceName}>None / Other</Text>
-                    {formData.selectedStreamingService === '' && (
+                    {formData.selectedStreamingService === 'None' && (
                         <View style={styles.checkmarkBadge}>
                             <Feather name="check" size={16} color="#FFFFFF" />
                         </View>
@@ -945,11 +977,9 @@ const MusicLoverSignUpFlow = () => {
                 <TouchableOpacity
                     style={styles.primaryButton}
                     onPress={() => {
-                        // Allow continuation regardless of Spotify login state
-                        if (formData.selectedStreamingService) {
+                        // Validate that a service is selected (including 'None')
+                        if (validateStreamingServiceStep()) {
                             goToNextStep('subscription');
-                        } else {
-                            setError('Please select a streaming service or "None / Other"');
                         }
                     }}
                 >
