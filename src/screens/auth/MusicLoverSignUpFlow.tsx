@@ -402,10 +402,6 @@ const MusicLoverSignUpFlow = () => {
                 email: formData.email.trim(),
                 password: formData.password,
                 userType: 'music_lover',
-                // Pass optional data if signUp hook uses it (less common now with metadata)
-                // firstName: formData.firstName.trim(),
-                // lastName: formData.lastName.trim(),
-                // username: formData.username.trim(),
             });
 
             // Check for error property first (Type Guard)
@@ -429,10 +425,10 @@ const MusicLoverSignUpFlow = () => {
 
             // 1b. Prepare Profile Data (using helper)
             if (!userId) {
-                 console.error('[MusicLoverSignUpFlow] userId became null unexpectedly before profile creation.');
-                 setError('An internal error occurred. Please try again.');
-                 setIsLoading(false);
-                 return null;
+                console.error('[MusicLoverSignUpFlow] userId became null unexpectedly before profile creation.');
+                setError('An internal error occurred. Please try again.');
+                setIsLoading(false);
+                return null;
             }
             const profileDataForHook = prepareProfileData(userId);
 
@@ -447,8 +443,8 @@ const MusicLoverSignUpFlow = () => {
                 if (profileResult.error?.code === '23505' && profileResult.error?.message?.includes('username')) {
                     errorMsg = 'This username is already taken. Please choose another.';
                 }
-                 // Handle potential image upload failure reported (if hook returns specific error)
-                 // if (profileResult.error.uploadError) { errorMsg += ` (Image upload failed: ${profileResult.error.uploadError})`}
+                // Handle potential image upload failure reported (if hook returns specific error)
+                // if (profileResult.error.uploadError) { errorMsg += ` (Image upload failed: ${profileResult.error.uploadError})`}
 
                 console.error('[MusicLoverSignUpFlow] createMusicLoverProfile hook FAILED:', profileResult.error);
                 setError(errorMsg);
@@ -469,7 +465,6 @@ const MusicLoverSignUpFlow = () => {
             setIsLoading(false);
             return null;
         }
-        // Removed finally block to allow chaining .finally() where called if needed
     };
 
     // Completes signup for FREE tier - MODIFIED NAVIGATION
@@ -478,17 +473,18 @@ const MusicLoverSignUpFlow = () => {
         setIsLoading(true);
         setError('');
 
-        // Create account and profile first
-        const userId = await handleAccountAndProfileCreation();
-
-        if (!userId) {
-            console.error('[MusicLoverSignUpFlow] Account/Profile creation failed within handleFreeSignupCompletion.');
-            setIsLoading(false);
-            return;
-        }
-        console.log(`[MusicLoverSignUpFlow] User ${userId} and profile created successfully. Proceeding with free status update.`);
-
         try {
+            // Create account and profile first
+            const userId = await handleAccountAndProfileCreation();
+
+            if (!userId) {
+                console.error('[MusicLoverSignUpFlow] Account/Profile creation failed within handleFreeSignupCompletion.');
+                setIsLoading(false);
+                return;
+            }
+            console.log(`[MusicLoverSignUpFlow] User ${userId} and profile created successfully. Proceeding with free status update.`);
+
+            // Update status to free
             console.log('[MusicLoverSignUpFlow] Calling updatePremiumStatus(false) hook...');
             const updateResult = await updatePremiumStatus(userId, false);
 
@@ -518,18 +514,74 @@ const MusicLoverSignUpFlow = () => {
                     ]
                 );
             } else {
-                console.log('[MusicLoverSignUpFlow] updatePremiumStatus(false) hook SUCCEEDED. Navigating to Profile...');
-                // Navigate to profile on success
-                navigation.reset({
-                    index: 0,
-                    routes: [{
-                        name: 'MainApp',
-                        params: {
-                            screen: 'UserTabs',
-                            params: { screen: 'Profile' }
-                        }
-                    }],
-                });
+                console.log('[MusicLoverSignUpFlow] updatePremiumStatus(false) hook SUCCEEDED. Checking Spotify status before navigation...');
+                // SUCCESS - Check Spotify status BEFORE navigating
+                const spotifyConnected = isSpotifyLoggedIn; // Capture current state from the hook
+                const selectedSpotify = formData.selectedStreamingService === 'spotify';
+
+                if (selectedSpotify && spotifyConnected) {
+                    console.log('[MusicLoverSignUpFlow] Spotify selected and connected. Attempting immediate data fetch for free tier...');
+                    try {
+                        await forceFetchAndSaveSpotifyData(userId, false); // Pass false for free tier
+                        console.log('[MusicLoverSignUpFlow] Free flow: Spotify data fetched/saved.');
+                        // Navigate to Profile (Standard)
+                        navigation.reset({
+                            index: 0,
+                            routes: [{
+                                name: 'MainApp',
+                                params: {
+                                    screen: 'UserTabs',
+                                    params: { screen: 'Profile' }
+                                }
+                            }],
+                        });
+                    } catch (err) {
+                        console.error('[MusicLoverSignUpFlow] Error fetching Spotify data in free flow:', err);
+                        // Navigate to Profile with link flag as fallback
+                        navigation.reset({
+                            index: 0,
+                            routes: [{
+                                name: 'MainApp',
+                                params: {
+                                    screen: 'UserTabs',
+                                    params: {
+                                        screen: 'Profile',
+                                        params: { goToLinkMusic: true, autoLinkSpotify: true }
+                                    }
+                                }
+                            }],
+                        });
+                    }
+                } else if (selectedSpotify && !spotifyConnected) {
+                    console.log('[MusicLoverSignUpFlow] Spotify selected but not connected. Navigating to Profile with link flag...');
+                    // Navigate to Profile with link flag
+                    navigation.reset({
+                        index: 0,
+                        routes: [{
+                            name: 'MainApp',
+                            params: {
+                                screen: 'UserTabs',
+                                params: {
+                                    screen: 'Profile',
+                                    params: { goToLinkMusic: true, autoLinkSpotify: true }
+                                }
+                            }
+                        }],
+                    });
+                } else {
+                    console.log('[MusicLoverSignUpFlow] Non-Spotify service or none selected. Navigating to Profile...');
+                    // Navigate to Profile (Standard)
+                    navigation.reset({
+                        index: 0,
+                        routes: [{
+                            name: 'MainApp',
+                            params: {
+                                screen: 'UserTabs',
+                                params: { screen: 'Profile' }
+                            }
+                        }],
+                    });
+                }
             }
         } catch (err: any) {
             console.error('[MusicLoverSignUpFlow] UNEXPECTED error in handleFreeSignupCompletion:', err);
@@ -1028,7 +1080,7 @@ const MusicLoverSignUpFlow = () => {
                     
                     {formData.subscriptionTier === 'free' && (
                         <View style={styles.selectionBadge}>
-                            <Text style={styles.selectionBadgeText}>Current Selection</Text>
+                            <Text style={styles.selectionBadgeText}>Selected</Text>
                         </View>
                     )}
                 </TouchableOpacity>
@@ -1068,7 +1120,7 @@ const MusicLoverSignUpFlow = () => {
                     
                     {formData.subscriptionTier === 'premium' && (
                         <View style={[styles.selectionBadge, styles.premiumSelectionBadge]}>
-                            <Text style={styles.selectionBadgeText}>Current Selection</Text>
+                            <Text style={styles.selectionBadgeText}>Selected</Text>
                         </View>
                     )}
                 </TouchableOpacity>
@@ -1086,11 +1138,7 @@ const MusicLoverSignUpFlow = () => {
                     style={styles.primaryButton}
                     onPress={() => {
                         if (validateSubscriptionStep()) {
-                            if (formData.subscriptionTier === 'premium') {
-                                goToNextStep('payment');
-                            } else {
-                                handleStepSubmit();
-                            }
+                            handleStepSubmit(); // Use the same submit handler for both free and premium
                         }
                     }}
                 >
@@ -1343,26 +1391,273 @@ const styles = StyleSheet.create({
     selectedServiceCheck: { position: 'absolute', top: 10, right: 10 },
 
     // New styles for Subscription Step
-    subscriptionOptionsContainer: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginBottom: 20 },
-    subscriptionCard: { backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1.5, borderColor: APP_CONSTANTS.COLORS.BORDER, padding: 18, marginBottom: 18, shadowColor: "#000000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3, elevation: 2, width: '45%', height: 150 },
-    selectedSubscriptionCard: { borderColor: APP_CONSTANTS.COLORS.PRIMARY, backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}0A`, shadowColor: APP_CONSTANTS.COLORS.PRIMARY, shadowOpacity: 0.15, shadowRadius: 5, elevation: 4 },
-    planFeaturesList: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginTop: 12 },
-    planFeatureItem: { flexDirection: 'row', alignItems: 'center', marginRight: 10 },
-    selectionBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, padding: 4, borderRadius: 4 },
-    selectionBadgeText: { fontSize: 12, color: 'white', fontWeight: '600' },
-    premiumCard: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, padding: 4, borderRadius: 4 },
-    premiumSelectionBadge: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, padding: 4, borderRadius: 4 },
-
-    // New styles for Subscription Step
-    stepSubtitle: { fontSize: 15, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginBottom: 25, textAlign: 'center', lineHeight: 21 },
-    actionButtonsContainer: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginTop: 20 },
-    featureText: { fontSize: 14, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, fontWeight: '500' },
+    subscriptionOptionsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'stretch',
+        marginBottom: 20,
+        paddingHorizontal: 10,
+    },
+    subscriptionCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        borderWidth: 1.5,
+        borderColor: APP_CONSTANTS.COLORS.BORDER,
+        padding: 20,
+        width: '48%',
+        minHeight: 280,
+        shadowColor: "#000000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    selectedSubscriptionCard: {
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+        backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}0A`,
+        shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
+        shadowOpacity: 0.15,
+        shadowRadius: 5,
+        elevation: 4,
+    },
+    premiumCard: {
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+    },
+    planFeaturesList: {
+        flex: 1,
+        justifyContent: 'flex-start',
+    },
+    planFeatureItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 12,
+        paddingHorizontal: 4,
+    },
+    featureText: {
+        fontSize: 14,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        marginLeft: 8,
+        flex: 1,
+    },
+    selectionBadge: {
+        position: 'absolute',
+        top: 12,
+        right: 12,
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 12,
+    },
+    premiumSelectionBadge: {
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+    },
+    selectionBadgeText: {
+        fontSize: 12,
+        color: 'white',
+        fontWeight: '600',
+    },
+    buttonContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        width: '100%',
+        marginTop: 20,
+        paddingHorizontal: 10,
+    },
+    secondaryButton: {
+        padding: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '45%',
+    },
+    secondaryButtonText: {
+        color: APP_CONSTANTS.COLORS.PRIMARY,
+        fontWeight: '600',
+        fontSize: 16,
+    },
+    primaryButton: {
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        padding: 12,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '45%',
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2,
+    },
+    primaryButtonText: {
+        color: 'white',
+        fontWeight: '600',
+        fontSize: 16,
+    },
 
     // New styles for Streaming Service Step
     streamingServicesGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', alignItems: 'flex-start', marginTop: 20, marginBottom: 5, paddingHorizontal: 0 },
     serviceCard: { alignItems: 'center', width: '33%', marginBottom: 25, paddingHorizontal: 5 },
     selectedServiceCard: { borderColor: APP_CONSTANTS.COLORS.PRIMARY, borderWidth: 2 },
     checkmarkBadge: { position: 'absolute', top: 10, right: 10, backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, padding: 4, borderRadius: 4 },
+
+    // Add missing styles
+    stepSubtitle: {
+        fontSize: 15,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        marginBottom: 25,
+        textAlign: 'center',
+        lineHeight: 21,
+    },
+    streamingServicesGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'space-around',
+        alignItems: 'flex-start',
+        marginTop: 20,
+        marginBottom: 5,
+        paddingHorizontal: 0,
+    },
+    serviceCard: {
+        alignItems: 'center',
+        width: '33%',
+        marginBottom: 25,
+        paddingHorizontal: 5,
+    },
+    selectedServiceCard: {
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+        borderWidth: 2,
+    },
+    checkmarkBadge: {
+        position: 'absolute',
+        top: 10,
+        right: 10,
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        padding: 4,
+        borderRadius: 4,
+    },
+
+    // Updated Subscription Plan Styles
+    subscriptionOptionsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'stretch',
+        marginBottom: 20,
+        paddingHorizontal: 10,
+    },
+    subscriptionCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        borderWidth: 1.5,
+        borderColor: APP_CONSTANTS.COLORS.BORDER,
+        padding: 20,
+        width: '48%',
+        minHeight: 280,
+        shadowColor: "#000000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    selectedSubscriptionCard: {
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+        backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}0A`,
+        shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
+        shadowOpacity: 0.15,
+        shadowRadius: 5,
+        elevation: 4,
+    },
+    premiumCard: {
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+    },
+    planHeader: {
+        marginBottom: 20,
+        alignItems: 'center',
+    },
+    planTitle: {
+        fontSize: 24,
+        fontWeight: '700',
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+        marginBottom: 8,
+    },
+    planPrice: {
+        fontSize: 20,
+        fontWeight: '600',
+        color: APP_CONSTANTS.COLORS.PRIMARY,
+    },
+    planFeaturesList: {
+        flex: 1,
+        justifyContent: 'flex-start',
+    },
+    planFeatureItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 12,
+        paddingHorizontal: 4,
+    },
+    featureText: {
+        fontSize: 14,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        marginLeft: 8,
+        flex: 1,
+    },
+    selectionBadge: {
+        position: 'absolute',
+        top: 12,
+        right: 12,
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 12,
+    },
+    premiumSelectionBadge: {
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+    },
+    selectionBadgeText: {
+        fontSize: 12,
+        color: 'white',
+        fontWeight: '600',
+    },
+    buttonContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        width: '100%',
+        marginTop: 20,
+        paddingHorizontal: 10,
+    },
+    secondaryButton: {
+        padding: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '45%',
+    },
+    secondaryButtonText: {
+        color: APP_CONSTANTS.COLORS.PRIMARY,
+        fontWeight: '600',
+        fontSize: 16,
+    },
+    primaryButton: {
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        padding: 12,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '45%',
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2,
+    },
+    primaryButtonText: {
+        color: 'white',
+        fontWeight: '600',
+        fontSize: 16,
+    },
 });
 
 export default MusicLoverSignUpFlow;
