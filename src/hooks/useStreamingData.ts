@@ -202,40 +202,54 @@ export const useStreamingData = (userId?: string | null, authProps?: {
         return { data: null, error: "User ID is required to fetch streaming data" };
       }
 
+      console.log(`[useStreamingData] Fetching data for user: ${userId}, service: ${serviceId}`);
+
       // Get the most recent snapshot for this user and service
-      const { data, error } = await supabase
+      const { data, error, status } = await supabase
         .from('user_streaming_data')
         .select('*')
         .eq('user_id', userId)
         .eq('service_id', serviceId)
         .order('snapshot_date', { ascending: false })
-        .limit(1)
-        .single();
-
+        .limit(1);
+      
+      console.log(`[useStreamingData] Supabase response status: ${status}`);
+      
       if (error) {
         // If no data found, return null without error
         if (error.code === 'PGRST116') {
+          console.log(`[useStreamingData] No data found for ${serviceId}`);
           return { data: null };
         }
+        
+        // For 406 errors, log details
+        if (status === 406) {
+          console.error(`[useStreamingData] Content negotiation error (406): ${JSON.stringify(error)}`);
+          return { data: null, error: `API error: ${error.message}` };
+        }
+        
         throw error;
       }
 
-      if (!data) {
+      if (!data || data.length === 0) {
+        console.log(`[useStreamingData] No data returned for ${serviceId}`);
         return { data: null };
       }
 
       // Convert to StreamingData format for compatibility
       const streamingData: StreamingData = {
-        top_artists: data.top_artists || [],
-        top_tracks: data.top_tracks || [],
-        top_albums: data.top_albums || [],
-        top_genres: data.top_genres || [],
-        raw_data: data.raw_data
+        top_artists: data[0].top_artists || [],
+        top_tracks: data[0].top_tracks || [],
+        top_albums: data[0].top_albums || [],
+        top_genres: data[0].top_genres || [],
+        raw_data: data[0].raw_data
       };
+      
+      console.log(`[useStreamingData] Successfully retrieved data for ${serviceId}: ${streamingData.top_artists.length} artists, ${streamingData.top_tracks.length} tracks`);
 
       return { data: streamingData };
     } catch (error) {
-      console.error('Error getting streaming data:', error);
+      console.error('[useStreamingData] Error getting streaming data:', error);
       return { 
         data: null, 
         error: error instanceof Error ? error.message : 'Unknown error fetching streaming data' 
@@ -246,26 +260,77 @@ export const useStreamingData = (userId?: string | null, authProps?: {
   };
 
   // Check if a service is connected
-  const isServiceConnected = (service: string): boolean => {
+  const isServiceConnected = async (service: string): Promise<boolean> => {
     if (!authProps) return false;
-    if (service === 'spotify') return authProps.isSpotifyLoggedIn;
-    if (service === 'youtubemusic') return authProps.isYouTubeMusicLoggedIn;
-    return false;
+    
+    try {
+      if (service === 'spotify') {
+        // Check if Spotify is connected by looking at the auth flag
+        return authProps.isSpotifyLoggedIn;
+      }
+      
+      if (service === 'youtubemusic') {
+        // For YouTube Music, we need to check if there's an actual token stored
+        if (!authProps.isYouTubeMusicLoggedIn) return false;
+        
+        // Import only the necessary utility functions from our new utility file
+        const { getYTMToken } = await import('../lib/YoutubeMusicAuthUtils');
+        
+        // Check if tokens exist without using the hook
+        try {
+          const tokenInfo = await getYTMToken();
+          return !!tokenInfo?.token;
+        } catch (err) {
+          console.error('[useStreamingData] Error checking YTM token:', err);
+          return false;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.error(`[useStreamingData] Error checking service connection for ${service}:`, error);
+      return false;
+    }
   };
 
-  // Force fetch data from a specific service - here we'll need to pass the forceFetch function
+  // Force fetch data from a specific service - updated to support YouTube Music
   const forceFetchServiceData = async (
     service: 'spotify' | 'youtubemusic',
-    isPremium: boolean,
-    forceFetchCallback?: (userId: string, isPremium: boolean) => Promise<boolean>
+    isPremium: boolean
   ): Promise<boolean> => {
-    if (!userId || !forceFetchCallback) return false;
+    if (!userId) return false;
     
     try {
       setLoading(true);
-      return await forceFetchCallback(userId, isPremium);
-    } catch (error) {
-      console.error(`Error force fetching ${service} data:`, error);
+      
+      if (service === 'spotify' && authProps?.isSpotifyLoggedIn) {
+        // We're only handling Spotify API, not modifying Spotify code as requested
+        // Use the existing pattern for Spotify
+        const spotifyModule = await import('./useSpotifyAuth');
+        const spotifyAuthHook = spotifyModule.useSpotifyAuth();
+        
+        if (spotifyAuthHook.forceFetchAndSaveSpotifyData) {
+          return await spotifyAuthHook.forceFetchAndSaveSpotifyData(userId, isPremium);
+        }
+        return false;
+      }
+      
+      if (service === 'youtubemusic' && authProps?.isYouTubeMusicLoggedIn) {
+        try {
+          // Import the utility module as a default export
+          const YoutubeMusicDataUtils = (await import('@/lib/YoutubeMusicDataUtils')).default;
+          
+          // Call the utility function directly from the default export
+          return await YoutubeMusicDataUtils.fetchAndSaveYouTubeMusicData(userId, isPremium);
+        } catch (err) {
+          console.error(`[useStreamingData] Error fetching YouTube Music data:`, err);
+          return false;
+        }
+      }
+      
+      return false;
+    } catch (err) {
+      console.error(`[useStreamingData] Error fetching service data for ${service}:`, err);
       return false;
     } finally {
       setLoading(false);
@@ -284,7 +349,9 @@ export const useStreamingData = (userId?: string | null, authProps?: {
       
       // Try each service
       for (const service of services) {
-        if (isServiceConnected(service)) {
+        const isConnected = await isServiceConnected(service);
+        
+        if (isConnected) {
           console.log(`[useStreamingData] Fetching data for service: ${service}`);
           const result = await getUserStreamingData(service);
           

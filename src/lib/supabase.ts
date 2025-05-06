@@ -22,6 +22,8 @@ export const supabase = createClient(
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+        'apikey': supabaseKey as string,
       },
     },
   }

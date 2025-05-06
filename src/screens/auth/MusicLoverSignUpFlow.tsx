@@ -17,6 +17,9 @@ import { APP_CONSTANTS } from '@/config/constants'; // Assuming path is correct
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser'; // Add WebBrowser for opening URLs in new tabs
+// Import location selectors
+import { Picker } from '@react-native-picker/picker';
+import { Country, State, City } from 'country-state-city';
 // Import the specific types expected by createMusicLoverProfile and for the form state
 import { MusicLoverBio, CreateMusicLoverProfileData } from '@/hooks/useAuth'; // Assuming types are exported from useAuth
 import TermsModal from '@/components/TermsModal'; // Import the new modal
@@ -54,8 +57,12 @@ interface MusicLoverFormData {
     profilePicturePreview: string;     // URI specifically for display (often same as Uri)
     profilePictureMimeType?: string | null; // <<< ADD mimeType field
     age: string;                       // Keep as string for input
-    country: string;
-    city: string;
+    // Updated location fields
+    countryCode: string;              // Store ISO code
+    country: string;                  // Store country name
+    stateCode: string;                // Store state code 
+    state: string;                    // Store state name
+    cityName: string;                 // Store city name
     bio: MusicLoverBio;
     selectedStreamingService: StreamingServiceId;
     subscriptionTier: SubscriptionTier;
@@ -152,7 +159,8 @@ const MusicLoverSignUpFlow = () => {
         isLoggedIn: isYouTubeMusicLoggedIn,
         isLoading: isYouTubeMusicLoading,
         error: youTubeMusicError,
-        forceFetchAndSaveYouTubeMusicData
+        forceFetchAndSaveYouTubeMusicData,
+        verifyTokenStorage: verifyYouTubeMusicToken
     } = useYouTubeMusicAuth();
 
     // --- Update initial state ---
@@ -162,7 +170,13 @@ const MusicLoverSignUpFlow = () => {
         profilePictureUri: '',
         profilePicturePreview: '',
         profilePictureMimeType: null, // <<< Initialize mimeType
-        age: '', country: '', city: '',
+        age: '', 
+        // Initialize location fields
+        countryCode: '',
+        country: '',
+        stateCode: '',
+        state: '',
+        cityName: '',
         bio: { firstSong: '', goToSong: '', mustListenAlbum: '', dreamConcert: '', musicTaste: '' },
         selectedStreamingService: '',
         subscriptionTier: '',
@@ -175,6 +189,11 @@ const MusicLoverSignUpFlow = () => {
     const [isLoading, setIsLoading] = useState(false); // Component-level loading (e.g., payment sim)
     const [error, setError] = useState('');
     const slideAnim = useRef(new Animated.Value(0)).current; // Animation value
+
+    // Location data lists
+    const [countries, setCountries] = useState<any[]>([]);
+    const [states, setStates] = useState<any[]>([]);
+    const [cities, setCities] = useState<any[]>([]);
 
     // YouTube Music auth state
     const [showYTMAuthCode, setShowYTMAuthCode] = useState(false);
@@ -223,6 +242,30 @@ const MusicLoverSignUpFlow = () => {
             setFormData(prev => ({ ...prev, [key]: trimmedValue }));
         }
         if (error) setError(''); // Clear error on change
+    };
+
+    // Handle country selection
+    const handleCountrySelect = (countryCode: string) => {
+        if (countryCode === formData.countryCode) return;
+        
+        const selectedCountry = countries.find(c => c.isoCode === countryCode);
+        handleChange('countryCode', countryCode);
+        handleChange('country', selectedCountry?.name || '');
+    };
+
+    // Handle state selection
+    const handleStateSelect = (stateCode: string) => {
+        if (stateCode === formData.stateCode) return;
+        
+        const selectedState = states.find(s => s.isoCode === stateCode);
+        handleChange('stateCode', stateCode);
+        handleChange('state', selectedState?.name || '');
+    };
+
+    // Handle city selection
+    const handleCitySelect = (cityName: string) => {
+        if (cityName === formData.cityName) return;
+        handleChange('cityName', cityName);
     };
 
     // Show terms and conditions alert
@@ -387,7 +430,8 @@ const MusicLoverSignUpFlow = () => {
             throw new Error('Please enter a valid age between 13 and 120');
         }
 
-        return {
+        // Create a basic profile data object with known properties
+        const profileData: any = {
             userId,
             firstName: formData.firstName.trim(),
             lastName: formData.lastName.trim(),
@@ -401,13 +445,25 @@ const MusicLoverSignUpFlow = () => {
                 dreamConcert: formData.bio.dreamConcert?.trim() || '',
                 musicTaste: formData.bio.musicTaste?.trim() || '',
             },
-            country: formData.country?.trim() || undefined,
-            city: formData.city?.trim() || undefined,
             termsAccepted: formData.termsAccepted,
-            selectedStreamingService: formData.selectedStreamingService || 'None', // Default to 'None' if empty
+            selectedStreamingService: formData.selectedStreamingService || 'None',
             profilePictureUri: formData.profilePictureUri,
             profilePictureMimeType: formData.profilePictureMimeType,
         };
+
+        // Add only the location text fields needed for the database
+        // The codes (countryCode, stateCode) are only used for UI functionality
+        profileData.country = formData.country || undefined;
+        profileData.state = formData.state || undefined;
+        profileData.city = formData.cityName || undefined;
+
+        console.log('[MusicLoverSignUpFlow] Prepared profile data with location:', {
+            country: profileData.country,
+            state: profileData.state,
+            city: profileData.city
+        });
+
+        return profileData as CreateMusicLoverProfileData;
     };
 
     // Creates Auth user AND DB profile record
@@ -714,21 +770,90 @@ const MusicLoverSignUpFlow = () => {
                     </TouchableOpacity>
                 </View>
             </View>
-            {/* Age, Country, City */}
-            <View style={styles.rowContainer}>
-                <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
-                    <Text style={styles.inputLabel}>Age</Text>
-                    <TextInput style={styles.input} placeholder="e.g. 25" value={formData.age} onChangeText={(text) => handleChange('age', text.replace(/\D/g, ''))} keyboardType="number-pad" maxLength={3} returnKeyType="next" blurOnSubmit={false} />
-                </View>
-                <View style={[styles.inputContainer, { flex: 2, marginLeft: 8 }]}>
-                    <Text style={styles.inputLabel}>Country</Text>
-                    <TextInput style={styles.input} placeholder="Country" value={formData.country} onChangeText={(text) => handleChange('country', text)} autoCapitalize="words" returnKeyType="next" blurOnSubmit={false} />
-                </View>
-            </View>
+            {/* Age */}
             <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>City</Text>
-                <TextInput style={styles.input} placeholder="City" value={formData.city} onChangeText={(text) => handleChange('city', text)} autoCapitalize="words" returnKeyType="next" blurOnSubmit={false} />
+                <Text style={styles.inputLabel}>Age</Text>
+                <TextInput 
+                    style={styles.input} 
+                    placeholder="e.g. 25" 
+                    value={formData.age} 
+                    onChangeText={(text) => handleChange('age', text.replace(/\D/g, ''))} 
+                    keyboardType="number-pad" 
+                    maxLength={3} 
+                    returnKeyType="next" 
+                    blurOnSubmit={false} 
+                />
             </View>
+            
+            {/* Location Section - Country Dropdown */}
+            <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Country</Text>
+                <View style={styles.pickerContainer}>
+                    <Picker
+                        selectedValue={formData.countryCode}
+                        onValueChange={handleCountrySelect}
+                        style={styles.picker}
+                    >
+                        <Picker.Item label="Select a country..." value="" />
+                        {countries.map((country) => (
+                            <Picker.Item 
+                                key={country.isoCode} 
+                                label={country.name} 
+                                value={country.isoCode} 
+                            />
+                        ))}
+                    </Picker>
+                </View>
+            </View>
+            
+            {/* State/Province Dropdown - Only show if country is selected and not Singapore */}
+            {formData.countryCode && formData.countryCode !== 'SG' && (
+                <View style={styles.inputContainer}>
+                    <Text style={styles.inputLabel}>State/Province</Text>
+                    <View style={styles.pickerContainer}>
+                        <Picker
+                            selectedValue={formData.stateCode}
+                            onValueChange={handleStateSelect}
+                            style={styles.picker}
+                            enabled={states.length > 0}
+                        >
+                            <Picker.Item label="Select a state..." value="" />
+                            {states.map((state) => (
+                                <Picker.Item 
+                                    key={state.isoCode} 
+                                    label={state.name} 
+                                    value={state.isoCode} 
+                                />
+                            ))}
+                        </Picker>
+                    </View>
+                </View>
+            )}
+            
+            {/* City Dropdown - Only show if state is selected */}
+            {formData.stateCode && (
+                <View style={styles.inputContainer}>
+                    <Text style={styles.inputLabel}>City</Text>
+                    <View style={styles.pickerContainer}>
+                        <Picker
+                            selectedValue={formData.cityName}
+                            onValueChange={handleCitySelect}
+                            style={styles.picker}
+                            enabled={cities.length > 0}
+                        >
+                            <Picker.Item label="Select a city..." value="" />
+                            {cities.map((city) => (
+                                <Picker.Item 
+                                    key={city.name} 
+                                    label={city.name} 
+                                    value={city.name} 
+                                />
+                            ))}
+                        </Picker>
+                    </View>
+                </View>
+            )}
+            
             {/* Bio Section */}
             <Text style={[styles.inputLabel, styles.bioHeader]}> Music Bio (Share your sound!) </Text>
             <View style={styles.inputContainer}>
@@ -828,7 +953,29 @@ const MusicLoverSignUpFlow = () => {
             const success = await ytmAuthDetails.completion();
             
             if (success) {
-                console.log('[MusicLoverSignUpFlow] YouTube Music auth completed successfully');
+                console.log('[MusicLoverSignUpFlow] YouTube Music auth completion returned success');
+                
+                // Additional verification after a short delay
+                setTimeout(async () => {
+                    try {
+                        // Use the function from the component level hook
+                        const isVerified = await verifyYouTubeMusicToken();
+                        console.log(`[MusicLoverSignUpFlow] Token verification: ${isVerified ? 'SUCCESS' : 'FAILED'}`);
+                        
+                        if (!isVerified) {
+                            // If verification fails, show an error but don't block progress
+                            console.error('[MusicLoverSignUpFlow] YouTube Music token verification failed');
+                            Alert.alert(
+                                "YouTube Music Note",
+                                "Authentication completed, but token storage may have issues. You might need to reconnect later.",
+                                [{ text: "OK" }]
+                            );
+                        }
+                    } catch (verifyErr) {
+                        console.error('[MusicLoverSignUpFlow] Error verifying YouTube Music token:', verifyErr);
+                    }
+                }, 1000);
+                
                 setShowYTMAuthCode(false);
                 setYTMAuthDetails(null);
                 
@@ -965,6 +1112,88 @@ const MusicLoverSignUpFlow = () => {
         }
     }, [youTubeMusicError, currentStep, formData.selectedStreamingService]);
 
+    // Load countries on component mount
+    useEffect(() => {
+        const allCountries = Country.getAllCountries();
+        setCountries(allCountries);
+    }, []);
+
+    // Load states when country changes
+    useEffect(() => {
+        if (formData.countryCode) {
+            // Special handling for Singapore (no states/provinces)
+            if (formData.countryCode === 'SG') {
+                setStates([]);
+                // For Singapore, set stateCode to a placeholder value
+                handleChange('stateCode', 'SG-01');
+                handleChange('state', 'Singapore'); // Use country name as state
+                return;
+            }
+            
+            const countryStates = State.getStatesOfCountry(formData.countryCode);
+            setStates(countryStates);
+            
+            // If previously selected state is not in new country, reset state and city
+            const stateExists = countryStates.some(s => s.isoCode === formData.stateCode);
+            if (!stateExists) {
+                handleChange('stateCode', '');
+                handleChange('state', '');
+                handleChange('cityName', '');
+            }
+        } else {
+            setStates([]);
+            handleChange('stateCode', '');
+            handleChange('state', '');
+            handleChange('cityName', '');
+        }
+    }, [formData.countryCode]);
+
+    // Load cities when state changes
+    useEffect(() => {
+        if (formData.countryCode && formData.stateCode) {
+            const stateCities = City.getCitiesOfState(formData.countryCode, formData.stateCode);
+            setCities(stateCities);
+            
+            // If previously selected city is not in new state, reset city
+            const cityExists = stateCities.some(c => c.name === formData.cityName);
+            if (!cityExists) {
+                handleChange('cityName', '');
+            }
+        } else {
+            setCities([]);
+            handleChange('cityName', '');
+        }
+    }, [formData.countryCode, formData.stateCode]);
+
+    // Open the YouTube Music auth website and track completion
+    const openYTMAuthSite = async () => {
+      if (!ytmAuthDetails) return;
+      
+      try {
+        // For web, open in same tab to avoid popup blockers
+        if (Platform.OS === 'web') {
+          window.open(ytmAuthDetails.verificationUrl, '_blank');
+          
+          // Show a message about continuing after authenticating
+          Alert.alert(
+            "Authentication in Progress",
+            "After completing authentication in the new tab, return here and click 'Complete' button.",
+            [{ text: "OK" }]
+          );
+        } else {
+          // For native platforms, use WebBrowser
+          await WebBrowser.openBrowserAsync(ytmAuthDetails.verificationUrl);
+        }
+      } catch (error) {
+        console.error('[MusicLoverSignUpFlow] Error opening auth website:', error);
+        Alert.alert(
+          "Browser Error",
+          "Could not open the authentication website. Please try again.",
+          [{ text: "OK" }]
+        );
+      }
+    };
+
     // Updated streaming service selection UI with YouTube Music auth info
     const renderStreamingServiceStep = () => (
         <View style={styles.stepContainer}>
@@ -1044,7 +1273,7 @@ const MusicLoverSignUpFlow = () => {
                     <View style={styles.ytmAuthButtons}>
                         <TouchableOpacity 
                             style={styles.ytmAuthButton}
-                            onPress={() => WebBrowser.openBrowserAsync(ytmAuthDetails.verificationUrl)}
+                            onPress={openYTMAuthSite}
                         >
                             <Text style={styles.ytmAuthButtonText}>Open Website</Text>
                         </TouchableOpacity>
@@ -1636,6 +1865,21 @@ const styles = StyleSheet.create({
         color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, 
         fontWeight: '500', 
         textAlign: 'center' 
+    },
+    
+    // Add picker styles
+    pickerContainer: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 8, 
+        borderWidth: 1,
+        borderColor: APP_CONSTANTS.COLORS.BORDER,
+        marginBottom: 10,
+        overflow: 'hidden',
+    },
+    picker: {
+        width: '100%',
+        height: Platform.OS === 'ios' ? 180 : 50,
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
     },
 });
 
