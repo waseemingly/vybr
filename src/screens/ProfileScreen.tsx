@@ -9,8 +9,9 @@ import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useOrganizerMode } from "@/hooks/useOrganizerMode";
 import { useAuth, MusicLoverBio } from "@/hooks/useAuth";
-import { useStreamingData } from "@/hooks/useStreamingData";
+import { useStreamingData, TopArtist, TopTrack, TopGenre } from '@/hooks/useStreamingData';
 import { useSpotifyAuth } from '@/hooks/useSpotifyAuth';
+import { useYouTubeMusicAuth } from '@/hooks/useYouTubeMusicAuth';
 import { APP_CONSTANTS } from "@/config/constants";
 import { useNavigation, useFocusEffect, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -26,6 +27,7 @@ type ProfileScreenRouteProp = RouteProp<UserTabParamList, 'Profile'>;
 type ProfileScreenRouteProps = {
     goToLinkMusic?: boolean;
     autoLinkSpotify?: boolean;
+    autoLinkYouTubeMusic?: boolean;
 };
 
 // --- Constants & Components ---
@@ -91,13 +93,18 @@ const ProfileScreen: React.FC = () => {
     const navigation = useNavigation<ProfileScreenNavigationProp>();
     const route = useRoute();
     const userId = session?.user?.id;
+    const { isLoggedIn: isSpotifyLoggedIn } = useSpotifyAuth();
+    const { isLoggedIn: isYouTubeMusicLoggedIn } = useYouTubeMusicAuth();
     const { 
         streamingData, loading: streamingDataLoading, 
         topArtists, topTracks, topGenres, 
-        serviceId, hasData, fetchStreamingData, forceFetchSpotifyData 
-    } = useStreamingData(userId);
-    const { isLoggedIn: isSpotifyLoggedIn } = useSpotifyAuth();
-
+        serviceId, hasData, fetchStreamingData, 
+        forceFetchServiceData, isServiceConnected
+    } = useStreamingData(userId, {
+        isSpotifyLoggedIn,
+        isYouTubeMusicLoggedIn
+    });
+    
     const [expandedSections, setExpandedSections] = useState<ExpandedSections>({
         artists: false,
         songs: false,
@@ -120,11 +127,14 @@ const ProfileScreen: React.FC = () => {
         if (params?.goToLinkMusic) {
             console.log("[ProfileScreen] Detected goToLinkMusic flag. Navigating to LinkMusicServicesScreen...");
             // Update the navigation params to avoid infinite loop
-            navigation.setParams({ goToLinkMusic: undefined, autoLinkSpotify: params.autoLinkSpotify });
-            // Navigate to LinkMusicServicesScreen with autoLinkSpotify flag if present
-                navigation.navigate('LinkMusicServicesScreen', { 
-                    autoLinkSpotify: params.autoLinkSpotify 
-                });
+            navigation.setParams({ 
+                goToLinkMusic: undefined, 
+                autoLinkSpotify: params.autoLinkSpotify,
+            });
+            // Navigate to LinkMusicServicesScreen with autoLink flags if present
+            navigation.navigate('LinkMusicServicesScreen', { 
+                autoLinkSpotify: params.autoLinkSpotify,
+            });
         }
     }, [navigation, route.params]);
 
@@ -205,111 +215,117 @@ const ProfileScreen: React.FC = () => {
         setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
     };
 
-    // Handle manual refresh of Spotify data with simplified logic
-    const handleForceRefreshSpotify = async () => {
-        if (!musicLoverProfile) {
-            console.warn('[ProfileScreen] Cannot refresh Spotify data: Profile not loaded.');
-            return; // Safeguard
+    // Handle manual refresh of streaming service data with simplified logic
+    const handleForceRefreshStreamingData = async (service: 'spotify' | 'youtubemusic') => {
+        if (!musicLoverProfile || !userId) {
+            console.warn(`[ProfileScreen] Cannot refresh ${service} data: Profile or user ID not loaded.`);
+            return;
         }
-        if (!userId) {
-            console.warn('[ProfileScreen] Cannot refresh Spotify data: User ID not found.');
-            return; // Safeguard
+
+        // Check if service is connected
+        if (!isServiceConnected(service)) {
+            console.warn(`[ProfileScreen] Cannot refresh ${service} data: Service not connected.`);
+            Alert.alert(
+                "Service Not Connected", 
+                `Your ${service === 'spotify' ? 'Spotify' : 'YouTube Music'} account is not connected. Would you like to connect it now?`,
+                [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Connect", onPress: () => {
+                        navigation.navigate('LinkMusicServicesScreen', { 
+                            autoLinkSpotify: service === 'spotify',
+                        });
+                    }}
+                ]
+            );
+            return;
         }
 
         setRefreshingStreamingData(true);
-        console.log('[ProfileScreen] Force refreshing Spotify data...');
-        let success = false; // Track success
-
+        console.log(`[ProfileScreen] Force refreshing ${service} data...`);
+        
         try {
             const premium = !!musicLoverProfile.isPremium;
-            console.log(`[ProfileScreen] Calling forceFetchSpotifyData for ${premium ? 'premium' : 'free'} user (ID: ${userId})`);
+            console.log(`[ProfileScreen] Calling forceFetchServiceData for ${premium ? 'premium' : 'free'} user (ID: ${userId})`);
 
             // Call the hook function directly
-            success = await forceFetchSpotifyData(premium);
+            const success = await forceFetchServiceData(service, premium);
 
             if (success) {
-                console.log('[ProfileScreen] forceFetchSpotifyData completed successfully.');
-                Alert.alert('Success!', 'Your Spotify data has been refreshed.');
+                console.log(`[ProfileScreen] ${service} data refresh completed successfully.`);
+                Alert.alert('Success!', `Your ${service === 'spotify' ? 'Spotify' : 'YouTube Music'} data has been refreshed.`);
             } else {
-                console.error('[ProfileScreen] forceFetchSpotifyData completed but reported failure (check hook logs).');
-                Alert.alert('Refresh Partially Complete', 'We updated your Spotify data with available information. Some categories might be missing.');
+                console.error(`[ProfileScreen] ${service} data refresh completed but reported failure.`);
+                Alert.alert(
+                    'Refresh Partially Complete', 
+                    `We updated your ${service === 'spotify' ? 'Spotify' : 'YouTube Music'} data with available information. Some categories might be missing.`
+                );
             }
-
         } catch (error: any) {
-            console.error('[ProfileScreen] Error directly calling forceFetchSpotifyData:', error);
+            console.error(`[ProfileScreen] Error refreshing ${service} data:`, error);
             Alert.alert('Refresh Error', `An error occurred while refreshing: ${error.message || 'Unknown error'}`);
-            success = false; // Ensure success is false if an error is caught here
-            
         } finally {
             // Always try to fetch the latest data from Supabase after the attempt
             console.log('[ProfileScreen] Refetching data from database after refresh attempt...');
-            await fetchStreamingData(true); // Fetch latest data from Supabase
-            
-            // Safely log the data summary *after* refetching
-            // Note: topArtists etc. might not be updated *immediately* due to state updates
-            // Consider logging inside a useEffect that depends on streamingData
-            console.log('[ProfileScreen] Refresh attempt finished.');
-            
-            setRefreshingStreamingData(false); // End loading indicator
+            await fetchStreamingData(true);
+            setRefreshingStreamingData(false);
         }
     };
 
-    // --- Auto-fetch Spotify data when screen focuses and conditions are met ---
-    useFocusEffect(
-        useCallback(() => {
-            const autoFetchSpotifyData = async () => {
-                // Conditions:
-                // 1. Have a userId
-                // 2. Spotify is logged in according to the hook
-                // 3. No streaming data is currently loaded for the month (streamingData is null)
-                // 4. Not already in a loading/refreshing state
-                if (userId && isSpotifyLoggedIn && !streamingData && !refreshingStreamingData && !streamingDataLoading) {
-                    console.log("[ProfileScreen Focus] Conditions met: Spotify connected, no data loaded, not refreshing. Triggering auto-fetch...");
-                    setRefreshingStreamingData(true); // Set loading flag
+    // Function to render streaming service card with correct action buttons
+    const renderStreamingServiceCard = () => {
+        if (!serviceId) {
+            return (
+                <TouchableOpacity
+                    style={styles.actionCard}
+                    onPress={() => navigation.navigate('LinkMusicServicesScreen')}
+                >
+                    <Feather name="music" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                    <Text style={styles.actionCardTitle}>Connect Music Service</Text>
+                    <Text style={styles.actionCardSubtitle}>
+                        Link your Spotify or YouTube Music account to see your top artists, songs, and more
+                    </Text>
+                </TouchableOpacity>
+            );
+        }
 
-                    try {
-                        // Fetch the premium status again directly here to ensure it's up-to-date
-                        let currentPremiumStatus = false;
-                        try {
-                            const { data: profileData } = await supabase
-                                .from('music_lover_profiles')
-                                .select('is_premium')
-                                .eq('user_id', userId)
-                                .single();
-                            currentPremiumStatus = profileData?.is_premium || false;
-                            console.log(`[ProfileScreen Focus] Refetched premium status: ${currentPremiumStatus}`);
-                        } catch (err) {
-                            console.error("[ProfileScreen Focus] Error checking premium status for auto-fetch:", err);
-                        }
-
-                        // Call the hook function with the latest premium status
-                        const success = await forceFetchSpotifyData(currentPremiumStatus);
-
-                        if (success) {
-                            console.log("[ProfileScreen Focus] Successfully auto-fetched and saved Spotify data!");
-                            // Data will be re-fetched automatically by fetchStreamingData due to state changes
-                        } else {
-                            console.error("[ProfileScreen Focus] Failed to auto-fetch Spotify data (check hook logs).");
-                            Alert.alert("Auto-Fetch Failed", "Couldn't automatically retrieve your Spotify data. Please try the refresh button.");
-                        }
-                    } catch (error) {
-                        console.error("[ProfileScreen Focus] Error during Spotify auto-fetch:", error);
-                        Alert.alert("Auto-Fetch Error", "An error occurred while trying to fetch your Spotify data.");
-                    } finally {
-                        // Ensure loading state is reset even if fetchStreamingData hasn't updated yet
-                        // Add a small delay to allow fetchStreamingData to potentially pick up changes
-                        setTimeout(() => {
-                           setRefreshingStreamingData(false);
-                        }, 500); 
-                    }
-                }
-            };
-
-            autoFetchSpotifyData();
-
-        }, [userId, isSpotifyLoggedIn, streamingData, refreshingStreamingData, streamingDataLoading, forceFetchSpotifyData, fetchStreamingData]) // Dependencies for useCallback
-    );
-    // --- End Auto-fetch --- 
+        return (
+            <View style={styles.streamingServiceCard}>
+                <View style={styles.streamingServiceHeader}>
+                    <View style={styles.streamingServiceInfo}>
+                        <Feather 
+                            name={serviceId === 'spotify' ? 'music' : 'youtube'} 
+                            size={24} 
+                            color={serviceId === 'spotify' ? '#1DB954' : '#FF0000'} 
+                        />
+                        <Text style={styles.streamingServiceName}>
+                            {serviceId === 'spotify' ? 'Spotify' : serviceId === 'youtubemusic' ? 'YouTube Music' : serviceId}
+                        </Text>
+                    </View>
+                    
+                    <TouchableOpacity 
+                        style={styles.refreshButton}
+                        onPress={() => handleForceRefreshStreamingData(serviceId as 'spotify' | 'youtubemusic')}
+                        disabled={refreshingStreamingData}
+                    >
+                        {refreshingStreamingData ? (
+                            <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} />
+                        ) : (
+                            <Text style={styles.refreshButtonText}>Refresh Data</Text>
+                        )}
+                    </TouchableOpacity>
+                </View>
+                
+                <View style={styles.streamingServiceActions}>
+                    <TouchableOpacity 
+                        style={styles.streamingServiceButton}
+                        onPress={() => navigation.navigate('LinkMusicServicesScreen')}
+                    >
+                        <Text style={styles.streamingServiceButtonText}>Change Service</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        );
+    };
 
     if (authLoading || (countsLoading && !isRefreshing)) {
          return (<SafeAreaView style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} /><Text style={styles.loadingText}>Loading Profile...</Text></SafeAreaView> );
@@ -393,7 +409,7 @@ const ProfileScreen: React.FC = () => {
                     {(serviceId === 'spotify' || isSpotifyLoggedIn) && (
                         <TouchableOpacity 
                             style={styles.refreshSpotifyButton}
-                            onPress={handleForceRefreshSpotify}
+                            onPress={() => handleForceRefreshStreamingData('spotify')}
                             disabled={refreshingStreamingData}
                         >
                             <View style={styles.refreshButtonContent}>
@@ -418,7 +434,7 @@ const ProfileScreen: React.FC = () => {
                     
                       {topArtists.length > 0 ? (
                           <View style={styles.listContainer}>
-                            {topArtists.map((artist, i) => (
+                            {topArtists.map((artist: TopArtist, i: number) => (
                                   <View key={`stream-artist-${i}`} style={styles.listItem}>
                                       <Text style={styles.listItemText}>{artist.name}</Text>
                                       <Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
@@ -452,7 +468,7 @@ const ProfileScreen: React.FC = () => {
                                 ) : (
                                     <TouchableOpacity 
                                         style={styles.refreshSpotifyButton}
-                                        onPress={handleForceRefreshSpotify}
+                                        onPress={() => handleForceRefreshStreamingData('spotify')}
                                     >
                                         <Text style={[styles.refreshButtonText, {color: APP_CONSTANTS.COLORS.PRIMARY}]}>
                                             Refresh Spotify Data
@@ -470,7 +486,7 @@ const ProfileScreen: React.FC = () => {
                     {(serviceId === 'spotify' || isSpotifyLoggedIn) && (
                         <TouchableOpacity 
                             style={styles.refreshSpotifyButton}
-                            onPress={handleForceRefreshSpotify}
+                            onPress={() => handleForceRefreshStreamingData('spotify')}
                             disabled={refreshingStreamingData}
                         >
                             <View style={styles.refreshButtonContent}>
@@ -495,11 +511,11 @@ const ProfileScreen: React.FC = () => {
                     
                        {topTracks.length > 0 ? (
                            <View style={styles.listContainer}>
-                            {topTracks.map((track, i) => (
+                            {topTracks.map((track: TopTrack, i: number) => (
                                    <View key={`stream-track-${i}`} style={styles.listItem}>
                                        <View style={styles.listItemDetails}>
                                            <Text style={styles.listItemText}>{track.name}</Text>
-                                           <Text style={styles.listItemSubtext}>{track.artists.join(', ')}</Text>
+                                           <Text style={styles.listItemSubtext}>{track.artists.map(artist => artist.name).join(', ')}</Text>
                                        </View>
                                        <Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
                                    </View>
@@ -526,7 +542,7 @@ const ProfileScreen: React.FC = () => {
                             ) : (
                                 <TouchableOpacity 
                                     style={styles.refreshSpotifyButton}
-                                    onPress={handleForceRefreshSpotify}
+                                    onPress={() => handleForceRefreshStreamingData('spotify')}
                                 >
                                     <Text style={[styles.refreshButtonText, {color: APP_CONSTANTS.COLORS.PRIMARY}]}>
                                         Refresh Spotify Data
@@ -543,7 +559,7 @@ const ProfileScreen: React.FC = () => {
                     {(serviceId === 'spotify' || isSpotifyLoggedIn) && (
                         <TouchableOpacity 
                             style={styles.refreshSpotifyButton}
-                            onPress={handleForceRefreshSpotify}
+                            onPress={() => handleForceRefreshStreamingData('spotify')}
                             disabled={refreshingStreamingData}
                         >
                             <View style={styles.refreshButtonContent}>
@@ -569,7 +585,7 @@ const ProfileScreen: React.FC = () => {
                     {topGenres.length > 0 ? (
                         <View style={styles.analyticsCard}>
                             <View style={styles.tagsContainer}>
-                                {topGenres.map((genre, index) => (
+                                {topGenres.map((genre: TopGenre, index: number) => (
                                     <View key={`genre-${index}`} style={styles.genreTag}>
                                         <Text style={styles.genreTagText}>{genre.name}</Text>
                                     </View>
@@ -603,7 +619,7 @@ const ProfileScreen: React.FC = () => {
                                 ) : (
                                     <TouchableOpacity 
                                         style={styles.refreshSpotifyButton}
-                                        onPress={handleForceRefreshSpotify}
+                                        onPress={() => handleForceRefreshStreamingData('spotify')}
                                     >
                                         <Text style={[styles.refreshButtonText, {color: APP_CONSTANTS.COLORS.PRIMARY}]}>
                                             Refresh Spotify Data
@@ -778,6 +794,79 @@ const styles = StyleSheet.create({
     connectServiceButtonText: { color: "white", fontWeight: "600", fontSize: 14, },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
     loadingText: { marginTop: 12, fontSize: 14, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY },
+    streamingServiceCard: {
+        backgroundColor: '#f8f8f8',
+        borderRadius: 12,
+        padding: 15,
+        marginBottom: 15,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2,
+    },
+    streamingServiceHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 10,
+    },
+    streamingServiceInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    streamingServiceName: {
+        fontSize: 16,
+        fontWeight: '600',
+        marginLeft: 10,
+    },
+    refreshButton: {
+        paddingVertical: 5,
+        paddingHorizontal: 10,
+    },
+    streamingServiceActions: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+    },
+    streamingServiceButton: {
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 5,
+        borderWidth: 1,
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+    },
+    streamingServiceButtonText: {
+        color: APP_CONSTANTS.COLORS.PRIMARY,
+        fontSize: 14,
+    },
+    actionCard: {
+        backgroundColor: 'white',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 16,
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2,
+    },
+    actionCardTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+        marginTop: 12,
+        marginBottom: 8,
+        textAlign: 'center',
+    },
+    actionCardSubtitle: {
+        fontSize: 14,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        textAlign: 'center',
+        lineHeight: 20,
+    },
 });
 
 export default ProfileScreen;
