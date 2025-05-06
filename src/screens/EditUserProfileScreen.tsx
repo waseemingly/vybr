@@ -9,11 +9,17 @@ import {
     Alert,
     ActivityIndicator,
     Platform,
+    Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Picker } from '@react-native-picker/picker';
+import * as ImagePicker from 'expo-image-picker';
+
+// Import location data from country-state-city
+import { Country, State, City } from 'country-state-city';
 
 // --- ADJUST PATHS ---
 import { useAuth, MusicLoverBio } from '../hooks/useAuth';
@@ -40,12 +46,33 @@ const bioDetailLabels: Record<keyof MusicLoverBio, string> = {
 
 const EditUserProfileScreen: React.FC = () => {
     const navigation = useNavigation<EditUserProfileScreenNavigationProp>();
-    const { session, loading: authLoading, musicLoverProfile, refreshSessionData } = useAuth(); // Assume refreshSessionData exists
+    const { session, loading: authLoading, musicLoverProfile, refreshSessionData, requestMediaLibraryPermissions } = useAuth();
 
+    // Basic info states
     const [firstName, setFirstName] = useState(musicLoverProfile?.firstName ?? '');
     const [lastName, setLastName] = useState(musicLoverProfile?.lastName ?? '');
-    const [city, setCity] = useState(musicLoverProfile?.city ?? '');
-    const [country, setCountry] = useState(musicLoverProfile?.country ?? '');
+    const [age, setAge] = useState(musicLoverProfile?.age?.toString() ?? '');
+    
+    // Profile picture states
+    const [profilePictureUri, setProfilePictureUri] = useState(musicLoverProfile?.profilePicture ?? '');
+    const [profilePictureMimeType, setProfilePictureMimeType] = useState<string | null>(null);
+    const [isProfilePictureChanged, setIsProfilePictureChanged] = useState(false);
+    
+    // Location states - use optional chaining for safety
+    const [countryCode, setCountryCode] = useState<string>('');
+    const [stateCode, setStateCode] = useState<string>('');
+    const [cityCode, setCityCode] = useState<string>('');
+    
+    // Derived location display values - don't reference profile directly to avoid type errors
+    const [country, setCountry] = useState('');
+    const [state, setState] = useState('');
+    const [city, setCity] = useState('');
+
+    // Location data lists
+    const [countries, setCountries] = useState<any[]>([]);
+    const [states, setStates] = useState<any[]>([]);
+    const [cities, setCities] = useState<any[]>([]);
+    
     // Bio fields
     const [bioDetails, setBioDetails] = useState<MusicLoverBio>(
         musicLoverProfile?.bio ?? {
@@ -62,13 +89,98 @@ const EditUserProfileScreen: React.FC = () => {
 
     const userId = session?.user?.id;
 
+    // Load countries on component mount
+    useEffect(() => {
+        const allCountries = Country.getAllCountries();
+        setCountries(allCountries);
+    }, []);
+
+    // Load states when country changes
+    useEffect(() => {
+        if (countryCode) {
+            // Special handling for Singapore (no states/provinces)
+            if (countryCode === 'SG') {
+                setStates([]);
+                // For Singapore, set stateCode to a placeholder value
+                setStateCode('SG-01');
+                setState('Singapore'); // Use country name as state
+                return;
+            }
+            
+            const countryStates = State.getStatesOfCountry(countryCode);
+            setStates(countryStates);
+            
+            // If previously selected state is not in new country, reset state and city
+            const stateExists = countryStates.some(s => s.isoCode === stateCode);
+            if (!stateExists) {
+                setStateCode('');
+                setState('');
+                setCityCode('');
+                setCity('');
+            }
+        } else {
+            setStates([]);
+            setStateCode('');
+            setState('');
+            setCityCode('');
+            setCity('');
+        }
+    }, [countryCode]);
+
+    // Load cities when state changes
+    useEffect(() => {
+        if (countryCode && stateCode) {
+            const stateCities = City.getCitiesOfState(countryCode, stateCode);
+            setCities(stateCities);
+            
+            // If previously selected city is not in new state, reset city
+            const cityExists = stateCities.some(c => c.name === cityCode);
+            if (!cityExists) {
+                setCityCode('');
+                setCity('');
+            }
+        } else {
+            setCities([]);
+            setCityCode('');
+            setCity('');
+        }
+    }, [countryCode, stateCode]);
+
     // Effect to update state if profile data becomes available after initial render
     useEffect(() => {
         if (musicLoverProfile) {
             setFirstName(musicLoverProfile.firstName ?? '');
             setLastName(musicLoverProfile.lastName ?? '');
-            setCity(musicLoverProfile.city ?? '');
-            setCountry(musicLoverProfile.country ?? '');
+            setAge(musicLoverProfile.age?.toString() ?? '');
+            setProfilePictureUri(musicLoverProfile.profilePicture ?? '');
+            
+            // Set location data if available - using optional chaining for type safety
+            // Only store the display values in the profile, not the codes
+            const countryValue = musicLoverProfile.country || '';
+            const stateValue = (musicLoverProfile as any).state || '';
+            const cityValue = musicLoverProfile.city || '';
+            
+            setCountry(countryValue);
+            setState(stateValue);
+            setCity(cityValue);
+            
+            // Find the country code based on the country name
+            if (countryValue) {
+                const matchedCountry = Country.getAllCountries().find(c => c.name === countryValue);
+                if (matchedCountry) {
+                    setCountryCode(matchedCountry.isoCode);
+                    
+                    // If we have a state and country code, find the state code
+                    if (stateValue && matchedCountry.isoCode) {
+                        const matchedState = State.getStatesOfCountry(matchedCountry.isoCode)
+                            .find(s => s.name === stateValue);
+                        if (matchedState) {
+                            setStateCode(matchedState.isoCode);
+                        }
+                    }
+                }
+            }
+            
             setBioDetails(musicLoverProfile.bio ?? {
                 firstSong: '', goToSong: '', mustListenAlbum: '', dreamConcert: '', musicTaste: '',
             });
@@ -85,11 +197,55 @@ const EditUserProfileScreen: React.FC = () => {
         setBioDetails(prev => ({ ...prev, [key]: value }));
     };
 
+    const handleCountryChange = (countryCode: string) => {
+        const selectedCountry = countries.find(c => c.isoCode === countryCode);
+        setCountryCode(countryCode);
+        setCountry(selectedCountry?.name ?? '');
+    };
+
+    const handleStateChange = (stateCode: string) => {
+        const selectedState = states.find(s => s.isoCode === stateCode);
+        setStateCode(stateCode);
+        setState(selectedState?.name ?? '');
+    };
+
+    const handleCityChange = (cityName: string) => {
+        setCityCode(cityName);
+        setCity(cityName);
+    };
+
+    const handleProfilePicPick = async () => {
+        // Request permissions first
+        const hasPermission = await requestMediaLibraryPermissions();
+        if (!hasPermission) {
+            return; // Permission denied
+        }
+
+        try {
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [1, 1],
+                quality: 0.8,
+            });
+
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const asset = result.assets[0];
+                setProfilePictureUri(asset.uri);
+                setProfilePictureMimeType(asset.mimeType || 'image/jpeg');
+                setIsProfilePictureChanged(true);
+            }
+        } catch (error: any) {
+            console.error('Error picking profile picture:', error);
+            Alert.alert('Image Selection Error', 'Could not select image. Please try again.');
+        }
+    };
+
     const handleSave = async () => {
         if (!userId || isSaving) return;
         setIsSaving(true);
 
-        // Simple validation example (add more as needed)
+        // Simple validation
         if (!firstName.trim() || !lastName.trim()) {
             Alert.alert("Missing Info", "First and Last Name are required.");
             setIsSaving(false);
@@ -97,14 +253,31 @@ const EditUserProfileScreen: React.FC = () => {
         }
 
         try {
+            // Process age if provided
+            const ageNumber = age ? parseInt(age) : null;
+            if (ageNumber !== null && (isNaN(ageNumber) || ageNumber < 1 || ageNumber > 120)) {
+                Alert.alert("Invalid Age", "Please enter a valid age between 1 and 120.");
+                setIsSaving(false);
+                return;
+            }
+
+            // Prepare the update object with only the text fields for location
+            // as required by the database schema
             const updates = {
                 first_name: firstName.trim(),
                 last_name: lastName.trim(),
-                city: city.trim() || null, // Store empty as null
-                country: country.trim() || null, // Store empty as null
+                age: ageNumber,
+                // Only save the text values for locations
+                country: country || null,
+                state: state || null,
+                city: city || null,
+                // Bio data
                 bio: bioDetails,
             };
 
+            console.log('[EditUserProfile] Saving profile with data:', JSON.stringify(updates));
+
+            // Update profile in the database
             const { error } = await supabase
                 .from('music_lover_profiles')
                 .update(updates)
@@ -112,12 +285,52 @@ const EditUserProfileScreen: React.FC = () => {
 
             if (error) throw error;
 
+            // If profile picture was changed, upload it
+            if (isProfilePictureChanged && profilePictureUri) {
+                try {
+                    const fileExt = profilePictureUri.split('.').pop();
+                    const fileName = `${userId}-profile-${Date.now()}.${fileExt}`;
+                    const filePath = `profiles/${fileName}`;
+
+                    // Prepare the image for upload
+                    const formData = new FormData();
+                    formData.append('file', {
+                        name: fileName,
+                        type: profilePictureMimeType || 'image/jpeg',
+                        uri: profilePictureUri,
+                    } as any); // Using 'as any' to bypass TypeScript checking
+
+                    // Upload to storage
+                    const { error: uploadError } = await supabase.storage
+                        .from('profile-pictures')
+                        .upload(filePath, formData);
+
+                    if (uploadError) {
+                        console.error('[EditUserProfile] Error uploading profile picture:', uploadError);
+                        // Don't fail the entire operation if only the image upload fails
+                        Alert.alert("Image Upload Warning", "Profile saved but image upload failed. You can try updating your picture later.");
+                    } else {
+                        // Update the profile with the new image URL
+                        const { error: updateError } = await supabase
+                            .from('music_lover_profiles')
+                            .update({ profile_picture: filePath })
+                            .eq('user_id', userId);
+                            
+                        if (updateError) {
+                            console.error('[EditUserProfile] Error updating profile with new image path:', updateError);
+                        }
+                    }
+                } catch (imageError) {
+                    console.error('[EditUserProfile] Error processing image:', imageError);
+                }
+            }
+
             Alert.alert("Success", "Profile updated successfully!");
             await refreshSessionData?.(); // Refresh session to get updated profile in context
             navigation.goBack();
 
         } catch (error: any) {
-            console.error("Error updating profile:", error);
+            console.error("[EditUserProfile] Error updating profile:", error);
             Alert.alert("Error", "Could not save profile changes. Please try again.");
         } finally {
             setIsSaving(false);
@@ -134,8 +347,53 @@ const EditUserProfileScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+            {/* Header with save button */}
+            <View style={styles.header}>
+                <TouchableOpacity 
+                    style={styles.backButton}
+                    onPress={() => navigation.goBack()}
+                >
+                    <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Edit Profile</Text>
+                <TouchableOpacity 
+                    style={styles.saveButton}
+                    onPress={handleSave}
+                    disabled={isSaving}
+                >
+                    {isSaving ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                        <Text style={styles.saveButtonText}>Save</Text>
+                    )}
+                </TouchableOpacity>
+            </View>
+            
             {/* Content */}
             <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+                {/* Profile Picture Section */}
+                <View style={styles.profilePicSection}>
+                    {profilePictureUri ? (
+                        <Image 
+                            source={{ uri: profilePictureUri }} 
+                            style={styles.profilePicture} 
+                        />
+                    ) : (
+                        <View style={styles.profilePicPlaceholder}>
+                            <Feather name="user" size={40} color={APP_CONSTANTS.COLORS.PRIMARY_DARK} />
+                        </View>
+                    )}
+                    <TouchableOpacity 
+                        style={styles.changePhotoButton}
+                        onPress={handleProfilePicPick}
+                    >
+                        <Feather name="camera" size={16} color="white" style={styles.buttonIcon} />
+                        <Text style={styles.changePhotoText}>
+                            {profilePictureUri ? 'Change Photo' : 'Add Photo'}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+                
                 <Text style={styles.sectionTitle}>Basic Information</Text>
                 <TextInput
                     style={styles.input}
@@ -153,22 +411,84 @@ const EditUserProfileScreen: React.FC = () => {
                     placeholderTextColor="#9CA3AF"
                     autoCapitalize="words"
                 />
-                 <TextInput
+                <TextInput
                     style={styles.input}
-                    placeholder="City (Optional)"
-                    value={city}
-                    onChangeText={setCity}
+                    placeholder="Age (Optional)"
+                    value={age}
+                    onChangeText={(text) => setAge(text.replace(/\D/g, ''))}
                     placeholderTextColor="#9CA3AF"
-                    autoCapitalize="words"
+                    keyboardType="number-pad"
+                    maxLength={3}
                 />
-                 <TextInput
-                    style={styles.input}
-                    placeholder="Country (Optional)"
-                    value={country}
-                    onChangeText={setCountry}
-                    placeholderTextColor="#9CA3AF"
-                    autoCapitalize="words"
-                />
+                
+                <Text style={styles.sectionTitle}>Location</Text>
+                
+                {/* Country Picker */}
+                <Text style={styles.pickerLabel}>Country</Text>
+                <View style={styles.pickerContainer}>
+                    <Picker
+                        selectedValue={countryCode}
+                        onValueChange={handleCountryChange}
+                        style={styles.picker}
+                    >
+                        <Picker.Item label="Select a country..." value="" />
+                        {countries.map((country) => (
+                            <Picker.Item 
+                                key={country.isoCode} 
+                                label={country.name} 
+                                value={country.isoCode} 
+                            />
+                        ))}
+                    </Picker>
+                </View>
+                
+                {/* State Picker - Only show if country is selected and not Singapore */}
+                {countryCode && countryCode !== 'SG' && (
+                    <>
+                        <Text style={styles.pickerLabel}>State/Province</Text>
+                        <View style={styles.pickerContainer}>
+                            <Picker
+                                selectedValue={stateCode}
+                                onValueChange={handleStateChange}
+                                style={styles.picker}
+                                enabled={states.length > 0}
+                            >
+                                <Picker.Item label="Select a state..." value="" />
+                                {states.map((state) => (
+                                    <Picker.Item 
+                                        key={state.isoCode} 
+                                        label={state.name} 
+                                        value={state.isoCode} 
+                                    />
+                                ))}
+                            </Picker>
+                        </View>
+                    </>
+                )}
+                
+                {/* City Picker - Only show if state is selected */}
+                {stateCode && (
+                    <>
+                        <Text style={styles.pickerLabel}>City</Text>
+                        <View style={styles.pickerContainer}>
+                            <Picker
+                                selectedValue={cityCode}
+                                onValueChange={handleCityChange}
+                                style={styles.picker}
+                                enabled={cities.length > 0}
+                            >
+                                <Picker.Item label="Select a city..." value="" />
+                                {cities.map((city) => (
+                                    <Picker.Item 
+                                        key={city.name} 
+                                        label={city.name} 
+                                        value={city.name} 
+                                    />
+                                ))}
+                            </Picker>
+                        </View>
+                    </>
+                )}
 
                 <Text style={styles.sectionTitle}>About Me</Text>
                 {Object.entries(bioDetailLabels).map(([key, label]) => (
@@ -185,7 +505,7 @@ const EditUserProfileScreen: React.FC = () => {
                     </View>
                 ))}
 
-                 <View style={{ height: 40 }} />
+                <View style={{ height: 40 }} />
             </ScrollView>
         </SafeAreaView>
     );
@@ -193,10 +513,97 @@ const EditUserProfileScreen: React.FC = () => {
 
 // --- Styles ---
 const styles = StyleSheet.create({
-    centeredLoader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB' },
-    container: { flex: 1, backgroundColor: '#F9FAFB' },
-    scrollView: { flex: 1 },
-    scrollContent: { padding: 20 },
+    centeredLoader: { 
+        flex: 1, 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        backgroundColor: '#F9FAFB' 
+    },
+    container: { 
+        flex: 1, 
+        backgroundColor: '#F9FAFB' 
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+        backgroundColor: '#FFFFFF',
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#1F2937',
+    },
+    backButton: {
+        padding: 8,
+    },
+    saveButton: {
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 6,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    saveButtonText: {
+        color: '#FFFFFF',
+        fontWeight: '600',
+    },
+    scrollView: { 
+        flex: 1 
+    },
+    scrollContent: { 
+        padding: 20 
+    },
+    profilePicSection: {
+        alignItems: 'center',
+        marginBottom: 24,
+    },
+    profilePicture: {
+        width: 100,
+        height: 100,
+        borderRadius: 50,
+        marginBottom: 12,
+        backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT,
+        borderWidth: 2,
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT,
+    },
+    profilePicPlaceholder: {
+        width: 100,
+        height: 100,
+        borderRadius: 50,
+        backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT + '80',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: APP_CONSTANTS.COLORS.BORDER,
+    },
+    changePhotoButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 20,
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2,
+    },
+    buttonIcon: {
+        marginRight: 8,
+    },
+    changePhotoText: {
+        color: 'white',
+        fontWeight: '600',
+        fontSize: 14,
+    },
     sectionTitle: {
         fontSize: 16,
         fontWeight: '600',
@@ -218,7 +625,26 @@ const styles = StyleSheet.create({
         color: '#1F2937',
         marginBottom: 16,
     },
-     bioInputContainer: {
+    pickerLabel: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: '#6B7280',
+        marginBottom: 8,
+    },
+    pickerContainer: {
+        backgroundColor: 'white',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#D1D5DB',
+        marginBottom: 16,
+        overflow: 'hidden',
+    },
+    picker: {
+        width: '100%',
+        height: Platform.OS === 'ios' ? 180 : 50,
+        color: '#1F2937',
+    },
+    bioInputContainer: {
         marginBottom: 20,
     },
     bioLabel: {

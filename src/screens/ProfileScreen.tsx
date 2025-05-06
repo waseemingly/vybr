@@ -13,7 +13,7 @@ import { useStreamingData, TopArtist, TopTrack, TopGenre } from '@/hooks/useStre
 import { useSpotifyAuth } from '@/hooks/useSpotifyAuth';
 import { useYouTubeMusicAuth } from '@/hooks/useYouTubeMusicAuth';
 import { APP_CONSTANTS } from "@/config/constants";
-import { useNavigation, useFocusEffect, useRoute } from "@react-navigation/native";
+import { useNavigation, useFocusEffect, useRoute, useNavigationState } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import { supabase } from "@/lib/supabase";
@@ -26,6 +26,12 @@ type ProfileScreenRouteProp = RouteProp<UserTabParamList, 'Profile'>;
 // Used for route params from navigation
 type ProfileScreenRouteProps = {
     goToLinkMusic?: boolean;
+    autoLinkSpotify?: boolean;
+    autoLinkYouTubeMusic?: boolean;
+};
+
+// Update Link Music Screen route params type
+type LinkMusicServicesScreenParams = {
     autoLinkSpotify?: boolean;
     autoLinkYouTubeMusic?: boolean;
 };
@@ -215,15 +221,16 @@ const ProfileScreen: React.FC = () => {
         setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
     };
 
-    // Handle manual refresh of streaming service data with simplified logic
+    // Handle manual refresh of streaming service data
     const handleForceRefreshStreamingData = async (service: 'spotify' | 'youtubemusic') => {
         if (!musicLoverProfile || !userId) {
             console.warn(`[ProfileScreen] Cannot refresh ${service} data: Profile or user ID not loaded.`);
             return;
         }
 
-        // Check if service is connected
-        if (!isServiceConnected(service)) {
+        // Check if service is connected - now async
+        const isConnected = await isServiceConnected(service);
+        if (!isConnected) {
             console.warn(`[ProfileScreen] Cannot refresh ${service} data: Service not connected.`);
             Alert.alert(
                 "Service Not Connected", 
@@ -231,9 +238,12 @@ const ProfileScreen: React.FC = () => {
                 [
                     { text: "Cancel", style: "cancel" },
                     { text: "Connect", onPress: () => {
-                        navigation.navigate('LinkMusicServicesScreen', { 
-                            autoLinkSpotify: service === 'spotify',
-                        });
+                        // Use properly typed navigation params
+                        const params: LinkMusicServicesScreenParams = {};
+                        if (service === 'spotify') params.autoLinkSpotify = true;
+                        if (service === 'youtubemusic') params.autoLinkYouTubeMusic = true;
+                        
+                        navigation.navigate('LinkMusicServicesScreen', params);
                     }}
                 ]
             );
@@ -247,7 +257,7 @@ const ProfileScreen: React.FC = () => {
             const premium = !!musicLoverProfile.isPremium;
             console.log(`[ProfileScreen] Calling forceFetchServiceData for ${premium ? 'premium' : 'free'} user (ID: ${userId})`);
 
-            // Call the hook function directly
+            // Use the streamingData hook's forceFetchServiceData method directly
             const success = await forceFetchServiceData(service, premium);
 
             if (success) {

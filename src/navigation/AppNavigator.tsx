@@ -85,7 +85,7 @@ export type MainStackParamList = {
   LoadingScreen: undefined; // Could be used while checking auth state
   UserTabs: { screen?: keyof UserTabParamList, params?: any }; // Entry point for User tabs
   OrganizerTabs: { screen?: keyof OrganizerTabParamList, params?: any }; // Entry point for Organizer tabs
-  SettingsScreen: undefined;
+  UserSettingsScreen: undefined;
   EditProfileScreen: { userType: 'music_lover' | 'organizer' };
   LinkMusicServicesScreen: { autoLinkSpotify?: boolean } | undefined; // <<< ADDED param, allow undefined
   OtherUserProfileScreen: { userId: string };
