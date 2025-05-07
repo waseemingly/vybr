@@ -183,9 +183,9 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
                 <TouchableOpacity
                   onPress={() => {
                     if (userType === 'music_lover') {
-                      navigation.navigate('MusicLoverSignUp' as never);
+                      navigation.navigate('MusicLoverSignUpFlow' as never);
                     } else {
-                      navigation.navigate('OrganizerSignUp' as never);
+                      navigation.navigate('OrganizerSignUpFlow' as never);
                     }
                   }}
                 >
