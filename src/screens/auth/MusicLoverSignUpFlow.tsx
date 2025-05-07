@@ -470,80 +470,60 @@ const MusicLoverSignUpFlow = () => {
     const handleAccountAndProfileCreation = async (): Promise<string | null> => {
         console.log('[MusicLoverSignUpFlow] handleAccountAndProfileCreation called.');
         setError('');
+        setIsLoading(true);
         let userId: string | null = null;
 
-        // Set loading state using component's state
-        setIsLoading(true);
-
         try {
-            // 1a. Sign up Auth User
-            console.log('[MusicLoverSignUpFlow] Calling signUp hook...');
+            // 1. Sign up Auth User
+            console.log('[MusicLoverSignUpFlow] Calling signUp hook with email:', formData.email);
             const signUpResult = await signUp({
                 email: formData.email.trim(),
                 password: formData.password,
                 userType: 'music_lover',
             });
 
-            // Check for error property first (Type Guard)
+            console.log('[MusicLoverSignUpFlow] SignUp result:', signUpResult);
+
             if ('error' in signUpResult && signUpResult.error) {
-                const errorMsg = signUpResult.error?.message || 'Sign up failed. Unknown error.';
-                console.error('[MusicLoverSignUpFlow] signUp hook FAILED:', signUpResult.error);
-                setError(errorMsg);
-                setIsLoading(false);
-                return null;
-            } else if (!('user' in signUpResult) || !signUpResult.user?.id) {
-                // Handle case where signup succeeded technically but didn't return expected user data
-                console.error('[MusicLoverSignUpFlow] signUp hook SUCCEEDED but returned no user ID.');
-                setError('Sign up failed. Could not retrieve user details.');
-                setIsLoading(false);
-                return null;
+                console.error('[MusicLoverSignUpFlow] SignUp error:', signUpResult.error);
+                throw new Error(signUpResult.error.message || 'Sign up failed');
             }
 
-            // If we reach here, signUpResult must be { user: { id: string, ... } }
+            if (!('user' in signUpResult) || !signUpResult.user?.id) {
+                console.error('[MusicLoverSignUpFlow] No user ID in signUp result');
+                throw new Error('Failed to create user account');
+            }
+
             userId = signUpResult.user.id;
-            console.log('[MusicLoverSignUpFlow] signUp hook SUCCEEDED. User ID:', userId);
+            console.log('[MusicLoverSignUpFlow] User account created successfully:', userId);
 
-            // 1b. Prepare Profile Data (using helper)
+            // 2. Create Profile
             if (!userId) {
-                console.error('[MusicLoverSignUpFlow] userId became null unexpectedly before profile creation.');
-                setError('An internal error occurred. Please try again.');
-                setIsLoading(false);
-                return null;
+                throw new Error('User ID is missing');
             }
-            const profileDataForHook = prepareProfileData(userId);
 
-            // 1c. Create Music Lover Profile in DB using the hook
-            console.log('[MusicLoverSignUpFlow] Calling createMusicLoverProfile hook...');
-            const profileResult = await createMusicLoverProfile(profileDataForHook);
+            const profileData = prepareProfileData(userId);
+            console.log('[MusicLoverSignUpFlow] Creating profile with data:', profileData);
 
-            // Check for error property first (Type Guard)
+            const profileResult = await createMusicLoverProfile(profileData);
+            console.log('[MusicLoverSignUpFlow] Profile creation result:', profileResult);
+            
             if ('error' in profileResult && profileResult.error) {
-                let errorMsg = profileResult.error.message || 'Failed to save profile details.';
-                // Check for specific DB errors like unique username violation
-                if (profileResult.error?.code === '23505' && profileResult.error?.message?.includes('username')) {
-                    errorMsg = 'This username is already taken. Please choose another.';
-                }
-                // Handle potential image upload failure reported (if hook returns specific error)
-                // if (profileResult.error.uploadError) { errorMsg += ` (Image upload failed: ${profileResult.error.uploadError})`}
-
-                console.error('[MusicLoverSignUpFlow] createMusicLoverProfile hook FAILED:', profileResult.error);
-                setError(errorMsg);
-                // Alert if account created but profile failed
-                Alert.alert('Profile Error', 'Your account was created, but saving profile details failed. Please contact support or try logging in later to complete your profile.');
-                // Consider if you should attempt to delete the auth user here? Risky. Better to let them contact support.
-                setIsLoading(false);
-                return null; // Return null as profile creation failed
+                console.error('[MusicLoverSignUpFlow] Profile creation error:', profileResult.error);
+                throw new Error(profileResult.error.message || 'Failed to create profile');
             }
 
-            console.log('[MusicLoverSignUpFlow] createMusicLoverProfile hook SUCCEEDED.');
-            // Don't set loading false here if subsequent steps follow immediately
-            return userId; // Return user ID on full success
+            console.log('[MusicLoverSignUpFlow] Profile created successfully');
+            return userId;
 
         } catch (err: any) {
-            console.error('[MusicLoverSignUpFlow] UNEXPECTED error in handleAccountAndProfileCreation:', err);
-            setError(err.message || 'An unexpected error occurred during account creation.');
-            setIsLoading(false);
+            console.error('[MusicLoverSignUpFlow] Error in account/profile creation:', err);
+            const errorMessage = err.message || 'Failed to create account and profile';
+            setError(errorMessage);
+            Alert.alert('Signup Error', errorMessage);
             return null;
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -554,36 +534,41 @@ const MusicLoverSignUpFlow = () => {
             setIsLoading(true);
             setError('');
 
-            // Create user account and profile, get the user ID
+            // Create user account and profile
             const userId = await handleAccountAndProfileCreation();
             if (!userId) {
                 throw new Error("Failed to create account and profile");
             }
 
-            // If a streaming service was connected, fetch the data
-            if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
-                console.log('[MusicLoverSignUpFlow] Fetching Spotify data for free user...');
-                try {
-                    await forceFetchAndSaveSpotifyData(userId, false); // false = not premium
-                } catch (spotifyError) {
-                    console.error('[MusicLoverSignUpFlow] Error fetching Spotify data:', spotifyError);
-                    // Non-critical - continue signup even if this fails
+            // Set premium status to false
+            try {
+                const premiumResult = await updatePremiumStatus(userId, false);
+                if ('error' in premiumResult && premiumResult.error) {
+                    console.error('[MusicLoverSignUpFlow] Error updating premium status:', premiumResult.error);
                 }
-            }
-            
-            // Handle YouTube Music data fetch if connected
-            if (formData.selectedStreamingService === 'youtubemusic' && isYouTubeMusicLoggedIn) {
-                console.log('[MusicLoverSignUpFlow] Fetching YouTube Music data for free user...');
-                try {
-                    await forceFetchAndSaveYouTubeMusicData(userId, false); // false = not premium
-                } catch (ytmError) {
-                    console.error('[MusicLoverSignUpFlow] Error fetching YouTube Music data:', ytmError);
-                    // Non-critical - continue signup even if this fails
-                }
+            } catch (premiumError) {
+                console.error('[MusicLoverSignUpFlow] Error updating premium status:', premiumError);
+                // Don't throw here, as the account is already created
             }
 
-            // Set premium status to false
-            await updatePremiumStatus(userId, false);
+            // Only try to fetch streaming data if a service is selected and connected
+            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None') {
+                if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
+                    try {
+                        await forceFetchAndSaveSpotifyData(userId, false);
+                    } catch (spotifyError) {
+                        console.error('[MusicLoverSignUpFlow] Error fetching Spotify data:', spotifyError);
+                    }
+                }
+                
+                if (formData.selectedStreamingService === 'youtubemusic' && isYouTubeMusicLoggedIn) {
+                    try {
+                        await forceFetchAndSaveYouTubeMusicData(userId, false);
+                    } catch (ytmError) {
+                        console.error('[MusicLoverSignUpFlow] Error fetching YouTube Music data:', ytmError);
+                    }
+                }
+            }
 
             // Success - navigate to home/dashboard
             console.log('[MusicLoverSignUpFlow] Free signup completed successfully, navigating to home.');
@@ -592,16 +577,11 @@ const MusicLoverSignUpFlow = () => {
                 routes: [{ name: 'MainApp', params: { screen: 'UserTabs' } }],
             });
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('[MusicLoverSignUpFlow] Error in free signup completion:', error);
-            let errorMsg = 'An error occurred during signup';
-            
-            if (error instanceof Error) {
-                errorMsg = error.message;
-            }
-            
-            setError(errorMsg);
-            Alert.alert('Signup Error', errorMsg);
+            const errorMessage = error.message || 'An error occurred during signup';
+            setError(errorMessage);
+            Alert.alert('Signup Error', errorMessage);
         } finally {
             setIsLoading(false);
         }
@@ -610,51 +590,52 @@ const MusicLoverSignUpFlow = () => {
     // Completes signup for PREMIUM tier - SIMPLIFIED NAVIGATION
     const handlePremiumSignupCompletion = async () => {
         try {
-            // ... [Same as before until after user account creation]
-            
-            // Create user account and profile, get the user ID
+            setIsLoading(true);
+            setError('');
+
+            // Create user account and profile
             const userId = await handleAccountAndProfileCreation();
             if (!userId) {
                 throw new Error("Failed to create account and profile");
             }
 
-            // Process payment with Stripe
-            // ... [No changes to payment processing code] ...
-
-            // After payment success, fetch service data if connected
-            if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
-                console.log('[MusicLoverSignUpFlow] Fetching Spotify data for premium user...');
-                try {
-                    await forceFetchAndSaveSpotifyData(userId, true); // true = premium
-                } catch (spotifyError) {
-                    console.error('[MusicLoverSignUpFlow] Error fetching Spotify data:', spotifyError);
-                    // Non-critical - continue signup even if this fails
-                }
-            }
-            
-            // Handle YouTube Music data fetch if connected
-            if (formData.selectedStreamingService === 'youtubemusic' && isYouTubeMusicLoggedIn) {
-                console.log('[MusicLoverSignUpFlow] Fetching YouTube Music data for premium user...');
-                try {
-                    await forceFetchAndSaveYouTubeMusicData(userId, true); // true = premium
-                } catch (ytmError) {
-                    console.error('[MusicLoverSignUpFlow] Error fetching YouTube Music data:', ytmError);
-                    // Non-critical - continue signup even if this fails
-                }
+            // Set premium status to true
+            const premiumResult = await updatePremiumStatus(userId, true);
+            if ('error' in premiumResult && premiumResult.error) {
+                console.error('[MusicLoverSignUpFlow] Error updating premium status:', premiumResult.error);
+                // Don't throw here, as the account is already created
             }
 
-            // Set premium status to true 
-            await updatePremiumStatus(userId, true);
+            // Only try to fetch streaming data if a service is selected and connected
+            if (formData.selectedStreamingService !== 'None') {
+                if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
+                    try {
+                        await forceFetchAndSaveSpotifyData(userId, true);
+                    } catch (spotifyError) {
+                        console.error('[MusicLoverSignUpFlow] Error fetching Spotify data:', spotifyError);
+                    }
+                }
+                
+                if (formData.selectedStreamingService === 'youtubemusic' && isYouTubeMusicLoggedIn) {
+                    try {
+                        await forceFetchAndSaveYouTubeMusicData(userId, true);
+                    } catch (ytmError) {
+                        console.error('[MusicLoverSignUpFlow] Error fetching YouTube Music data:', ytmError);
+                    }
+                }
+            }
 
             // Success - navigate to home/dashboard
             console.log('[MusicLoverSignUpFlow] Premium signup completed successfully, navigating to home.');
             navigation.reset({
-                index: 0, 
+                index: 0,
                 routes: [{ name: 'MainApp', params: { screen: 'UserTabs' } }],
             });
 
-        } catch (error) {
-            // ... [No changes to error handling]
+        } catch (error: any) {
+            console.error('[MusicLoverSignUpFlow] Error in premium signup completion:', error);
+            setError(error.message || 'An error occurred during signup');
+            Alert.alert('Signup Error', error.message || 'An error occurred during signup');
         } finally {
             setIsLoading(false);
         }
@@ -678,9 +659,9 @@ const MusicLoverSignUpFlow = () => {
             case 'subscription':
                 if (validateSubscriptionStep()) {
                     if (formData.subscriptionTier === 'free') {
-                        await handleFreeSignupCompletion(); // Handles final steps + loading
+                        handleFreeSignupCompletion(); // Handles final steps + loading
                     } else if (formData.subscriptionTier === 'premium') {
-                        goToNextStep('payment');
+                        handlePremiumSignupCompletion();
                     }
                 }
                 break;
@@ -888,12 +869,18 @@ const MusicLoverSignUpFlow = () => {
         setFormData(prev => ({ ...prev, selectedStreamingService: normalizedServiceId as StreamingServiceId }));
         setError(''); // Clear previous errors
 
+        // For 'None' or other services, proceed directly to subscription
+        if (normalizedServiceId === 'None') {
+            console.log('[MusicLoverSignUpFlow] None selected, proceeding to subscription step');
+            goToNextStep('subscription');
+            return;
+        }
+
         if (serviceId === 'spotify') {
             // If Spotify is selected, initiate the login flow
             console.log('[MusicLoverSignUpFlow] Spotify selected, initiating Spotify login...');
             try {
                 spotifyLogin(); // This opens the browser for Spotify auth
-                // Note: We don't immediately navigate - the useEffect watching isSpotifyLoggedIn will handle that
             } catch (error) {
                 console.error('[MusicLoverSignUpFlow] Error initiating Spotify login:', error);
                 Alert.alert(
@@ -912,14 +899,9 @@ const MusicLoverSignUpFlow = () => {
                 const authDetails = await youTubeMusicLogin();
                 
                 if (authDetails) {
-                    // Show the authentication details on the same page
                     setYTMAuthDetails(authDetails);
                     setShowYTMAuthCode(true);
-                    
-                    // IMPORTANT: We're not automatically opening the browser anymore
-                    // Display the info for the user to manually navigate
                 } else {
-                    // Something went wrong with getting the auth details
                     Alert.alert(
                         "YouTube Music Connection Failed",
                         "We couldn't start the connection process. You can try again later or continue without connecting.",
@@ -936,10 +918,6 @@ const MusicLoverSignUpFlow = () => {
                     [{ text: "Continue Anyway", onPress: () => goToNextStep('subscription') }]
                 );
             }
-        } else {
-            // For other services (or 'None'), proceed directly
-            console.log(`[MusicLoverSignUpFlow] ${normalizedServiceId} selected, proceeding to subscription step`);
-            validateStreamingServiceStep() && goToNextStep('subscription');
         }
     };
 
@@ -1428,18 +1406,36 @@ const MusicLoverSignUpFlow = () => {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                    style={styles.primaryButton}
-                    onPress={() => {
-                        if (validateSubscriptionStep()) {
-                            handleStepSubmit(); // Use the same submit handler for both free and premium
+                    style={[
+                        styles.primaryButton,
+                        (!formData.subscriptionTier || isLoading) && styles.primaryButtonDisabled
+                    ]}
+                    onPress={async () => {
+                        try {
+                            if (formData.subscriptionTier === 'free') {
+                                await handleFreeSignupCompletion();
+                            } else if (formData.subscriptionTier === 'premium') {
+                                await handlePremiumSignupCompletion();
+                            }
+                        } catch (error: any) {
+                            console.error('[MusicLoverSignUpFlow] Error in subscription step:', error);
+                            setError(error.message || 'An error occurred during signup');
+                            Alert.alert('Signup Error', error.message || 'An error occurred during signup');
                         }
                     }}
+                    disabled={!formData.subscriptionTier || isLoading}
                 >
-                    <Text style={styles.primaryButtonText}>
-                        {formData.subscriptionTier === 'premium' ? 'Continue' : 'Create Account'} 
-                    </Text>
+                    {isLoading ? (
+                        <ActivityIndicator color="white" />
+                    ) : (
+                        <Text style={styles.primaryButtonText}>
+                            {formData.subscriptionTier === 'premium' ? 'Complete Premium Sign Up' : 'Create Account'}
+                        </Text>
+                    )}
                 </TouchableOpacity>
             </View>
+
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
         </View>
     );
 
@@ -1709,18 +1705,19 @@ const styles = StyleSheet.create({
     subscriptionOptionsContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'stretch',
-        marginBottom: 20,
+        gap: 16,
+        marginVertical: 24,
         paddingHorizontal: 10,
     },
     subscriptionCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        borderWidth: 1.5,
-        borderColor: APP_CONSTANTS.COLORS.BORDER,
+        flex: 1,
+        backgroundColor: 'white',
+        borderRadius: 16,
         padding: 20,
-        width: '48%',
-        minHeight: 280,
+        borderWidth: 2,
+        borderColor: APP_CONSTANTS.COLORS.BORDER,
+        position: 'relative',
+        minHeight: 300,
         shadowColor: "#000000",
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.08,
@@ -1729,7 +1726,7 @@ const styles = StyleSheet.create({
     },
     selectedSubscriptionCard: {
         borderColor: APP_CONSTANTS.COLORS.PRIMARY,
-        backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}0A`,
+        backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}10`,
         shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
         shadowOpacity: 0.15,
         shadowRadius: 5,
@@ -1738,23 +1735,31 @@ const styles = StyleSheet.create({
     premiumCard: {
         borderColor: APP_CONSTANTS.COLORS.PRIMARY,
     },
-    // Set correct planHeader for subscriptions
-    // planHeader defined above
-    // Keep only one definition of planHeader
+    planHeader: {
+        marginBottom: 20,
+    },
+    planTitle: {
+        fontSize: 24,
+        fontWeight: '700',
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+        marginBottom: 8,
+    },
+    planPrice: {
+        fontSize: 20,
+        fontWeight: '600',
+        color: APP_CONSTANTS.COLORS.PRIMARY,
+    },
     planFeaturesList: {
-        flex: 1,
-        justifyContent: 'flex-start',
+        gap: 12,
     },
     planFeatureItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 12,
-        paddingHorizontal: 4,
+        gap: 8,
     },
     featureText: {
         fontSize: 14,
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-        marginLeft: 8,
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
         flex: 1,
     },
     selectionBadge: {
@@ -1770,9 +1775,49 @@ const styles = StyleSheet.create({
         backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
     },
     selectionBadgeText: {
-        fontSize: 12,
         color: 'white',
+        fontSize: 12,
         fontWeight: '600',
+    },
+    buttonContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        gap: 16,
+        marginTop: 24,
+    },
+    primaryButton: {
+        flex: 1,
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        paddingVertical: 16,
+        borderRadius: 12,
+        alignItems: 'center',
+    },
+    primaryButtonDisabled: {
+        backgroundColor: APP_CONSTANTS.COLORS.DISABLED,
+    },
+    primaryButtonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    secondaryButton: {
+        flex: 1,
+        backgroundColor: 'white',
+        paddingVertical: 16,
+        borderRadius: 12,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: APP_CONSTANTS.COLORS.BORDER,
+    },
+    secondaryButtonText: {
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    errorText: {
+        color: APP_CONSTANTS.COLORS.ERROR,
+        marginTop: 16,
+        textAlign: 'center',
     },
     
     // YouTube Music Auth Styles
