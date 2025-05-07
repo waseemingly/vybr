@@ -8,6 +8,7 @@ config.resolver.unstable_enablePackageExports = false;
 // Add Node.js polyfills
 config.resolver.extraNodeModules = {
   stream: require.resolve('stream-browserify'),
+  'event-target-shim': require.resolve('event-target-shim'),
   // Add other polyfills as needed:
   // crypto: require.resolve('crypto-browserify'),
   // http: require.resolve('stream-http'),
