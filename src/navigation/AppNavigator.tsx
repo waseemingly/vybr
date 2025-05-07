@@ -122,7 +122,11 @@ export type RootStackParamList = {
     matchName: string;
     matchProfilePicture?: string | null;
   };
-  OtherUserProfileScreen: { userId: string };
+  OtherUserProfileScreen: {
+    userId: string;
+    fromChat?: boolean;
+    chatImages?: string[];
+  };
 
   // *** Group Chat Screens in Root Stack ***
   CreateGroupChatScreen: undefined;
