@@ -270,7 +270,7 @@ const UserSettingsScreen: React.FC = () => {
 
     // --- Delete Account Handler ---
     const handleDeleteAccount = () => {
-        if (!userId) return; // Should not happen if logged in, but good practice
+        if (!userId) return;
 
         Alert.alert(
             "Delete Account",
@@ -286,27 +286,50 @@ const UserSettingsScreen: React.FC = () => {
                     onPress: async () => {
                         setIsDeleting(true);
                         try {
-                             console.log("Invoking Supabase function 'delete-user-account'...");
-                            // *** YOU NEED TO CREATE THIS EDGE FUNCTION IN SUPABASE ***
-                            const { error: functionError } = await supabase.functions.invoke('delete-user-account');
-
-                            if (functionError) {
-                                throw functionError; // Throw error to be caught below
+                            console.log("[UserSettingsScreen] Starting account deletion process...", {
+                                platform: Platform.OS,
+                                userId,
+                                isWeb: Platform.OS === 'web'
+                            });
+                            
+                            // 1. Delete the user's auth account using RPC (must be done while still authenticated)
+                            const { data, error: deleteError } = await supabase.rpc('delete_user_account');
+                            
+                            if (deleteError) {
+                                console.error("[UserSettingsScreen] Error deleting auth account:", {
+                                    error: deleteError,
+                                    platform: Platform.OS,
+                                    userId
+                                });
+                                throw new Error(`Failed to delete account: ${deleteError.message}`);
                             }
 
-                             console.log("'delete-user-account' function successful. Logging out...");
-                             // Logout should happen automatically if auth user is deleted, 
-                             // but call it explicitly to clear local state immediately.
-                            await logout(); 
-                            // No need to setIsDeleting(false) as the user is logged out/screen unmounted
+                            console.log("[UserSettingsScreen] Account deletion successful", {
+                                platform: Platform.OS,
+                                userId
+                            });
+
+                            // 2. Sign out after successful deletion
+                            const { error: signOutError } = await supabase.auth.signOut();
+                            if (signOutError) {
+                                console.error("[UserSettingsScreen] Error signing out after deletion:", signOutError);
+                                // Don't throw here, as the account is already deleted
+                            }
+
+                            // 3. Force logout to clear local state
+                            await logout();
 
                         } catch (error: any) {
-                            console.error("Error deleting account:", error);
+                            console.error("[UserSettingsScreen] Error in account deletion process:", {
+                                error,
+                                platform: Platform.OS,
+                                userId
+                            });
                             Alert.alert(
                                 "Deletion Failed", 
                                 `Could not delete your account: ${error.message || 'Please try again later or contact support.'}`
                             );
-                             setIsDeleting(false); // Only set false on error
+                            setIsDeleting(false);
                         }
                     }
                 }
