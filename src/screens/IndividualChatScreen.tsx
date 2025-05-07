@@ -1,5 +1,5 @@
 // screens/IndividualChatScreen.tsx
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import {
     View, StyleSheet, ActivityIndicator, Text, TouchableOpacity,
     Platform, TextInput, SectionList, KeyboardAvoidingView, Keyboard,
@@ -279,40 +279,38 @@ const IndividualChatScreen: React.FC = () => {
                          <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} />
                      </TouchableOpacity>
                  ),
-                 // Render header title component dynamically
-                 headerTitle: () => {
-                    // Get the current state values directly during render
-                    const isCurrentlyBlocked = isBlocked;
-                    const isCurrentlyMuted = isMatchMuted;
-                    const title = isCurrentlyBlocked ? "User Unavailable" : (dynamicMatchName || 'Chat');
-                    const isMutuallyInitiated = isChatMutuallyInitiated; // <<< Get current state value
-                    const canNavigateToProfile = !isCurrentlyBlocked && isMutuallyInitiated; // <<< Recalculate here
-
-                    return (
-                        <TouchableOpacity
-                            onPress={() => navigation.navigate('OtherUserProfileScreen', { userId: matchUserId })}
-                            style={styles.headerTitleContainer}
-                            disabled={!canNavigateToProfile} // <<< Disable based on recalculation
-                        >
-                           {/* Add Profile Picture Here */}
-                           <Image
-                                source={{ uri: profilePicUri ?? DEFAULT_PROFILE_PIC }}
-                                style={styles.headerProfileImage}
-                            />
-                            <Text style={[styles.headerTitleText, isCurrentlyBlocked && styles.blockedText]} numberOfLines={1}>
-                                {title}
-                            </Text>
-                            {isCurrentlyMuted && !isCurrentlyBlocked && (
-                                <Feather name="volume-x" size={16} color="#FF8C00" style={styles.muteIcon} />
-                            )}
-                        </TouchableOpacity>
-                    );
-                 },
-                 headerRight: () => (isBlocked ? <View style={{width: 30}} /> : undefined), // Hide options maybe?
+                 headerTitle: () => (
+                     <TouchableOpacity
+                         onPress={() => {
+                             if (matchUserId) {
+                                 navigation.navigate('OtherUserProfileScreen', {
+                                     userId: matchUserId,
+                                     fromChat: true,
+                                     chatImages: messages
+                                         .filter(msg => msg.image)
+                                         .map(msg => msg.image!)
+                                 });
+                             }
+                         }}
+                         style={styles.headerTitleContainer}
+                     >
+                         <Image
+                             source={{ uri: route.params.matchProfilePicture ?? DEFAULT_PROFILE_PIC }}
+                             style={styles.headerProfileImage}
+                         />
+                         <Text style={[styles.headerTitleText, isBlocked && styles.blockedText]} numberOfLines={1}>
+                             {dynamicMatchName || 'Chat'}
+                         </Text>
+                         {isMatchMuted && !isBlocked && (
+                             <Feather name="volume-x" size={16} color="#FF8C00" style={styles.muteIcon} />
+                         )}
+                     </TouchableOpacity>
+                 ),
+                 headerRight: () => (isBlocked ? <View style={{width: 30}} /> : undefined),
                  headerStyle: { backgroundColor: 'white' },
              });
 
-        }, [navigation, matchUserId, route.params.matchName, route.params.matchProfilePicture, fetchInteractionStatus, isBlocked, isMatchMuted, isChatMutuallyInitiated]) // Add profile pic URI to dependencies
+        }, [navigation, dynamicMatchName, matchUserId, route.params.matchProfilePicture, fetchInteractionStatus, isBlocked, isMatchMuted, isChatMutuallyInitiated, messages]) // Add messages to dependencies
     );
 
     // Fetch initial messages AFTER checking block status
@@ -721,17 +719,29 @@ const styles = StyleSheet.create({
     textInput: { flex: 1, minHeight: 40, maxHeight: 120, backgroundColor: '#F3F4F6', borderRadius: 20, paddingHorizontal: 15, paddingVertical: Platform.OS === 'ios' ? 10 : 8, fontSize: 15, marginRight: 10, color: '#1F2937', },
     sendButton: { backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', },
     sendButtonDisabled: { backgroundColor: '#9CA3AF', },
-    headerTitleContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexShrink: 1 },
-    headerProfileImage: {
-        width: 30,
-        height: 30,
-        borderRadius: 15,
-        marginRight: 8,
-        backgroundColor: '#E5E7EB',
+    headerTitleContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        maxWidth: '80%',
     },
-    headerTitleText: { fontSize: 17, fontWeight: '600', color: '#000000', textAlign: 'center', },
-    muteIcon: { marginLeft: 6, },
-    blockedText: { color: '#6B7280', fontStyle: 'italic', },
+    headerProfileImage: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        marginRight: 8,
+    },
+    headerTitleText: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#000',
+    },
+    blockedText: {
+        color: '#999',
+    },
+    muteIcon: {
+        marginLeft: 4,
+    },
     timeText: {
         fontSize: 10,
     },

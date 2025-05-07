@@ -8,6 +8,7 @@ import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navig
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import ImageViewer from 'react-native-image-viewing';
 
 import { supabase } from '@/lib/supabase';
 import { useAuth, MusicLoverProfile, MusicLoverBio } from '@/hooks/useAuth';
@@ -49,7 +50,7 @@ const OtherUserProfileScreen: React.FC = () => {
     const route = useRoute<OtherUserProfileRouteProp>();
     const navigation = useNavigation<OtherUserProfileNavigationProp>();
     const { session } = useAuth();
-    const { userId: profileUserId } = route.params;
+    const { userId: profileUserId, fromChat, chatImages } = route.params;
     const { 
         streamingData, loading: streamingDataLoading, 
         topArtists, topAlbums, topTracks, topGenres,
@@ -69,6 +70,10 @@ const OtherUserProfileScreen: React.FC = () => {
     // --- State for custom unfriend confirmation modal ---
     const [showUnfriendConfirmModal, setShowUnfriendConfirmModal] = useState(false);
     const [expandedSections, setExpandedSections] = useState<ExpandedSections>({ artists: false, songs: false });
+
+    // Add state for image viewer
+    const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+    const [imageViewerVisible, setImageViewerVisible] = useState(false);
 
     const currentUserId = session?.user?.id;
 
@@ -844,7 +849,20 @@ const OtherUserProfileScreen: React.FC = () => {
     // --- Main Return ---
     return (
         <View style={styles.container}>
-            {/* Report Modal (existing) */}
+            {/* Image Viewer Modal */}
+            {imageViewerVisible && (
+                <ImageViewer
+                    images={chatImages?.map((url: string) => ({ uri: url })) || []}
+                    imageIndex={selectedImageIndex}
+                    visible={imageViewerVisible}
+                    onRequestClose={() => setImageViewerVisible(false)}
+                    swipeToCloseEnabled={true}
+                    doubleTapToZoomEnabled={true}
+                    onImageIndexChange={(index: number) => setSelectedImageIndex(index)}
+                />
+            )}
+
+            {/* Report Modal */}
             <Modal animationType="slide" transparent={true} visible={reportModalVisible} onRequestClose={() => { if (!isSubmittingReport) setReportModalVisible(false); }} >
                 <View style={styles.modalOverlay}><View style={styles.modalContent}>
                     <Text style={styles.modalTitle}>Report and Block {userName}</Text>
@@ -1093,6 +1111,31 @@ const OtherUserProfileScreen: React.FC = () => {
                           {renderBlockButton()}
                       </View>
                  )}
+
+                {/* Shared Media Section */}
+                {fromChat && chatImages?.length > 0 && (
+                    <View style={styles.moreOptionsSection}>
+                        <Text style={styles.moreOptionsTitle}>Shared Media</Text>
+                        <View style={profileStyles.sharedMediaContainer}>
+                            {chatImages.map((imageUrl: string, index: number) => (
+                                <TouchableOpacity
+                                    key={`shared-media-${index}`}
+                                    onPress={() => {
+                                        setSelectedImageIndex(index);
+                                        setImageViewerVisible(true);
+                                    }}
+                                    style={profileStyles.sharedMediaItem}
+                                >
+                                    <Image
+                                        source={{ uri: imageUrl }}
+                                        style={profileStyles.sharedMediaImage}
+                                        resizeMode="cover"
+                                    />
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </View>
+                )}
             </ScrollView>
         </View>
     );
@@ -1182,7 +1225,23 @@ const profileStyles = StyleSheet.create({
     seeAllButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, marginTop: 4, },
     seeAllButtonText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontSize: 14, fontWeight: '500', marginRight: 4, },
     dataSourceText: { fontSize: 12, color: "#6B7280", marginTop: 10, textAlign: 'center', fontStyle: 'italic' },
-    listItemDetails: { flexDirection: "column", flex: 1, }
+    listItemDetails: { flexDirection: "column", flex: 1, },
+    sharedMediaContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        padding: 8,
+    },
+    sharedMediaItem: {
+        width: '31%',
+        aspectRatio: 1,
+        borderRadius: 8,
+        overflow: 'hidden',
+    },
+    sharedMediaImage: {
+        width: '100%',
+        height: '100%',
+    },
 });
 
 
