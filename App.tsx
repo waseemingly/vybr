@@ -1,3 +1,13 @@
+// Import EventTarget polyfill
+import './src/utils/EventTargetPolyfill';
+
+// Set up EventTarget for Hermes
+if (typeof global.EventTarget === 'undefined') {
+  const { EventTarget, Event } = require('event-target-shim');
+  global.EventTarget = EventTarget;
+  global.Event = Event;
+}
+
 import React from "react";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
