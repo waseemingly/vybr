@@ -8,7 +8,7 @@ import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navig
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import ImageViewer from 'react-native-image-viewing';
+import ImageViewer from 'react-native-image-zoom-viewer';
 
 import { supabase } from '@/lib/supabase';
 import { useAuth, MusicLoverProfile, MusicLoverBio } from '@/hooks/useAuth';
@@ -852,13 +852,17 @@ const OtherUserProfileScreen: React.FC = () => {
             {/* Image Viewer Modal */}
             {imageViewerVisible && (
                 <ImageViewer
-                    images={chatImages?.map((url: string) => ({ uri: url })) || []}
-                    imageIndex={selectedImageIndex}
-                    visible={imageViewerVisible}
-                    onRequestClose={() => setImageViewerVisible(false)}
-                    swipeToCloseEnabled={true}
-                    doubleTapToZoomEnabled={true}
-                    onImageIndexChange={(index: number) => setSelectedImageIndex(index)}
+                    imageUrls={chatImages?.map((url: string) => ({ url })) || []}
+                    index={selectedImageIndex}
+                    onClick={() => setImageViewerVisible(false)}
+                    onSwipeDown={() => setImageViewerVisible(false)}
+                    enableSwipeDown={true}
+                    enableImageZoom={true}
+                    onChange={(index) => {
+                        if (typeof index === 'number') {
+                            setSelectedImageIndex(index);
+                        }
+                    }}
                 />
             )}
 
@@ -1113,7 +1117,7 @@ const OtherUserProfileScreen: React.FC = () => {
                  )}
 
                 {/* Shared Media Section */}
-                {fromChat && chatImages?.length > 0 && (
+                {fromChat && chatImages && chatImages.length > 0 && (
                     <View style={styles.moreOptionsSection}>
                         <Text style={styles.moreOptionsTitle}>Shared Media</Text>
                         <View style={profileStyles.sharedMediaContainer}>

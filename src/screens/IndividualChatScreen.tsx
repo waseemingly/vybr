@@ -13,8 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 import * as FileSystem from 'expo-file-system';
-import ImageView from 'react-native-image-viewing';
-import ImageViewer from 'react-native-image-viewing';
+import ImageViewer from 'react-native-image-zoom-viewer';
 
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -651,15 +650,19 @@ const IndividualChatScreen: React.FC = () => {
                 </View>
             </KeyboardAvoidingView>
 
-            {imageViewerVisible && (
+            {imageViewerVisible && selectedImages.length > 0 && (
                 <ImageViewer
-                    images={selectedImages.map(url => ({ uri: url }))}
-                    imageIndex={selectedImageIndex}
-                    visible={imageViewerVisible}
-                    onRequestClose={() => setImageViewerVisible(false)}
-                    swipeToCloseEnabled={true}
-                    doubleTapToZoomEnabled={true}
-                    onImageIndexChange={(index) => setSelectedImageIndex(index)}
+                    imageUrls={selectedImages.map(url => ({ url }))}
+                    index={selectedImageIndex}
+                    onClick={() => setImageViewerVisible(false)}
+                    onSwipeDown={() => setImageViewerVisible(false)}
+                    enableSwipeDown={true}
+                    enableImageZoom={true}
+                    onChange={(index) => {
+                        if (typeof index === 'number') {
+                            setSelectedImageIndex(index);
+                        }
+                    }}
                 />
             )}
         </SafeAreaView>
@@ -812,6 +815,39 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginRight: 5,
         marginBottom: Platform.OS === 'ios' ? 0 : 1,
+    },
+    imageViewerContainer: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    imageViewerCloseButton: {
+        position: 'absolute',
+        top: Platform.OS === 'ios' ? 50 : 20,
+        right: 20,
+        zIndex: 1,
+        padding: 10,
+    },
+    fullScreenImage: {
+        width: '100%',
+        height: '100%',
+    },
+    imageViewerControls: {
+        position: 'absolute',
+        bottom: 40,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        width: '100%',
+        paddingHorizontal: 20,
+    },
+    imageViewerButton: {
+        padding: 10,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        borderRadius: 25,
+    },
+    imageViewerButtonDisabled: {
+        opacity: 0.5,
     },
 });
 

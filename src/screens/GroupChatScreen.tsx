@@ -11,7 +11,7 @@ import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 import * as FileSystem from 'expo-file-system';
-import ImageView from 'react-native-image-viewing';
+import ImageViewer from 'react-native-image-zoom-viewer';
 
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
@@ -393,17 +393,22 @@ const GroupChatScreen: React.FC = () => {
                  <View style={styles.modalContent}><Text style={styles.modalTitle}>Edit Group Name</Text><TextInput style={styles.modalInput} value={editingName} onChangeText={setEditingName} placeholder="Enter new group name" maxLength={50} autoFocus={true} returnKeyType="done" onSubmitEditing={handleUpdateName} /><View style={styles.modalActions}><TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setIsEditModalVisible(false)} disabled={isUpdatingName}><Text style={styles.modalButtonTextCancel}>Cancel</Text></TouchableOpacity><TouchableOpacity style={[ styles.modalButton, styles.modalButtonSave, (isUpdatingName || !editingName.trim() || editingName.trim() === currentGroupName) && styles.modalButtonDisabled ]} onPress={handleUpdateName} disabled={isUpdatingName || !editingName.trim() || editingName.trim() === currentGroupName}>{isUpdatingName ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.modalButtonTextSave}>Save</Text>}</TouchableOpacity></View></View>
              </Modal>
 
-            <ImageView
-                images={messages
-                    .filter(msg => msg.image)
-                    .map(msg => ({ uri: msg.image! }))}
-                imageIndex={selectedImageIndex}
-                visible={imageViewerVisible}
-                onRequestClose={() => setImageViewerVisible(false)}
-                swipeToCloseEnabled={true}
-                doubleTapToZoomEnabled={true}
-                onImageIndexChange={handleImageIndexChange}
-            />
+            {/* Image Viewer */}
+            {imageViewerVisible && selectedImage && (
+                <ImageViewer
+                    imageUrls={messages.filter(msg => msg.image).map(msg => ({ url: msg.image! }))}
+                    index={selectedImageIndex}
+                    onClick={() => setImageViewerVisible(false)}
+                    onSwipeDown={() => setImageViewerVisible(false)}
+                    enableSwipeDown={true}
+                    enableImageZoom={true}
+                    onChange={(index) => {
+                        if (typeof index === 'number') {
+                            setSelectedImageIndex(index);
+                        }
+                    }}
+                />
+            )}
         </SafeAreaView>
     );
 };
@@ -473,6 +478,39 @@ const styles = StyleSheet.create({
     modalButtonDisabled: { backgroundColor: '#A5B4FC', },
     modalButtonTextCancel: { color: '#4B5563', fontWeight: '500', },
     modalButtonTextSave: { color: 'white', fontWeight: '600', },
+    imageViewerContainer: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    imageViewerCloseButton: {
+        position: 'absolute',
+        top: Platform.OS === 'ios' ? 50 : 20,
+        right: 20,
+        zIndex: 1,
+        padding: 10,
+    },
+    fullScreenImage: {
+        width: '100%',
+        height: '100%',
+    },
+    imageViewerControls: {
+        position: 'absolute',
+        bottom: 40,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        width: '100%',
+        paddingHorizontal: 20,
+    },
+    imageViewerButton: {
+        padding: 10,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        borderRadius: 25,
+    },
+    imageViewerButtonDisabled: {
+        opacity: 0.5,
+    },
 });
 
 
