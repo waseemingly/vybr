@@ -38,8 +38,11 @@ const bioDetailLabels: Record<keyof MusicLoverBio, string> = { firstSong: "First
 // --- End Reusable Components ---
 
 interface ExpandedSections {
-    artists: boolean;
-    songs: boolean;
+    topArtists: boolean;
+    topTracks: boolean;
+    topGenres: boolean;
+    favArtists: boolean;
+    favSongs: boolean;
 }
 
 type OtherUserProfileRouteProp = RouteProp<RootStackParamList, 'OtherUserProfileScreen'>;
@@ -69,7 +72,13 @@ const OtherUserProfileScreen: React.FC = () => {
     const [isSubmittingReport, setIsSubmittingReport] = useState(false);
     // --- State for custom unfriend confirmation modal ---
     const [showUnfriendConfirmModal, setShowUnfriendConfirmModal] = useState(false);
-    const [expandedSections, setExpandedSections] = useState<ExpandedSections>({ artists: false, songs: false });
+    const [expandedSections, setExpandedSections] = useState<ExpandedSections>({
+        topArtists: false,
+        topTracks: false,
+        topGenres: false,
+        favArtists: false,
+        favSongs: false,
+    });
 
     // Add state for image viewer
     const [selectedImageIndex, setSelectedImageIndex] = useState(0);
@@ -972,140 +981,191 @@ const OtherUserProfileScreen: React.FC = () => {
                      </View>
                  </ProfileSection>
 
-                <ProfileSection title="Favorite Genres" icon="music" hasData={favoriteGenres.length > 0 || topGenres.length > 0}>
-                     {topGenres.length > 0 ? (
-                         // Display streaming service data if available
-                         <View style={profileStyles.tagsContainer}>
-                            {topGenres.map((genre, i) => (
-                                 <View key={`stream-genre-${i}`} style={profileStyles.genreTag}>
-                                     <Text style={profileStyles.genreTagText}>{genre.name}</Text>
-                                 </View>
-                            ))}
-                            <Text style={profileStyles.dataSourceText}>
-                                Data from {serviceId || 'streaming service'}
-                                {topGenres.length === 3 && !profileData.isPremium && ' • Limited view (Free user)'}
-                            </Text>
-                         </View>
-                     ) : (
-                        // Fall back to manual entries if no streaming data
-                         <View style={profileStyles.tagsContainer}>
-                            {favoriteGenres.map((g, i) => (
-                                <View key={`manual-genre-${i}`} style={profileStyles.genreTag}>
-                                    <Text style={profileStyles.genreTagText}>{g}</Text>
-                                </View>
-                            ))}
-                         </View>
-                     )}
-                 </ProfileSection>
+                {/* --- START: TOP STREAMING DATA SECTIONS --- */}
 
-                {/* Favorite Artists Section (matches ProfileScreen) */}
-                <ProfileSection title="Favorite Artists" icon="users" hasData={favArtistsList.length > 0 || topArtists.length > 0}>
+                {/* Top Artists Section - From Streaming Data */}
+                <ProfileSection 
+                    title="Top Artists" 
+                    icon="bar-chart-2"
+                    hasData={topArtists.length > 0}
+                >
                     {topArtists.length > 0 ? (
-                        // Display streaming service data if available
                         <View style={profileStyles.listContainer}>
-                            {topArtists.slice(0, expandedSections.artists ? topArtists.length : 5).map((artist, index) => (
-                                <View key={`stream-artist-${index}`} style={profileStyles.listItem}>
+                            {topArtists.slice(0, expandedSections.topArtists ? topArtists.length : (isPremium ? 5 : 3)).map((artist, index) => (
+                                <View key={`top-stream-artist-${index}`} style={profileStyles.listItem}>
                                     <Text style={profileStyles.listItemText}>{artist.name}</Text>
                                     <Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
                                 </View>
                             ))}
                             <Text style={profileStyles.dataSourceText}>
-                                Data from {serviceId || 'streaming service'}
-                                {topArtists.length === 3 && !profileData.isPremium && ' • Limited view (Free user)'}
+                                Data from {serviceId || 'their streaming service'}
+                                {!isPremium && topArtists.length > 3 && ` • Upgrade to Premium for top ${topArtists.length}`}
+                                {isPremium && topArtists.length > 5 && ` • Showing top 5 (Premium user)`}
                             </Text>
+                            {(topArtists.length > (isPremium ? 5 : 3)) && (
+                                <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("topArtists")}>
+                                    <Text style={profileStyles.seeAllButtonText}>
+                                        {expandedSections.topArtists ? "See Less" : `See all ${topArtists.length}`}
+                                    </Text>
+                                    <Feather name={expandedSections.topArtists ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                </TouchableOpacity>
+                            )}
                         </View>
                     ) : (
-                        // Fall back to manual entries if no streaming data
+                        <Text style={profileStyles.dataMissingText}>No top artists data available from their streaming service.</Text>
+                    )}
+                </ProfileSection>
+
+                {/* Top Tracks Section - From Streaming Data */}
+                <ProfileSection 
+                    title="Top Tracks" 
+                    icon="trending-up"
+                    hasData={topTracks.length > 0}
+                >
+                    {topTracks.length > 0 ? (
                         <View style={profileStyles.listContainer}>
-                            {favArtistsList.slice(0, expandedSections.artists ? favArtistsList.length : 5).map((item, index) => (
-                                <View key={`artist-${index}`} style={profileStyles.listItem}>
+                            {topTracks.slice(0, expandedSections.topTracks ? topTracks.length : (isPremium ? 5 : 3)).map((track, index) => (
+                                <View key={`top-stream-track-${index}`} style={profileStyles.listItem}>
+                                    <View style={profileStyles.listItemDetails}>
+                                        <Text style={profileStyles.listItemText}>{track.name}</Text>
+                                        <Text style={profileStyles.listItemSubtext}>{track.artists.map(a => a.name).join(', ')}</Text>
+                                    </View>
+                                    <Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                </View>
+                            ))}
+                            <Text style={profileStyles.dataSourceText}>
+                                Data from {serviceId || 'their streaming service'}
+                                {!isPremium && topTracks.length > 3 && ` • Upgrade to Premium for top ${topTracks.length}`}
+                                {isPremium && topTracks.length > 5 && ` • Showing top 5 (Premium user)`}
+                            </Text>
+                             {(topTracks.length > (isPremium ? 5 : 3)) && (
+                                <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("topTracks")}>
+                                    <Text style={profileStyles.seeAllButtonText}>
+                                        {expandedSections.topTracks ? "See Less" : `See all ${topTracks.length}`}
+                                    </Text>
+                                    <Feather name={expandedSections.topTracks ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    ) : (
+                        <Text style={profileStyles.dataMissingText}>No top tracks data available from their streaming service.</Text>
+                    )}
+                </ProfileSection>
+
+                {/* Top Genres Section - From Streaming Data */}
+                 <ProfileSection 
+                    title="Top Genres" 
+                    icon="tag"
+                    hasData={topGenres.length > 0}
+                >
+                     {topGenres.length > 0 ? (
+                         <View style={profileStyles.tagsContainer}>
+                            {topGenres.slice(0, expandedSections.topGenres ? topGenres.length : (isPremium ? 5 : 3)).map((genre, i) => (
+                                 <View key={`top-stream-genre-${i}`} style={profileStyles.genreTag}>
+                                     <Text style={profileStyles.genreTagText}>{genre.name}</Text>
+                                 </View>
+                            ))}
+                            <Text style={profileStyles.dataSourceText}>
+                                Data from {serviceId || 'their streaming service'}
+                                {!isPremium && topGenres.length > 3 && ` • Upgrade to Premium for top ${topGenres.length}`}
+                                {isPremium && topGenres.length > 5 && ` • Showing top 5 (Premium user)`}
+                            </Text>
+                            {(topGenres.length > (isPremium ? 5 : 3)) && (
+                                <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("topGenres")}>
+                                    <Text style={profileStyles.seeAllButtonText}>
+                                        {expandedSections.topGenres ? "See Less" : `See all ${topGenres.length}`}
+                                    </Text>
+                                    <Feather name={expandedSections.topGenres ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                </TouchableOpacity>
+                            )}
+                         </View>
+                     ) : (
+                        <Text style={profileStyles.dataMissingText}>No top genres data available from their streaming service.</Text>
+                     )}
+                 </ProfileSection>
+
+                {/* --- END: TOP STREAMING DATA SECTIONS --- */}
+
+
+                {/* --- START: FAVORITE (MANUAL) DATA SECTIONS --- */}
+                {/* Favorite Artists Section (Manual) - MODIFIED */}
+                <ProfileSection 
+                    title="Favorite Artists"
+                    icon="star"
+                    hasData={favArtistsList.length > 0}
+                >
+                    {favArtistsList.length > 0 ? (
+                        <View style={profileStyles.listContainer}>
+                            {favArtistsList.slice(0, expandedSections.favArtists ? favArtistsList.length : 5).map((item, index) => (
+                                <View key={`fav-artist-${index}`} style={profileStyles.listItem}>
                                     <Text style={profileStyles.listItemText}>{item}</Text>
                                     <Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
                                 </View>
                             ))}
+                            {(favArtistsList.length > 5) && (
+                                <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("favArtists")}>
+                                    <Text style={profileStyles.seeAllButtonText}>
+                                        {expandedSections.favArtists ? "See Less" : `See all ${favArtistsList.length}`}
+                                    </Text>
+                                    <Feather name={expandedSections.favArtists ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                </TouchableOpacity>
+                            )}
                         </View>
-                    )}
-                    {((topArtists.length > 5 || favArtistsList.length > 5) && !expandedSections.artists) && (
-                        <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("artists")}>
-                            <Text style={profileStyles.seeAllButtonText}>
-                                {expandedSections.artists ? "See Less" : `See all ${topArtists.length > 0 ? topArtists.length : favArtistsList.length}`}
-                            </Text>
-                            <Feather name={expandedSections.artists ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                        </TouchableOpacity>
+                    ) : (
+                         <Text style={profileStyles.dataMissingText}>No manually added favorite artists.</Text>
                     )}
                 </ProfileSection>
 
-                {/* Favorite Albums Section */}
-                <ProfileSection title="Favorite Albums" icon="disc" hasData={favAlbumsList.length > 0 || topAlbums.length > 0}>
-                    {topAlbums.length > 0 ? (
-                        // Display streaming service data if available
-                        <View style={profileStyles.listContainer}>
-                            {topAlbums.map((album, index) => (
-                                <View key={`stream-album-${index}`} style={profileStyles.listItem}>
-                                    <View style={profileStyles.listItemDetails}>
-                                        <Text style={profileStyles.listItemText}>{album.name}</Text>
-                                        <Text style={profileStyles.listItemSubtext}>{album.artists.join(', ')}</Text>
-                                    </View>
-                                    <Feather name="disc" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                                </View>
-                            ))}
-                            <Text style={profileStyles.dataSourceText}>
-                                Data from {serviceId || 'streaming service'}
-                                {topAlbums.length === 3 && !profileData.isPremium && ' • Limited view (Free user)'}
-                            </Text>
-                        </View>
-                    ) : (
-                        // Fall back to manual entries if no streaming data
+
+                {/* Favorite Albums Section (Manual) - MODIFIED */}
+                <ProfileSection 
+                    title="Favorite Albums" 
+                    icon="layers"
+                    hasData={favAlbumsList.length > 0}
+                >
+                     {favAlbumsList.length > 0 ? (
                         <View style={profileStyles.listContainer}>
                             {favAlbumsList.map((item, index) => (
-                                <View key={`album-${index}`} style={profileStyles.listItem}>
+                                <View key={`fav-album-${index}`} style={profileStyles.listItem}>
                                     <Text style={profileStyles.listItemText}>{item}</Text>
                                     <Feather name="disc" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
                                 </View>
                             ))}
                         </View>
-                    )}
+                     ) : (
+                        <Text style={profileStyles.dataMissingText}>No manually added favorite albums.</Text>
+                     )}
                 </ProfileSection>
 
-                {/* Favorite Songs Section */}
-                <ProfileSection title="Favorite Songs" icon="music" hasData={favSongsList.length > 0 || topTracks.length > 0}>
-                    {topTracks.length > 0 ? (
-                        // Display streaming service data if available
+                {/* Favorite Songs Section (Manual) - MODIFIED */}
+                <ProfileSection 
+                    title="Favorite Songs" 
+                    icon="heart"
+                    hasData={favSongsList.length > 0}
+                >
+                    {favSongsList.length > 0 ? (
                         <View style={profileStyles.listContainer}>
-                            {topTracks.slice(0, expandedSections.songs ? topTracks.length : 5).map((track, index) => (
-                                <View key={`stream-track-${index}`} style={profileStyles.listItem}>
-                                    <View style={profileStyles.listItemDetails}>
-                                        <Text style={profileStyles.listItemText}>{track.name}</Text>
-                                        <Text style={profileStyles.listItemSubtext}>{track.artists.join(', ')}</Text>
-                                    </View>
-                                    <Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                                </View>
-                            ))}
-                            <Text style={profileStyles.dataSourceText}>
-                                Data from {serviceId || 'streaming service'}
-                                {topTracks.length === 3 && !profileData.isPremium && ' • Limited view (Free user)'}
-                            </Text>
-                        </View>
-                    ) : (
-                        // Fall back to manual entries if no streaming data
-                        <View style={profileStyles.listContainer}>
-                            {favSongsList.slice(0, expandedSections.songs ? favSongsList.length : 5).map((item, index) => (
-                                <View key={`song-${index}`} style={profileStyles.listItem}>
+                            {favSongsList.slice(0, expandedSections.favSongs ? favSongsList.length : 5).map((item, index) => (
+                                <View key={`fav-song-${index}`} style={profileStyles.listItem}>
                                     <Text style={profileStyles.listItemText}>{item}</Text>
                                     <Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
                                 </View>
                             ))}
+                           {(favSongsList.length > 5) && (
+                                <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("favSongs")}>
+                                    <Text style={profileStyles.seeAllButtonText}>
+                                        {expandedSections.favSongs ? "See Less" : `See all ${favSongsList.length}`}
+                                    </Text>
+                                    <Feather name={expandedSections.favSongs ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                </TouchableOpacity>
+                            )}
                         </View>
-                    )}
-                    {((topTracks.length > 5 || favSongsList.length > 5) && !expandedSections.songs) && (
-                        <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("songs")}>
-                            <Text style={profileStyles.seeAllButtonText}>
-                                {expandedSections.songs ? "See Less" : `See all ${topTracks.length > 0 ? topTracks.length : favSongsList.length}`}
-                            </Text>
-                            <Feather name={expandedSections.songs ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                        </TouchableOpacity>
+                    ) : (
+                        <Text style={profileStyles.dataMissingText}>No manually added favorite songs.</Text>
                     )}
                 </ProfileSection>
+                {/* --- END: FAVORITE (MANUAL) DATA SECTIONS --- */}
+
 
                  {/* More Options Section */}
                  {!isBlocked && (
@@ -1228,7 +1288,7 @@ const profileStyles = StyleSheet.create({
     listItemSubtext: { fontSize: 12, color: "#6B7280", marginTop: 2, },
     seeAllButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, marginTop: 4, },
     seeAllButtonText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontSize: 14, fontWeight: '500', marginRight: 4, },
-    dataSourceText: { fontSize: 12, color: "#6B7280", marginTop: 10, textAlign: 'center', fontStyle: 'italic' },
+    dataSourceText: { fontSize: 12, color: "#6B7280", marginTop: 10, textAlign: 'center', fontStyle: 'italic', paddingHorizontal: 16 },
     listItemDetails: { flexDirection: "column", flex: 1, },
     sharedMediaContainer: {
         flexDirection: 'row',
