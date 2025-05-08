@@ -9,7 +9,7 @@ import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navig
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import ImageView from 'react-native-image-viewing';
+import ImageViewer from 'react-native-image-zoom-viewer';
 
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
@@ -297,15 +297,21 @@ const GroupInfoScreen = () => {
                     {/* *** The </View> was here - REMOVED *** */}
                 </Modal>
 
-                <ImageView
-                    images={mediaMessages.map(msg => ({ uri: msg.imageUrl! }))}
-                    imageIndex={selectedImageIndex}
-                    visible={imageViewerVisible}
-                    onRequestClose={() => setImageViewerVisible(false)}
-                    swipeToCloseEnabled={true}
-                    doubleTapToZoomEnabled={true}
-                    onImageIndexChange={handleImageIndexChange}
-                />
+                {imageViewerVisible && (
+                    <ImageViewer
+                        imageUrls={mediaMessages.map(msg => ({ url: msg.imageUrl! }))}
+                        index={selectedImageIndex}
+                        onClick={() => setImageViewerVisible(false)}
+                        onSwipeDown={() => setImageViewerVisible(false)}
+                        enableSwipeDown={true}
+                        enableImageZoom={true}
+                        onChange={(index) => {
+                            if (typeof index === 'number') {
+                                setSelectedImageIndex(index);
+                            }
+                        }}
+                    />
+                )}
 
             </ScrollView>
         </SafeAreaView>
