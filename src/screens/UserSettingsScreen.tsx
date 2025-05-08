@@ -272,69 +272,81 @@ const UserSettingsScreen: React.FC = () => {
     const handleDeleteAccount = () => {
         if (!userId) return;
 
-        Alert.alert(
-            "Delete Account",
-            "Are you absolutely sure? This action cannot be undone. All your data (profile, matches, chats, etc.) will be permanently deleted.",
-            [
-                {
-                    text: "Cancel",
-                    style: "cancel"
-                },
-                {
-                    text: "Delete My Account",
-                    style: "destructive",
-                    onPress: async () => {
-                        setIsDeleting(true);
-                        try {
-                            console.log("[UserSettingsScreen] Starting account deletion process...", {
-                                platform: Platform.OS,
-                                userId,
-                                isWeb: Platform.OS === 'web'
-                            });
-                            
-                            // 1. Delete the user's auth account using RPC (must be done while still authenticated)
-                            const { data, error: deleteError } = await supabase.rpc('delete_user_account');
-                            
-                            if (deleteError) {
-                                console.error("[UserSettingsScreen] Error deleting auth account:", {
-                                    error: deleteError,
-                                    platform: Platform.OS,
-                                    userId
-                                });
-                                throw new Error(`Failed to delete account: ${deleteError.message}`);
-                            }
-
-                            console.log("[UserSettingsScreen] Account deletion successful", {
-                                platform: Platform.OS,
-                                userId
-                            });
-
-                            // 2. Sign out after successful deletion
-                            const { error: signOutError } = await supabase.auth.signOut();
-                            if (signOutError) {
-                                console.error("[UserSettingsScreen] Error signing out after deletion:", signOutError);
-                                // Don't throw here, as the account is already deleted
-                            }
-
-                            // 3. Force logout to clear local state
-                            await logout();
-
-                        } catch (error: any) {
-                            console.error("[UserSettingsScreen] Error in account deletion process:", {
-                                error,
-                                platform: Platform.OS,
-                                userId
-                            });
-                            Alert.alert(
-                                "Deletion Failed", 
-                                `Could not delete your account: ${error.message || 'Please try again later or contact support.'}`
-                            );
-                            setIsDeleting(false);
-                        }
-                    }
+        const confirmDelete = async () => {
+            setIsDeleting(true);
+            try {
+                console.log("[UserSettingsScreen] Starting account deletion process...", {
+                    platform: Platform.OS,
+                    userId,
+                    isWeb: Platform.OS === 'web'
+                });
+                
+                // 1. Delete the user's auth account using RPC (must be done while still authenticated)
+                const { data, error: deleteError } = await supabase.rpc('delete_user_account');
+                
+                if (deleteError) {
+                    console.error("[UserSettingsScreen] Error deleting auth account:", {
+                        error: deleteError,
+                        platform: Platform.OS,
+                        userId
+                    });
+                    throw new Error(`Failed to delete account: ${deleteError.message}`);
                 }
-            ]
-        );
+
+                console.log("[UserSettingsScreen] Account deletion successful", {
+                    platform: Platform.OS,
+                    userId
+                });
+
+                // 2. Sign out after successful deletion
+                const { error: signOutError } = await supabase.auth.signOut();
+                if (signOutError) {
+                    console.error("[UserSettingsScreen] Error signing out after deletion:", signOutError);
+                    // Don't throw here, as the account is already deleted
+                }
+
+                // 3. Force logout to clear local state
+                await logout();
+
+            } catch (error: any) {
+                console.error("[UserSettingsScreen] Error in account deletion process:", {
+                    error,
+                    platform: Platform.OS,
+                    userId
+                });
+                if (Platform.OS === 'web') {
+                    window.alert(`Could not delete your account: ${error.message || 'Please try again later or contact support.'}`);
+                } else {
+                    Alert.alert(
+                        "Deletion Failed", 
+                        `Could not delete your account: ${error.message || 'Please try again later or contact support.'}`
+                    );
+                }
+                setIsDeleting(false);
+            }
+        };
+
+        if (Platform.OS === 'web') {
+            if (window.confirm("Are you absolutely sure? This action cannot be undone. All your data (profile, matches, chats, etc.) will be permanently deleted.")) {
+                confirmDelete();
+            }
+        } else {
+            Alert.alert(
+                "Delete Account",
+                "Are you absolutely sure? This action cannot be undone. All your data (profile, matches, chats, etc.) will be permanently deleted.",
+                [
+                    {
+                        text: "Cancel",
+                        style: "cancel"
+                    },
+                    {
+                        text: "Delete My Account",
+                        style: "destructive",
+                        onPress: confirmDelete
+                    }
+                ]
+            );
+        }
     };
     // ---------------------------
 
