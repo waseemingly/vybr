@@ -16,6 +16,7 @@ import { useAuth } from "../hooks/useAuth";   // Adjust path if needed
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { Country, State, City } from 'country-state-city'; // Added import
 
 // Navigation Type definitions
 type OrganizerStackParamList = {
@@ -35,10 +36,29 @@ const TICKETED_EVENT_TYPES: EventTypeValue[] = ['PARTY', 'DJ_SET_EVENT', 'DANCE_
 const RESERVATION_EVENT_TYPES: EventTypeValue[] = ['LIVE_BAND_RESTAURANT', 'DJ_SET_RESTAURANT', 'CLUB'];
 
 // Component State Interfaces
-interface FormState { title: string; description: string; location: string; artists: string; songs: string; genres: string; eventType: EventTypeValue; bookingMode: 'yes' | 'no'; maxTickets: string; maxReservations: string; ticketPrice: string; passFeeToUser: boolean; }
+interface FormState {
+    title: string;
+    description: string;
+    location: string; // Detailed address
+    artists: string;
+    songs: string;
+    genres: string;
+    eventType: EventTypeValue;
+    bookingMode: 'yes' | 'no';
+    maxTickets: string;
+    maxReservations: string;
+    ticketPrice: string;
+    passFeeToUser: boolean;
+    // New location fields
+    countryCode: string;
+    countryName: string;
+    stateCode: string;
+    stateName: string;
+    cityName: string;
+}
 interface ImageAsset { uri: string; mimeType?: string; fileName?: string; isNew?: boolean; existingUrl?: string; } // Added isNew, existingUrl
 
-// Existing Event Data Structure from Supabase
+// Existing Event Data Structure from Supabase - ensure it includes country, state, city if they exist
 interface ExistingEventData {
   id: string; organizer_id: string; title: string; description: string | null;
   event_datetime: string; location_text: string | null; poster_urls: string[];
@@ -47,6 +67,10 @@ interface ExistingEventData {
   booking_type: 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null;
   max_tickets: number | null; max_reservations: number | null;
   ticket_price: number | null; pass_fee_to_user: boolean | null;
+  // Add these if they are in your Supabase table for events
+  country?: string | null;
+  state?: string | null;
+  city?: string | null;
 }
 
 // Helper to determine event status
@@ -63,11 +87,21 @@ const EditEventScreen: React.FC = () => {
   const [isLoadingEvent, setIsLoadingEvent] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const [formState, setFormState] = useState<FormState>({ title: "", description: "", location: "", artists: "", songs: "", genres: "", eventType: '', bookingMode: 'yes', maxTickets: '', maxReservations: '', ticketPrice: '', passFeeToUser: true, });
+  const [formState, setFormState] = useState<FormState>({
+    title: "", description: "", location: "", artists: "", songs: "", genres: "",
+    eventType: '', bookingMode: 'yes', maxTickets: '', maxReservations: '',
+    ticketPrice: '', passFeeToUser: true,
+    countryCode: '', countryName: '', stateCode: '', stateName: '', cityName: '' // Initialize new fields
+  });
   const [eventDate, setEventDate] = useState<Date>(new Date()); // Initialize, will be overwritten
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [imageAssets, setImageAssets] = useState<ImageAsset[]>([]); // Holds existing and new images
+
+  // Location picker states
+  const [countries, setCountriesList] = useState<any[]>([]); // Renamed to avoid conflict
+  const [states, setStatesList] = useState<any[]>([]); // Renamed to avoid conflict
+  const [cities, setCitiesList] = useState<any[]>([]); // Renamed to avoid conflict
 
   // Fetch Existing Event Data
   const fetchEvent = useCallback(async () => {
@@ -81,22 +115,51 @@ const EditEventScreen: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from('events')
-        .select('*')
+        .select('*, country, state, city') // Ensure these are selected if they exist in your table
         .eq('id', eventId)
-        .eq('organizer_id', session.user.id) // Ensure organizer owns the event
+        .eq('organizer_id', session.user.id)
         .single();
 
       if (error) {
-          if (error.code === 'PGRST116') { // Not found code
+          if (error.code === 'PGRST116') {
                throw new Error("Event not found or you don't have permission to edit it.");
           }
           throw error;
       }
 
-
       const eventData = data as ExistingEventData;
+      const allCountries = Country.getAllCountries();
+      setCountriesList(allCountries);
 
-      // Populate Form State
+      let initialCountryCode = '';
+      let initialCountryName = eventData.country || '';
+      if (eventData.country) {
+          const foundCountry = allCountries.find(c => c.name === eventData.country);
+          if (foundCountry) initialCountryCode = foundCountry.isoCode;
+      }
+
+      let initialStates: any[] = [];
+      let initialStateCode = '';
+      let initialStateName = eventData.state || '';
+      if (initialCountryCode && eventData.state) {
+          initialStates = State.getStatesOfCountry(initialCountryCode);
+          setStatesList(initialStates);
+          const foundState = initialStates.find(s => s.name === eventData.state);
+          if (foundState) initialStateCode = foundState.isoCode;
+          else if (initialCountryCode === 'SG') { // Handle SG case for pre-fill
+            initialStateCode = 'SG-01';
+            initialStateName = 'Singapore';
+          }
+      }
+
+      let initialCities: any[] = [];
+      let initialCityName = eventData.city || '';
+      if (initialCountryCode && initialStateCode && eventData.city) {
+          initialCities = City.getCitiesOfState(initialCountryCode, initialStateCode);
+          setCitiesList(initialCities);
+          // City name is directly used, no code lookup needed for pre-fill typically
+      }
+
       setFormState({
         title: eventData.title,
         description: eventData.description ?? "",
@@ -106,11 +169,15 @@ const EditEventScreen: React.FC = () => {
         genres: eventData.tags_genres?.join(', ') ?? "",
         eventType: eventData.event_type ?? '',
         bookingMode: eventData.booking_type === 'INFO_ONLY' ? 'no' : 'yes',
-        // Handle null for unlimited: display 0 if null, otherwise the number
         maxTickets: eventData.booking_type === 'TICKETED' ? (eventData.max_tickets?.toString() ?? '0') : '',
         maxReservations: eventData.booking_type === 'RESERVATION' ? (eventData.max_reservations?.toString() ?? '0') : '',
         ticketPrice: eventData.booking_type === 'TICKETED' ? (eventData.ticket_price?.toFixed(2) ?? '') : '',
         passFeeToUser: eventData.pass_fee_to_user ?? true,
+        countryCode: initialCountryCode,
+        countryName: initialCountryName,
+        stateCode: initialStateCode,
+        stateName: initialStateName,
+        cityName: initialCityName,
       });
 
       setEventDate(new Date(eventData.event_datetime));
@@ -132,7 +199,106 @@ const EditEventScreen: React.FC = () => {
 
   // --- Logic copied/adapted from CreateEventScreen ---
   const derivedBookingType = useCallback((): 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null => { if (formState.bookingMode === 'no' || formState.eventType === 'ADVERTISEMENT_ONLY') return 'INFO_ONLY'; if (TICKETED_EVENT_TYPES.includes(formState.eventType)) return 'TICKETED'; if (RESERVATION_EVENT_TYPES.includes(formState.eventType)) return 'RESERVATION'; return null; }, [formState.eventType, formState.bookingMode]);
-  const handleChange = (name: keyof FormState, value: string | boolean | EventTypeValue) => { setFormState((prev) => ({ ...prev, [name]: value })); if (name === 'eventType') { const newEventType = value as EventTypeValue; const newBookingMode = newEventType === 'ADVERTISEMENT_ONLY' ? 'no' : 'yes'; setFormState(prev => ({ ...prev, eventType: newEventType, bookingMode: newBookingMode, maxTickets: prev.maxTickets, maxReservations: prev.maxReservations, ticketPrice: prev.ticketPrice, passFeeToUser: prev.passFeeToUser, })); } if (name === 'bookingMode' && value === 'no') { setFormState(prev => ({ ...prev, bookingMode: 'no' })); }};
+  const handleChange = (name: keyof Omit<FormState, 'countryCode' | 'countryName' | 'stateCode' | 'stateName' | 'cityName'>, value: string | boolean | EventTypeValue) => {
+    setFormState((prev) => ({ ...prev, [name]: value }));
+    if (name === 'eventType') {
+      const newEventType = value as EventTypeValue;
+      const newBookingMode = newEventType === 'ADVERTISEMENT_ONLY' ? 'no' : 'yes';
+      setFormState(prev => ({
+        ...prev,
+        eventType: newEventType,
+        bookingMode: newBookingMode,
+        maxTickets: TICKETED_EVENT_TYPES.includes(newEventType) ? prev.maxTickets : '',
+        maxReservations: RESERVATION_EVENT_TYPES.includes(newEventType) ? prev.maxReservations : '',
+        ticketPrice: TICKETED_EVENT_TYPES.includes(newEventType) ? prev.ticketPrice : '',
+      }));
+    }
+    if (name === 'bookingMode' && value === 'no') {
+      setFormState(prev => ({
+        ...prev,
+        bookingMode: 'no',
+        maxTickets: '',
+        maxReservations: '',
+        ticketPrice: '',
+      }));
+    }
+  };
+
+  // Location Picker Handlers
+  const handleCountrySelect = (countryCode: string) => {
+    if (countryCode === formState.countryCode) return;
+    const selectedCountry = countries.find(c => c.isoCode === countryCode);
+    setFormState(prev => ({
+      ...prev,
+      countryCode: countryCode,
+      countryName: selectedCountry?.name || '',
+      stateCode: '', 
+      stateName: '',
+      cityName: ''
+    }));
+  };
+
+  const handleStateSelect = (stateCode: string) => {
+    if (stateCode === formState.stateCode) return;
+    const selectedState = states.find(s => s.isoCode === stateCode);
+    setFormState(prev => ({
+      ...prev,
+      stateCode: stateCode,
+      stateName: selectedState?.name || '',
+      cityName: '' 
+    }));
+  };
+
+  const handleCitySelect = (cityName: string) => {
+    if (cityName === formState.cityName) return;
+    setFormState(prev => ({ ...prev, cityName: cityName }));
+  };
+
+  // useEffects for location data - load all countries initially in fetchEvent
+  // useEffect(() => {
+  //   setCountriesList(Country.getAllCountries()); 
+  // }, []);
+
+  useEffect(() => {
+    if (formState.countryCode) {
+      if (formState.countryCode === 'SG') {
+        setStatesList([]);
+        // No need to setFormState here if already handled in handleCountrySelect or fetchEvent for initial load
+        if (formState.stateCode !== 'SG-01') { // only update if not already set by fetchEvent
+            setFormState(prev => ({ ...prev, stateCode: 'SG-01', stateName: 'Singapore'}));
+        }
+        return;
+      }
+      const countryStates = State.getStatesOfCountry(formState.countryCode);
+      setStatesList(countryStates);
+      // Don't reset state if it's already populated from fetched data and valid
+      if (!countryStates.some(s => s.isoCode === formState.stateCode)) {
+          setFormState(prev => ({ ...prev, stateCode: '', stateName: '', cityName: '' }));
+      }
+    } else {
+      setStatesList([]);
+      if (formState.stateCode || formState.cityName) { // only update if not already clear
+        setFormState(prev => ({ ...prev, stateCode: '', stateName: '', cityName: '' }));
+      }
+    }
+  }, [formState.countryCode, formState.stateCode]); // Added formState.stateCode to dependencies
+
+  useEffect(() => {
+    if (formState.countryCode && formState.stateCode) {
+      const stateCities = City.getCitiesOfState(formState.countryCode, formState.stateCode);
+      setCitiesList(stateCities);
+      // Don't reset city if already populated and valid
+      if (!stateCities.some(c => c.name === formState.cityName)) {
+        setFormState(prev => ({ ...prev, cityName: '' }));
+      }
+    } else {
+      setCitiesList([]);
+      if (formState.cityName) { // only update if not already clear
+        setFormState(prev => ({ ...prev, cityName: '' }));
+      }
+    }
+  }, [formState.countryCode, formState.stateCode, formState.cityName]); // Added formState.cityName
+
 
   const onDateChange = (event: DateTimePickerEvent, selectedDate?: Date | undefined) => { 
     if (Platform.OS === 'web') {
@@ -398,6 +564,10 @@ const EditEventScreen: React.FC = () => {
               description: formState.description.trim() || null,
               event_datetime: eventDate.toISOString(),
               location_text: formState.location.trim() || null,
+              // Add structured location data
+              country: formState.countryName || null,
+              state: formState.stateName || null,
+              city: formState.cityName || null,
               poster_urls: finalPosterUrls,
               tags_genres: finalGenres,
               tags_artists: finalArtists,
@@ -567,11 +737,99 @@ const EditEventScreen: React.FC = () => {
                   </Text>
               )}
 
-              {/* Location */}
-              <View style={styles.formGroup}><Label>Location</Label><View style={styles.inputWithIcon}><Feather name="map-pin" size={16} color="#9CA3AF" style={styles.inputIcon} /><TextInput style={styles.iconInput} placeholder="e.g., The Fillmore, Online" value={formState.location} onChangeText={(text)=>handleChange("location",text)} accessibilityLabel="Event Location Input"/></View></View>
+              {/* Location - Detailed Address */}
+              <View style={styles.formGroup}><Label>Location (Street Address, Venue Name)</Label><View style={styles.inputWithIcon}><Feather name="map-pin" size={16} color="#9CA3AF" style={styles.inputIcon} /><TextInput style={styles.iconInput} placeholder="e.g., 123 Music Lane, The Grand Hall" value={formState.location} onChangeText={(text)=>handleChange("location",text)} accessibilityLabel="Event Location Input"/></View></View>
+
+              {/* Country Picker */}
+              <View style={styles.formGroup}>
+                  <Label>Country *</Label>
+                  <View style={styles.pickerContainer}>
+                      <Picker
+                          selectedValue={formState.countryCode}
+                          onValueChange={(itemValue) => handleCountrySelect(itemValue)}
+                          style={styles.picker}
+                          itemStyle={styles.pickerItem}
+                          accessibilityLabel="Select Country Picker"
+                          prompt="Select Country"
+                      >
+                          <Picker.Item label="Select a country..." value="" color="#9CA3AF" />
+                          {countries.map((country) => (
+                              <Picker.Item key={country.isoCode} label={country.name} value={country.isoCode} />
+                          ))}
+                      </Picker>
+                      {Platform.OS === 'ios' && formState.countryName && (
+                          <View style={styles.iosPickerValueDisplayWrapper} pointerEvents="none">
+                              <Text style={styles.iosPickerValueDisplayText}>Selected: {formState.countryName}</Text>
+                          </View>
+                      )}
+                  </View>
+                  {!formState.countryCode && (<Text style={styles.errorText}>Country is required.</Text>)}
+              </View>
+
+              {/* State Picker */}
+              {formState.countryCode && formState.countryCode !== 'SG' && states.length > 0 && (
+                  <View style={styles.formGroup}>
+                      <Label>State/Province *</Label>
+                      <View style={styles.pickerContainer}>
+                          <Picker
+                              selectedValue={formState.stateCode}
+                              onValueChange={(itemValue) => handleStateSelect(itemValue)}
+                              style={styles.picker}
+                              itemStyle={styles.pickerItem}
+                              enabled={states.length > 0}
+                              accessibilityLabel="Select State/Province Picker"
+                              prompt="Select State/Province"
+                          >
+                              <Picker.Item label="Select a state/province..." value="" color="#9CA3AF" />
+                              {states.map((state) => (
+                                  <Picker.Item key={state.isoCode} label={state.name} value={state.isoCode} />
+                              ))}
+                          </Picker>
+                          {Platform.OS === 'ios' && formState.stateName && (
+                              <View style={styles.iosPickerValueDisplayWrapper} pointerEvents="none">
+                                  <Text style={styles.iosPickerValueDisplayText}>Selected: {formState.stateName}</Text>
+                              </View>
+                          )}
+                      </View>
+                      {!formState.stateCode && (<Text style={styles.errorText}>State/Province is required.</Text>)}
+                  </View>
+              )}
+              
+              {/* City Picker */}
+              {formState.stateCode && cities.length > 0 && (
+                  <View style={styles.formGroup}>
+                      <Label>City *</Label>
+                      <View style={styles.pickerContainer}>
+                          <Picker
+                              selectedValue={formState.cityName}
+                              onValueChange={(itemValue) => handleCitySelect(itemValue)}
+                              style={styles.picker}
+                              itemStyle={styles.pickerItem}
+                              enabled={cities.length > 0}
+                              accessibilityLabel="Select City Picker"
+                              prompt="Select City"
+                          >
+                              <Picker.Item label="Select a city..." value="" color="#9CA3AF" />
+                              {cities.map((city) => (
+                                  <Picker.Item key={city.name} label={city.name} value={city.name} />
+                              ))}
+                          </Picker>
+                          {Platform.OS === 'ios' && formState.cityName && (
+                              <View style={styles.iosPickerValueDisplayWrapper} pointerEvents="none">
+                                  <Text style={styles.iosPickerValueDisplayText}>Selected: {formState.cityName}</Text>
+                              </View>
+                          )}
+                      </View>
+                      {!formState.cityName && (<Text style={styles.errorText}>City is required.</Text>)}
+                  </View>
+              )}
 
               {/* Event Type */}
-              <View style={styles.formGroup}><Label>Event Type *</Label><View style={styles.pickerContainer}><Picker selectedValue={formState.eventType} onValueChange={(itemValue) => handleChange('eventType', itemValue as EventTypeValue)} style={styles.picker} itemStyle={styles.pickerItem} accessibilityLabel="Select Event Type Picker" prompt="Select Event Type">{eventTypeOptions.map(o=>(<Picker.Item key={o.value} label={o.label} value={o.value} enabled={o.value!==''} color={o.value === '' ? '#9CA3AF' : undefined}/>))}</Picker>{Platform.OS === 'ios' && formState.eventType && eventTypeOptions.find(o => o.value === formState.eventType) && ( <Text style={styles.iosPickerValueDisplay}>Selected: {eventTypeOptions.find(o => o.value === formState.eventType)?.label}</Text> )}</View>{!formState.eventType && (<Text style={styles.errorText}>Please select an event type.</Text>)}</View>
+              <View style={styles.formGroup}><Label>Event Type *</Label><View style={styles.pickerContainer}><Picker selectedValue={formState.eventType} onValueChange={(itemValue) => handleChange('eventType', itemValue as EventTypeValue)} style={styles.picker} itemStyle={styles.pickerItem} accessibilityLabel="Select Event Type Picker" prompt="Select Event Type">{eventTypeOptions.map(o=>(<Picker.Item key={o.value} label={o.label} value={o.value} enabled={o.value!==''} color={o.value === '' ? '#9CA3AF' : undefined}/>))}</Picker>{Platform.OS === 'ios' && formState.eventType && eventTypeOptions.find(o => o.value === formState.eventType) && (
+                <View style={styles.iosPickerValueDisplayWrapper} pointerEvents="none">
+                    <Text style={styles.iosPickerValueDisplayText}>Selected: {eventTypeOptions.find(o => o.value === formState.eventType)?.label}</Text>
+                </View>
+              )}</View>{!formState.eventType && (<Text style={styles.errorText}>Please select an event type.</Text>)}</View>
 
               {/* Booking Mode Switch */}
               {formState.eventType && formState.eventType !== 'ADVERTISEMENT_ONLY' && (<View style={styles.formGroup}><Label>{currentBookingType==='TICKETED'?'Enable Ticket Sales?':'Enable Reservations?'}</Label><View style={styles.switchContainer}><Text style={styles.switchLabel}>{formState.bookingMode==='yes'?'Yes':'No (Info Only)'}</Text><Switch trackColor={{false:"#E5E7EB",true:"#60A5FA"}} thumbColor={formState.bookingMode==='yes'?"#3B82F6":"#f4f3f4"} ios_backgroundColor="#E5E7EB" onValueChange={(v)=>handleChange('bookingMode',v?'yes':'no')} value={formState.bookingMode==='yes'} accessibilityLabel={currentBookingType === 'TICKETED' ? 'Enable Ticket Sales Switch' : 'Enable Reservations Switch'} accessibilityHint={formState.bookingMode === 'yes' ? 'Booking enabled' : 'Booking disabled'}/></View></View>)}
@@ -638,7 +896,19 @@ const styles = StyleSheet.create({
     pickerContainer: { borderWidth: 1, borderColor: "#D1D5DB", borderRadius: 8, backgroundColor: "white", height: Platform.OS === 'ios' ? undefined : 48, justifyContent: 'center', paddingHorizontal: Platform.OS === 'ios' ? 10 : 0, },
     picker: { height: Platform.OS === 'ios' ? 180 : 48, },
     pickerItem: {},
-    iosPickerValueDisplay: { paddingHorizontal: 12, paddingVertical: Platform.OS === 'ios' ? 14 : 0, fontSize: 16, color: '#1F2937', position: 'absolute', left: 10, top: 0, bottom: 0, zIndex: -1, textAlignVertical: 'center', },
+    iosPickerValueDisplayWrapper: {
+        position: 'absolute',
+        left: 10,
+        top: 0,
+        bottom: 0,
+        justifyContent: 'center',
+        paddingHorizontal: 12,
+        zIndex: -1,
+    },
+    iosPickerValueDisplayText: { 
+        fontSize: 16, 
+        color: '#1F2937', 
+    },
     switchContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, height: 48 },
     switchLabel: { fontSize: 16, color: '#374151', marginRight: 10, flexShrink: 1 },
     webPickerContainer: {

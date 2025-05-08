@@ -15,6 +15,7 @@ import { supabase } from "../lib/supabase"; // Using common path convention
 import { useAuth } from "../hooks/useAuth";   // Using common path convention
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { Country, State, City } from 'country-state-city'; // Added import
 
 // Navigation Type definitions
 type OrganizerTabParamList = { Posts: undefined; Create: undefined; OrganizerProfile: undefined; };
@@ -27,22 +28,161 @@ const TICKETED_EVENT_TYPES: EventTypeValue[] = ['PARTY', 'DJ_SET_EVENT', 'DANCE_
 const RESERVATION_EVENT_TYPES: EventTypeValue[] = ['LIVE_BAND_RESTAURANT', 'DJ_SET_RESTAURANT', 'CLUB'];
 
 // Component State Interfaces
-interface FormState { title: string; description: string; location: string; artists: string; songs: string; genres: string; eventType: EventTypeValue; bookingMode: 'yes' | 'no'; maxTickets: string; maxReservations: string; ticketPrice: string; passFeeToUser: boolean; }
+interface FormState {
+    title: string;
+    description: string;
+    location: string; // Detailed address input by organizer
+    artists: string;
+    songs: string;
+    genres: string;
+    eventType: EventTypeValue;
+    bookingMode: 'yes' | 'no';
+    maxTickets: string;
+    maxReservations: string;
+    ticketPrice: string;
+    passFeeToUser: boolean;
+    // New structured location fields for pickers and filtering
+    countryCode: string;
+    countryName: string;
+    stateCode: string;
+    stateName: string;
+    cityName: string;
+}
 interface ImageAsset { uri: string; mimeType?: string; fileName?: string; }
 
 const CreateEventScreen: React.FC = () => {
   const navigation = useNavigation<CreateEventNavigationProp>();
   const { session, loading: authIsLoading } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formState, setFormState] = useState<FormState>({ title: "", description: "", location: "", artists: "", songs: "", genres: "", eventType: '', bookingMode: 'yes', maxTickets: '', maxReservations: '', ticketPrice: '', passFeeToUser: true, });
+  const [formState, setFormState] = useState<FormState>({
+    title: "",
+    description: "",
+    location: "", // User typed location
+    artists: "",
+    songs: "",
+    genres: "",
+    eventType: '',
+    bookingMode: 'yes',
+    maxTickets: '',
+    maxReservations: '',
+    ticketPrice: '',
+    passFeeToUser: true,
+    // Initialize new location fields
+    countryCode: '',
+    countryName: '',
+    stateCode: '',
+    stateName: '',
+    cityName: '',
+  });
   const [eventDate, setEventDate] = useState<Date>(() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(19, 0, 0, 0); return d; });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [imageAssets, setImageAssets] = useState<ImageAsset[]>([]);
 
+  // Location picker states
+  const [countries, setCountries] = useState<any[]>([]);
+  const [states, setStates] = useState<any[]>([]);
+  const [cities, setCities] = useState<any[]>([]);
+
 
   const derivedBookingType = useCallback((): 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null => { if (formState.bookingMode === 'no' || formState.eventType === 'ADVERTISEMENT_ONLY') return 'INFO_ONLY'; if (TICKETED_EVENT_TYPES.includes(formState.eventType)) return 'TICKETED'; if (RESERVATION_EVENT_TYPES.includes(formState.eventType)) return 'RESERVATION'; return null; }, [formState.eventType, formState.bookingMode]);
-  const handleChange = (name: keyof FormState, value: string | boolean | EventTypeValue) => { setFormState((prev) => ({ ...prev, [name]: value })); if (name === 'eventType') { const newEventType = value as EventTypeValue; const newBookingMode = newEventType === 'ADVERTISEMENT_ONLY' ? 'no' : 'yes'; setFormState(prev => ({ ...prev, eventType: newEventType, bookingMode: newBookingMode, maxTickets: '', maxReservations: '', ticketPrice: '', })); } if (name === 'bookingMode' && value === 'no') { setFormState(prev => ({ ...prev, bookingMode: 'no', maxTickets: '', maxReservations: '', ticketPrice: '', })); }};
+  
+  // Updated handleChange to handle new location fields indirectly via specific handlers
+  const handleChange = (name: keyof Omit<FormState, 'countryCode' | 'countryName' | 'stateCode' | 'stateName' | 'cityName'>, value: string | boolean | EventTypeValue) => {
+    setFormState((prev) => ({ ...prev, [name]: value }));
+    if (name === 'eventType') {
+      const newEventType = value as EventTypeValue;
+      const newBookingMode = newEventType === 'ADVERTISEMENT_ONLY' ? 'no' : 'yes';
+      setFormState(prev => ({
+        ...prev,
+        eventType: newEventType,
+        bookingMode: newBookingMode,
+        // Keep booking details if type changes but booking is still possible
+        maxTickets: TICKETED_EVENT_TYPES.includes(newEventType) ? prev.maxTickets : '',
+        maxReservations: RESERVATION_EVENT_TYPES.includes(newEventType) ? prev.maxReservations : '',
+        ticketPrice: TICKETED_EVENT_TYPES.includes(newEventType) ? prev.ticketPrice : '',
+      }));
+    }
+    if (name === 'bookingMode' && value === 'no') {
+      setFormState(prev => ({
+        ...prev,
+        bookingMode: 'no',
+        // Clear booking details if booking is disabled
+        maxTickets: '',
+        maxReservations: '',
+        ticketPrice: '',
+      }));
+    }
+  };
+
+  // Location Picker Handlers
+  const handleCountrySelect = (countryCode: string) => {
+    if (countryCode === formState.countryCode) return;
+    const selectedCountry = countries.find(c => c.isoCode === countryCode);
+    setFormState(prev => ({
+      ...prev,
+      countryCode: countryCode,
+      countryName: selectedCountry?.name || '',
+      stateCode: '', // Reset state and city
+      stateName: '',
+      cityName: ''
+    }));
+  };
+
+  const handleStateSelect = (stateCode: string) => {
+    if (stateCode === formState.stateCode) return;
+    const selectedState = states.find(s => s.isoCode === stateCode);
+    setFormState(prev => ({
+      ...prev,
+      stateCode: stateCode,
+      stateName: selectedState?.name || '',
+      cityName: '' // Reset city
+    }));
+  };
+
+  const handleCitySelect = (cityName: string) => {
+    if (cityName === formState.cityName) return;
+    setFormState(prev => ({ ...prev, cityName: cityName }));
+  };
+
+  // useEffects for location data
+  useEffect(() => {
+    setCountries(Country.getAllCountries());
+  }, []);
+
+  useEffect(() => {
+    if (formState.countryCode) {
+      if (formState.countryCode === 'SG') { // Singapore handling
+        setStates([]);
+        setFormState(prev => ({ ...prev, stateCode: 'SG-01', stateName: 'Singapore' })); // Auto-set state for SG
+        return;
+      }
+      const countryStates = State.getStatesOfCountry(formState.countryCode);
+      setStates(countryStates);
+      const stateExists = countryStates.some(s => s.isoCode === formState.stateCode);
+      if (!stateExists) {
+        setFormState(prev => ({ ...prev, stateCode: '', stateName: '', cityName: '' }));
+      }
+    } else {
+      setStates([]);
+      setFormState(prev => ({ ...prev, stateCode: '', stateName: '', cityName: '' }));
+    }
+  }, [formState.countryCode]);
+
+  useEffect(() => {
+    if (formState.countryCode && formState.stateCode) {
+      const stateCities = City.getCitiesOfState(formState.countryCode, formState.stateCode);
+      setCities(stateCities);
+      const cityExists = stateCities.some(c => c.name === formState.cityName);
+      if (!cityExists) {
+        setFormState(prev => ({ ...prev, cityName: '' }));
+      }
+    } else {
+      setCities([]);
+      setFormState(prev => ({ ...prev, cityName: '' }));
+    }
+  }, [formState.countryCode, formState.stateCode]);
+
 
   const onDateChange = (event: DateTimePickerEvent, selectedDate?: Date | undefined) => { 
     if (Platform.OS === 'web') {
@@ -270,31 +410,68 @@ const CreateEventScreen: React.FC = () => {
       return true;
   };
 
-  const handleSubmit = async () => { if (!validateForm() || !session?.user) return; const userId = session.user.id; setIsSubmitting(true); try { const posterUrls = await uploadImages(userId, imageAssets); if (posterUrls.length !== imageAssets.length && imageAssets.length > 0) { Alert.alert("Upload Issue", "Some images failed to upload. Continuing without them."); } const processTags = (tagString: string): string[] | null => { if (!tagString?.trim()) return null; const tags = tagString.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0 && tag.length <= 50); // Added length limit
-         return tags.length > 0 ? tags : null; }; const finalGenres = processTags(formState.genres); const finalArtists = processTags(formState.artists); const finalSongs = processTags(formState.songs); const currentBookingType = derivedBookingType();
-       // Handle 0 input as null (unlimited) for max capacity fields
-       const maxTicketsValue = currentBookingType === 'TICKETED' && formState.bookingMode === 'yes' ? parseInt(formState.maxTickets, 10) : null;
-       const maxReservationsValue = currentBookingType === 'RESERVATION' && formState.bookingMode === 'yes' ? parseInt(formState.maxReservations, 10) : null;
+  const handleSubmit = async () => {
+    if (!validateForm() || !session?.user) return;
+    const userId = session.user.id;
+    setIsSubmitting(true);
+    try {
+      const posterUrls = await uploadImages(userId, imageAssets);
+      if (posterUrls.length !== imageAssets.length && imageAssets.length > 0) {
+        Alert.alert("Upload Issue", "Some images failed to upload. Continuing without them.");
+      }
+      const processTags = (tagString: string): string[] | null => {
+        if (!tagString?.trim()) return null;
+        const tags = tagString.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0 && tag.length <= 50); // Added length limit
+        return tags.length > 0 ? tags : null;
+      };
+      const finalGenres = processTags(formState.genres);
+      const finalArtists = processTags(formState.artists);
+      const finalSongs = processTags(formState.songs);
+      const currentBookingType = derivedBookingType();
+      
+      const maxTicketsValue = currentBookingType === 'TICKETED' && formState.bookingMode === 'yes' ? parseInt(formState.maxTickets, 10) : null;
+      const maxReservationsValue = currentBookingType === 'RESERVATION' && formState.bookingMode === 'yes' ? parseInt(formState.maxReservations, 10) : null;
 
-       const eventData = {
-            organizer_id: userId,
-            title: formState.title.trim(),
-            description: formState.description.trim() || null,
-            event_datetime: eventDate.toISOString(),
-            location_text: formState.location.trim() || null,
-            poster_urls: posterUrls,
-            tags_genres: finalGenres,
-            tags_artists: finalArtists,
-            tags_songs: finalSongs,
-            event_type: formState.eventType || null,
-            booking_type: currentBookingType,
-            max_tickets: maxTicketsValue === 0 ? null : maxTicketsValue, // 0 becomes null (unlimited)
-            max_reservations: maxReservationsValue === 0 ? null : maxReservationsValue, // 0 becomes null (unlimited)
-            ticket_price: currentBookingType === 'TICKETED' && formState.bookingMode === 'yes' ? parseFloat(formState.ticketPrice) : null,
-            pass_fee_to_user: currentBookingType === 'TICKETED' && formState.bookingMode === 'yes' ? formState.passFeeToUser : true,
-        };
-        console.log("Submitting Event Data:", eventData);
-        const { data, error } = await supabase.from("events").insert(eventData).select().single(); if (error) { throw error; } Alert.alert("Success!", "Your event has been created."); setFormState({ title: "", description: "", location: "", artists: "", songs: "", genres: "", eventType: '', bookingMode: 'yes', maxTickets: '', maxReservations: '', ticketPrice: '', passFeeToUser: true }); setImageAssets([]); setEventDate(() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(19, 0, 0, 0); return d; }); navigation.navigate('Posts'); } catch (e: any) { console.error("Event Creation Failed:", e); Alert.alert("Error Creating Event", `An unexpected error occurred: ${e.message || 'Unknown error'}. Please try again.`); setIsSubmitting(false); } };
+      const eventData = {
+        organizer_id: userId,
+        title: formState.title.trim(),
+        description: formState.description.trim() || null,
+        event_datetime: eventDate.toISOString(),
+        location_text: formState.location.trim() || null, // Keep this for detailed address
+        // Add structured location data for filtering/display
+        country: formState.countryName || null,
+        state: formState.stateName || null,
+        city: formState.cityName || null,
+        poster_urls: posterUrls,
+        tags_genres: finalGenres,
+        tags_artists: finalArtists,
+        tags_songs: finalSongs,
+        event_type: formState.eventType || null,
+        booking_type: currentBookingType,
+        max_tickets: maxTicketsValue === 0 ? null : maxTicketsValue,
+        max_reservations: maxReservationsValue === 0 ? null : maxReservationsValue,
+        ticket_price: currentBookingType === 'TICKETED' && formState.bookingMode === 'yes' ? parseFloat(formState.ticketPrice) : null,
+        pass_fee_to_user: currentBookingType === 'TICKETED' && formState.bookingMode === 'yes' ? formState.passFeeToUser : true,
+      };
+      console.log("Submitting Event Data:", eventData);
+      const { data, error } = await supabase.from("events").insert(eventData).select().single();
+      if (error) { throw error; }
+      Alert.alert("Success!", "Your event has been created.");
+      setFormState({
+        title: "", description: "", location: "", artists: "", songs: "", genres: "",
+        eventType: '', bookingMode: 'yes', maxTickets: '', maxReservations: '', ticketPrice: '', passFeeToUser: true,
+        countryCode: '', countryName: '', stateCode: '', stateName: '', cityName: '' // Reset location fields
+      });
+      setImageAssets([]);
+      setEventDate(() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(19, 0, 0, 0); return d; });
+      navigation.navigate('Posts');
+    } catch (e: any) {
+      console.error("Event Creation Failed:", e);
+      Alert.alert("Error Creating Event", `An unexpected error occurred: ${e.message || 'Unknown error'}. Please try again.`);
+    } finally { // Ensure isSubmitting is reset
+      setIsSubmitting(false);
+    }
+  };
 
 
   // --- Render Logic ---
@@ -408,7 +585,91 @@ const CreateEventScreen: React.FC = () => {
               )}
               {eventDate <= new Date() && (<Text style={[styles.errorText,{ marginTop: 4, marginBottom: 10 }]}>Date/Time must be in the future.</Text>)}
 
-              <View style={styles.formGroup}><Label>Location</Label><View style={styles.inputWithIcon}><Feather name="map-pin" size={16} color="#9CA3AF" style={styles.inputIcon} /><TextInput style={styles.iconInput} placeholder="e.g., The Fillmore, Online" value={formState.location} onChangeText={(text)=>handleChange("location",text)} accessibilityLabel="Event Location Input"/></View></View>
+              <View style={styles.formGroup}><Label>Location (Street Address, Venue Name)</Label><View style={styles.inputWithIcon}><Feather name="map-pin" size={16} color="#9CA3AF" style={styles.inputIcon} /><TextInput style={styles.iconInput} placeholder="e.g., 123 Music Lane, The Grand Hall" value={formState.location} onChangeText={(text)=>handleChange("location",text)} accessibilityLabel="Event Location Input"/></View></View>
+              
+              {/* Country Picker */}
+              <View style={styles.formGroup}>
+                  <Label>Country *</Label>
+                  <View style={styles.pickerContainer}>
+                      <Picker
+                          selectedValue={formState.countryCode}
+                          onValueChange={(itemValue) => handleCountrySelect(itemValue)}
+                          style={styles.picker}
+                          itemStyle={styles.pickerItem}
+                          accessibilityLabel="Select Country Picker"
+                          prompt="Select Country"
+                      >
+                          <Picker.Item label="Select a country..." value="" color="#9CA3AF" />
+                          {countries.map((country) => (
+                              <Picker.Item key={country.isoCode} label={country.name} value={country.isoCode} />
+                          ))}
+                      </Picker>
+                      {Platform.OS === 'ios' && formState.countryName && (
+                          <View style={styles.iosPickerValueDisplayWrapper} pointerEvents="none">
+                              <Text style={styles.iosPickerValueDisplayText}>Selected: {formState.countryName}</Text>
+                          </View>
+                      )}
+                  </View>
+                  {!formState.countryCode && (<Text style={styles.errorText}>Country is required.</Text>)}
+              </View>
+
+              {/* State Picker - Only show if country is selected and has states */}
+              {formState.countryCode && formState.countryCode !== 'SG' && states.length > 0 && (
+                  <View style={styles.formGroup}>
+                      <Label>State/Province *</Label>
+                      <View style={styles.pickerContainer}>
+                          <Picker
+                              selectedValue={formState.stateCode}
+                              onValueChange={(itemValue) => handleStateSelect(itemValue)}
+                              style={styles.picker}
+                              itemStyle={styles.pickerItem}
+                              enabled={states.length > 0}
+                              accessibilityLabel="Select State/Province Picker"
+                              prompt="Select State/Province"
+                          >
+                              <Picker.Item label="Select a state/province..." value="" color="#9CA3AF" />
+                              {states.map((state) => (
+                                  <Picker.Item key={state.isoCode} label={state.name} value={state.isoCode} />
+                              ))}
+                          </Picker>
+                          {Platform.OS === 'ios' && formState.stateName && (
+                              <View style={styles.iosPickerValueDisplayWrapper} pointerEvents="none">
+                                  <Text style={styles.iosPickerValueDisplayText}>Selected: {formState.stateName}</Text>
+                              </View>
+                          )}
+                      </View>
+                      {!formState.stateCode && (<Text style={styles.errorText}>State/Province is required.</Text>)}
+                  </View>
+              )}
+              
+              {/* City Picker - Only show if state is selected and has cities */}
+              {formState.stateCode && cities.length > 0 && (
+                  <View style={styles.formGroup}>
+                      <Label>City *</Label>
+                      <View style={styles.pickerContainer}>
+                          <Picker
+                              selectedValue={formState.cityName}
+                              onValueChange={(itemValue) => handleCitySelect(itemValue)}
+                              style={styles.picker}
+                              itemStyle={styles.pickerItem}
+                              enabled={cities.length > 0}
+                              accessibilityLabel="Select City Picker"
+                              prompt="Select City"
+                          >
+                              <Picker.Item label="Select a city..." value="" color="#9CA3AF" />
+                              {cities.map((city) => (
+                                  <Picker.Item key={city.name} label={city.name} value={city.name} />
+                              ))}
+                          </Picker>
+                          {Platform.OS === 'ios' && formState.cityName && (
+                              <View style={styles.iosPickerValueDisplayWrapper} pointerEvents="none">
+                                  <Text style={styles.iosPickerValueDisplayText}>Selected: {formState.cityName}</Text>
+                              </View>
+                          )}
+                      </View>
+                      {!formState.cityName && (<Text style={styles.errorText}>City is required.</Text>)}
+                  </View>
+              )}
 
               <View style={styles.formGroup}><Label>Event Type *</Label><View style={styles.pickerContainer}><Picker selectedValue={formState.eventType} onValueChange={(itemValue) => handleChange('eventType', itemValue as EventTypeValue)} style={styles.picker} itemStyle={styles.pickerItem} accessibilityLabel="Select Event Type Picker" prompt="Select Event Type">{eventTypeOptions.map(o=>(<Picker.Item key={o.value} label={o.label} value={o.value} enabled={o.value!==''} color={o.value === '' ? '#9CA3AF' : undefined}/>))}</Picker>{Platform.OS === 'ios' && formState.eventType && eventTypeOptions.find(o => o.value === formState.eventType) && ( 
                  <View style={styles.iosPickerValueDisplayWrapper} pointerEvents="none">
