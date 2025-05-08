@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, Image, FlatList, ScrollView, Modal,
   Dimensions, ActivityIndicator, RefreshControl, Alert, GestureResponderEvent,
-  Platform
+  Platform, SectionList
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -11,6 +11,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { supabase } from "../lib/supabase"; // Adjust path, remove EventBooking if unused
 import { useAuth } from "../hooks/useAuth"; // Adjust path
 import { APP_CONSTANTS } from "@/config/constants";
+import type { MusicLoverBio } from "@/hooks/useAuth"; // Changed import source
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator';
 import ImageSwiper from '@/components/ImageSwiper'; // <-- Import the new component
 
@@ -26,6 +27,8 @@ export interface SupabasePublicEvent {
   booking_type: 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null;
   ticket_price: number | null; pass_fee_to_user: boolean | null;
   max_tickets: number | null; max_reservations: number | null;
+  country?: string | null; // Added for filtering
+  city?: string | null;    // Added for filtering
 }
 
 export interface OrganizerInfo {
@@ -36,7 +39,10 @@ export interface OrganizerInfo {
 
 export interface MappedEvent {
   id: string; title: string; images: string[]; date: string; time: string;
-  venue: string; genres: string[]; artists: string[]; songs: string[];
+  venue: string; 
+  country?: string | null; // Keep location info
+  city?: string | null;
+  genres: string[]; artists: string[]; songs: string[];
   description: string;
   booking_type: 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null;
   ticket_price: number | null;
@@ -44,13 +50,45 @@ export interface MappedEvent {
   max_tickets: number | null; max_reservations: number | null;
   organizer: OrganizerInfo; // Use the separate interface
   isViewable: boolean;
+  score?: number; // Added for recommendation sorting
+}
+
+// Interface for user profile data needed for recommendations
+interface MusicLoverProfileData {
+    userId: string;
+    country: string | null;
+    city: string | null;
+    // Assumed fields based on MusicLoverSignUpFlow and potential streaming sync
+    top_genres?: string[];
+    top_artists?: string[];
+    top_songs?: string[]; // Maybe less useful for matching event tags?
+    // Fields from music_lover_profiles
+    favorite_artists?: string[];
+    favorite_albums?: string[]; // Harder to match directly
+    favorite_songs?: string[];
+    bio?: MusicLoverBio | null; // Contains musicTaste, dreamConcert etc. Can be null
+}
+
+// Section type for SectionList
+interface EventSection {
+  title: string;
+  data: MappedEvent[];
 }
 
 // --- Constants and Helpers ---
 const DEFAULT_EVENT_IMAGE = "https://via.placeholder.com/800x450/D1D5DB/1F2937?text=No+Image";
-const DEFAULT_ORGANIZER_LOGO = APP_CONSTANTS.DEFAULT_ORGANIZER_LOGO || "https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo";
+const DEFAULT_ORGANIZER_LOGO = /* APP_CONSTANTS.DEFAULT_ORGANIZER_LOGO || */ "https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo";
 const DEFAULT_ORGANIZER_NAME = "Event Organizer";
 const TRANSACTION_FEE = 0.50;
+const EVENTS_PER_PAGE = 10;
+
+// Weights for scoring
+const SCORE_WEIGHTS = {
+    GENRE_MATCH: 2,
+    ARTIST_MATCH: 5,
+    SONG_MATCH: 1, // Lower weight as song tags might be less common/accurate
+    BIO_TASTE_MATCH: 1, // Lower weight for broader description match
+};
 
 const formatEventDateTime = (isoString: string | null): { date: string; time: string } => {
   if (!isoString) return { date: "N/A", time: "N/A" };
@@ -132,7 +170,8 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
     // --- Navigate to Organizer Profile ---
     const handleOrganizerPress = () => {
         if (event?.organizer?.userId) {
-            navigation.push('ViewOrganizerProfileScreen', { organizerUserId: event.organizer.userId });
+            // Use navigation type assertion if structure mismatch is known
+            navigation.push('ViewOrganizerProfileScreen' as any, { organizerUserId: event.organizer.userId });
             onClose(); // Close the modal after navigating
         }
     };
@@ -181,14 +220,14 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
             rawFeePaidValue = event.pass_fee_to_user ? (TRANSACTION_FEE * quantity) : 0;
         }
 
-        navigation.navigate('BookingConfirmation', {
+        navigation.navigate('BookingConfirmation' as any, {
             eventId: event.id, eventTitle: event.title, quantity: quantity,
             pricePerItemDisplay: pricePerItemDisplay, totalPriceDisplay: totalPriceDisplay,
             bookingType: event.booking_type, // Pass validated type
             rawPricePerItem: rawPricePerItemValue, rawTotalPrice: rawTotalPriceValue,
             rawFeePaid: rawFeePaidValue, maxTickets: event.max_tickets,
             maxReservations: event.max_reservations,
-        });
+        } as any); // Use type assertion as parameters might not match perfectly
         onClose();
     };
 
@@ -335,14 +374,14 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress,
                  rawTotalPriceValueCard = calculateFinalPricePerItem(event.ticket_price, event.pass_fee_to_user) * 1;
                  rawFeePaidValueCard = event.pass_fee_to_user ? TRANSACTION_FEE * 1 : 0;
              }
-            navigation.navigate('BookingConfirmation', {
+            navigation.navigate('BookingConfirmation' as any, {
                 eventId: event.id, eventTitle: event.title, quantity: 1,
                 pricePerItemDisplay: pricePerItemDisplayCard, totalPriceDisplay: totalPriceDisplayCard,
                 bookingType: event.booking_type, // Pass validated type
                 rawPricePerItem: rawPricePerItemValueCard, rawTotalPrice: rawTotalPriceValueCard,
                 rawFeePaid: rawFeePaidValueCard, maxTickets: event.max_tickets,
                 maxReservations: event.max_reservations,
-            });
+            } as any); // Use type assertion
         } else {
             onPress(); // Open modal if not directly bookable
         }
@@ -400,116 +439,316 @@ const logImpression = async (eventId: string) => {
     }
 };
 
+// Function to calculate recommendation score
+const calculateEventScore = (event: MappedEvent, userProfile: MusicLoverProfileData | null): number => {
+    if (!userProfile) return 0;
+    let score = 0;
+
+    // --- Prepare User Preference Sets --- 
+    const userGenres = new Set<string>();
+    (userProfile.top_genres ?? []).forEach(g => userGenres.add(g.toLowerCase()));
+    // Add genres from bio.musicTaste
+    (userProfile.bio?.musicTaste ?? '').toLowerCase().split(/,|\band\b|\bwith\b|\s+/).forEach(g => {
+        const trimmed = g.trim();
+        if (trimmed) userGenres.add(trimmed);
+    });
+
+    const userArtists = new Set<string>();
+    (userProfile.top_artists ?? []).forEach(a => userArtists.add(a.toLowerCase()));
+    (userProfile.favorite_artists ?? []).forEach(a => userArtists.add(a.toLowerCase()));
+    // Add artists from bio.dreamConcert
+    (userProfile.bio?.dreamConcert ?? '').toLowerCase().split(/,|\band\b|\bwith\b/).forEach((artist: string) => {
+        const trimmed = artist.trim();
+        if (trimmed) userArtists.add(trimmed);
+    });
+
+    const userSongs = new Set<string>();
+    (userProfile.top_songs ?? []).forEach(s => userSongs.add(s.toLowerCase()));
+    (userProfile.favorite_songs ?? []).forEach(s => userSongs.add(s.toLowerCase()));
+    // Add song from bio.goToSong
+    const goToSong = userProfile.bio?.goToSong?.trim().toLowerCase();
+    if (goToSong) userSongs.add(goToSong);
+
+    // Extract all keywords from bio values (excluding common words could be added)
+    const bioKeywords = new Set<string>();
+    if (userProfile.bio) {
+        Object.values(userProfile.bio).forEach(value => {
+            if (typeof value === 'string') {
+                value.toLowerCase().split(/\s+|,|\(|\)/).forEach((word: string) => {
+                    const trimmed = word.trim().replace(/[^a-z0-9\-]/g, ''); // Basic cleanup
+                    if (trimmed && trimmed.length > 2) { // Avoid very short/common words
+                        bioKeywords.add(trimmed);
+                    }
+                });
+            }
+        });
+    }
+    
+    // Combine artist names into keywords as well for broader matching
+    userArtists.forEach(artist => bioKeywords.add(artist));
+
+    // --- Score Event Based on Matches --- 
+
+    // Match Genres
+    (event.genres ?? []).forEach(genre => {
+        const lowerGenre = genre.toLowerCase();
+        if (userGenres.has(lowerGenre)) {
+            score += SCORE_WEIGHTS.GENRE_MATCH;
+        }
+        if (bioKeywords.has(lowerGenre)) {
+            score += SCORE_WEIGHTS.BIO_TASTE_MATCH; 
+        }
+    });
+
+    // Match Artists
+    (event.artists ?? []).forEach(artist => {
+        const lowerArtist = artist.toLowerCase();
+        if (userArtists.has(lowerArtist)) {
+            score += SCORE_WEIGHTS.ARTIST_MATCH;
+        }
+         // Check if artist name appears as a keyword in bio
+        if (bioKeywords.has(lowerArtist)) {
+             score += SCORE_WEIGHTS.BIO_TASTE_MATCH * 0.5; 
+        }
+    });
+
+    // Match Songs (Lower weight)
+    (event.songs ?? []).forEach(song => {
+        const lowerSong = song.toLowerCase();
+        if (userSongs.has(lowerSong)) {
+            score += SCORE_WEIGHTS.SONG_MATCH;
+        }
+        // Check if song title keywords appear in bio keywords
+        lowerSong.split(/\s+/).forEach(word => {
+             if (bioKeywords.has(word.replace(/[^a-z0-9\-]/g, ''))) {
+                  score += SCORE_WEIGHTS.BIO_TASTE_MATCH * 0.1; // Very low score for keyword match
+             }
+        });
+    });
+
+    // Match keywords from event title/desc with user bio keywords
+    const eventText = `${event.title.toLowerCase()} ${event.description.toLowerCase()}`;
+    bioKeywords.forEach(word => {
+        if (eventText.includes(word)) {
+             score += SCORE_WEIGHTS.BIO_TASTE_MATCH * 0.2; // Slightly higher score for direct keyword match in text
+        }
+    });
+
+    // Note: Matching favorite_albums is complex. We could extract artist names from album strings,
+    // or check if event artists are associated with user's favorite albums (requires more data).
+    // For now, album matching is implicitly handled via artists/keywords from bio.mustListenAlbum.
+
+    return score;
+};
+
 // --- Main Events Screen ---
 const EventsScreen: React.FC = () => {
-    const { session } = useAuth();
-    const [events, setEvents] = useState<MappedEvent[]>([]);
-    const [isLoading, setIsLoading] = useState(false); // Combined loading state
+    const { session } = useAuth(); // Get session, user is inside session.user
+    const [userProfile, setUserProfile] = useState<MusicLoverProfileData | null>(null);
+    // State for raw fetched data
+    const [rawEvents, setRawEvents] = useState<SupabasePublicEvent[]>([]);
+    const [organizerMap, setOrganizerMap] = useState<Map<string, OrganizerInfo>>(new Map());
+    // State for processed event lists
+    const [recommendedEvents, setRecommendedEvents] = useState<MappedEvent[]>([]);
+    const [otherLocalEvents, setOtherLocalEvents] = useState<MappedEvent[]>([]);
+    // State for SectionList
+    const [sections, setSections] = useState<EventSection[]>([]);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [allEventsLoaded, setAllEventsLoaded] = useState(false); // Track if all events are loaded
+    
+    const [isLoading, setIsLoading] = useState(true); // Combined loading state for profile + initial events
+    const [isFetchingMore, setIsFetchingMore] = useState(false); // For pagination loading
     const [error, setError] = useState<string | null>(null);
     const [selectedEvent, setSelectedEvent] = useState<MappedEvent | null>(null);
     const [modalVisible, setModalVisible] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const navigation = useNavigation<NavigationProp>();
 
+    // Impression tracking refs (keep as is)
     const viewabilityConfig = { itemVisiblePercentThreshold: 50 };
-    const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{ item: MappedEvent; isViewable: boolean }> }) => {
-        setEvents(prevEvents => {
-            const viewableIds = new Map(viewableItems.map(v => [v.item.id, v.isViewable]));
-            return prevEvents.map(event => {
-                const isNowViewable = viewableIds.get(event.id) ?? false;
-                return event.isViewable !== isNowViewable ? { ...event, isViewable: isNowViewable } : event;
-            });
+    const onViewableItemsChanged = useCallback(({ viewableItems, changed }: { viewableItems: Array<any>, changed: Array<any> }) => {
+        changed.forEach((viewToken: any) => {
+            const { item, isViewable } = viewToken;
+            if (isViewable && item?.id) {
+                logImpression(item.id);
+            }
         });
     }, []);
     const viewabilityConfigRef = useRef(viewabilityConfig);
     const onViewableItemsChangedRef = useRef(onViewableItemsChanged);
 
-    // Fetch upcoming events and associated organizer profiles
+    // Fetch User Profile
+    const fetchUserProfile = useCallback(async () => {
+        const userId = session?.user?.id; // Access user ID via session
+        if (!userId) {
+            setUserProfile(null); // No user logged in
+            console.log("[EventsScreen] No user logged in, cannot fetch profile.");
+            return;
+        }
+        console.log("[EventsScreen] Fetching user profile data...");
+        try {
+            // Fetch profile data (location, bio, favorites)
+            const { data: profileData, error: profileError } = await supabase
+                .from('music_lover_profiles')
+                 // Add favorite fields to select
+                .select('user_id, country, city, bio, favorite_artists, favorite_albums, favorite_songs')
+                .eq('user_id', userId)
+                .single();
+
+            if (profileError && profileError.code !== 'PGRST116') {
+                console.error("[EventsScreen] Error fetching profile part:", profileError);
+                throw new Error(`Profile fetch error: ${profileError.message}`);
+            }
+            
+            // Fetch streaming data (top items)
+            const { data: streamingData, error: streamingError } = await supabase
+                .from('user_streaming_data')
+                .select('top_artists, top_genres, top_songs') // Adjust column names if different
+                .eq('user_id', userId)
+                .maybeSingle(); // Use maybeSingle as user might not have connected streaming
+
+            if (streamingError) {
+                console.warn("[EventsScreen] Warning fetching streaming data:", streamingError.message);
+                // Don't throw; proceed without streaming data if it fails
+            }
+
+            if (!profileData) {
+                 console.log("[EventsScreen] No base music lover profile found for user.");
+                 setUserProfile(null); // Essential profile part missing
+                 // Optionally set an error state here?
+                 return;
+            }
+            
+            // Combine data
+            const combinedProfile: MusicLoverProfileData = {
+                userId: profileData.user_id,
+                country: profileData.country,
+                city: profileData.city,
+                bio: profileData.bio ? (typeof profileData.bio === 'string' ? JSON.parse(profileData.bio) : profileData.bio) : null, // Ensure bio can be null
+                favorite_artists: profileData.favorite_artists ?? [],
+                favorite_albums: profileData.favorite_albums ?? [],
+                favorite_songs: profileData.favorite_songs ?? [],
+                top_genres: streamingData?.top_genres ?? [],
+                top_artists: streamingData?.top_artists ?? [],
+                top_songs: streamingData?.top_songs ?? []
+            };
+
+            console.log("[EventsScreen] Combined user profile data set.");
+            setUserProfile(combinedProfile);
+
+        } catch (err: any) {
+            console.error("[EventsScreen] Fetch User Profile Data Error:", err);
+            setError(`Could not load your profile data: ${err.message}`);
+            setUserProfile(null); // Set profile to null on error
+        }
+    }, [session]); // Depend on session
+
+    // Fetch ALL upcoming events and organizers (Modified)
     const fetchEventsAndOrganizers = useCallback(async () => {
-        console.log("Fetching events and organizers...");
-        if (!refreshing) setIsLoading(true);
+        console.log("[EventsScreen] Fetching ALL events and organizers...");
+        if (!refreshing) setIsLoading(true); // Set loading only if not refreshing
         setError(null);
 
         try {
-            // 1. Fetch Events (only IDs needed for organizers initially)
+            // 1. Fetch all Events (upcoming and past initially, filtering happens later)
             const { data: eventData, error: eventsError } = await supabase
                 .from("events")
                 .select(`
                     id, title, description, event_datetime, location_text, poster_urls,
                     tags_genres, tags_artists, tags_songs, organizer_id,
                     event_type, booking_type, ticket_price, pass_fee_to_user,
-                    max_tickets, max_reservations
+                    max_tickets, max_reservations, country, city 
                 `)
-                .gt('event_datetime', new Date().toISOString())
-                .order("event_datetime", { ascending: true });
+                 // No date filter here - fetch all initially
+                .order("event_datetime", { ascending: true }); // Fetch oldest first
 
             if (eventsError) throw eventsError;
-            if (!eventData || eventData.length === 0) {
-                setEvents([]);
-                console.log("No upcoming events found.");
-                setIsLoading(false);
-                setRefreshing(false);
-                return;
-            }
+            setRawEvents(eventData || []);
 
-            // 2. Extract Unique Organizer IDs
-            const organizerIds = [...new Set(eventData.map(event => event.organizer_id).filter(id => !!id))];
-            console.log("[EventsScreen] Unique organizer IDs:", organizerIds);
-
-            let organizerMap = new Map<string, OrganizerInfo>();
-
-            // 3. Fetch Organizer Profiles if IDs exist
+            // 2. Fetch Organizers (only for events fetched)
+            // Fix Set iteration for older targets if needed
+            const organizerIds = Array.from(new Set((eventData || []).map(event => event.organizer_id).filter(id => !!id)));
+            const newOrganizerMap = new Map<string, OrganizerInfo>();
             if (organizerIds.length > 0) {
-                console.log(`[EventsScreen] Fetching profiles for ${organizerIds.length} organizers...`);
-                const { data: organizerProfiles, error: profilesError } = await supabase
+                 const { data: organizerProfiles, error: profilesError } = await supabase
                     .from('organizer_profiles')
                     .select('user_id, company_name, logo')
                     .in('user_id', organizerIds);
 
                 if (profilesError) {
                     console.warn("[EventsScreen] Error fetching organizer profiles:", profilesError);
-                    // Proceed without organizer names/logos if fetch fails
                 } else if (organizerProfiles) {
-                    console.log(`[EventsScreen] Successfully fetched ${organizerProfiles.length} organizer profiles.`);
                     organizerProfiles.forEach(profile => {
-                        // Log each profile being added to the map
-                        console.log(`[EventsScreen] Mapping organizer: ID=${profile.user_id}, Name=${profile.company_name}`);
-                        organizerMap.set(profile.user_id, {
+                        newOrganizerMap.set(profile.user_id, {
                              userId: profile.user_id,
-                             name: profile.company_name ?? DEFAULT_ORGANIZER_NAME, // Use default name if company_name is null
+                             name: profile.company_name ?? DEFAULT_ORGANIZER_NAME,
                              image: profile.logo ?? null
                         });
                     });
                 }
-            } else {
-                console.log("[EventsScreen] No organizer IDs found in events, skipping profile fetch.");
             }
+            setOrganizerMap(newOrganizerMap);
 
-            // 4. Map Events with Organizer Data
-            console.log("[EventsScreen] Mapping events to include organizer info...");
-            const mappedEvents: MappedEvent[] = eventData.map((event: SupabasePublicEvent) => {
+        } catch (err: any) {
+            console.error("[EventsScreen] Fetch Events/Organizers Error:", err);
+            setError(`Failed to fetch events. Please try again.`);
+            setRawEvents([]);
+            setOrganizerMap(new Map());
+        } 
+        // Loading state is handled after processing in useEffect
+    }, [refreshing]);
+
+    // Initial data fetch
+    useFocusEffect(useCallback(() => {
+        setIsLoading(true); // Start loading indicator
+        Promise.all([fetchUserProfile(), fetchEventsAndOrganizers()]).finally(() => {
+           // setIsLoading(false); // Loading is set to false after processing effect runs
+        });
+    }, [fetchUserProfile, fetchEventsAndOrganizers]));
+
+    // Process events whenever raw data or user profile changes
+    useEffect(() => {
+        console.log("[EventsScreen] Processing events...");
+        if (!rawEvents || !userProfile === undefined) { // Wait for profile fetch attempt (even if null)
+             console.log("[EventsScreen] Waiting for raw events or user profile fetch...");
+             return; // Don't process until we have data and profile status
+        }
+        
+        const now = new Date();
+        const mappedEvents: MappedEvent[] = rawEvents
+            .filter(event => new Date(event.event_datetime) > now) // Filter for upcoming events here
+            .map((event: SupabasePublicEvent) => {
                 const { date, time } = formatEventDateTime(event.event_datetime);
-                // Lookup organizer info using event.organizer_id
                 const organizerInfo = organizerMap.get(event.organizer_id);
-
-                // Log the lookup result for each event
-                if (organizerInfo) {
-                     // console.log(`[EventsScreen] Event ${event.id}: Found organizer ${organizerInfo.name} (ID: ${organizerInfo.userId}) in map.`);
-                } else {
-                     console.log(`[EventsScreen] Event ${event.id}: Organizer ID ${event.organizer_id} NOT found in map. Using defaults.`);
-                }
-
                 const finalOrganizerData: OrganizerInfo = organizerInfo || {
-                    userId: event.organizer_id, // Critical: Ensure userId is always set, even if defaulting
+                    userId: event.organizer_id,
                     name: DEFAULT_ORGANIZER_NAME,
                     image: null
                 };
-
+                // Ensure pass_fee_to_user has a default value before scoring
+                const eventForScoring = {
+                    ...event,
+                    organizer: finalOrganizerData, 
+                    isViewable: false, 
+                    images: event.poster_urls ?? [], // Provide default for images
+                    date: date, // Provide default date/time/venue/desc
+                    time: time,
+                    venue: event.location_text ?? 'N/A',
+                    description: event.description ?? '',
+                    genres: event.tags_genres ?? [], 
+                    artists: event.tags_artists ?? [], 
+                    songs: event.tags_songs ?? [],
+                    pass_fee_to_user: event.pass_fee_to_user ?? true, // Ensure boolean
+                }
+                const score = calculateEventScore(eventForScoring as MappedEvent, userProfile);
+                
                 return {
                     id: event.id, title: event.title,
                     images: event.poster_urls?.length > 0 ? event.poster_urls : [DEFAULT_EVENT_IMAGE],
                     date: date, time: time,
                     venue: event.location_text ?? "N/A",
+                    country: event.country,
+                    city: event.city,
                     genres: event.tags_genres ?? [], artists: event.tags_artists ?? [], songs: event.tags_songs ?? [],
                     description: event.description ?? "No description.",
                     booking_type: event.booking_type,
@@ -517,51 +756,183 @@ const EventsScreen: React.FC = () => {
                     pass_fee_to_user: event.pass_fee_to_user ?? true,
                     max_tickets: event.max_tickets,
                     max_reservations: event.max_reservations,
-                    organizer: finalOrganizerData, // Assign the looked-up or default data
+                    organizer: finalOrganizerData,
                     isViewable: false,
+                    score: score, // Assign calculated score
                 };
             });
 
-            setEvents(mappedEvents);
-
-        } catch (err: any) {
-            console.error("Fetch Events/Organizers Error:", err);
-            setError(`Failed to fetch events. Please try again.`);
-            setEvents([]);
-        } finally {
-            setIsLoading(false);
-            setRefreshing(false);
+        // Filter by location
+        let locationFilteredEvents = mappedEvents;
+        if (userProfile?.country && userProfile.city) {
+            console.log(`[EventsScreen] Filtering for Country: ${userProfile.country}, City: ${userProfile.city}`);
+            locationFilteredEvents = mappedEvents.filter(event => 
+                event.country === userProfile.country && event.city === userProfile.city
+            );
+            console.log(`[EventsScreen] Found ${locationFilteredEvents.length} events in user's location.`);
+        } else {
+            console.log("[EventsScreen] User location not available, showing all upcoming events.");
+            // Or decide to show nothing if location is mandatory for feed?
+            // locationFilteredEvents = []; // Uncomment to show nothing if no user location
         }
-    }, [refreshing]);
 
-    useFocusEffect(useCallback(() => { fetchEventsAndOrganizers(); }, [fetchEventsAndOrganizers]));
-    const onRefresh = useCallback(() => { setRefreshing(true); }, []);
+        // Separate into recommended and other
+        const recommended = locationFilteredEvents
+            .filter(event => event.score && event.score > 0)
+            .sort((a, b) => (b.score ?? 0) - (a.score ?? 0)); // Sort by score desc
+
+        const otherLocal = locationFilteredEvents
+            .filter(event => !event.score || event.score <= 0)
+             // Already sorted by date ascending from initial fetch
+
+        setRecommendedEvents(recommended);
+        setOtherLocalEvents(otherLocal);
+        setCurrentPage(1); // Reset page on new data/profile
+        setAllEventsLoaded(false); // Reset loaded status
+        setIsLoading(false); // Stop initial loading indicator
+        setRefreshing(false); // Stop refresh indicator
+        console.log(`[EventsScreen] Processing complete. Recommended: ${recommended.length}, Other Local: ${otherLocal.length}`);
+
+    }, [rawEvents, organizerMap, userProfile]);
+
+    // Update displayed sections based on pagination
+     useEffect(() => {
+        console.log(`[EventsScreen] Updating sections for page: ${currentPage}`);
+        const startIndex = 0; // Start from beginning each time
+        const endIndex = currentPage * EVENTS_PER_PAGE;
+        
+        const recommendedToShow = recommendedEvents.slice(startIndex, endIndex);
+        const remainingSlots = endIndex - recommendedToShow.length;
+        const otherLocalToShow = remainingSlots > 0 ? otherLocalEvents.slice(0, remainingSlots) : [];
+
+        const newSections: EventSection[] = [];
+
+        if (recommendedToShow.length > 0) {
+            newSections.push({ title: "Recommended For You", data: recommendedToShow });
+        }
+
+        if (otherLocalToShow.length > 0) {
+            let otherTitle = "Other Upcoming Events";
+            if (userProfile?.city && userProfile.country) {
+                otherTitle = `Other Events in ${userProfile.city}, ${userProfile.country}`;
+            } else if (recommendedToShow.length === 0) {
+                 // If no recommendations and no user location, fallback title
+                 otherTitle = "Upcoming Events";
+            }
+            // Only add section if it wasn't implicitly covered by recommendations
+            if (recommendedToShow.length < recommendedEvents.length || recommendedEvents.length === 0) {
+                 newSections.push({ title: otherTitle, data: otherLocalToShow });
+            }
+        }
+        
+        setSections(newSections);
+
+        // Check if all events are loaded
+        const totalDisplayed = recommendedToShow.length + otherLocalToShow.length;
+        const totalAvailable = recommendedEvents.length + otherLocalEvents.length;
+        if (totalDisplayed >= totalAvailable) {
+            console.log("[EventsScreen] All events loaded.");
+            setAllEventsLoaded(true);
+        } else {
+             setAllEventsLoaded(false);
+        }
+        setIsFetchingMore(false); // Stop pagination loading indicator
+
+    }, [recommendedEvents, otherLocalEvents, currentPage, userProfile]);
+
+    const handleLoadMore = () => {
+        if (!isFetchingMore && !allEventsLoaded) {
+            console.log("[EventsScreen] Loading more events...");
+            setIsFetchingMore(true);
+            setCurrentPage(prevPage => prevPage + 1);
+        }
+    };
+
+    // Refresh handler
+    const onRefresh = useCallback(() => {
+        console.log("[EventsScreen] Refresh triggered.");
+        setRefreshing(true);
+        setCurrentPage(1); // Reset page on refresh
+        setAllEventsLoaded(false);
+        // Re-fetch profile and events
+        Promise.all([fetchUserProfile(), fetchEventsAndOrganizers()])
+            .catch(err => console.error("Error during refresh:", err))
+            .finally(() => {
+                // Processing useEffect will handle setting refreshing to false
+            });
+    }, [fetchUserProfile, fetchEventsAndOrganizers]);
 
     // Modal control (Unchanged)
     const handleEventPress = (event: MappedEvent) => { setSelectedEvent(event); setModalVisible(true); };
     const handleCloseModal = () => { setModalVisible(false); setSelectedEvent(null); };
 
-    // Main render logic (Unchanged)
+    // Render Section Header
+    const renderSectionHeader = ({ section: { title } }: { section: EventSection }) => (
+        <Text style={styles.sectionHeader}>{title}</Text>
+    );
+
+     // Render Footer for pagination loading or end message
+    const renderListFooter = () => {
+        if (isFetchingMore) {
+            return <ActivityIndicator style={{ marginVertical: 20 }} size="small" color="#3B82F6" />;
+        }
+        if (allEventsLoaded && (recommendedEvents.length + otherLocalEvents.length > 0)) {
+             return <Text style={styles.endListText}>No more events</Text>;
+        }
+        return null;
+    };
+
+    // Main render logic using SectionList
     const renderContent = () => {
-        if (isLoading && !refreshing && events.length === 0) return <View style={styles.centeredContainer}><ActivityIndicator size="large" color="#3B82F6" /></View>;
-        if (error) return ( <View style={styles.centeredContainer}><Feather name="alert-triangle" size={40} color="#F87171" /><Text style={styles.errorText}>{error}</Text>{!isLoading && (<TouchableOpacity onPress={fetchEventsAndOrganizers} style={styles.retryButton}><Text style={styles.retryButtonText}>Retry</Text></TouchableOpacity>)}</View>);
-        if (!isLoading && !refreshing && events.length === 0) return ( <View style={styles.centeredContainer}><Feather name="coffee" size={40} color="#9CA3AF" /><Text style={styles.emptyText}>No Upcoming Events</Text><Text style={styles.emptySubText}>Check back later or refresh!</Text></View>);
+        // Initial Loading state
+        if (isLoading && sections.length === 0) return <View style={styles.centeredContainer}><ActivityIndicator size="large" color="#3B82F6" /></View>;
+        
+        // Error state
+        if (error && !isLoading) return (
+             <View style={styles.centeredContainer}>
+                 <Feather name="alert-triangle" size={40} color="#F87171" />
+                 <Text style={styles.errorText}>{error}</Text>
+                 {!isLoading && (
+                     <TouchableOpacity onPress={onRefresh} style={styles.retryButton}>
+                         <Text style={styles.retryButtonText}>Retry</Text>
+                     </TouchableOpacity>
+                 )}
+             </View>
+         );
+         
+        // Empty state (after loading, no errors, but no events found for user/location)
+        if (!isLoading && !refreshing && sections.every(sec => sec.data.length === 0)) return (
+             <View style={styles.centeredContainer}>
+                 <Feather name="coffee" size={40} color="#9CA3AF" />
+                 <Text style={styles.emptyText}>No Events Found</Text>
+                 <Text style={styles.emptySubText}>
+                     {userProfile?.city ? `We couldn't find events matching your profile in ${userProfile.city}. Check back later!` : "Check back later for events!"}
+                 </Text>
+             </View>
+         );
+         
+        // Display SectionList
         return (
-            <FlatList
-                data={events}
+            <SectionList
+                sections={sections}
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
                     <EventCard
                         event={item}
                         onPress={() => handleEventPress(item)}
-                        isViewable={item.isViewable}
+                        isViewable={item.isViewable} // isViewable state is not managed per item here, needs onViewableItemsChanged logic if required
                     />
                 )}
+                renderSectionHeader={renderSectionHeader}
                 contentContainerStyle={styles.eventsList}
                 style={styles.flatListContainer}
                 refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]} /> }
-                onViewableItemsChanged={onViewableItemsChangedRef.current}
-                viewabilityConfig={viewabilityConfigRef.current}
+                onViewableItemsChanged={onViewableItemsChangedRef.current} // Impression tracking
+                viewabilityConfig={viewabilityConfigRef.current} // Impression tracking
+                onEndReached={handleLoadMore}
+                onEndReachedThreshold={0.5} // Load more when 50% scrolled
+                ListFooterComponent={renderListFooter}
+                stickySectionHeadersEnabled={false} // Optional: makes headers scroll with content
             />
         );
     };
@@ -582,7 +953,7 @@ const EventsScreen: React.FC = () => {
     );
 };
 
-// --- Styles --- (Add cardOrganizerName style)
+// --- Styles --- (Add sectionHeader, endListText styles)
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: "#f8fafc", },
     centeredContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#f8fafc', },
@@ -701,6 +1072,22 @@ const styles = StyleSheet.create({
     disabledButton: { backgroundColor: '#9CA3AF' },
     infoOnlyBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, marginTop: 24, marginBottom: 24 },
     infoOnlyText: { marginLeft: 8, fontSize: 14, color: '#4B5563', flexShrink: 1 },
+    sectionHeader: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#374151',
+        backgroundColor: '#f8fafc', // Match background
+        paddingVertical: 8,
+        paddingHorizontal: 0, // Use list padding
+        marginTop: 10, // Add some space above headers
+        marginBottom: 5,
+    },
+    endListText: {
+        textAlign: 'center',
+        color: '#9CA3AF',
+        paddingVertical: 20,
+        fontSize: 14,
+    },
 });
 
 export default EventsScreen;

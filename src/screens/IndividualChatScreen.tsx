@@ -281,14 +281,21 @@ const IndividualChatScreen: React.FC = () => {
                  headerTitle: () => (
                      <TouchableOpacity
                          onPress={() => {
-                             if (matchUserId) {
-                                 navigation.navigate('OtherUserProfileScreen', {
-                                     userId: matchUserId,
-                                     fromChat: true,
-                                     chatImages: messages
-                                         .filter(msg => msg.image)
-                                         .map(msg => msg.image!)
-                                 });
+                             if (isChatMutuallyInitiated) {
+                                 if (matchUserId) {
+                                     navigation.navigate('OtherUserProfileScreen', {
+                                         userId: matchUserId,
+                                         fromChat: true,
+                                         chatImages: messages
+                                             .filter(msg => msg.image)
+                                             .map(msg => msg.image!)
+                                     });
+                                 }
+                             } else {
+                                 Alert.alert(
+                                     "Interaction Required",
+                                     "Both you and this user need to send at least one message in this chat before you can view their profile from here."
+                                 );
                              }
                          }}
                          style={styles.headerTitleContainer}
@@ -726,7 +733,6 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        maxWidth: '80%',
     },
     headerProfileImage: {
         width: 32,

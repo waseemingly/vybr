@@ -40,11 +40,11 @@
         }
       ]
     },
-    "web": {
-    },
+    "web": {},
     "scheme": "vybr",
     "plugins": [
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-font"
     ],
     "extra": {
       "SUPABASE_URL": "https://fqfgueshwuhpckszyrsj.supabase.co",

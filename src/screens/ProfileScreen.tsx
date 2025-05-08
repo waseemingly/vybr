@@ -384,7 +384,8 @@ const ProfileScreen: React.FC = () => {
                         <View style={styles.statsContainer}>
                             <TouchableOpacity 
                                 style={styles.statItemTouchable} 
-                                disabled={friendCount === 0 && !countsLoading} 
+                                disabled={countsLoading} // Allow navigation even if count is 0 to show empty screen
+                                onPress={() => !countsLoading ? navigation.navigate('FriendsListScreen') : null}
                             >
                                 {countsLoading && !isRefreshing ? (
                                     <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{height: 21}}/>
@@ -396,7 +397,8 @@ const ProfileScreen: React.FC = () => {
                             <Separator vertical style={{ backgroundColor: '#E5E7EB' }}/>
                             <TouchableOpacity 
                                 style={styles.statItemTouchable} 
-                                disabled={followedOrganizersCount === 0 && !countsLoading} 
+                                disabled={countsLoading} // Allow navigation even if count is 0 to show empty screen
+                                onPress={() => !countsLoading ? navigation.navigate('OrganizerListScreen') : null}
                             >
                                 {countsLoading && !isRefreshing ? (
                                     <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{height: 21}}/>
