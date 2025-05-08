@@ -168,7 +168,7 @@ const GroupChatScreen: React.FC = () => {
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
                 quality: 0.7,
                 allowsEditing: true,
-                base64: false,
+                base64: Platform.OS === 'web', // Request base64 on web
             });
         } catch (pickerError: any) {
             console.error('[pickAndSendImage] ImagePicker launch failed:', pickerError);
@@ -214,15 +214,24 @@ const GroupChatScreen: React.FC = () => {
 
             setMessages(prev => [...prev, optimisticMessage]);
 
-            // Read the file data
-            const fileInfo = await FileSystem.getInfoAsync(imageUri);
-            if (!fileInfo.exists) {
-                throw new Error('Selected file does not exist');
-            }
+            let fileData: string;
+            if (Platform.OS === 'web') {
+                // On web, we already have base64 data
+                if (!selectedAsset.base64) {
+                    throw new Error('No base64 data available for web upload');
+                }
+                fileData = selectedAsset.base64;
+            } else {
+                // On mobile, read the file using FileSystem
+                const fileInfo = await FileSystem.getInfoAsync(imageUri);
+                if (!fileInfo.exists) {
+                    throw new Error('Selected file does not exist');
+                }
 
-            const fileData = await FileSystem.readAsStringAsync(imageUri, {
-                encoding: FileSystem.EncodingType.Base64
-            });
+                fileData = await FileSystem.readAsStringAsync(imageUri, {
+                    encoding: FileSystem.EncodingType.Base64
+                });
+            }
 
             if (!fileData) {
                 throw new Error('Failed to read file data');
@@ -285,10 +294,9 @@ const GroupChatScreen: React.FC = () => {
                     : msg
             ));
 
-        } catch (err: any) {
-            console.error('[pickAndSendImage] Error:', err);
-            setSendError(`Failed to send image: ${err.message}`);
-            // Remove the temporary message
+        } catch (error: any) {
+            console.error('[pickAndSendImage] Error:', error);
+            setSendError(`Failed to send image: ${error.message}`);
             if (tempId) {
                 setMessages(prev => prev.filter(msg => msg._id !== tempId));
             }
