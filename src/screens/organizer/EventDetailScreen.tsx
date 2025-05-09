@@ -50,6 +50,7 @@ interface MappedEventDetail {
   totalRevenue: number | null;
   ageDistribution: AttendeeAgeGroup[] | null;
   impressionsOverTime: ImpressionTimePoint[] | null;
+  bookingsOverTime: BookingTimePoint[] | null;
 }
 
 // --- Define Missing Types Locally (Replace with actual imports if available) --- 
@@ -61,6 +62,11 @@ interface AttendeeAgeGroup {
 interface ImpressionTimePoint {
   interval_start: string; // Assuming ISO string
   impression_count: number;
+}
+
+interface BookingTimePoint {
+  interval_start: string; // Assuming ISO string
+  booking_count: number;
 }
 // --- End Missing Type Definitions ---
 
@@ -117,6 +123,7 @@ const EventDetailScreen = () => {
           ticket_price: rawData.ticket_price, pass_fee_to_user: rawData.pass_fee_to_user ?? true,
           confirmedBookingsCount: null, totalImpressions: null, totalRevenue: null,
           ageDistribution: null, impressionsOverTime: null,
+          bookingsOverTime: null,
         };
         setEvent(baseMappedData);
         setIsLoading(false); // Base loading finished
@@ -129,10 +136,11 @@ const EventDetailScreen = () => {
                 ? supabase.from("event_bookings").select('total_price_paid').eq("event_id", eventId).eq('status', 'CONFIRMED').not('total_price_paid', 'is', null)
                 : Promise.resolve({ data: [], error: null }),
              supabase.rpc('get_event_attendee_age_distribution', { target_event_id: eventId }),
-             supabase.rpc('get_event_impressions_over_time', { target_event_id: eventId }) // Using default '1 day' interval
+             supabase.rpc('get_event_impressions_over_time', { target_event_id: eventId }), // Using default '1 day' interval
+             supabase.rpc('get_event_bookings_over_time', { target_event_id: eventId })
         ];
 
-        const [ bookingsResult, impressionsResult, revenueResult, ageResult, impressionsTimeResult ] = await Promise.all(analyticsPromises);
+        const [ bookingsResult, impressionsResult, revenueResult, ageResult, impressionsTimeResult, bookingsTimeResult ] = await Promise.all(analyticsPromises);
 
         // Process results
         let confirmedBookingsCount: number | null = null;
@@ -157,9 +165,23 @@ const EventDetailScreen = () => {
         if (!impressionsTimeResult.error && impressionsTimeResult.data) {
             impressionsOverTime = impressionsTimeResult.data as ImpressionTimePoint[];
         } else { console.warn("Impressions time fetch warn:", impressionsTimeResult.error?.message); }
+        
+        // Process booking time data
+        let bookingsOverTime: BookingTimePoint[] | null = null;
+        if (!bookingsTimeResult.error && bookingsTimeResult.data) {
+            bookingsOverTime = bookingsTimeResult.data as BookingTimePoint[];
+        } else { console.warn("Bookings time fetch warn:", bookingsTimeResult.error?.message); }
 
         // Update state with analytics
-        setEvent(prev => prev ? ({ ...prev, confirmedBookingsCount, totalImpressions, totalRevenue, ageDistribution, impressionsOverTime }) : null);
+        setEvent(prev => prev ? ({ 
+            ...prev, 
+            confirmedBookingsCount, 
+            totalImpressions, 
+            totalRevenue, 
+            ageDistribution, 
+            impressionsOverTime,
+            bookingsOverTime 
+        }) : null);
 
     } catch (err: any) { console.error("Fetch Error:", err); setError(`Failed to load event: ${err.message}`); setEvent(null); setIsLoading(false); }
     finally { setAnalyticsLoading(false); setRefreshing(false); }
@@ -364,6 +386,179 @@ const EventDetailScreen = () => {
              )}
           </Section>
 
+          {/* Cost Tracking Section */}
+          <Section title="Cost Tracking" icon="dollar-sign">
+              {analyticsLoading ? ( 
+                  <View style={styles.dataMissingContainer}>
+                      <ActivityIndicator color="#3B82F6"/>
+                      <Text style={styles.dataMissingTextSmall}>Loading cost data...</Text>
+                  </View> 
+              ) : ( 
+                  <>
+                      {/* Impression Costs */}
+                      <View style={styles.costSection}>
+                          <Text style={styles.costTitle}>Impression Costs</Text>
+                          <Text style={styles.costDescription}>
+                              Cost per impression: $0.0075
+                          </Text>
+                          
+                          {(event.impressionsOverTime && event.impressionsOverTime.length > 1) ? (
+                              <View style={styles.chartContainer}>
+                                  <LineChart 
+                                      data={{
+                                          labels: event.impressionsOverTime.map(p => 
+                                              new Date(p.interval_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                          ),
+                                          datasets: [{
+                                              data: event.impressionsOverTime.reduce((acc: number[], point, index) => {
+                                                  // Calculate cumulative cost (at $0.0075 per impression)
+                                                  const currentCost = point.impression_count * 0.0075;
+                                                  const prevTotal = index > 0 ? acc[index - 1] : 0;
+                                                  acc.push(prevTotal + currentCost);
+                                                  return acc;
+                                              }, [])
+                                          }],
+                                          legend: ["Cumulative Impression Cost ($)"]
+                                      }}
+                                      width={screenWidth - 64}
+                                      height={220}
+                                      chartConfig={{
+                                          ...chartConfig,
+                                          color: (opacity = 1) => `rgba(239, 68, 68, ${opacity})`, // Red color
+                                      }}
+                                      bezier
+                                      style={styles.chartStyle}
+                                      yAxisSuffix="$"
+                                      formatYLabel={(value) => parseFloat(value).toFixed(2)}
+                                  />
+                              </View>
+                          ) : (
+                              <Text style={styles.dataMissingTextSmall}>Not enough impression data for cost chart.</Text>
+                          )}
+                          
+                          <Text style={styles.costTotalAmount}>
+                              Total Impression Cost: ${event.totalImpressions ? (event.totalImpressions * 0.0075).toFixed(2) : '0.00'}
+                          </Text>
+                      </View>
+                      
+                      {/* Booking/Transaction Costs */}
+                      <View style={styles.costSection}>
+                          <Text style={styles.costTitle}>Transaction Costs</Text>
+                          <Text style={styles.costDescription}>
+                              Cost per ticket/reservation: $0.50
+                          </Text>
+                          
+                          {(event.bookingsOverTime && event.bookingsOverTime.length > 1) ? (
+                              <View style={styles.chartContainer}>
+                                  <LineChart 
+                                      data={{
+                                          labels: event.bookingsOverTime.map(p => 
+                                              new Date(p.interval_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                          ),
+                                          datasets: [{
+                                              data: event.bookingsOverTime.reduce((acc: number[], point, index) => {
+                                                  // Calculate cumulative transaction costs at $0.50 per booking
+                                                  const currentCost = point.booking_count * 0.50;
+                                                  const prevTotal = index > 0 ? acc[index - 1] : 0;
+                                                  acc.push(prevTotal + currentCost);
+                                                  return acc;
+                                              }, [])
+                                          }],
+                                          legend: ["Cumulative Transaction Cost ($)"]
+                                      }}
+                                      width={screenWidth - 64}
+                                      height={220}
+                                      chartConfig={{
+                                          ...chartConfig,
+                                          color: (opacity = 1) => `rgba(245, 158, 11, ${opacity})`, // Amber color
+                                      }}
+                                      bezier
+                                      style={styles.chartStyle}
+                                      yAxisSuffix="$"
+                                      formatYLabel={(value) => parseFloat(value).toFixed(2)}
+                                  />
+                              </View>
+                          ) : (
+                              <Text style={styles.dataMissingTextSmall}>Not enough booking data for transaction cost chart.</Text>
+                          )}
+                          
+                          <Text style={styles.costTotalAmount}>
+                              Total Transaction Cost: ${
+                                  event.confirmedBookingsCount ? 
+                                  (event.confirmedBookingsCount * 0.50).toFixed(2) : '0.00'
+                              }
+                          </Text>
+                      </View>
+                      
+                      {/* Combined Total Costs */}
+                      <View style={styles.costSection}>
+                          <Text style={styles.costTitle}>Total Platform Costs</Text>
+                          <Text style={styles.costDescription}>
+                              Combined impression and transaction costs
+                          </Text>
+                          
+                          {(event.impressionsOverTime && event.impressionsOverTime.length > 1 && 
+                            event.bookingsOverTime && event.bookingsOverTime.length > 1) ? (
+                              <View style={styles.chartContainer}>
+                                  <LineChart 
+                                      data={{
+                                          // Use impression data points for the timeline
+                                          labels: event.impressionsOverTime.map(p => 
+                                              new Date(p.interval_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                          ),
+                                          datasets: [{
+                                              data: event.impressionsOverTime.map((impressionPoint, index) => {
+                                                  // Get impression cost
+                                                  const impressionCost = event.impressionsOverTime!.slice(0, index + 1)
+                                                      .reduce((sum, p) => sum + (p.impression_count * 0.0075), 0);
+                                                  
+                                                  // Find matching booking data point (approximately by date)
+                                                  // This is simplified and assumes the time intervals align
+                                                  // A more robust solution would match dates properly
+                                                  const bookingCost = index < event.bookingsOverTime!.length ?
+                                                      event.bookingsOverTime!.slice(0, index + 1)
+                                                          .reduce((sum, p) => {
+                                                              // Updated to use flat $0.50 fee
+                                                              return sum + (p.booking_count * 0.50);
+                                                          }, 0) : 0;
+                                                  
+                                                  // Return combined cost
+                                                  return impressionCost + bookingCost;
+                                              })
+                                          }],
+                                          legend: ["Total Platform Cost ($)"]
+                                      }}
+                                      width={screenWidth - 64}
+                                      height={220}
+                                      chartConfig={{
+                                          ...chartConfig,
+                                          color: (opacity = 1) => `rgba(79, 70, 229, ${opacity})`, // Indigo color
+                                      }}
+                                      bezier
+                                      style={styles.chartStyle}
+                                      yAxisSuffix="$"
+                                      formatYLabel={(value) => parseFloat(value).toFixed(2)}
+                                  />
+                              </View>
+                          ) : (
+                              <Text style={styles.dataMissingTextSmall}>Not enough data for combined cost chart.</Text>
+                          )}
+                          
+                          <Text style={styles.costTotalAmount}>
+                              Total Platform Cost: ${
+                                  (
+                                      // Impression costs
+                                      (event.totalImpressions ? event.totalImpressions * 0.0075 : 0) +
+                                      // Transaction costs - updated to flat $0.50 fee
+                                      (event.confirmedBookingsCount ? event.confirmedBookingsCount * 0.50 : 0)
+                                  ).toFixed(2)
+                              }
+                          </Text>
+                      </View>
+                  </>
+              )}
+          </Section>
+
           {/* Action Buttons - Promote Removed */}
           <View style={styles.actionButtons}>
              <TouchableOpacity style={styles.editButtonFullWidth} onPress={handleEdit}>
@@ -470,6 +665,36 @@ const styles = StyleSheet.create({
   actionButtons: { flexDirection: "row", marginTop: 24, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
   editButtonFullWidth: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(59, 130, 246, 0.1)", paddingVertical: 12, borderRadius: 8, },
   editButtonText: { color: "#3B82F6", fontWeight: "600", marginLeft: 8, fontSize: 16 },
+  costSection: {
+    marginBottom: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  costTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 4,
+  },
+  costDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 12,
+  },
+  costTotalAmount: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#374151',
+    textAlign: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
 });
 
 export default EventDetailScreen;

@@ -154,10 +154,19 @@ const OrganizerPostsScreen = () => {
           <View style={styles.eventHeader}><Text style={styles.eventTitle} numberOfLines={2}>{item.title}</Text><View style={[styles.statusBadge, { backgroundColor: isUpcoming ? "#EFF6FF":"#E0F2F1" }]}><Text style={[styles.statusText, { color: isUpcoming ? "#3B82F6":"#10B981" }]}>{item.status}</Text></View></View>
           <View style={styles.eventInfoRow}><Feather name="calendar" size={14} color="#6B7280" /><Text style={styles.eventInfoText}>{item.date} • {item.time}</Text></View>
           <View style={styles.eventInfoRow}><Feather name="map-pin" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={1}>{item.venue}</Text></View>
-          <View style={styles.ticketStatusRow}>
-              <View style={styles.ticketStatusInfo}><Feather name={bookingIcon} size={14} color="#6B7280" style={{marginRight: 5}}/><Text style={styles.ticketStatusText}>{bookingStatusText}</Text></View>
-              {countDisplay !== null && (<View style={styles.ticketCountBadge}><Text style={styles.ticketCountText}>{countDisplay}</Text></View>)}
-          </View>
+          
+          {(item.booking_type === 'TICKETED' || item.booking_type === 'RESERVATION') && (
+            <View style={styles.ticketsInfoContainer}>
+              <View style={styles.ticketsInfoContent}>
+                <Feather name={bookingIcon} size={16} color="#3B82F6" />
+                <Text style={styles.ticketsInfoLabel}>{bookingStatusText}</Text>
+              </View>
+              <View style={styles.ticketsCountContainer}>
+                <Text style={styles.ticketsCountText}>{countDisplay}</Text>
+              </View>
+            </View>
+          )}
+          
           <View style={styles.cardActions}>
             <TouchableOpacity style={styles.actionButton} onPress={(e) => { e.stopPropagation(); handleEditPress(item.id); }}><Feather name="edit-2" size={14} color="#3B82F6" /><Text style={styles.actionButtonText}>Edit</Text></TouchableOpacity>
             <TouchableOpacity style={styles.actionButton} onPress={(e) => { e.stopPropagation(); navigation.navigate("EventDetail", { eventId: item.id }); }}><Feather name="bar-chart-2" size={14} color="#3B82F6" /><Text style={styles.actionButtonText}>Analytics</Text></TouchableOpacity>
@@ -241,6 +250,41 @@ const styles = StyleSheet.create({
   cardActions: { flexDirection: "row", justifyContent: 'space-around', borderTopWidth: 1, borderTopColor: "#F3F4F6", paddingTop: 12, marginTop: 8, },
   actionButton: { flexDirection: "row", alignItems: "center", padding: 4, },
   actionButtonText: { fontSize: 14, color: "#3B82F6", marginLeft: 4, },
+  ticketsInfoContainer: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between',
+    marginVertical: 12, 
+    paddingVertical: 10, 
+    paddingHorizontal: 12, 
+    backgroundColor: '#EFF6FF', 
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#3B82F6'
+  },
+  ticketsInfoContent: { 
+    flexDirection: 'row', 
+    alignItems: 'center'
+  },
+  ticketsInfoLabel: { 
+    fontSize: 14, 
+    fontWeight: '500',
+    color: '#4B5563', 
+    marginLeft: 8
+  },
+  ticketsCountContainer: { 
+    backgroundColor: '#3B82F6', 
+    borderRadius: 20, 
+    paddingHorizontal: 12, 
+    paddingVertical: 4,
+    minWidth: 40,
+    alignItems: 'center'
+  },
+  ticketsCountText: { 
+    fontSize: 16, 
+    fontWeight: '700', 
+    color: '#FFFFFF'
+  },
 });
 
 export default OrganizerPostsScreen;

@@ -18,7 +18,6 @@ import { supabase } from '@/lib/supabase'; // <-- IMPORT supabase client
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MainStackParamList } from '@/navigation/AppNavigator'; // Assuming types are here
 import { useStreamingData } from '@/hooks/useStreamingData';
-import { useYouTubeMusicAuth } from '@/hooks/useYouTubeMusicAuth';
 
 // --- Define Streaming Services Data (Consider moving to a shared file) ---
 // Copied from MusicLoverSignUpFlow for now
