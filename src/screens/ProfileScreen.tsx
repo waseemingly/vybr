@@ -11,7 +11,7 @@ import { useOrganizerMode } from "@/hooks/useOrganizerMode";
 import { useAuth, MusicLoverBio } from "@/hooks/useAuth";
 import { useStreamingData, TopArtist, TopTrack, TopGenre } from '@/hooks/useStreamingData';
 import { useSpotifyAuth } from '@/hooks/useSpotifyAuth';
-import { useYouTubeMusicAuth } from '@/hooks/useYouTubeMusicAuth';
+// import { useYouTubeMusicAuth } from '@/hooks/useYouTubeMusicAuth';
 import { APP_CONSTANTS } from "@/config/constants";
 import { useNavigation, useFocusEffect, useRoute, useNavigationState } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -20,6 +20,7 @@ import { supabase } from "@/lib/supabase";
 import type { RootStackParamList, MainStackParamList, UserTabParamList, OrganizerTabParamList } from '@/navigation/AppNavigator';
 
 // --- Navigation Type ---
+// Keep type broad to allow navigation to various stacks
 type ProfileScreenNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>;
 type ProfileScreenRouteProp = RouteProp<UserTabParamList, 'Profile'>;
 
@@ -27,13 +28,13 @@ type ProfileScreenRouteProp = RouteProp<UserTabParamList, 'Profile'>;
 type ProfileScreenRouteProps = {
     goToLinkMusic?: boolean;
     autoLinkSpotify?: boolean;
-    autoLinkYouTubeMusic?: boolean;
+    // autoLinkYouTubeMusic?: boolean;
 };
 
 // Update Link Music Screen route params type
 type LinkMusicServicesScreenParams = {
     autoLinkSpotify?: boolean;
-    autoLinkYouTubeMusic?: boolean;
+    // autoLinkYouTubeMusic?: boolean;
 };
 
 // --- Constants & Components ---
@@ -100,7 +101,7 @@ const ProfileScreen: React.FC = () => {
     const route = useRoute();
     const userId = session?.user?.id;
     const { isLoggedIn: isSpotifyLoggedIn } = useSpotifyAuth();
-    const { isLoggedIn: isYouTubeMusicLoggedIn } = useYouTubeMusicAuth();
+    // const { isLoggedIn: isYouTubeMusicLoggedIn } = useYouTubeMusicAuth();
     const { 
         streamingData, loading: streamingDataLoading, 
         topArtists, topTracks, topGenres, 
@@ -108,7 +109,6 @@ const ProfileScreen: React.FC = () => {
         forceFetchServiceData, isServiceConnected
     } = useStreamingData(userId, {
         isSpotifyLoggedIn,
-        isYouTubeMusicLoggedIn
     });
     
     const [expandedSections, setExpandedSections] = useState<ExpandedSections>({
@@ -222,7 +222,7 @@ const ProfileScreen: React.FC = () => {
     };
 
     // Handle manual refresh of streaming service data
-    const handleForceRefreshStreamingData = async (service: 'spotify' | 'youtubemusic') => {
+    const handleForceRefreshStreamingData = async (service: 'spotify') => {
         if (!musicLoverProfile || !userId) {
             console.warn(`[ProfileScreen] Cannot refresh ${service} data: Profile or user ID not loaded.`);
             return;
@@ -241,7 +241,6 @@ const ProfileScreen: React.FC = () => {
                         // Use properly typed navigation params
                         const params: LinkMusicServicesScreenParams = {};
                         if (service === 'spotify') params.autoLinkSpotify = true;
-                        if (service === 'youtubemusic') params.autoLinkYouTubeMusic = true;
                         
                         navigation.navigate('LinkMusicServicesScreen', params);
                     }}
@@ -308,13 +307,13 @@ const ProfileScreen: React.FC = () => {
                             color={serviceId === 'spotify' ? '#1DB954' : '#FF0000'} 
                         />
                         <Text style={styles.streamingServiceName}>
-                            {serviceId === 'spotify' ? 'Spotify' : serviceId === 'youtubemusic' ? 'YouTube Music' : serviceId}
+                            {serviceId === 'spotify' ? 'Spotify' : serviceId}
                         </Text>
                     </View>
                     
                     <TouchableOpacity 
                         style={styles.refreshButton}
-                        onPress={() => handleForceRefreshStreamingData(serviceId as 'spotify' | 'youtubemusic')}
+                        onPress={() => handleForceRefreshStreamingData('spotify')}
                         disabled={refreshingStreamingData}
                     >
                         {refreshingStreamingData ? (
@@ -384,7 +383,8 @@ const ProfileScreen: React.FC = () => {
                         <View style={styles.statsContainer}>
                             <TouchableOpacity 
                                 style={styles.statItemTouchable} 
-                                disabled={countsLoading} // Allow navigation even if count is 0 to show empty screen
+                                disabled={countsLoading} 
+                                // Try direct navigation assuming screens are in Root/Main stack
                                 onPress={() => !countsLoading ? navigation.navigate('FriendsListScreen') : null}
                             >
                                 {countsLoading && !isRefreshing ? (
@@ -397,7 +397,8 @@ const ProfileScreen: React.FC = () => {
                             <Separator vertical style={{ backgroundColor: '#E5E7EB' }}/>
                             <TouchableOpacity 
                                 style={styles.statItemTouchable} 
-                                disabled={countsLoading} // Allow navigation even if count is 0 to show empty screen
+                                disabled={countsLoading} 
+                                // Try direct navigation assuming screens are in Root/Main stack
                                 onPress={() => !countsLoading ? navigation.navigate('OrganizerListScreen') : null}
                             >
                                 {countsLoading && !isRefreshing ? (

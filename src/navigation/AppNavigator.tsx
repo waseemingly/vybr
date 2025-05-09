@@ -68,6 +68,9 @@ import AddGroupMembersScreen from '@/screens/AddGroupMembersScreen';
 // View Organizer Profile Screen (Now in Main Stack)
 import ViewOrganizerProfileScreen from '@/screens/ViewOrganizerProfileScreen';
 
+// Organizer - View Bookings Screen
+import ViewBookingsScreen from '@/screens/organizer/ViewBookingsScreen'; // <-- IMPORT NEW SCREEN
+
 // Link Music Services Screen (Commented out due to linter error)
 import LinkMusicServicesScreen from '@/screens/LinkMusicServicesScreen'; // <-- IMPORT NEW SCREEN
 
@@ -85,18 +88,46 @@ export type MainStackParamList = {
   LoadingScreen: undefined; // Could be used while checking auth state
   UserTabs: { screen?: keyof UserTabParamList, params?: any }; // Entry point for User tabs
   OrganizerTabs: { screen?: keyof OrganizerTabParamList, params?: any }; // Entry point for Organizer tabs
+  
+  // User Specific Screens (outside tabs)
   UserSettingsScreen: undefined;
-  EditProfileScreen: { userType: 'music_lover' | 'organizer' };
-  LinkMusicServicesScreen: { autoLinkSpotify?: boolean } | undefined; // <<< ADDED param, allow undefined
+  EditUserProfileScreen: undefined; // Simplified from EditProfileScreen with userType
+  UserManageSubscriptionScreen: undefined;
+  UserMutedListScreen: undefined;
+  UserBlockedListScreen: undefined;
+  FriendsListScreen: undefined;
+  OrganizerListScreen: undefined; // For users following organizers
+  UpgradeScreen: undefined;
+  AttendedEventsScreen: undefined;
+  UserBillingHistoryScreen: undefined;
+  UpdateMusicFavoritesScreen: undefined;
+  LinkMusicServicesScreen: { autoLinkSpotify?: boolean } | undefined;
+
+  // Organizer Specific Screens (outside tabs)
+  EventDetail: { eventId: string }; // Corrected from EventDetailScreen, eventId to string
+  EditEvent: { eventId: string };   // Corrected from EditEventScreen, eventId to string
+  ViewBookings: { eventId: string; eventTitle: string }; // <<< ADDED ViewBookings
+  OrganizerSettingsScreen: undefined;
+  EditOrganizerProfileScreen: undefined; // Simplified
+  OrgManagePlanScreen: undefined;
+  OrgBillingHistoryScreen: undefined;
+  UserListScreen: undefined; // For organizers viewing followers/attendees
+  PromoteEvent: { eventId: string }; // Added based on EventDetailScreen's OrganizerStackParamList
+
+  // Common Screens (accessible by both, or general purpose)
   OtherUserProfileScreen: { userId: string };
-  EventDetailScreen: { eventId: number }; // Assuming event ID is a number
-  CreateEventScreen: undefined;
-  EditEventScreen: { eventId: number };
-  VenueProfileScreen: { venueId: number }; // Assuming venue ID is number
-  VenueDetailScreen: { venueId: number };
-  IndividualChatScreen: { matchUserId: string, matchName: string }; // User & Organizer Chat
-  NotificationsScreen: undefined;
-  // Add other main screens accessible outside tabs here (e.g., User/Org specific screens if not in tabs)
+  CreateEventScreen: undefined; // Already present, seems common or org specific
+  BookingConfirmation: { eventId?: string, bookingId?: string }; // Added params
+  UpcomingEventsListScreen: { userId?: string, organizerId?: string }; // Added optional params
+  PastEventsListScreen: { userId?: string, organizerId?: string }; // Added optional params
+  ViewOrganizerProfileScreen: { organizerId: string }; // Added params
+  
+  VenueProfileScreen: { venueId:string }; // Assuming venueId might be string too
+  VenueDetailScreen: { venueId: string }; // Assuming venueId might be string too
+  IndividualChatScreen: { matchUserId: string, matchName: string }; // Already present
+  NotificationsScreen: undefined; // Already present
+
+  NotFoundMain: undefined; // Fallback for MainStack
 };
 
 export type UserTabParamList = {
@@ -187,6 +218,7 @@ const MainAppStack = () => {
                  <MainStack.Screen name="OrganizerTabs" component={OrganizerTabs} options={{ headerShown: false }} />
                  <MainStack.Screen name="EventDetail" component={EventDetailScreen} options={{ title: 'Event Details' }}/>
                  <MainStack.Screen name="EditEvent" component={EditEventScreen} options={{ title: 'Edit Event' }}/>
+                 <MainStack.Screen name="ViewBookings" component={ViewBookingsScreen} options={{ title: 'Event Bookings' }}/>
                  <MainStack.Screen name="OrganizerSettingsScreen" component={OrganizerSettingsScreen} options={{ title: 'Settings' }}/>
                  <MainStack.Screen name="EditOrganizerProfileScreen" component={EditOrganizerProfileScreen} options={{ title: 'Edit Profile' }}/>
                  <MainStack.Screen name="OrgManagePlanScreen" component={OrgManagePlanScreen} options={{ title: 'Manage Plan' }}/>
@@ -211,6 +243,8 @@ const MainAppStack = () => {
              </>
         )}
         {/* Screens accessible by both modes */}
+        <MainStack.Screen name="CreateEventScreen" component={CreateEventScreen} options={{title: "Create Event"}} />
+        <MainStack.Screen name="OtherUserProfileScreen" component={OtherUserProfileScreen} options={{title: "Profile"}} />
         <MainStack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} options={{ title: 'Booking Confirmed' }} />
         <MainStack.Screen name="UpcomingEventsListScreen" component={UpcomingEventsListScreen} />
         <MainStack.Screen name="PastEventsListScreen" component={PastEventsListScreen} />

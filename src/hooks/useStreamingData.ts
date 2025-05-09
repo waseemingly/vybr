@@ -274,7 +274,7 @@ export const useStreamingData = (userId?: string | null, authProps?: {
         if (!authProps.isYouTubeMusicLoggedIn) return false;
         
         // Import only the necessary utility functions from our new utility file
-        const { getYTMToken } = await import('../lib/YoutubeMusicAuthUtils');
+        // const { getYTMToken } = await import('../lib/YoutubeMusicAuthUtils');
         
         // Check if tokens exist without using the hook
         try {

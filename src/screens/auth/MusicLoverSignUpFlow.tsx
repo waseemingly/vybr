@@ -12,7 +12,6 @@ import { Feather } from '@expo/vector-icons'; // Keep Feather for other icons
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/useAuth'; // Adjust import path as needed
 import { useSpotifyAuth } from '@/hooks/useSpotifyAuth'; // Spotify auth hook
-import { useYouTubeMusicAuth } from '@/hooks/useYouTubeMusicAuth'; // YouTube Music auth hook
 import { APP_CONSTANTS } from '@/config/constants'; // Assuming path is correct
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
@@ -37,11 +36,11 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Define Streaming Services Data - UPDATED with correct service IDs
 const STREAMING_SERVICES = [
     { id: 'spotify', name: 'Spotify', icon: 'spotify', color: '#1DB954', iconSet: 'FontAwesome', description: 'Browser authentication required' },
-    { id: 'apple_music', name: 'Apple Music', icon: 'apple-music', color: '#FA57C1', iconSet: 'MaterialCommunityIcons', description: 'Connect your Apple Music' },
-    { id: 'youtubemusic', name: 'YouTube Music', icon: 'youtube-play', color: '#FF0000', iconSet: 'FontAwesome', description: 'Auth code required' },
+    { id: 'apple_music', name: 'Apple Music', icon: 'apple', color: '#FA57C1', iconSet: 'FontAwesome', description: 'Connect your Apple Music' },
+    { id: 'youtubemusic', name: 'YouTube Music', icon: 'youtube-play', color: '#FF0000', iconSet: 'FontAwesome', description: 'Data synced externally' }, // Updated description
     { id: 'deezer', name: 'Deezer', icon: 'deezer', color: '#EF5466', iconSet: 'MaterialCommunityIcons', description: 'Connect your Deezer account' },
     { id: 'soundcloud', name: 'SoundCloud', icon: 'soundcloud', color: '#FF5500', iconSet: 'FontAwesome', description: 'Connect to SoundCloud' },
-    { id: 'tidal', name: 'Tidal', icon: 'tidal', color: '#000000', iconSet: 'MaterialCommunityIcons', description: 'Connect your Tidal account' },
+    { id: 'tidal', name: 'Tidal', icon: 'headphones', color: '#000000', iconSet: 'Feather', description: 'Connect your Tidal account' },
 ];
 
 // --- Update the type for form data ---
@@ -153,16 +152,6 @@ const MusicLoverSignUpFlow = () => {
         verifyAuthorizationCompleted
     } = useSpotifyAuth();
     
-    // YouTube Music auth hook
-    const {
-        login: youTubeMusicLogin,
-        isLoggedIn: isYouTubeMusicLoggedIn,
-        isLoading: isYouTubeMusicLoading,
-        error: youTubeMusicError,
-        forceFetchAndSaveYouTubeMusicData,
-        verifyTokenStorage: verifyYouTubeMusicToken
-    } = useYouTubeMusicAuth();
-
     // --- Update initial state ---
     const [formData, setFormData] = useState<MusicLoverFormData>({
         email: '', password: '', confirmPassword: '', firstName: '', lastName: '',
@@ -194,17 +183,6 @@ const MusicLoverSignUpFlow = () => {
     const [countries, setCountries] = useState<any[]>([]);
     const [states, setStates] = useState<any[]>([]);
     const [cities, setCities] = useState<any[]>([]);
-
-    // YouTube Music auth state
-    const [showYTMAuthCode, setShowYTMAuthCode] = useState(false);
-    const [ytmAuthInProgress, setYtmAuthInProgress] = useState(false);
-    const [ytmAuthDetails, setYTMAuthDetails] = useState<null | {
-        verificationUrl: string;
-        userCode: string;
-        deviceCode: string;
-        interval: number;
-        completion: () => Promise<boolean>;
-    }>(null);
 
     // Handle form field changes (robust version)
     const handleChange = (field: keyof MusicLoverFormData | string, value: any) => { // Use keyof or string for nested fields
@@ -561,11 +539,11 @@ const MusicLoverSignUpFlow = () => {
                     }
                 }
                 
-                if (formData.selectedStreamingService === 'youtubemusic' && isYouTubeMusicLoggedIn) {
+                if (formData.selectedStreamingService === 'youtubemusic' && isSpotifyLoggedIn) {
                     try {
-                        await forceFetchAndSaveYouTubeMusicData(userId, false);
-                    } catch (ytmError) {
-                        console.error('[MusicLoverSignUpFlow] Error fetching YouTube Music data:', ytmError);
+                        await forceFetchAndSaveSpotifyData(userId, false);
+                    } catch (spotifyError) {
+                        console.error('[MusicLoverSignUpFlow] Error fetching Spotify data:', spotifyError);
                     }
                 }
             }
@@ -616,11 +594,11 @@ const MusicLoverSignUpFlow = () => {
                     }
                 }
                 
-                if (formData.selectedStreamingService === 'youtubemusic' && isYouTubeMusicLoggedIn) {
+                if (formData.selectedStreamingService === 'youtubemusic' && isSpotifyLoggedIn) {
                     try {
-                        await forceFetchAndSaveYouTubeMusicData(userId, true);
-                    } catch (ytmError) {
-                        console.error('[MusicLoverSignUpFlow] Error fetching YouTube Music data:', ytmError);
+                        await forceFetchAndSaveSpotifyData(userId, true);
+                    } catch (spotifyError) {
+                        console.error('[MusicLoverSignUpFlow] Error fetching Spotify data:', spotifyError);
                     }
                 }
             }
@@ -861,135 +839,26 @@ const MusicLoverSignUpFlow = () => {
         </View>
     );
 
-    // Handle streaming service selection - UPDATED to support YouTube Music
+    // --- Updated Streaming Service Handling ---
     const handleStreamingServiceSelect = async (serviceId: StreamingServiceId) => {
-        console.log(`[MusicLoverSignUpFlow] Service selected: ${serviceId || 'None'}`);
-        // Always store 'None' instead of empty string for consistency
-        const normalizedServiceId = serviceId || 'None';
-        setFormData(prev => ({ ...prev, selectedStreamingService: normalizedServiceId as StreamingServiceId }));
         setError(''); // Clear previous errors
-
-        // For 'None' or other services, proceed directly to subscription
-        if (normalizedServiceId === 'None') {
-            console.log('[MusicLoverSignUpFlow] None selected, proceeding to subscription step');
-            goToNextStep('subscription');
-            return;
-        }
+        setFormData(prev => ({ ...prev, selectedStreamingService: serviceId }));
 
         if (serviceId === 'spotify') {
-            // If Spotify is selected, initiate the login flow
-            console.log('[MusicLoverSignUpFlow] Spotify selected, initiating Spotify login...');
-            try {
-                spotifyLogin(); // This opens the browser for Spotify auth
-            } catch (error) {
-                console.error('[MusicLoverSignUpFlow] Error initiating Spotify login:', error);
-                Alert.alert(
-                    "Spotify Connection Failed",
-                    "We couldn't connect to Spotify. You can try again later or continue without connecting.",
-                    [
-                        { text: "Continue Anyway", onPress: () => goToNextStep('subscription') }
-                    ]
-                );
-            }
+            // Existing Spotify login logic remains
+            console.log('[SignUpFlow] Spotify selected. Initiating login...');
+            spotifyLogin(); 
         } else if (serviceId === 'youtubemusic') {
-            // Handle YouTube Music authentication
-            console.log('[MusicLoverSignUpFlow] YouTube Music selected, initiating login flow...');
-            try {
-                setYtmAuthInProgress(true);
-                const authDetails = await youTubeMusicLogin();
-                
-                if (authDetails) {
-                    setYTMAuthDetails(authDetails);
-                    setShowYTMAuthCode(true);
-                } else {
-                    Alert.alert(
-                        "YouTube Music Connection Failed",
-                        "We couldn't start the connection process. You can try again later or continue without connecting.",
-                        [{ text: "Continue Anyway", onPress: () => goToNextStep('subscription') }]
-                    );
-                }
-                setYtmAuthInProgress(false);
-            } catch (error) {
-                setYtmAuthInProgress(false);
-                console.error('[MusicLoverSignUpFlow] Error initiating YouTube Music login:', error);
-                Alert.alert(
-                    "YouTube Music Connection Failed",
-                    "We couldn't connect to YouTube Music. You can try again later or continue without connecting.",
-                    [{ text: "Continue Anyway", onPress: () => goToNextStep('subscription') }]
-                );
-            }
-        }
-    };
-
-    // Handle completion of YouTube Music auth - UPDATED
-    const handleYTMAuthComplete = async () => {
-        if (!ytmAuthDetails) return;
-        
-        try {
-            setIsLoading(true);
-            console.log('[MusicLoverSignUpFlow] Completing YouTube Music auth...');
-            const success = await ytmAuthDetails.completion();
-            
-            if (success) {
-                console.log('[MusicLoverSignUpFlow] YouTube Music auth completion returned success');
-                
-                // Additional verification after a short delay
-                setTimeout(async () => {
-                    try {
-                        // Use the function from the component level hook
-                        const isVerified = await verifyYouTubeMusicToken();
-                        console.log(`[MusicLoverSignUpFlow] Token verification: ${isVerified ? 'SUCCESS' : 'FAILED'}`);
-                        
-                        if (!isVerified) {
-                            // If verification fails, show an error but don't block progress
-                            console.error('[MusicLoverSignUpFlow] YouTube Music token verification failed');
-                            Alert.alert(
-                                "YouTube Music Note",
-                                "Authentication completed, but token storage may have issues. You might need to reconnect later.",
-                                [{ text: "OK" }]
-                            );
-                        }
-                    } catch (verifyErr) {
-                        console.error('[MusicLoverSignUpFlow] Error verifying YouTube Music token:', verifyErr);
-                    }
-                }, 1000);
-                
-                setShowYTMAuthCode(false);
-                setYTMAuthDetails(null);
-                
-                // Navigate to subscription step
-                goToNextStep('subscription');
-            } else {
-                console.error('[MusicLoverSignUpFlow] YouTube Music auth completion failed');
-                Alert.alert(
-                    "Authentication Failed",
-                    "We couldn't complete the YouTube Music authentication. You can try again or continue without connecting.",
-                    [
-                        { text: "Try Again", onPress: () => handleStreamingServiceSelect('youtubemusic') },
-                        { text: "Continue Anyway", onPress: () => goToNextStep('subscription') }
-                    ]
-                );
-            }
-        } catch (error) {
-            console.error('[MusicLoverSignUpFlow] Error completing YouTube Music auth:', error);
+            // YouTube Music selected - NO LONGER triggers UI connection
+            // The user just selects it, data is assumed to be synced by the external Python script.
+            console.log('[SignUpFlow] YouTube Music selected. Data sync is handled externally.');
+            // Removed: setShowYTMCookieInput(true);
+        } else if (serviceId !== 'None' && serviceId !== '') {
             Alert.alert(
-                "Authentication Error",
-                "An error occurred during YouTube Music authentication. You can try again or continue without connecting.",
-                [
-                    { text: "Try Again", onPress: () => handleStreamingServiceSelect('youtubemusic') },
-                    { text: "Continue Anyway", onPress: () => goToNextStep('subscription') }
-                ]
+                "Connection Not Available",
+                `Connecting to ${STREAMING_SERVICES.find(s => s.id === serviceId)?.name || serviceId} is not yet implemented in the app. You can select it, but data won't be synced automatically through the app.`
             );
-        } finally {
-            setIsLoading(false);
         }
-    };
-
-    // Cancel YouTube Music auth - UPDATED
-    const handleSkipYTMAuth = () => {
-        setShowYTMAuthCode(false);
-        setYTMAuthDetails(null);
-        goToNextStep('subscription');
     };
 
     // When subscription choice changes, update the form and alert about streaming service features
@@ -1066,30 +935,6 @@ const MusicLoverSignUpFlow = () => {
         }
     }, [spotifyError, currentStep, formData.selectedStreamingService]);
 
-    // Effect to handle YouTube Music login errors during signup
-    useEffect(() => {
-        if (currentStep === 'streaming-service' && formData.selectedStreamingService === 'youtubemusic' && youTubeMusicError) {
-            console.error('[MusicLoverSignUpFlow] YouTube Music login error detected:', youTubeMusicError);
-            Alert.alert(
-                "YouTube Music Connection Issue",
-                `We encountered a problem connecting to YouTube Music: ${youTubeMusicError}. You can try again, select another service, or continue without connecting.`,
-                [
-                    { 
-                        text: "Try Again", 
-                        onPress: () => handleStreamingServiceSelect('youtubemusic') 
-                    },
-                    { 
-                        text: "Continue Anyway", 
-                        onPress: () => {
-                            // Allow user to continue to subscription step despite error
-                            goToNextStep('subscription');
-                        }
-                    }
-                ]
-            );
-        }
-    }, [youTubeMusicError, currentStep, formData.selectedStreamingService]);
-
     // Load countries on component mount
     useEffect(() => {
         const allCountries = Country.getAllCountries();
@@ -1143,60 +988,32 @@ const MusicLoverSignUpFlow = () => {
         }
     }, [formData.countryCode, formData.stateCode]);
 
-    // Open the YouTube Music auth website and track completion
-    const openYTMAuthSite = async () => {
-      if (!ytmAuthDetails) return;
-      
-      try {
-        // For web, open in same tab to avoid popup blockers
-        if (Platform.OS === 'web') {
-          window.open(ytmAuthDetails.verificationUrl, '_blank');
-          
-          // Show a message about continuing after authenticating
-          Alert.alert(
-            "Authentication in Progress",
-            "After completing authentication in the new tab, return here and click 'Complete' button.",
-            [{ text: "OK" }]
-          );
-        } else {
-          // For native platforms, use WebBrowser
-          await WebBrowser.openBrowserAsync(ytmAuthDetails.verificationUrl);
-        }
-      } catch (error) {
-        console.error('[MusicLoverSignUpFlow] Error opening auth website:', error);
-        Alert.alert(
-          "Browser Error",
-          "Could not open the authentication website. Please try again.",
-          [{ text: "OK" }]
-        );
-      }
-    };
-
-    // Updated streaming service selection UI with YouTube Music auth info
+    // Render function for Streaming Service Step - UPDATED
     const renderStreamingServiceStep = () => (
-        <View style={styles.stepContainer}>
+        <ScrollView style={styles.stepContainer}>
             <Text style={styles.stepTitle}>Music Services</Text>
-            <Text style={styles.stepSubtitle}>
-                What streaming service do you use most?
-            </Text>
-
-            <View style={styles.streamingServicesGrid}>
+            <Text style={styles.stepSubtitle}>What streaming service do you use most?</Text>
+            {/* Removed: !showYTMCookieInput && ( ... ) wrapper */}
+            <View style={styles.streamingServicesGrid}> 
                 {STREAMING_SERVICES.map((service) => (
-                    <TouchableOpacity
-                        key={service.id}
+                    <TouchableOpacity 
+                        key={service.id} 
                         style={[
-                            styles.serviceCard,
-                            formData.selectedStreamingService === service.id && styles.selectedServiceCard
-                        ]}
+                                styles.serviceCard,
+                                formData.selectedStreamingService === service.id && styles.selectedServiceCard
+                        ]} 
                         onPress={() => handleStreamingServiceSelect(service.id as StreamingServiceId)}
-                        disabled={ytmAuthInProgress || showYTMAuthCode}
-                    >
+                        // Removed: disabled={ytmAuthInProgress}
+                        >
                         <View style={[styles.serviceIconContainer, { backgroundColor: service.color }]}>
                             {service.iconSet === 'FontAwesome' && (
                                 <FontAwesome name={service.icon as any} size={28} color="#FFF" />
                             )}
                             {service.iconSet === 'MaterialCommunityIcons' && (
                                 <MaterialCommunityIcons name={service.icon as any} size={28} color="#FFF" />
+                            )}
+                            {service.iconSet === 'Feather' && (
+                                <Feather name={service.icon as any} size={28} color="#FFF" />
                             )}
                         </View>
                         <Text style={styles.serviceName}>{service.name}</Text>
@@ -1208,14 +1025,14 @@ const MusicLoverSignUpFlow = () => {
                     </TouchableOpacity>
                 ))}
 
-                <TouchableOpacity
+                <TouchableOpacity 
                     style={[
-                        styles.serviceCard,
-                        formData.selectedStreamingService === 'None' && styles.selectedServiceCard
-                    ]}
+                            styles.serviceCard,
+                            formData.selectedStreamingService === 'None' && styles.selectedServiceCard
+                    ]} 
                     onPress={() => handleStreamingServiceSelect('None')}
-                    disabled={ytmAuthInProgress || showYTMAuthCode}
-                >
+                    // Removed: disabled={ytmAuthInProgress}
+                    >
                     <View style={[styles.serviceIconContainer, { backgroundColor: '#5C5C5C' }]}>
                         <Feather name="zap-off" size={28} color="#FFF" />
                     </View>
@@ -1227,91 +1044,55 @@ const MusicLoverSignUpFlow = () => {
                     )}
                 </TouchableOpacity>
             </View>
-
-            {/* YouTube Music Authentication Info Section */}
-            {showYTMAuthCode && ytmAuthDetails && (
-                <View style={styles.ytmAuthContainer}>
-                    <Text style={styles.ytmAuthTitle}>Connect YouTube Music</Text>
-                    
-                    <View style={styles.ytmAuthCodeBox}>
-                        <Text style={styles.ytmAuthCodeLabel}>Your code:</Text>
-                        <Text style={styles.ytmAuthCode}>{ytmAuthDetails.userCode}</Text>
-                    </View>
-                    
-                    <Text style={styles.ytmAuthInstructions}>
-                        1. Visit: {ytmAuthDetails.verificationUrl}
-                    </Text>
-                    <Text style={styles.ytmAuthInstructions}>
-                        2. Enter the code shown above
-                    </Text>
-                    <Text style={styles.ytmAuthInstructions}>
-                        3. After authorizing, click "Complete" below
-                    </Text>
-                    
-                    <View style={styles.ytmAuthButtons}>
-                        <TouchableOpacity 
-                            style={styles.ytmAuthButton}
-                            onPress={openYTMAuthSite}
-                        >
-                            <Text style={styles.ytmAuthButtonText}>Open Website</Text>
-                        </TouchableOpacity>
-                        
-                        <TouchableOpacity 
-                            style={[styles.ytmAuthButton, styles.ytmCompleteButton]}
-                            onPress={handleYTMAuthComplete}
-                            disabled={isLoading}
-                        >
-                            {isLoading ? (
-                                <ActivityIndicator size="small" color="#FFF" />
-                            ) : (
-                                <Text style={styles.ytmAuthButtonText}>Complete</Text>
-                            )}
-                        </TouchableOpacity>
-                        
-                        <TouchableOpacity 
-                            style={[styles.ytmAuthButton, styles.ytmSkipButton]}
-                            onPress={handleSkipYTMAuth}
-                            disabled={isLoading}
-                        >
-                            <Text style={styles.ytmAuthButtonText}>Skip</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            )}
-
-            {ytmAuthInProgress && (
+            {/* Removed: Closing bracket for !showYTMCookieInput wrapper } */}
+            
+            {/* Removed YouTube Music Cookie Input Section entirely */}
+            
+            {/* Spotify specific UI feedback */}
+            {isSpotifyLoading && formData.selectedStreamingService === 'spotify' && (
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
-                    <Text style={styles.loadingText}>Connecting to YouTube Music...</Text>
+                    <Text style={styles.loadingText}>Connecting to Spotify...</Text>
+                </View>
+            )}
+            {spotifyError && formData.selectedStreamingService === 'spotify' && (
+                 <Text style={[styles.errorText, { marginTop: 10 }]}>{spotifyError}</Text>
+            )}
+            {isSpotifyLoggedIn && formData.selectedStreamingService === 'spotify' && (
+                <View style={styles.successMessageContainer}>
+                    <FontAwesome name="check-circle" size={20} color={APP_CONSTANTS.COLORS.SPOTIFY_GREEN} />
+                    <Text style={styles.successMessageText}>Successfully connected to Spotify!</Text>
                 </View>
             )}
 
-            {/* Button Container */}
-            {!showYTMAuthCode && !ytmAuthInProgress && (
-                <View style={styles.buttonContainer}>
-                    <TouchableOpacity 
-                        style={styles.secondaryButton} 
-                        onPress={() => goToPreviousStep('profile-details')}
-                    >
-                        <Text style={styles.secondaryButtonText}>Back</Text>
-                    </TouchableOpacity>
+            {/* General error display */}
+            {error && !spotifyError && <Text style={[styles.errorText, { marginTop: 10 }]}>{error}</Text>} 
 
-                    <TouchableOpacity
-                        style={styles.primaryButton}
-                        onPress={() => {
-                            // Validate that a service is selected (including 'None')
-                            if (validateStreamingServiceStep()) {
-                                goToNextStep('subscription');
-                            }
-                        }}
-                    >
-                        <Text style={styles.primaryButtonText}>Continue</Text>
-                    </TouchableOpacity>
-                </View>
-            )}
+            {/* Main Back/Continue Buttons - Show when YTM cookie input is NOT active (which is always now) */}
+            {/* Removed: !showYTMCookieInput && ( ... ) wrapper for buttons */}
+            <View style={styles.buttonContainer}> 
+                <TouchableOpacity 
+                    style={styles.secondaryButton} 
+                    onPress={() => goToPreviousStep('profile-details')}
+                    // Removed: disabled={ytmAuthInProgress} 
+                >
+                    <Text style={styles.secondaryButtonText}>Back</Text>
+                </TouchableOpacity>
 
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        </View>
+                <TouchableOpacity
+                    style={[styles.primaryButton, (!formData.selectedStreamingService) && styles.primaryButtonDisabled]}
+                    onPress={() => {
+                        if (validateStreamingServiceStep()) { // Removed: && !showYTMCookieInput
+                            goToNextStep('subscription');
+                        }
+                    }}
+                    disabled={!formData.selectedStreamingService /* Removed: || ytmAuthInProgress */}
+                >
+                    <Text style={styles.primaryButtonText}>Continue</Text>
+                </TouchableOpacity>
+            </View>
+            {/* Removed: Closing bracket for !showYTMCookieInput wrapper } */}
+        </ScrollView>
     );
 
     // Improved subscription plan selection UI
@@ -1471,25 +1252,20 @@ const MusicLoverSignUpFlow = () => {
 
     // Render current step selector and action button
     const renderCurrentStep = () => {
-        // Determine if button should be disabled (combine component and hook loading states)
-        // IMPORTANT: No longer disable if Spotify is selected but not logged in
+        // Removed isYouTubeMusicLoading from here
         const isButtonDisabled = isLoading || authLoading || isSpotifyLoading || 
             (currentStep === 'subscription' && !formData.subscriptionTier);
+            // Removed: (currentStep === 'streaming-service' && showYTMCookieInput);
 
-        // Determine button text based on current step
         let buttonText = 'Continue';
-        if (currentStep === 'streaming-service') {
-            buttonText = 'Continue to Subscription';
-        } else if (currentStep === 'subscription') {
-            buttonText = formData.subscriptionTier === 'free' ? 'Complete Free Sign Up' : 'Continue to Payment';
-        } else if (currentStep === 'payment') {
-            buttonText = 'Complete Premium Sign Up';
-        }
+        if (currentStep === 'profile-details') buttonText = 'Select Music Service';
+        if (currentStep === 'streaming-service') buttonText = 'Choose Subscription';
+        if (currentStep === 'subscription') buttonText = formData.subscriptionTier === 'free' ? 'Complete Free Sign Up' : 'Continue to Payment';
+        if (currentStep === 'payment') buttonText = 'Complete Premium Sign Up';
 
         return (
             <View style={styles.stepContainer}>
                 <Animated.View style={[styles.animatedContainer, { transform: [{ translateX: slideAnim }] }]} >
-                    {/* Conditional rendering of steps */}
                     {currentStep === 'account-details' && renderAccountDetailsStep()}
                     {currentStep === 'profile-details' && renderProfileDetailsStep()}
                     {currentStep === 'streaming-service' && renderStreamingServiceStep()}
@@ -1497,20 +1273,44 @@ const MusicLoverSignUpFlow = () => {
                     {currentStep === 'payment' && renderPaymentStep()}
                 </Animated.View>
 
-                {/* Action Button - Only show for non-streaming-service steps since that one has its own button now */}
-                {currentStep !== 'streaming-service' && (
-                    <TouchableOpacity
-                        style={[styles.continueButton, isButtonDisabled && styles.continueButtonDisabled]}
-                        onPress={handleStepSubmit} // Use central submit handler
-                        disabled={isButtonDisabled}
-                        activeOpacity={0.8}
-                    >
-                        {isLoading || authLoading ? ( // Show loader if either state is true
-                            <ActivityIndicator color="white" size="small" />
-                        ) : (
-                            <Text style={styles.continueButtonText}>{buttonText}</Text>
-                        )}
-                    </TouchableOpacity>
+                {/* Action Button - Hide if it's the streaming step AND the YTM cookie input is showing (never true anymore)
+                // Removed: {!(currentStep === 'streaming-service' && showYTMCookieInput) && (
+                // ...
+                // Removed: isLoading || authLoading || isSpotifyLoading || isYouTubeMusicLoading ? (
+                // replaced with:
+                // {isLoading || authLoading || isSpotifyLoading ? (
+                // ...
+                // Removed: )}
+                */}
+                {!(currentStep === 'streaming-service') && ( // Example: hide for streaming step if its internal buttons handle all nav
+                     <View style={styles.stickyButtonContainer}>
+                         <TouchableOpacity
+                            style={[
+                                styles.continueButton, 
+                                (isLoading || authLoading || isSpotifyLoading || 
+                                (currentStep === 'account-details' && !validateAccountDetailsStep(false)) ||
+                                (currentStep === 'profile-details' && !validateProfileDetailsStep(false)) ||
+                                (currentStep === 'subscription' && !formData.subscriptionTier) ||
+                                (currentStep === 'payment' && !validatePaymentStep(false))
+                                ) && styles.continueButtonDisabled
+                            ]}
+                            onPress={handleStepSubmit}
+                            disabled={
+                                isLoading || authLoading || isSpotifyLoading ||
+                                (currentStep === 'account-details' && !validateAccountDetailsStep(false)) ||
+                                (currentStep === 'profile-details' && !validateProfileDetailsStep(false)) ||
+                                (currentStep === 'subscription' && !formData.subscriptionTier) ||
+                                (currentStep === 'payment' && !validatePaymentStep(false))
+                            }
+                            activeOpacity={0.8}
+                        >
+                            {isLoading || authLoading || isSpotifyLoading ? (
+                                <ActivityIndicator color="white" size="small" />
+                            ) : (
+                                <Text style={styles.continueButtonText}>{buttonText}</Text>
+                            )}
+                        </TouchableOpacity>
+                    </View>
                 )}
             </View>
         );
@@ -1518,65 +1318,55 @@ const MusicLoverSignUpFlow = () => {
 
     // Main Return JSX Structure
     return (
-        <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-            <LinearGradient colors={[APP_CONSTANTS.COLORS.BACKGROUND, APP_CONSTANTS.COLORS.BACKGROUND_LIGHT]} style={styles.gradient} >
-                {/* Header with Back Button and Step Indicators */}
+        <LinearGradient colors={[APP_CONSTANTS.COLORS.BACKGROUND_GRADIENT_START, APP_CONSTANTS.COLORS.BACKGROUND_GRADIENT_END]} style={styles.gradient}>
+            <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
                 <View style={styles.header}>
-                    <TouchableOpacity
-                        style={styles.backButton}
-                        onPress={() => {
-                            if (isLoading || authLoading) return; // Prevent back during loading
-                            if (currentStep === 'profile-details') goToPreviousStep('account-details');
-                            else if (currentStep === 'streaming-service') goToPreviousStep('profile-details');
-                            else if (currentStep === 'subscription') goToPreviousStep('streaming-service');
-                            else if (currentStep === 'payment') goToPreviousStep('subscription');
-                            else navigation.goBack();
-                        }}
-                        disabled={isLoading || authLoading}
-                    >
-                        <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                    </TouchableOpacity>
-                    {/* Step Indicators - Updated */}
-                    <View style={styles.stepIndicatorContainer}>
-                        {['account-details', 'profile-details', 'streaming-service', 'subscription'].map((stepName) => {
-                            const stepEnum = stepName as Step;
-                            const allPossibleSteps: Step[] = ['account-details', 'profile-details', 'streaming-service', 'subscription', 'payment'];
-                            const stepIndex = allPossibleSteps.indexOf(stepEnum);
-                            const currentIndex = allPossibleSteps.indexOf(currentStep);
-                            const isActive = currentIndex >= stepIndex;
-                            const isCurrent = currentStep === stepEnum;
-                            return (<View key={stepName} style={[styles.stepIndicator, isActive && styles.stepIndicatorActive, isCurrent && styles.stepIndicatorCurrent]} />);
-                        })}
-                        {/* Conditionally show payment step indicator only if premium is selected */}
-                        {formData.subscriptionTier === 'premium' && (
-                            <View style={[styles.stepIndicator, currentStep === 'payment' && styles.stepIndicatorActive, currentStep === 'payment' && styles.stepIndicatorCurrent]} />
-                        )}
-                    </View>
-                    <View style={{ width: 28 }} />{/* Spacer */}
+                    {/* ... header content ... */}
                 </View>
-
-                {/* Scrollable Content Area */}
-                <ScrollView
-                    contentContainerStyle={styles.scrollContent}
-                    showsVerticalScrollIndicator={false}
-                    keyboardShouldPersistTaps="handled"
-                    nestedScrollEnabled={true}
-                >
-                    {renderCurrentStep()}
+                <ScrollView contentContainerStyle={styles.scrollContentContainer}>
+                    <Animated.View style={[styles.stepsSlider, { transform: [{ translateX: slideAnim }] }]}>
+                        {renderCurrentStep()}
+                    </Animated.View>
                 </ScrollView>
 
-                {/* Terms Modal */}
-                <TermsModal
-                    visible={isTermsModalVisible}
-                    onClose={() => setIsTermsModalVisible(false)}
-                    termsText={termsAndConditionsText}
-                />
-            </LinearGradient>
-        </SafeAreaView>
+                {/* Global Action Button - always visible unless specifically handled by step */}
+                {!(currentStep === 'streaming-service') && ( // Example: hide for streaming step if its internal buttons handle all nav
+                     <View style={styles.stickyButtonContainer}>
+                         <TouchableOpacity
+                            style={[
+                                styles.continueButton, 
+                                (isLoading || authLoading || isSpotifyLoading || 
+                                (currentStep === 'account-details' && !validateAccountDetailsStep(false)) ||
+                                (currentStep === 'profile-details' && !validateProfileDetailsStep(false)) ||
+                                (currentStep === 'subscription' && !formData.subscriptionTier) ||
+                                (currentStep === 'payment' && !validatePaymentStep(false))
+                                ) && styles.continueButtonDisabled
+                            ]}
+                            onPress={handleStepSubmit}
+                            disabled={
+                                isLoading || authLoading || isSpotifyLoading ||
+                                (currentStep === 'account-details' && !validateAccountDetailsStep(false)) ||
+                                (currentStep === 'profile-details' && !validateProfileDetailsStep(false)) ||
+                                (currentStep === 'subscription' && !formData.subscriptionTier) ||
+                                (currentStep === 'payment' && !validatePaymentStep(false))
+                            }
+                            activeOpacity={0.8}
+                        >
+                            {isLoading || authLoading || isSpotifyLoading ? (
+                                <ActivityIndicator color="white" size="small" />
+                            ) : (
+                                <Text style={styles.continueButtonText}>{/* ... button text ... */}</Text>
+                            )}
+                        </TouchableOpacity>
+                    </View>
+                )}
+                <TermsModal visible={isTermsModalVisible} onClose={() => setIsTermsModalVisible(false)} termsText={termsAndConditionsText} />
+            </SafeAreaView>
+        </LinearGradient>
     );
 };
 
-// --- Styles --- (Includes styles for all steps + streaming service logos)
+// --- Styles --- 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: APP_CONSTANTS.COLORS.BACKGROUND },
     gradient: { flex: 1 },
@@ -1592,6 +1382,7 @@ const styles = StyleSheet.create({
     stepContent: { width: '100%', paddingBottom: 20 },
     stepTitle: { fontSize: 24, fontWeight: '700', color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, marginBottom: 10, textAlign: 'center' },
     stepDescription: { fontSize: 15, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginBottom: 25, textAlign: 'center', lineHeight: 21 },
+    stepSubtitle: { fontSize: 15, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginBottom: 25, textAlign: 'center', lineHeight: 21 }, // Added stepSubtitle
     inputContainer: { marginBottom: 16, width: '100%' },
     inputLabel: { fontSize: 14, fontWeight: '600', color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, marginBottom: 6 },
     inputLabelSmall: { fontSize: 13, fontWeight: '500', color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginBottom: 5 },
@@ -1610,214 +1401,263 @@ const styles = StyleSheet.create({
     uploadButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 },
     uploadButtonText: { color: 'white', fontWeight: '600', fontSize: 14 },
     bioHeader: { marginTop: 15, marginBottom: 10, fontSize: 16, fontWeight: '600', textAlign: 'left', width: '100%' },
-    errorText: { color: APP_CONSTANTS.COLORS.ERROR, marginTop: 0, marginBottom: 16, textAlign: 'center', fontSize: 14, fontWeight: '500', width: '100%', paddingHorizontal: 10 },
+    // Original continueButton for steps other than streaming service
     continueButton: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, paddingVertical: 15, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 20, marginBottom: 20, width: '100%', minHeight: 50, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 3 },
     continueButtonDisabled: { backgroundColor: APP_CONSTANTS.COLORS.DISABLED, elevation: 0, shadowOpacity: 0 },
     continueButtonText: { color: 'white', fontWeight: '600', fontSize: 16 },
-
-    // Streaming Service Styles
-    serviceIconContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', alignItems: 'flex-start', marginTop: 20, marginBottom: 5, paddingHorizontal: 0 }, // Reduced bottom margin before required text
-    serviceIconWrapper: { alignItems: 'center', width: '33%', marginBottom: 25, paddingHorizontal: 5 },
-    serviceIconBackground: { width: 75, height: 75, borderRadius: 37.5, justifyContent: 'center', alignItems: 'center', marginBottom: 10, borderWidth: 2.5, backgroundColor: APP_CONSTANTS.COLORS.BACKGROUND_LIGHT, borderColor: 'transparent', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 3 },
-    serviceNameText: { fontSize: 13, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, fontWeight: '500', textAlign: 'center' },
-    serviceNameTextSelected: { color: APP_CONSTANTS.COLORS.PRIMARY_DARK, fontWeight: '700' },
     
-    // Button container for streaming service step
+    // --- Combined and corrected button styles ---
     buttonContainer: { 
         flexDirection: 'row', 
         justifyContent: 'space-between', 
         width: '100%', 
-        marginTop: 20
-    },
-    secondaryButton: { 
-        padding: 12, 
-        borderRadius: 8, 
-        borderWidth: 1, 
-        borderColor: APP_CONSTANTS.COLORS.PRIMARY, 
-        alignItems: 'center', 
-        justifyContent: 'center',
-        width: '45%'
-    },
-    secondaryButtonText: { 
-        color: APP_CONSTANTS.COLORS.PRIMARY, 
-        fontWeight: '600', 
-        fontSize: 16 
+        marginTop: 20,
+        gap: 16, // Added gap for spacing between buttons
     },
     primaryButton: { 
+        flex: 1, // Make buttons flexible
         backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, 
-        padding: 12, 
-        borderRadius: 8, 
+        paddingVertical: 16, // Consistent padding
+        borderRadius: 12, // Consistent radius 
         alignItems: 'center', 
         justifyContent: 'center',
-        width: '45%',
         elevation: 2,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.2,
         shadowRadius: 2
     },
+     primaryButtonDisabled: {
+        backgroundColor: APP_CONSTANTS.COLORS.DISABLED,
+        elevation: 0,
+        shadowOpacity: 0,
+    },
     primaryButtonText: { 
         color: 'white', 
         fontWeight: '600', 
         fontSize: 16 
     },
-
-    // Subscription Plan Styles
-    planOption: { backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1.5, borderColor: APP_CONSTANTS.COLORS.BORDER, padding: 18, marginBottom: 18, shadowColor: "#000000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3, elevation: 2, width: '100%' },
-    planOptionSelected: { borderColor: APP_CONSTANTS.COLORS.PRIMARY, backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}0A`, shadowColor: APP_CONSTANTS.COLORS.PRIMARY, shadowOpacity: 0.15, shadowRadius: 5, elevation: 4 },
-    planHeader: {
-        marginBottom: 20,
+    secondaryButton: { 
+        flex: 1, // Make buttons flexible
+        backgroundColor: 'white', // Make secondary distinct
+        paddingVertical: 16, // Consistent padding 
+        borderRadius: 12, // Consistent radius 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        borderWidth: 1, 
+        borderColor: APP_CONSTANTS.COLORS.BORDER, 
     },
-    planTitle: {
-        fontSize: 24,
-        fontWeight: '700',
-        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-        marginBottom: 8,
-    },
-    planPrice: {
-        fontSize: 20,
-        fontWeight: '600',
-        color: APP_CONSTANTS.COLORS.PRIMARY,
-    },
-    planFeaturesList: {
-        gap: 12,
-    },
-    planFeatureItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    featureText: {
-        fontSize: 14,
-        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-        flex: 1,
-    },
-    selectionBadge: {
-        position: 'absolute',
-        top: 12,
-        right: 12,
-        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 12,
-    },
-    premiumSelectionBadge: {
-        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-    },
-    selectionBadgeText: {
-        color: 'white',
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    buttonContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        gap: 16,
-        marginTop: 24,
-    },
-    primaryButton: {
-        flex: 1,
-        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-        paddingVertical: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-    },
-    primaryButtonDisabled: {
-        backgroundColor: APP_CONSTANTS.COLORS.DISABLED,
-    },
-    primaryButtonText: {
-        color: 'white',
-        fontSize: 16,
-        fontWeight: '600',
-    },
-    secondaryButton: {
-        flex: 1,
-        backgroundColor: 'white',
-        paddingVertical: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: APP_CONSTANTS.COLORS.BORDER,
-    },
-    secondaryButtonText: {
-        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-        fontSize: 16,
-        fontWeight: '600',
+    secondaryButtonText: { 
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, // Use primary text color
+        fontWeight: '600', 
+        fontSize: 16 
     },
     errorText: {
         color: APP_CONSTANTS.COLORS.ERROR,
-        marginTop: 16,
+        marginTop: 0, // Adjust as needed
+        marginBottom: 16,
         textAlign: 'center',
+        fontSize: 14,
+        fontWeight: '500',
+        width: '100%',
+        paddingHorizontal: 10
+    },
+
+    // --- Styles for Streaming Service Step (Fixing missing) ---
+    streamingServicesGrid: { 
+        flexDirection: 'row', 
+        flexWrap: 'wrap', 
+        justifyContent: 'space-around', 
+        width: '100%', 
+        marginBottom: 20, 
+        // paddingHorizontal: -8 // Removed negative margin attempt
+    },
+    serviceCard: {
+        width: '45%', // Adjust width for 2 columns with gap
+        aspectRatio: 1, // Make cards square-ish
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        borderWidth: 1.5,
+        borderColor: APP_CONSTANTS.COLORS.BORDER,
+        padding: 10,
+        marginBottom: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        position: 'relative',
+        elevation: 1,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+    },
+    selectedServiceCard: {
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+        backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}10`, // Light primary background
+        elevation: 3,
+    },
+    serviceIconContainer: {
+        width: 60, // Adjust size
+        height: 60,
+        borderRadius: 30,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 12,
+        elevation: 2,
+    },
+    serviceName: { 
+        fontSize: 13, 
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, 
+        fontWeight: '500', 
+        textAlign: 'center' 
+    },
+    checkmarkBadge: {
+        position: 'absolute',
+        top: 8,
+        right: 8,
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        borderRadius: 12,
+        width: 24,
+        height: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+        elevation: 3,
+    },
+
+    // --- Styles for Subscription Step (Fixing missing) ---
+    subscriptionOptionsContainer: {
+        width: '100%',
+        marginTop: 10,
+        marginBottom: 20,
+        gap: 16,
+    },
+    subscriptionCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        borderWidth: 1.5,
+        borderColor: APP_CONSTANTS.COLORS.BORDER,
+        padding: 20,
+        shadowColor: "#000000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 3,
+        elevation: 2,
+        width: '100%',
+        position: 'relative', // For badge positioning
+    },
+    selectedSubscriptionCard: {
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+        backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}0A`,
+        shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
+        shadowOpacity: 0.15,
+        shadowRadius: 5,
+        elevation: 4,
+    },
+    premiumCard: { // Specific styling for premium card if needed
+        // Example: borderStyle: 'dashed'
+    },
+    planHeader: { 
+        marginBottom: 16, 
+    },
+    planTitle: { 
+        fontSize: 20, // Adjusted size 
+        fontWeight: '700', 
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, 
+        marginBottom: 4, 
+    },
+    planPrice: { 
+        fontSize: 16, // Adjusted size
+        fontWeight: '500', 
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, 
+    },
+    planFeaturesList: { 
+        gap: 10, // Adjusted gap
+    },
+    planFeatureItem: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        gap: 10, // Adjusted gap
+    },
+    featureText: { 
+        fontSize: 14, 
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, 
+        flex: 1, 
+    },
+    selectionBadge: { 
+        position: 'absolute', 
+        top: 12, 
+        right: 12, 
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, 
+        paddingHorizontal: 10, // Adjusted padding
+        paddingVertical: 4,
+        borderRadius: 12, 
+    },
+    premiumSelectionBadge: { 
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY_DARK, // Example: Darker for premium
+    },
+    selectionBadgeText: { 
+        color: 'white', 
+        fontSize: 11, // Adjusted size
+        fontWeight: '600', 
     },
     
-    // YouTube Music Auth Styles
-    ytmAuthContainer: {
-        marginTop: 20,
+    // --- YouTube Music Cookie Input Styles --- 
+    ytmCookieInputContainer: {
+        width: '100%',
+        marginTop: 15,
         padding: 16,
-        backgroundColor: '#F9F9F9',
+        backgroundColor: '#FFFFFF',
         borderRadius: 12,
         borderWidth: 1,
         borderColor: '#E0E0E0',
         marginBottom: 20,
     },
-    ytmAuthTitle: {
+    ytmInputTitle: {
         fontSize: 18,
         fontWeight: '600',
         color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-        marginBottom: 16,
+        marginBottom: 10,
         textAlign: 'center',
     },
-    ytmAuthCodeBox: {
-        backgroundColor: '#FFF',
-        padding: 16,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#FF0000',
-        marginBottom: 16,
-        alignItems: 'center',
-    },
-    ytmAuthCodeLabel: {
-        fontSize: 14,
+    ytmInputInstructions: {
+        fontSize: 13,
         color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-        marginBottom: 8,
+        marginBottom: 16,
+        textAlign: 'center',
+        lineHeight: 18,
     },
-    ytmAuthCode: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#FF0000',
-        letterSpacing: 2,
+    cookieInput: {
+        minHeight: 80, // Allow space for multiline cookie
+        textAlignVertical: 'top',
     },
-    ytmAuthInstructions: {
-        fontSize: 15,
-        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-        marginBottom: 8,
-        lineHeight: 22,
-    },
-    ytmAuthButtons: {
+    ytmInputButtons: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         marginTop: 16,
+        gap: 12,
     },
-    ytmAuthButton: {
+    ytmButton: {
         flex: 1,
         padding: 12,
         borderRadius: 8,
-        backgroundColor: '#555',
         alignItems: 'center',
         justifyContent: 'center',
-        marginHorizontal: 4,
     },
-    ytmAuthButtonText: {
+    ytmButtonText: {
         color: '#FFF',
         fontWeight: '600',
         fontSize: 14,
     },
-    ytmCompleteButton: {
-        backgroundColor: '#FF0000',
+    ytmConnectButton: {
+        backgroundColor: '#FF0000', // YouTube Red
     },
     ytmSkipButton: {
-        backgroundColor: '#999',
+        backgroundColor: '#999', // Grey for skip/cancel
     },
+     ytmButtonDisabled: {
+        backgroundColor: APP_CONSTANTS.COLORS.DISABLED,
+    },
+    
+    // Loading state for YTM connection
     loadingContainer: {
         alignItems: 'center',
         justifyContent: 'center',
@@ -1828,34 +1668,24 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
     },
-    stepSubtitle: {
-        fontSize: 15,
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-        marginBottom: 25,
-        textAlign: 'center',
-        lineHeight: 21,
-    },
-    serviceName: { 
-        fontSize: 13, 
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, 
-        fontWeight: '500', 
-        textAlign: 'center' 
-    },
     
-    // Add picker styles
+    // Picker styles
     pickerContainer: {
         backgroundColor: '#FFFFFF',
         borderRadius: 8, 
         borderWidth: 1,
         borderColor: APP_CONSTANTS.COLORS.BORDER,
         marginBottom: 10,
-        overflow: 'hidden',
+        overflow: 'hidden', // Helps contain picker on some platforms
     },
     picker: {
         width: '100%',
-        height: Platform.OS === 'ios' ? 180 : 50,
+        height: Platform.OS === 'ios' ? 180 : 50, // Adjust height for platform
         color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
     },
+
+    // Remove duplicate definitions from below if they exist
+    // (The previously added duplicate blocks should be removed entirely)
 });
 
 export default MusicLoverSignUpFlow;
