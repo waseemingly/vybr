@@ -74,6 +74,9 @@ import ViewBookingsScreen from '@/screens/organizer/ViewBookingsScreen'; // <-- 
 // Link Music Services Screen (Commented out due to linter error)
 import LinkMusicServicesScreen from '@/screens/LinkMusicServicesScreen'; // <-- IMPORT NEW SCREEN
 
+// Overall Analytics Screen
+import OverallAnalyticsScreen from '@/screens/organizer/OverallAnalyticsScreen';
+
 // --- Define Param Lists ---
 
 export type AuthStackParamList = {
@@ -113,6 +116,7 @@ export type MainStackParamList = {
   OrgBillingHistoryScreen: undefined;
   UserListScreen: undefined; // For organizers viewing followers/attendees
   PromoteEvent: { eventId: string }; // Added based on EventDetailScreen's OrganizerStackParamList
+  OverallAnalyticsScreen: undefined; // <-- ADDED OverallAnalyticsScreen for organizers
 
   // Common Screens (accessible by both, or general purpose)
   OtherUserProfileScreen: { userId: string };
@@ -224,6 +228,7 @@ const MainAppStack = () => {
                  <MainStack.Screen name="OrgManagePlanScreen" component={OrgManagePlanScreen} options={{ title: 'Manage Plan' }}/>
                  <MainStack.Screen name="OrgBillingHistoryScreen" component={OrgBillingHistoryScreen} options={{ title: 'Billing History' }}/>
                  <MainStack.Screen name="UserListScreen" component={UserListScreen} options={{ title: 'Followers' }}/>
+                 <MainStack.Screen name="OverallAnalyticsScreen" component={OverallAnalyticsScreen} options={{ title: 'Overall Analytics' }}/>
              </>
         ) : (
              <>

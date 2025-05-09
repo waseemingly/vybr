@@ -13,7 +13,7 @@ import type { RootStackParamList, MainStackParamList, OrganizerTabParamList } fr
 
 // --- !!! ADJUST PATHS !!! ---
 import { supabase } from "../../lib/supabase";
-import { useAuth } from "../../hooks/useAuth"; // Use the AuthProvider context
+import { useAuth, OrganizerProfile } from "../../hooks/useAuth"; // Use the AuthProvider context
 import { useOrganizerMode } from "../../hooks/useOrganizerMode"; // Use the specific mode hook
 import { APP_CONSTANTS } from "../../config/constants"; // Assuming constants live here
 // ----------------------------
@@ -44,7 +44,7 @@ const OrganizerProfileScreen: React.FC = () => {
   const [statsError, setStatsError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const organizerProfile = session?.organizerProfile;
+  const organizerProfile = session?.organizerProfile as OrganizerProfile | undefined;
   const userId = session?.user?.id;
 
   // Fetch organizer stats (Add follower count query)
@@ -146,12 +146,12 @@ const OrganizerProfileScreen: React.FC = () => {
         {(contactEmail || phoneNumber || website) && (<Section title="Contact Information" icon="phone"><View style={styles.infoContainer}>{contactEmail && (<TouchableOpacity style={styles.infoRow} onPress={() => openLink(contactEmail, 'email')}><Feather name="mail" size={16} color="#6B7280" /><Text style={styles.infoTextLink}>{contactEmail}</Text></TouchableOpacity>)}{phoneNumber && (<TouchableOpacity style={styles.infoRow} onPress={() => openLink(phoneNumber, 'tel')}><Feather name="phone" size={16} color="#6B7280" /><Text style={styles.infoTextLink}>{phoneNumber}</Text></TouchableOpacity>)}{website && (<TouchableOpacity style={styles.infoRow} onPress={() => openLink(website, 'web')}><Feather name="globe" size={16} color="#6B7280" /><Text style={styles.infoTextLink}>{website}</Text></TouchableOpacity>)}</View></Section>)}
         <Section title="Event Specialties" icon="tag"><Text style={styles.dataMissingText}>Specialties not listed.</Text></Section>
         <Section title="My Events" icon="calendar">
-             <TouchableOpacity style={styles.linkButton} onPress={() => { if(userId) navigation.navigate('UpcomingEventsListScreen', { organizerUserId: userId, organizerName: companyName }) }} disabled={!userId}>
+             <TouchableOpacity style={styles.linkButton} onPress={() => { if(userId) navigation.navigate('UpcomingEventsListScreen', { organizerId: userId }) }} disabled={!userId}>
                  <Feather name="fast-forward" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
                  <Text style={styles.linkButtonText}>View Upcoming Events</Text>
                  <Feather name="chevron-right" size={16} color={APP_CONSTANTS.COLORS.DISABLED} />
              </TouchableOpacity>
-             <TouchableOpacity style={styles.linkButton} onPress={() => { if(userId) navigation.navigate('PastEventsListScreen', { organizerUserId: userId, organizerName: companyName }) }} disabled={!userId}>
+             <TouchableOpacity style={styles.linkButton} onPress={() => { if(userId) navigation.navigate('PastEventsListScreen', { organizerId: userId }) }} disabled={!userId}>
                  <Feather name="rewind" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
                  <Text style={styles.linkButtonText}>View Past Events</Text>
                   <Feather name="chevron-right" size={16} color={APP_CONSTANTS.COLORS.DISABLED} />
@@ -160,6 +160,24 @@ const OrganizerProfileScreen: React.FC = () => {
         <Section title="Performance" icon="bar-chart-2">
           {statsLoading?<View style={styles.centered}><ActivityIndicator color={APP_CONSTANTS.COLORS.PRIMARY}/></View> : statsError?<Text style={[styles.errorText,{marginTop:0,marginBottom:10}]}>{statsError}</Text> : (<View style={styles.statsGrid}><View style={styles.statBox}><Feather name="calendar" size={24} color="#3B82F6" /><Text style={styles.statBoxValue}>{stats.upcomingEvents ?? 'N/A'}</Text><Text style={styles.statBoxLabel}>Upcoming</Text></View><View style={styles.statBox}><Feather name="check-circle" size={24} color="#10B981" /><Text style={styles.statBoxValue}>{stats.pastEvents ?? 'N/A'}</Text><Text style={styles.statBoxLabel}>Completed</Text></View><View style={styles.statBox}><Feather name="star" size={24} color="#F59E0B" /><Text style={styles.statBoxValue}>{displayRating}</Text><Text style={styles.statBoxLabel}>Avg Rating</Text></View></View>)}
         </Section>
+        
+        {/* Advanced Analytics Section */}
+        <Section title="Advanced Analytics" icon="trending-up">
+          <TouchableOpacity 
+            style={styles.analyticsButton} 
+            onPress={() => navigation.navigate('OverallAnalyticsScreen')}
+          >
+            <View style={styles.analyticsButtonContent}>
+              <Feather name="bar-chart-2" size={20} color="#3B82F6" style={styles.analyticsIcon} />
+              <View style={styles.analyticsTextContainer}>
+                <Text style={styles.analyticsButtonTitle}>Business Performance</Text>
+                <Text style={styles.analyticsButtonSubtitle}>Revenue, expenses, and audience insights</Text>
+              </View>
+            </View>
+            <Feather name="chevron-right" size={20} color="#9CA3AF" />
+          </TouchableOpacity>
+        </Section>
+        
         <TouchableOpacity style={styles.logoutButton} onPress={logout}><Feather name="log-out" size={18} color="#FFF" /><Text style={styles.logoutButtonText}>Logout</Text></TouchableOpacity>
          {/* Removed large mode switch button as it's in the header now */}
       </ScrollView>
@@ -229,6 +247,39 @@ const styles = StyleSheet.create({
    dataMissingText: { fontSize: 14, color: '#9CA3AF', textAlign: 'center', paddingVertical: 16, fontStyle: 'italic', },
   linkButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F9FAFB' },
   linkButtonText: { flex: 1, marginLeft: 12, fontSize: 15, fontWeight: '500', color: '#374151' },
+  
+  // Analytics button styles
+  analyticsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F9FAFB',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginTop: 8,
+  },
+  analyticsButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  analyticsIcon: {
+    marginRight: 12,
+  },
+  analyticsTextContainer: {
+    flex: 1,
+  },
+  analyticsButtonTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  analyticsButtonSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
 });
 
 export default OrganizerProfileScreen;
