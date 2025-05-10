@@ -78,6 +78,8 @@ const MatchCard: React.FC<MatchCardProps> = ({
     // Use the correctly typed navigation hook
     const navigation = useNavigation<MatchCardNavigationProp>();
 
+    console.log(`[MatchCard] Rendering card for ID: ${id}, Name: ${name}, Common Tags:`, commonTags, `Viewer Premium: ${isViewerPremium}`);
+
     // Memoized calculation for bio details (as you provided)
     const allBioDetailsToDisplay = React.useMemo(() => {
         if (!bio) return [];
@@ -138,6 +140,11 @@ const MatchCard: React.FC<MatchCardProps> = ({
     const displayName = name && String(name).trim() !== '' ? String(name).trim() : 'User';
     const hasBioDetails = allBioDetailsToDisplay.length > 0;
 
+    // Determine number of tags to show based on viewer's premium status
+    const maxTagsToShow = isViewerPremium ? 10 : 5;
+    const tagsToDisplay = commonTags && commonTags.length > 0 ? commonTags.slice(0, maxTagsToShow) : [];
+    const remainingTagsCount = commonTags && commonTags.length > maxTagsToShow ? commonTags.length - maxTagsToShow : 0;
+
     // --- JSX (Ensure the TouchableOpacity calls the correct handleChatPress) ---
     return (
         <View style={styles.cardContainer}>
@@ -172,8 +179,14 @@ const MatchCard: React.FC<MatchCardProps> = ({
                              <Feather name="tag" size={14} color="#10B981" style={styles.commonTagsIcon}/>
                              <Text style={styles.commonTagsTitle}>Shared Interests:</Text>
                              <View style={styles.tagsContainer}>
-                                 {commonTags.slice(0, 5).map((tag, index) => ( <View key={`${id}-tag-${index}`} style={styles.tag}><Text style={styles.tagText}>{tag}</Text></View> ))}
-                                 {commonTags.length > 5 && ( <Text style={styles.moreTagsText}>...</Text> )}
+                                 {tagsToDisplay.map((tag, index) => (
+                                     <View key={`${id}-tag-${index}`} style={styles.tag}>
+                                         <Text style={styles.tagText}>{tag}</Text>
+                                     </View>
+                                 ))}
+                                 {remainingTagsCount > 0 && (
+                                     <Text style={styles.moreTagsText}>+{remainingTagsCount} more</Text>
+                                 )}
                              </View>
                          </View>
                      )}
@@ -234,7 +247,7 @@ const styles = StyleSheet.create({
     commonTagsSection: {
         flexDirection: 'row',
         alignItems: 'flex-start',
-        flexWrap: 'nowrap',
+        flexWrap: 'wrap',
         justifyContent: 'flex-start',
         marginBottom: 16,
         paddingHorizontal: 5,

@@ -102,6 +102,8 @@ const ProfileScreen: React.FC = () => {
     const userId = session?.user?.id;
     const { isLoggedIn: isSpotifyLoggedIn } = useSpotifyAuth();
     // const { isLoggedIn: isYouTubeMusicLoggedIn } = useYouTubeMusicAuth();
+    const isYouTubeMusicLoggedInPlaceholder = false; // Placeholder for YouTube Music status
+
     const { 
         streamingData, loading: streamingDataLoading, 
         topArtists, topTracks, topGenres, 
@@ -109,6 +111,7 @@ const ProfileScreen: React.FC = () => {
         forceFetchServiceData, isServiceConnected
     } = useStreamingData(userId, {
         isSpotifyLoggedIn,
+        isYouTubeMusicLoggedIn: isYouTubeMusicLoggedInPlaceholder // Pass the placeholder
     });
     
     const [expandedSections, setExpandedSections] = useState<ExpandedSections>({

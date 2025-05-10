@@ -274,66 +274,109 @@ const MusicLoverSignUpFlow = () => {
     // --- Validation Functions ---
     const validateAccountDetailsStep = (): boolean => {
         console.log('[MusicLoverSignUpFlow] Validating Account Details Step...');
-        setError('');
-        if (!formData.firstName.trim()) { setError('Please enter your first name'); return false; }
-        if (!formData.lastName.trim()) { setError('Please enter your last name'); return false; }
-        if (!formData.username.trim()) { setError('Please enter a username'); return false; }
-        if (/\s/.test(formData.username.trim())) { setError('Username cannot contain spaces'); return false; }
-        if (!formData.email.trim()) { setError('Please enter your email'); return false; }
+        
+        // Don't set error state here - it causes render loops
+        if (!formData.firstName.trim()) return false;
+        if (!formData.lastName.trim()) return false;
+        if (!formData.username.trim()) return false;
+        if (/\s/.test(formData.username.trim())) return false;
+        if (!formData.email.trim()) return false;
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(formData.email.trim())) { setError('Please enter a valid email address'); return false; }
-        if (!formData.password) { setError('Please enter a password'); return false; }
-        if (formData.password.length < 8) { setError('Password must be at least 8 characters long'); return false; }
-        if (formData.password !== formData.confirmPassword) { setError('Passwords do not match'); return false; }
-        if (!formData.termsAccepted) { setError('Please accept the Terms and Conditions'); return false; }
+        if (!emailRegex.test(formData.email.trim())) return false;
+        if (!formData.password) return false;
+        if (formData.password.length < 8) return false;
+        if (formData.password !== formData.confirmPassword) return false;
+        if (!formData.termsAccepted) return false;
+        
         console.log('[MusicLoverSignUpFlow] Account Details Step Validation PASSED.');
         return true;
     };
 
+    // Get error message without setting state
+    const getAccountDetailsError = (): string => {
+        if (!formData.firstName.trim()) return 'Please enter your first name';
+        if (!formData.lastName.trim()) return 'Please enter your last name';
+        if (!formData.username.trim()) return 'Please enter a username';
+        if (/\s/.test(formData.username.trim())) return 'Username cannot contain spaces';
+        if (!formData.email.trim()) return 'Please enter your email';
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(formData.email.trim())) return 'Please enter a valid email address';
+        if (!formData.password) return 'Please enter a password';
+        if (formData.password.length < 8) return 'Password must be at least 8 characters long';
+        if (formData.password !== formData.confirmPassword) return 'Passwords do not match';
+        if (!formData.termsAccepted) return 'Please accept the Terms and Conditions';
+        return '';
+    };
+
     const validateProfileDetailsStep = (): boolean => {
         console.log('[MusicLoverSignUpFlow] Validating Profile Details Step...');
-        setError('');
+        
+        // Don't set error state here
         if (formData.age && (!/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 1 || parseInt(formData.age, 10) > 120)) {
-            setError('Please enter a valid age (1-120) or leave blank');
             return false;
         }
+        
         console.log('[MusicLoverSignUpFlow] Profile Details Step Validation PASSED.');
         return true;
     };
 
+    // Get error message without setting state
+    const getProfileDetailsError = (): string => {
+        if (formData.age && (!/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 1 || parseInt(formData.age, 10) > 120)) {
+            return 'Please enter a valid age (1-120) or leave blank';
+        }
+        return '';
+    };
+
     const validateStreamingServiceStep = (): boolean => {
         console.log('[MusicLoverSignUpFlow] Validating Streaming Service Step...');
-        setError('');
-        // Require a valid streaming service selection
+        
+        // Don't set error state here
         if (!formData.selectedStreamingService) {
-            setError('Please select a streaming service or "None / Other"');
             return false;
         }
+        
         console.log('[MusicLoverSignUpFlow] Streaming Service Step Validation PASSED.');
         return true;
     };
 
+    // Get error message without setting state
+    const getStreamingServiceError = (): string => {
+        if (!formData.selectedStreamingService) {
+            return 'Please select a streaming service or "None / Other"';
+        }
+        return '';
+    };
+
     const validateSubscriptionStep = (): boolean => {
         console.log('[MusicLoverSignUpFlow] Validating Subscription Step...');
-        setError('');
+        
+        // Don't set error state here
         if (!formData.subscriptionTier) {
-            setError('Please select a subscription tier (Free or Premium).');
             return false;
         }
+        
         console.log('[MusicLoverSignUpFlow] Subscription Step Validation PASSED.');
         return true;
     };
 
+    // Get error message without setting state
+    const getSubscriptionError = (): string => {
+        if (!formData.subscriptionTier) {
+            return 'Please select a subscription tier (Free or Premium).';
+        }
+        return '';
+    };
+
     const validatePaymentStep = (): boolean => {
         console.log('[MusicLoverSignUpFlow] Validating Payment Step...');
-        setError('');
+        
+        // Don't set error state here
         const { cardNumber, expiry, cvv, name } = formData.paymentInfo;
-        // Basic Luhn algorithm check (optional but recommended for real apps)
-        // function isValidLuhn(number: string): boolean { ... }
-        if (!cardNumber.trim() || !/^\d{13,19}$/.test(cardNumber.replace(/\s/g, ''))) { setError('Please enter a valid card number (13-19 digits)'); return false; }
-        // if (!isValidLuhn(cardNumber.replace(/\s/g, ''))) { setError('Invalid card number.'); return false; }
+        
+        if (!cardNumber.trim() || !/^\d{13,19}$/.test(cardNumber.replace(/\s/g, ''))) return false;
 
-        if (!expiry.trim() || !/^(0[1-9]|1[0-2])\/?([0-9]{2})$/.test(expiry)) { setError('Please enter expiry date as MM/YY'); return false; }
+        if (!expiry.trim() || !/^(0[1-9]|1[0-2])\/?([0-9]{2})$/.test(expiry)) return false;
         const expiryMatch = expiry.match(/^(0[1-9]|1[0-2])\/?([0-9]{2})$/);
         if (expiryMatch) {
             const expMonth = parseInt(expiryMatch[1], 10);
@@ -342,18 +385,54 @@ const MusicLoverSignUpFlow = () => {
             const currentMonth = new Date().getMonth() + 1;
             const expYear = 2000 + expYearShort;
             if (expYear < currentYear || (expYear === currentYear && expMonth < currentMonth)) {
-                setError('Card expiry date has passed');
                 return false;
             }
-        } else { // Should not happen if regex passes, but good fallback
-             setError('Invalid expiry date format (MM/YY)');
-             return false;
+        } else {
+            return false;
         }
 
-        if (!cvv.trim() || !/^\d{3,4}$/.test(cvv)) { setError('Please enter a valid CVV (3 or 4 digits)'); return false; }
-        if (!name.trim()) { setError('Please enter the cardholder name'); return false; }
+        if (!cvv.trim() || !/^\d{3,4}$/.test(cvv)) return false;
+        if (!name.trim()) return false;
+        
         console.log('[MusicLoverSignUpFlow] Payment Step Validation PASSED.');
         return true;
+    };
+
+    // Get error message without setting state
+    const getPaymentError = (): string => {
+        const { cardNumber, expiry, cvv, name } = formData.paymentInfo;
+        
+        if (!cardNumber.trim() || !/^\d{13,19}$/.test(cardNumber.replace(/\s/g, ''))) {
+            return 'Please enter a valid card number (13-19 digits)';
+        }
+
+        if (!expiry.trim() || !/^(0[1-9]|1[0-2])\/?([0-9]{2})$/.test(expiry)) {
+            return 'Please enter expiry date as MM/YY';
+        }
+        
+        const expiryMatch = expiry.match(/^(0[1-9]|1[0-2])\/?([0-9]{2})$/);
+        if (expiryMatch) {
+            const expMonth = parseInt(expiryMatch[1], 10);
+            const expYearShort = parseInt(expiryMatch[2], 10);
+            const currentYear = new Date().getFullYear();
+            const currentMonth = new Date().getMonth() + 1;
+            const expYear = 2000 + expYearShort;
+            if (expYear < currentYear || (expYear === currentYear && expMonth < currentMonth)) {
+                return 'Card expiry date has passed';
+            }
+        } else {
+            return 'Invalid expiry date format (MM/YY)';
+        }
+
+        if (!cvv.trim() || !/^\d{3,4}$/.test(cvv)) {
+            return 'Please enter a valid CVV (3 or 4 digits)';
+        }
+        
+        if (!name.trim()) {
+            return 'Please enter the cardholder name';
+        }
+        
+        return '';
     };
 
     // --- Modify handleProfilePicPick to store mimeType ---
@@ -622,29 +701,54 @@ const MusicLoverSignUpFlow = () => {
     // --- Handle Step Submission (Orchestrator) ---
     const handleStepSubmit = async () => {
         console.log(`[MusicLoverSignUpFlow] handleStepSubmit called for step: ${currentStep}`);
-        setError('');
+        
+        // Get the appropriate error message based on current step
+        let errorMessage = '';
+        switch (currentStep) {
+            case 'account-details':
+                errorMessage = getAccountDetailsError();
+                break;
+            case 'profile-details':
+                errorMessage = getProfileDetailsError();
+                break;
+            case 'streaming-service':
+                errorMessage = getStreamingServiceError();
+                break;
+            case 'subscription':
+                errorMessage = getSubscriptionError();
+                break;
+            case 'payment':
+                errorMessage = getPaymentError();
+                break;
+        }
+        
+        // Set error if any
+        setError(errorMessage);
+        
+        // Only proceed if no errors
+        if (errorMessage) {
+            return;
+        }
 
         switch (currentStep) {
             case 'account-details':
-                if (validateAccountDetailsStep()) goToNextStep('profile-details');
+                goToNextStep('profile-details');
                 break;
             case 'profile-details':
-                if (validateProfileDetailsStep()) goToNextStep('streaming-service');
+                goToNextStep('streaming-service');
                 break;
             case 'streaming-service':
-                if (validateStreamingServiceStep()) goToNextStep('subscription');
+                goToNextStep('subscription');
                 break;
             case 'subscription':
-                if (validateSubscriptionStep()) {
-                    if (formData.subscriptionTier === 'free') {
-                        handleFreeSignupCompletion(); // Handles final steps + loading
-                    } else if (formData.subscriptionTier === 'premium') {
-                        handlePremiumSignupCompletion();
-                    }
+                if (formData.subscriptionTier === 'free') {
+                    handleFreeSignupCompletion();
+                } else if (formData.subscriptionTier === 'premium') {
+                    handlePremiumSignupCompletion();
                 }
                 break;
             case 'payment':
-                 await handlePremiumSignupCompletion(); // Handles final steps + loading
+                 await handlePremiumSignupCompletion();
                 break;
         }
     };
@@ -990,7 +1094,15 @@ const MusicLoverSignUpFlow = () => {
 
     // Render function for Streaming Service Step - UPDATED
     const renderStreamingServiceStep = () => (
-        <ScrollView style={styles.stepContainer}>
+        <ScrollView 
+            style={{ width: '100%' }} 
+            contentContainerStyle={{ 
+                flexGrow: 1, 
+                alignItems: 'center', 
+                paddingHorizontal: 20,
+                paddingBottom: 20
+            }}
+        >
             <Text style={styles.stepTitle}>Music Services</Text>
             <Text style={styles.stepSubtitle}>What streaming service do you use most?</Text>
             {/* Removed: !showYTMCookieInput && ( ... ) wrapper */}
@@ -1060,7 +1172,7 @@ const MusicLoverSignUpFlow = () => {
             )}
             {isSpotifyLoggedIn && formData.selectedStreamingService === 'spotify' && (
                 <View style={styles.successMessageContainer}>
-                    <FontAwesome name="check-circle" size={20} color={APP_CONSTANTS.COLORS.SPOTIFY_GREEN} />
+                    <FontAwesome name="check-circle" size={20} color="#1DB954" />
                     <Text style={styles.successMessageText}>Successfully connected to Spotify!</Text>
                 </View>
             )}
@@ -1068,13 +1180,11 @@ const MusicLoverSignUpFlow = () => {
             {/* General error display */}
             {error && !spotifyError && <Text style={[styles.errorText, { marginTop: 10 }]}>{error}</Text>} 
 
-            {/* Main Back/Continue Buttons - Show when YTM cookie input is NOT active (which is always now) */}
-            {/* Removed: !showYTMCookieInput && ( ... ) wrapper for buttons */}
+            {/* Main Back/Continue Buttons */}
             <View style={styles.buttonContainer}> 
                 <TouchableOpacity 
                     style={styles.secondaryButton} 
                     onPress={() => goToPreviousStep('profile-details')}
-                    // Removed: disabled={ytmAuthInProgress} 
                 >
                     <Text style={styles.secondaryButtonText}>Back</Text>
                 </TouchableOpacity>
@@ -1082,16 +1192,15 @@ const MusicLoverSignUpFlow = () => {
                 <TouchableOpacity
                     style={[styles.primaryButton, (!formData.selectedStreamingService) && styles.primaryButtonDisabled]}
                     onPress={() => {
-                        if (validateStreamingServiceStep()) { // Removed: && !showYTMCookieInput
+                        if (validateStreamingServiceStep()) {
                             goToNextStep('subscription');
                         }
                     }}
-                    disabled={!formData.selectedStreamingService /* Removed: || ytmAuthInProgress */}
+                    disabled={!formData.selectedStreamingService}
                 >
                     <Text style={styles.primaryButtonText}>Continue</Text>
                 </TouchableOpacity>
             </View>
-            {/* Removed: Closing bracket for !showYTMCookieInput wrapper } */}
         </ScrollView>
     );
 
@@ -1252,16 +1361,20 @@ const MusicLoverSignUpFlow = () => {
 
     // Render current step selector and action button
     const renderCurrentStep = () => {
-        // Removed isYouTubeMusicLoading from here
         const isButtonDisabled = isLoading || authLoading || isSpotifyLoading || 
             (currentStep === 'subscription' && !formData.subscriptionTier);
-            // Removed: (currentStep === 'streaming-service' && showYTMCookieInput);
 
+        // Compute button text based on current step
         let buttonText = 'Continue';
         if (currentStep === 'profile-details') buttonText = 'Select Music Service';
         if (currentStep === 'streaming-service') buttonText = 'Choose Subscription';
         if (currentStep === 'subscription') buttonText = formData.subscriptionTier === 'free' ? 'Complete Free Sign Up' : 'Continue to Payment';
         if (currentStep === 'payment') buttonText = 'Complete Premium Sign Up';
+
+        // Pre-compute validation states
+        const isAccountValid = currentStep === 'account-details' ? validateAccountDetailsStep() : true;
+        const isProfileValid = currentStep === 'profile-details' ? validateProfileDetailsStep() : true;
+        const isPaymentValid = currentStep === 'payment' ? validatePaymentStep() : true;
 
         return (
             <View style={styles.stepContainer}>
@@ -1273,34 +1386,26 @@ const MusicLoverSignUpFlow = () => {
                     {currentStep === 'payment' && renderPaymentStep()}
                 </Animated.View>
 
-                {/* Action Button - Hide if it's the streaming step AND the YTM cookie input is showing (never true anymore)
-                // Removed: {!(currentStep === 'streaming-service' && showYTMCookieInput) && (
-                // ...
-                // Removed: isLoading || authLoading || isSpotifyLoading || isYouTubeMusicLoading ? (
-                // replaced with:
-                // {isLoading || authLoading || isSpotifyLoading ? (
-                // ...
-                // Removed: )}
-                */}
-                {!(currentStep === 'streaming-service') && ( // Example: hide for streaming step if its internal buttons handle all nav
-                     <View style={styles.stickyButtonContainer}>
-                         <TouchableOpacity
+                {/* Action Button - Show for steps that need it */}
+                {!(currentStep === 'streaming-service') && ( 
+                    <View style={styles.stickyButtonContainer}>
+                        <TouchableOpacity
                             style={[
                                 styles.continueButton, 
                                 (isLoading || authLoading || isSpotifyLoading || 
-                                (currentStep === 'account-details' && !validateAccountDetailsStep(false)) ||
-                                (currentStep === 'profile-details' && !validateProfileDetailsStep(false)) ||
+                                (currentStep === 'account-details' && !isAccountValid) ||
+                                (currentStep === 'profile-details' && !isProfileValid) ||
                                 (currentStep === 'subscription' && !formData.subscriptionTier) ||
-                                (currentStep === 'payment' && !validatePaymentStep(false))
+                                (currentStep === 'payment' && !isPaymentValid)
                                 ) && styles.continueButtonDisabled
                             ]}
                             onPress={handleStepSubmit}
                             disabled={
                                 isLoading || authLoading || isSpotifyLoading ||
-                                (currentStep === 'account-details' && !validateAccountDetailsStep(false)) ||
-                                (currentStep === 'profile-details' && !validateProfileDetailsStep(false)) ||
+                                (currentStep === 'account-details' && !isAccountValid) ||
+                                (currentStep === 'profile-details' && !isProfileValid) ||
                                 (currentStep === 'subscription' && !formData.subscriptionTier) ||
-                                (currentStep === 'payment' && !validatePaymentStep(false))
+                                (currentStep === 'payment' && !isPaymentValid)
                             }
                             activeOpacity={0.8}
                         >
@@ -1316,9 +1421,12 @@ const MusicLoverSignUpFlow = () => {
         );
     };
 
-    // Main Return JSX Structure
+    // Main Return JSX Structure - remove the duplicate button
     return (
-        <LinearGradient colors={[APP_CONSTANTS.COLORS.BACKGROUND_GRADIENT_START, APP_CONSTANTS.COLORS.BACKGROUND_GRADIENT_END]} style={styles.gradient}>
+        <LinearGradient 
+            colors={['#F7F9FC', '#E8EDFC']} 
+            style={styles.gradient}
+        >
             <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
                 <View style={styles.header}>
                     {/* ... header content ... */}
@@ -1328,38 +1436,7 @@ const MusicLoverSignUpFlow = () => {
                         {renderCurrentStep()}
                     </Animated.View>
                 </ScrollView>
-
-                {/* Global Action Button - always visible unless specifically handled by step */}
-                {!(currentStep === 'streaming-service') && ( // Example: hide for streaming step if its internal buttons handle all nav
-                     <View style={styles.stickyButtonContainer}>
-                         <TouchableOpacity
-                            style={[
-                                styles.continueButton, 
-                                (isLoading || authLoading || isSpotifyLoading || 
-                                (currentStep === 'account-details' && !validateAccountDetailsStep(false)) ||
-                                (currentStep === 'profile-details' && !validateProfileDetailsStep(false)) ||
-                                (currentStep === 'subscription' && !formData.subscriptionTier) ||
-                                (currentStep === 'payment' && !validatePaymentStep(false))
-                                ) && styles.continueButtonDisabled
-                            ]}
-                            onPress={handleStepSubmit}
-                            disabled={
-                                isLoading || authLoading || isSpotifyLoading ||
-                                (currentStep === 'account-details' && !validateAccountDetailsStep(false)) ||
-                                (currentStep === 'profile-details' && !validateProfileDetailsStep(false)) ||
-                                (currentStep === 'subscription' && !formData.subscriptionTier) ||
-                                (currentStep === 'payment' && !validatePaymentStep(false))
-                            }
-                            activeOpacity={0.8}
-                        >
-                            {isLoading || authLoading || isSpotifyLoading ? (
-                                <ActivityIndicator color="white" size="small" />
-                            ) : (
-                                <Text style={styles.continueButtonText}>{/* ... button text ... */}</Text>
-                            )}
-                        </TouchableOpacity>
-                    </View>
-                )}
+                {/* REMOVED duplicate global action button */}
                 <TermsModal visible={isTermsModalVisible} onClose={() => setIsTermsModalVisible(false)} termsText={termsAndConditionsText} />
             </SafeAreaView>
         </LinearGradient>
@@ -1686,6 +1763,37 @@ const styles = StyleSheet.create({
 
     // Remove duplicate definitions from below if they exist
     // (The previously added duplicate blocks should be removed entirely)
+    successMessageContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#F0FFF0',
+        padding: 10,
+        borderRadius: 8,
+        marginTop: 10,
+        marginBottom: 10,
+    },
+    successMessageText: {
+        color: APP_CONSTANTS.COLORS.PRIMARY,
+        marginLeft: 8,
+        fontSize: 14,
+        fontWeight: '500',
+    },
+    stickyButtonContainer: {
+        width: '100%',
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderTopWidth: 1,
+        borderTopColor: APP_CONSTANTS.COLORS.BORDER_LIGHT,
+        backgroundColor: 'white',
+    },
+    scrollContentContainer: {
+        flexGrow: 1,
+        paddingHorizontal: 20,
+    },
+    stepsSlider: {
+        width: '100%',
+    },
 });
 
 export default MusicLoverSignUpFlow;
