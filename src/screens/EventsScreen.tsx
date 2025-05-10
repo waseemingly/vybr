@@ -61,7 +61,7 @@ interface MusicLoverProfileData {
     // Assumed fields based on MusicLoverSignUpFlow and potential streaming sync
     top_genres?: string[];
     top_artists?: string[];
-    top_songs?: string[]; // Maybe less useful for matching event tags?
+    // top_songs?: string[]; // Removed as column doesn't exist
     // Fields from music_lover_profiles
     favorite_artists?: string[];
     favorite_albums?: string[]; // Harder to match directly
@@ -179,8 +179,10 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
 
     // --- Booking Logic (Check type before navigating) ---
      let canBookOrReserve = false;
-     if (event.booking_type === 'TICKETED' || event.booking_type === 'RESERVATION') {
-         canBookOrReserve = event.ticket_price !== null; // Allow booking if ticketed/reservation unless price is null (unavailable)
+     if (event.booking_type === 'TICKETED') {
+         canBookOrReserve = event.ticket_price !== null; // For tickets, price must be set (even if 0 for free tickets)
+     } else if (event.booking_type === 'RESERVATION') {
+         canBookOrReserve = true; // For reservations, always allow if type is RESERVATION
      }
      const basePrice = event.ticket_price;
      const pricePerItemDisplay = event.booking_type === 'TICKETED'
@@ -348,8 +350,10 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress,
     const navigation = useNavigation<NavigationProp>();
     // --- Booking Logic (Check type before navigating) ---
      let canBook = false;
-     if (event.booking_type === 'TICKETED' || event.booking_type === 'RESERVATION') {
-         canBook = event.ticket_price !== null; // Allow booking if ticketed/reservation unless price is null
+     if (event.booking_type === 'TICKETED') {
+         canBook = event.ticket_price !== null;
+     } else if (event.booking_type === 'RESERVATION') {
+         canBook = true; // Allow direct reservation from card if type is RESERVATION
      }
      const basePrice = event.ticket_price;
      const priceText = event.booking_type === 'TICKETED'
@@ -446,25 +450,33 @@ const calculateEventScore = (event: MappedEvent, userProfile: MusicLoverProfileD
 
     // --- Prepare User Preference Sets --- 
     const userGenres = new Set<string>();
-    (userProfile.top_genres ?? []).forEach(g => userGenres.add(g.toLowerCase()));
+    (userProfile.top_genres ?? []).forEach(g => {
+        if (typeof g === 'string') userGenres.add(g.toLowerCase());
+    });
     // Add genres from bio.musicTaste
-    (userProfile.bio?.musicTaste ?? '').toLowerCase().split(/,|\band\b|\bwith\b|\s+/).forEach(g => {
+    (userProfile.bio?.musicTaste ?? '').toLowerCase().split(/,| and | with |\s+/).forEach(g => {
         const trimmed = g.trim();
         if (trimmed) userGenres.add(trimmed);
     });
 
     const userArtists = new Set<string>();
-    (userProfile.top_artists ?? []).forEach(a => userArtists.add(a.toLowerCase()));
-    (userProfile.favorite_artists ?? []).forEach(a => userArtists.add(a.toLowerCase()));
+    (userProfile.top_artists ?? []).forEach(a => {
+        if (typeof a === 'string') userArtists.add(a.toLowerCase());
+    });
+    (userProfile.favorite_artists ?? []).forEach(a => {
+        if (typeof a === 'string') userArtists.add(a.toLowerCase());
+    });
     // Add artists from bio.dreamConcert
-    (userProfile.bio?.dreamConcert ?? '').toLowerCase().split(/,|\band\b|\bwith\b/).forEach((artist: string) => {
+    (userProfile.bio?.dreamConcert ?? '').toLowerCase().split(/,| and | with /).forEach((artist: string) => {
         const trimmed = artist.trim();
         if (trimmed) userArtists.add(trimmed);
     });
 
     const userSongs = new Set<string>();
-    (userProfile.top_songs ?? []).forEach(s => userSongs.add(s.toLowerCase()));
-    (userProfile.favorite_songs ?? []).forEach(s => userSongs.add(s.toLowerCase()));
+    // (userProfile.top_songs ?? []).forEach(s => userSongs.add(s.toLowerCase())); // Removed top_songs
+    (userProfile.favorite_songs ?? []).forEach(s => {
+        if (typeof s === 'string') userSongs.add(s.toLowerCase());
+    });
     // Add song from bio.goToSong
     const goToSong = userProfile.bio?.goToSong?.trim().toLowerCase();
     if (goToSong) userSongs.add(goToSong);
@@ -603,7 +615,7 @@ const EventsScreen: React.FC = () => {
             // Fetch streaming data (top items)
             const { data: streamingData, error: streamingError } = await supabase
                 .from('user_streaming_data')
-                .select('top_artists, top_genres, top_songs') // Adjust column names if different
+                .select('top_artists, top_genres') // Removed top_songs
                 .eq('user_id', userId)
                 .maybeSingle(); // Use maybeSingle as user might not have connected streaming
 
@@ -625,12 +637,12 @@ const EventsScreen: React.FC = () => {
                 country: profileData.country,
                 city: profileData.city,
                 bio: profileData.bio ? (typeof profileData.bio === 'string' ? JSON.parse(profileData.bio) : profileData.bio) : null, // Ensure bio can be null
-                favorite_artists: profileData.favorite_artists ?? [],
-                favorite_albums: profileData.favorite_albums ?? [],
-                favorite_songs: profileData.favorite_songs ?? [],
-                top_genres: streamingData?.top_genres ?? [],
-                top_artists: streamingData?.top_artists ?? [],
-                top_songs: streamingData?.top_songs ?? []
+                favorite_artists: Array.isArray(profileData.favorite_artists) ? profileData.favorite_artists : [],
+                favorite_albums: Array.isArray(profileData.favorite_albums) ? profileData.favorite_albums : [],
+                favorite_songs: Array.isArray(profileData.favorite_songs) ? profileData.favorite_songs : [],
+                top_genres: Array.isArray(streamingData?.top_genres) ? streamingData.top_genres : [],
+                top_artists: Array.isArray(streamingData?.top_artists) ? streamingData.top_artists : [],
+                // top_songs: Array.isArray(streamingData?.top_songs) ? streamingData.top_songs : [] // Removed
             };
 
             console.log("[EventsScreen] Combined user profile data set.");
