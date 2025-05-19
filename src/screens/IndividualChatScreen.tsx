@@ -14,6 +14,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 import * as FileSystem from 'expo-file-system';
 import ImageViewer from 'react-native-image-zoom-viewer';
+import * as Crypto from 'expo-crypto';
 
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -75,6 +76,22 @@ const MessageBubble: React.FC<{
     );
 });
 
+// Helper function to generate SHA256 hash for tags
+const generateTagsHash = async (tags: string[]): Promise<string> => {
+    if (!tags || tags.length === 0) return '';
+    // Ensure consistent ordering for the hash
+    const sortedTagsString = [...tags].sort().join(',');
+    try {
+        const digest = await Crypto.digestStringAsync(
+            Crypto.CryptoDigestAlgorithm.SHA256,
+            sortedTagsString
+        );
+        return digest;
+    } catch (hashError) {
+        console.error("Failed to generate tags hash:", hashError);
+        return ''; // Fallback or handle error appropriately
+    }
+};
 
 const IndividualChatScreen: React.FC = () => {
     const route = useRoute<IndividualChatScreenRouteProp>();
@@ -333,7 +350,7 @@ const IndividualChatScreen: React.FC = () => {
         }
     }, [fetchMessages, isBlocked, currentUserId, matchUserId]); // Run when block status or IDs change
 
-    // Fetch Conversation Starters
+    // --- Fetch Conversation Starters (Updated Logic) ---
     useEffect(() => {
         const fetchStarters = async () => {
             if (
@@ -342,67 +359,42 @@ const IndividualChatScreen: React.FC = () => {
                 commonTags && commonTags.length > 0 &&
                 matchUserId && currentUserId && !isBlocked
             ) {
-                const fetchedStartersDataKey = `@fetchedStartersData_${currentUserId}_${matchUserId}`;
-                const apiCallAttemptedKey = `@startersApiCallMade_${currentUserId}_${matchUserId}`;
+                setLoadingStarters(true);
+                setCurrentStarterIndex(0);
+                setConversationStarters([]); // Clear previous starters
 
                 try {
-                    setLoadingStarters(true); // Start loading
-                    setCurrentStarterIndex(0); // Reset index when fetching
+                    // Bypassing client-side cache check. Always go to Edge Function.
+                    console.log('[ChatScreen] Invoking Edge Function for NEW starters for tags:', commonTags);
+                    const { data: edgeFnResponse, error: edgeFnError } = await supabase.functions.invoke<{ starters?: string[], error?: string }>(
+                        'get-conversation-starters', 
+                        { body: { commonTags } }
+                    );
 
-                    // 1. Try to load already fetched starters for this chat
-                    const storedStartersJson = await AsyncStorage.getItem(fetchedStartersDataKey);
-                    if (storedStartersJson) {
-                        const storedStarters = JSON.parse(storedStartersJson);
-                        if (Array.isArray(storedStarters) && storedStarters.length > 0) {
-                            setConversationStarters(storedStarters);
-                            console.log('[ChatScreen] Loaded persisted starters from AsyncStorage.');
-                            setLoadingStarters(false);
-                            return; // Starters found and set, no need to call API
-                        }
-                    }
-
-                    // 2. If no persisted starters, check if API call was already attempted
-                    const apiCallAlreadyAttempted = await AsyncStorage.getItem(apiCallAttemptedKey);
-                    if (apiCallAlreadyAttempted === 'true') {
-                        console.log('[ChatScreen] API call for starters previously attempted and no persisted starters found. Not calling API again.');
-                        setConversationStarters([]); // Ensure it's empty if no persisted data
-                        setLoadingStarters(false);
-                        return;
-                    }
-
-                    // 3. If no persisted starters and API call not yet attempted, then call API
-                    console.log('[ChatScreen] Chat is empty & conditions met, attempting to fetch NEW conversation starters (Postgres Fn) for tags:', commonTags);
-                    
-                    const { data, error: rpcError } = await supabase.rpc('generate_conversation_starters_from_api', {
-                        p_common_tags: commonTags
-                    });
-
-                    await AsyncStorage.setItem(apiCallAttemptedKey, 'true'); // Mark API call as attempted regardless of outcome
-
-                    if (rpcError) {
-                        console.error('[ChatScreen] Supabase RPC error fetching starters:', rpcError);
-                        setConversationStarters([]);
-                    } else if (data && data.starters && Array.isArray(data.starters) && data.starters.length > 0) {
-                        setConversationStarters(data.starters);
-                        await AsyncStorage.setItem(fetchedStartersDataKey, JSON.stringify(data.starters)); // Persist successful fetch
-                        console.log('[ChatScreen] Fetched NEW starters (Postgres Fn) and persisted them:', data.starters);
-                    } else if (data && data.error) {
-                        console.error('[ChatScreen] Error from Postgres function fetching starters:', data.error);
-                        setConversationStarters([]);
+                    if (edgeFnError) {
+                        console.error('[ChatScreen] Edge Function invocation error:', edgeFnError.message);
+                        setConversationStarters([]); 
+                    } else if (edgeFnResponse?.error) {
+                        console.error('[ChatScreen] Error from Edge Function logic:', edgeFnResponse.error);
+                        setConversationStarters(edgeFnResponse.starters || []); 
+                    } else if (edgeFnResponse?.starters && edgeFnResponse.starters.length > 0) {
+                        console.log('[ChatScreen] Fetched NEW starters from Edge Function:', edgeFnResponse.starters);
+                        setConversationStarters(edgeFnResponse.starters);
+                        // The Edge Function would handle its own caching if it were enabled there.
                     } else {
-                        console.log('[ChatScreen] No new starters returned or invalid format from Postgres Fn:', data);
-                        setConversationStarters([]);
+                        console.log('[ChatScreen] Edge Function returned no starters or an unexpected format.');
+                        setConversationStarters([]); 
                     }
                 } catch (e: any) {
-                    console.error("[ChatScreen] Failed to fetch/process conversation starters (Postgres Fn):", e.message || e);
+                    console.error("[ChatScreen] Critical error in fetchStarters:", e.message || e);
                     setConversationStarters([]);
-                     // Consider if apiCallAttemptedKey should be set here too, but it's in the main path above.
                 } finally {
                     setLoadingStarters(false);
                 }
             } else {
-                if (loadingStarters) setLoadingStarters(false); // Ensure loading is off if conditions aren't met
-                if (messages.length === 0) { // Log only if chat is empty but other conditions failed
+                 // Conditions for fetching starters not met
+                if (loadingStarters) setLoadingStarters(false);
+                if (messages.length === 0) { 
                     if (!isCurrentUserPremium) console.log('[ChatScreen] User not premium, not fetching starters.');
                     else if (!commonTags || commonTags.length === 0) console.log('[ChatScreen] No common tags, not fetching starters.');
                     else if (isBlocked) console.log('[ChatScreen] Chat is blocked, not fetching starters.');
@@ -412,12 +404,13 @@ const IndividualChatScreen: React.FC = () => {
 
         fetchStarters();
     }, [
-        messages.length,
+        messages.length, 
         isCurrentUserPremium,
-        commonTags,
+        commonTags, 
         matchUserId,
         currentUserId,
-        isBlocked
+        isBlocked,
+        // supabase // Removed as direct DB call for cache is gone. Invoking function is stable.
     ]);
 
     // Clear Conversation Starters when messages are present
