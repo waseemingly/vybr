@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, Image, StyleSheet, Platform, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 // *** Import CommonActions and useNavigation ***
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { APP_CONSTANTS } from '@/config/constants';
 
 // Define the bio structure (as you provided)
 export interface MusicLoverBio {
@@ -28,6 +29,10 @@ export interface MatchCardProps {
     compatibilityScore?: number; // Add compatibility score (optional number)
     onChatPress?: (userId: string) => void; // Changed to pass userId back
     isViewerPremium?: boolean; // <<< Add prop for logged-in user's premium status
+    topArtists?: string[]; // Artists matched with current user
+    topTracks?: string[]; // Tracks matched with current user
+    topGenres?: string[]; // Genres matched with current user
+    topMoods?: string[]; // Moods matched with current user (only for premium)
 }
 
 // --- Define Navigation Type for useNavigation ---
@@ -46,6 +51,12 @@ type AppNavigationParams = {
         matchUserId: string;
         matchName: string;
         matchProfilePicture?: string | null;
+        commonTags?: string[];
+        topArtists?: string[];
+        topTracks?: string[];
+        topGenres?: string[];
+        topMoods?: string[];
+        isFirstInteractionFromMatches?: boolean;
     };
     // Add other RootStack screen names if directly navigated to from here
 };
@@ -74,14 +85,24 @@ const MatchCard: React.FC<MatchCardProps> = ({
     compatibilityScore,
     onChatPress,
     isViewerPremium,
+    topArtists,
+    topTracks,
+    topGenres,
+    topMoods,
 }) => {
     // Use the correctly typed navigation hook
     const navigation = useNavigation<MatchCardNavigationProp>();
 
+    // State for expanding sections
+    const [showAllArtists, setShowAllArtists] = useState(false);
+    const [showAllTracks, setShowAllTracks] = useState(false);
+    const [showAllGenres, setShowAllGenres] = useState(false);
+    const [showAllMoods, setShowAllMoods] = useState(false);
+
     console.log(`[MatchCard] Rendering card for ID: ${id}, Name: ${name}, Common Tags:`, commonTags, `Viewer Premium: ${isViewerPremium}`);
 
     // Memoized calculation for bio details (as you provided)
-    const allBioDetailsToDisplay = React.useMemo(() => {
+    const allBioDetailsToDisplay = useMemo(() => {
         if (!bio) return [];
         const details = Object.entries(bio)
             .filter(([key, value]) => value != null && String(value).trim() !== '')
@@ -127,6 +148,12 @@ const MatchCard: React.FC<MatchCardProps> = ({
                             matchUserId: userId, // The ID of the user to chat with
                             matchName: name,     // Their name for the header
                             matchProfilePicture: image, // Their picture URL
+                            commonTags: commonTags,
+                            topArtists: topArtists,
+                            topTracks: topTracks,
+                            topGenres: topGenres,
+                            topMoods: topMoods,
+                            isFirstInteractionFromMatches: true,
                         },
                     },
                 ],
@@ -140,10 +167,45 @@ const MatchCard: React.FC<MatchCardProps> = ({
     const displayName = name && String(name).trim() !== '' ? String(name).trim() : 'User';
     const hasBioDetails = allBioDetailsToDisplay.length > 0;
 
-    // Determine number of tags to show based on viewer's premium status
-    const maxTagsToShow = isViewerPremium ? 10 : 5;
-    const tagsToDisplay = commonTags && commonTags.length > 0 ? commonTags.slice(0, maxTagsToShow) : [];
-    const remainingTagsCount = commonTags && commonTags.length > maxTagsToShow ? commonTags.length - maxTagsToShow : 0;
+    // Determine if we should show matching music data sections
+    const hasTopArtists = topArtists && topArtists.length > 0;
+    const hasTopTracks = topTracks && topTracks.length > 0;
+    const hasTopGenres = topGenres && topGenres.length > 0;
+    const hasTopMoods = topMoods && topMoods.length > 0 && isViewerPremium;
+
+    const initialItemsToShow = 3;
+
+    const renderMusicList = (
+        items: string[] | undefined,
+        showAll: boolean,
+        setShowAll: (value: boolean) => void,
+        categoryKey: string,
+        isPremiumCategory: boolean = false
+    ) => {
+        if (!items || items.length === 0) return null;
+
+        const displayedItems = showAll ? items : items.slice(0, initialItemsToShow);
+        const remainingCount = items.length - initialItemsToShow;
+
+        return (
+            <>
+                <View style={styles.tagsContainer}>
+                    {displayedItems.map((item, index) => (
+                        <View key={`${id}-${categoryKey}-${index}`} style={[styles.musicTag, isPremiumCategory && styles.premiumMusicTag]}>
+                            <Text style={[styles.musicTagText, isPremiumCategory && styles.premiumMusicTagText]}>{item}</Text>
+                        </View>
+                    ))}
+                </View>
+                {items.length > initialItemsToShow && (
+                    <TouchableOpacity onPress={() => setShowAll(!showAll)} style={styles.seeMoreButton}>
+                        <Text style={styles.seeMoreButtonText}>
+                            {showAll ? 'See less' : `+${remainingCount} more`}
+                        </Text>
+                    </TouchableOpacity>
+                )}
+            </>
+        );
+    };
 
     // --- JSX (Ensure the TouchableOpacity calls the correct handleChatPress) ---
     return (
@@ -173,23 +235,41 @@ const MatchCard: React.FC<MatchCardProps> = ({
                         )}
                     </View>
 
-                     {/* Common Tags Section */}
-                     {commonTags && commonTags.length > 0 && (
-                         <View style={styles.commonTagsSection}>
-                             <Feather name="tag" size={14} color="#10B981" style={styles.commonTagsIcon}/>
-                             <Text style={styles.commonTagsTitle}>Shared Interests:</Text>
-                             <View style={styles.tagsContainer}>
-                                 {tagsToDisplay.map((tag, index) => (
-                                     <View key={`${id}-tag-${index}`} style={styles.tag}>
-                                         <Text style={styles.tagText}>{tag}</Text>
-                                     </View>
-                                 ))}
-                                 {remainingTagsCount > 0 && (
-                                     <Text style={styles.moreTagsText}>+{remainingTagsCount} more</Text>
-                                 )}
-                             </View>
-                         </View>
-                     )}
+                    {/* Top Artists Section */}
+                    {hasTopArtists && (
+                        <View style={styles.matchedMusicSection}>
+                            <Feather name="mic" size={14} color="#4F46E5" style={styles.matchedMusicIcon}/>
+                            <Text style={styles.matchedMusicTitle}>Similar Artists:</Text>
+                            {renderMusicList(topArtists, showAllArtists, setShowAllArtists, 'artist')}
+                        </View>
+                    )}
+
+                    {/* Top Tracks Section */}
+                    {hasTopTracks && (
+                        <View style={styles.matchedMusicSection}>
+                            <Feather name="disc" size={14} color="#8B5CF6" style={styles.matchedMusicIcon}/>
+                            <Text style={styles.matchedMusicTitle}>Similar Tracks:</Text>
+                            {renderMusicList(topTracks, showAllTracks, setShowAllTracks, 'track')}
+                        </View>
+                    )}
+
+                    {/* Top Genres Section */}
+                    {hasTopGenres && (
+                        <View style={styles.matchedMusicSection}>
+                            <Feather name="headphones" size={14} color="#EC4899" style={styles.matchedMusicIcon}/>
+                            <Text style={styles.matchedMusicTitle}>Similar Genres:</Text>
+                            {renderMusicList(topGenres, showAllGenres, setShowAllGenres, 'genre')}
+                        </View>
+                    )}
+
+                    {/* Top Moods Section - Only for Premium Viewers, data already filtered by SQL for match premium status */}
+                    {hasTopMoods && (
+                        <View style={styles.matchedMusicSection}>
+                            <Feather name="smile" size={14} color="#F59E0B" style={styles.matchedMusicIcon}/>
+                            <Text style={styles.matchedMusicTitle}>Similar Moods:</Text>
+                            {renderMusicList(topMoods, showAllMoods, setShowAllMoods, 'mood', true)}
+                        </View>
+                    )}
 
                     {/* "About [Name]" Section */}
                     {hasBioDetails ? (
@@ -316,6 +396,60 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: 'bold',
     },
+    // New styles for music matching sections
+    matchedMusicSection: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        flexWrap: 'wrap',
+        justifyContent: 'flex-start',
+        marginBottom: 12,
+        paddingHorizontal: 5,
+        width: '100%',
+    },
+    matchedMusicIcon: {
+        marginRight: 6,
+        marginTop: 2,
+    },
+    matchedMusicTitle: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#4F46E5',
+        marginRight: 8,
+        lineHeight: 20,
+    },
+    musicTag: {
+        backgroundColor: 'rgba(79, 70, 229, 0.1)',
+        borderRadius: 12,
+        paddingVertical: 3,
+        paddingHorizontal: 8,
+        margin: 3,
+        borderWidth: 1,
+        borderColor: 'rgba(79, 70, 229, 0.2)',
+    },
+    musicTagText: {
+        color: '#4338CA',
+        fontSize: 11,
+        fontWeight: '500',
+    },
+    premiumMusicTag: {
+        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+        borderColor: 'rgba(245, 158, 11, 0.3)',
+    },
+    premiumMusicTagText: {
+        color: '#D97706',
+    },
+    seeMoreButton: {
+        alignSelf: 'flex-start',
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        marginTop: 4,
+        marginLeft: 5, // Align with tags container padding
+    },
+    seeMoreButtonText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: APP_CONSTANTS.COLORS.PRIMARY || '#3B82F6',
+    }
 });
 
 export default MatchCard;

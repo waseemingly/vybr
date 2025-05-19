@@ -42,6 +42,7 @@
     "@radix-ui/react-tooltip": "^1.1.8",
     "@react-native-async-storage/async-storage": "^2.1.2",
     "@react-native-community/datetimepicker": "^8.3.0",
+    "@react-native-community/masked-view": "^0.1.11",
     "@react-native-picker/picker": "^2.11.0",
     "@react-navigation/bottom-tabs": "^6.6.1",
     "@react-navigation/native": "^6.1.18",
@@ -118,6 +119,7 @@
     "@types/react-dom": "^19.0.0",
     "@types/react-native-vector-icons": "^6.4.18",
     "@types/react-navigation": "^3.0.8",
+    "@types/stripe-v3": "^3.1.33",
     "@types/tailwindcss": "^3.1.0",
     "@vitejs/plugin-react-swc": "^3.6.0",
     "babel-plugin-module-resolver": "^5.0.0",
@@ -128,6 +130,7 @@
     "patch-package": "^8.0.0",
     "react-native-dotenv": "^3.4.11",
     "typescript": "~5.8.3",
-    "vite": "^6.3.4"
+    "vite": "^6.3.4",
+    "@react-native-community/cli": "latest"
   }
 }

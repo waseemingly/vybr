@@ -45,6 +45,39 @@ class WebSocketServer {
   close() {}
 }
 
-module.exports = WebSocket;
-module.exports.Server = WebSocketServer;
-module.exports.createWebSocketStream = () => null; 
+module.exports = {
+  WebSocket: WebSocket,
+  Server: WebSocketServer,
+  createWebSocketStream: () => null,
+  // Mock for StripeProvider
+  StripeProvider: function MockStripeProvider({ children }) {
+    // On the web, StripeProvider might not be needed or can just render children.
+    // If you pass props like publishableKey to StripeProvider, they are ignored here.
+    return children;
+  },
+
+  // Mock for useStripe hook
+  useStripe: function mockUseStripe() {
+    // Return a basic structure that your components might expect.
+    // This prevents errors if your component tries to destructure or call methods on the result.
+    return {
+      retrievePaymentIntent: async () => ({ paymentIntent: null, error: { message: 'Stripe not available on web' } }),
+      confirmPayment: async () => ({ paymentIntent: null, error: { message: 'Stripe not available on web' } }),
+      createPaymentMethod: async () => ({ paymentMethod: null, error: { message: 'Stripe not available on web' } }),
+      handleCardAction: async () => ({ paymentIntent: null, error: { message: 'Stripe not available on web' } }),
+      // Add other methods or properties you use from useStripe with basic mock implementations
+      loading: false, // example property
+    };
+  },
+
+  // Add other exports from @stripe/stripe-react-native that you use
+  // For example, if you use CardField:
+  // CardField: function MockCardField(props) { 
+  //   console.warn('CardField is not implemented for web in this mock.');
+  //   return null; // Or render some placeholder UI
+  // },
+  
+  // initStripe: function mockInitStripe() { 
+  //   console.log('Stripe initStripe called on web (mocked)'); 
+  // },
+};
