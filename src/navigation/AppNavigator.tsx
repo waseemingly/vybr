@@ -92,6 +92,8 @@ export type AuthStackParamList = {
 };
 
 export type MainStackParamList = {
+  PremiumSignupScreen: { userEmail: string; userId: string };
+  PaymentSuccessScreen: undefined;
   LoadingScreen: undefined; // Could be used while checking auth state
   UserTabs: { screen?: keyof UserTabParamList, params?: any }; // Entry point for User tabs
   OrganizerTabs: { screen?: keyof OrganizerTabParamList, params?: any }; // Entry point for Organizer tabs
@@ -236,6 +238,7 @@ const MainAppStack = () => {
                  <MainStack.Screen name="OrgBillingHistoryScreen" component={OrgBillingHistoryScreen} options={{ title: 'Billing History' }}/>
                  <MainStack.Screen name="UserListScreen" component={UserListScreen} options={{ title: 'Followers' }}/>
                  <MainStack.Screen name="OverallAnalyticsScreen" component={OverallAnalyticsScreen} options={{ title: 'Overall Analytics' }}/>
+    
              </>
         ) : (
              <>
@@ -252,6 +255,7 @@ const MainAppStack = () => {
                  <MainStack.Screen name="UserBillingHistoryScreen" component={UserBillingHistoryScreen} options={{ title: 'Billing History' }} />
                  <MainStack.Screen name="UpdateMusicFavoritesScreen" component={UpdateMusicFavoritesScreen} options={{ title: 'Music Favorites' }} />
                  <MainStack.Screen name="LinkMusicServicesScreen" component={LinkMusicServicesScreen} options={{ title: 'Link Music Services' }} />
+                 <MainStack.Screen name="PremiumSignupScreen" component={PremiumSignupScreen} options={{ title: 'Payment' }} />
              </>
         )}
         {/* Screens accessible by both modes */}
