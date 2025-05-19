@@ -18,6 +18,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import { supabase } from "@/lib/supabase";
 import type { RootStackParamList, MainStackParamList, UserTabParamList, OrganizerTabParamList } from '@/navigation/AppNavigator';
+import PremiumSignupScreen from '@/screens/auth/PremiumSignupScreen';
+import PaymentSuccessScreen from '@/screens/auth/PaymentSuccessScreen';
 
 // --- Navigation Type ---
 // Keep type broad to allow navigation to various stacks
@@ -792,8 +794,19 @@ const ProfileScreen: React.FC = () => {
                 {!isPremium && (
                     <TouchableOpacity 
                         style={styles.buyPremiumButton} 
-                        // onPress={() => navigation.navigate('UpgradeScreen')} // TODO: Fix navigation path
-                    >
+                        onPress={() => {
+                            if (userId && musicLoverProfile?.email) {
+                                console.log(`[ProfileScreen] Navigating to PremiumSignupScreen for user: ${userId}, email: ${musicLoverProfile.email}`);
+                                navigation.navigate('PremiumSignupScreen', {
+                                    userId: userId,
+                                    userEmail: musicLoverProfile.email,
+                                });
+                            } else {
+                                console.warn('[ProfileScreen] Cannot navigate to PremiumSignupScreen: userId or email missing.', { userId, email: musicLoverProfile?.email });
+                                Alert.alert("Error", "Could not initiate premium upgrade. User details are missing. Please try logging out and back in.");
+                            }
+                        }}
+                        >
                         <Feather name="star" size={18} color="#FFF" />
                         <Text style={styles.buyPremiumButtonText}>Upgrade to Premium</Text>
                     </TouchableOpacity>

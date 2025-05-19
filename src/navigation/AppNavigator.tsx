@@ -58,6 +58,8 @@ import MusicLoverSignUpFlow from "@/screens/auth/MusicLoverSignUpFlow";
 import OrganizerSignUpFlow from "@/screens/auth/OrganizerSignUpFlow";
 import SignUpScreen from '@/screens/auth/SignUpScreen';
 import ForgotPasswordScreen from '@/screens/auth/ForgotPasswordScreen';
+import PremiumSignupScreen from '@/screens/auth/PremiumSignupScreen';
+import PaymentSuccessScreen from '@/screens/auth/PaymentSuccessScreen';
 
 // Group Chat Screens
 import CreateGroupChatScreen from '@/screens/CreateGroupChatScreen';
@@ -85,9 +87,13 @@ export type AuthStackParamList = {
   MusicLoverSignUpFlow: undefined;
   OrganizerSignUpFlow: undefined;
   ForgotPasswordScreen: undefined;
+  PremiumSignupScreen: { userEmail: string; userId: string };
+  PaymentSuccessScreen: undefined;
 };
 
 export type MainStackParamList = {
+  PremiumSignupScreen: { userEmail: string; userId: string };
+  PaymentSuccessScreen: undefined;
   LoadingScreen: undefined; // Could be used while checking auth state
   UserTabs: { screen?: keyof UserTabParamList, params?: any }; // Entry point for User tabs
   OrganizerTabs: { screen?: keyof OrganizerTabParamList, params?: any }; // Entry point for Organizer tabs
@@ -206,9 +212,10 @@ const AuthScreens = () => (
     <AuthStackNav.Screen name="Landing" component={LandingScreen} />
     <AuthStackNav.Screen name="MusicLoverLogin">{(props) => <LoginScreen {...props} userType="music_lover" />}</AuthStackNav.Screen>
     <AuthStackNav.Screen name="OrganizerLogin">{(props) => <LoginScreen {...props} userType="organizer" />}</AuthStackNav.Screen>
-    {/* Add SignUpFlow screens to AuthStackNav */}
     <AuthStackNav.Screen name="MusicLoverSignUpFlow" component={MusicLoverSignUpFlow} />
     <AuthStackNav.Screen name="OrganizerSignUpFlow" component={OrganizerSignUpFlow} />
+    <AuthStackNav.Screen name="PremiumSignupScreen" component={PremiumSignupScreen} />
+    <AuthStackNav.Screen name="PaymentSuccessScreen" component={PaymentSuccessScreen} />
   </AuthStackNav.Navigator> 
 );
 const UserTabs = () => ( <UserTabNav.Navigator screenOptions={({ route }) => ({ tabBarIcon: ({ focused, color, size }) => { let iconName: keyof typeof Feather.glyphMap = "help-circle"; if (route.name === "Matches") iconName = "heart"; else if (route.name === "Chats") iconName = "message-square"; else if (route.name === "Search") iconName = "search"; else if (route.name === "Events") iconName = "calendar"; else if (route.name === "Profile") iconName = "user"; return <Feather name={iconName} size={size} color={color} />; }, tabBarActiveTintColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', tabBarInactiveTintColor: APP_CONSTANTS?.COLORS?.DISABLED || '#9CA3AF', tabBarStyle: styles.tabBarStyle, headerShown: false, tabBarShowLabel: true, })}><UserTabNav.Screen name="Matches" component={MatchesScreen} /><UserTabNav.Screen name="Chats" component={ChatsScreen} /><UserTabNav.Screen name="Search" component={SearchScreen} /><UserTabNav.Screen name="Events" component={EventsScreen} /><UserTabNav.Screen name="Profile" component={ProfileScreen} /></UserTabNav.Navigator> );
@@ -231,6 +238,7 @@ const MainAppStack = () => {
                  <MainStack.Screen name="OrgBillingHistoryScreen" component={OrgBillingHistoryScreen} options={{ title: 'Billing History' }}/>
                  <MainStack.Screen name="UserListScreen" component={UserListScreen} options={{ title: 'Followers' }}/>
                  <MainStack.Screen name="OverallAnalyticsScreen" component={OverallAnalyticsScreen} options={{ title: 'Overall Analytics' }}/>
+    
              </>
         ) : (
              <>
@@ -247,6 +255,7 @@ const MainAppStack = () => {
                  <MainStack.Screen name="UserBillingHistoryScreen" component={UserBillingHistoryScreen} options={{ title: 'Billing History' }} />
                  <MainStack.Screen name="UpdateMusicFavoritesScreen" component={UpdateMusicFavoritesScreen} options={{ title: 'Music Favorites' }} />
                  <MainStack.Screen name="LinkMusicServicesScreen" component={LinkMusicServicesScreen} options={{ title: 'Link Music Services' }} />
+                 <MainStack.Screen name="PremiumSignupScreen" component={PremiumSignupScreen} options={{ title: 'Payment' }} />
              </>
         )}
         {/* Screens accessible by both modes */}
