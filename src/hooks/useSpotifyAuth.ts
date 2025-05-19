@@ -11,9 +11,11 @@ import {
   TopArtist, 
   TopTrack, 
   TopAlbum, 
-  TopGenre 
+  TopGenre, 
+  TopMood
 } from './useStreamingData';
 import * as AuthSession from 'expo-auth-session';
+import { MUSIC_MOODS, generateGeminiMoodAnalysisPrompt, SongForMoodAnalysis, GeminiMoodResponseItem } from '@/lib/moods';
 
 // --- HARDCODED SPOTIFY CONSTANTS ---
 // Constants for Spotify API
@@ -569,6 +571,8 @@ export const useSpotifyAuth = () => {
     setError(null);
     setIsUpdatingListeningData(true);
     
+    let topMoodsData: TopMood[] = [];
+
     try {
       // 1. Fetch top artists (last 4 weeks)
       const topArtists = await getTopArtists('short_term', 50);
@@ -594,6 +598,98 @@ export const useSpotifyAuth = () => {
       });
       const topAlbums = Array.from(albumMap.values());
       
+      // --- MOOD ANALYSIS --- START ---
+      console.log(`[useSpotifyAuth] In fetchAndSaveSpotifyData: isPremium = ${isPremium}, topTracks.length = ${topTracks.length}`);
+
+      if (isPremium && topTracks.length > 0) {
+        console.log('[useSpotifyAuth] Starting mood analysis for premium user.');
+        try {
+          const songsForMoodAnalysis: SongForMoodAnalysis[] = topTracks
+            .slice(0, 20) // Use top 20 tracks for mood analysis
+            .map(track => ({ title: track.name, artist: track.artists[0]?.name || 'Unknown Artist', id: track.id }));
+
+          if (songsForMoodAnalysis.length > 0) {
+            // Fetch Google API Key from Supabase
+            const { data: apiKeyData, error: apiKeyError } = await supabase.rpc('get_google_api_key');
+            if (apiKeyError) {
+              console.error('[useSpotifyAuth] Error response from get_google_api_key RPC:', apiKeyError);
+              // Optionally, don't fail the whole process, just skip mood analysis
+            } else if (!apiKeyData) {
+              console.error('[useSpotifyAuth] Google API key not found or is empty after calling get_google_api_key. Please ensure GOOGLE_GEMINI_API_KEY is correctly set in Supabase Vault (with the new name) and the function has permissions.');
+            } else {
+              const googleApiKey = apiKeyData as string;
+              const prompt = generateGeminiMoodAnalysisPrompt(songsForMoodAnalysis);
+              
+              console.log('[useSpotifyAuth] Calling Gemini API for mood analysis...');
+              const geminiResponse = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${googleApiKey}`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    contents: [
+                      {
+                        parts: [
+                          { text: prompt }
+                        ]
+                      }
+                    ],
+                    generationConfig: { // Request JSON output
+                        responseMimeType: "application/json",
+                    }
+                  }),
+                }
+              );
+
+              if (!geminiResponse.ok) {
+                const errorText = await geminiResponse.text();
+                console.error('[useSpotifyAuth] Gemini API error:', geminiResponse.status, errorText);
+                // Optionally, don't fail, just skip mood analysis
+              } else {
+                const geminiResult = await geminiResponse.json();
+                // console.log('[useSpotifyAuth] Gemini API raw response:', JSON.stringify(geminiResult, null, 2));
+                
+                let categorizedSongs: GeminiMoodResponseItem[] = [];
+                if (geminiResult.candidates && geminiResult.candidates[0].content && geminiResult.candidates[0].content.parts && geminiResult.candidates[0].content.parts[0].text) {
+                    try {
+                        categorizedSongs = JSON.parse(geminiResult.candidates[0].content.parts[0].text);
+                    } catch (parseError) {
+                        console.error('[useSpotifyAuth] Error parsing Gemini JSON response:', parseError);
+                        console.error('[useSpotifyAuth] Gemini response text was:', geminiResult.candidates[0].content.parts[0].text);
+                    }
+                } else {
+                    console.warn('[useSpotifyAuth] Gemini response structure not as expected.', geminiResult);
+                }
+
+                if (Array.isArray(categorizedSongs) && categorizedSongs.length > 0) {
+                  const moodCounts: { [moodName: string]: number } = {};
+                  categorizedSongs.forEach(song => {
+                    if (song.determinedMood && MUSIC_MOODS.some(m => m.moodName === song.determinedMood)) {
+                      moodCounts[song.determinedMood] = (moodCounts[song.determinedMood] || 0) + 1;
+                    }
+                  });
+
+                  const sortedMoods = Object.entries(moodCounts)
+                    .map(([name, count]) => ({ name, count, score: count })) // score can be refined
+                    .sort((a, b) => b.count - a.count);
+                  
+                  topMoodsData = sortedMoods.slice(0, 3);
+                  console.log('[useSpotifyAuth] Top moods calculated:', topMoodsData);
+                } else {
+                    console.warn('[useSpotifyAuth] No valid categorized songs returned from Gemini or parsing failed.');
+                }
+              }
+            }
+          }
+        } catch (moodError: any) {
+          console.error('[useSpotifyAuth] Error during mood analysis:', moodError);
+          // Don't let mood analysis failure stop the rest of the data saving
+        }
+      }
+      // --- MOOD ANALYSIS --- END ---
+
       // 5. Prepare the data based on premium status
       const limitedArtists = isPremium ? topArtists.slice(0, 5) : topArtists.slice(0, 3);
       const limitedTracks = isPremium ? topTracks.slice(0, 5) : topTracks.slice(0, 3);
@@ -615,11 +711,13 @@ export const useSpotifyAuth = () => {
           top_tracks: limitedTracks,
           top_albums: limitedAlbums,
           top_genres: limitedGenres,
+          top_moods: topMoodsData,
           raw_data: {
             full_artists: topArtists,
             full_tracks: topTracks,
             full_albums: topAlbums,
-            full_genres: topGenres
+            full_genres: topGenres,
+            full_moods: topMoodsData
           }
         }, {
           onConflict: 'user_id,service_id,snapshot_date'
@@ -651,6 +749,7 @@ export const useSpotifyAuth = () => {
     setIsLoading(true);
     setError(null);
     setIsUpdatingListeningData(true);
+    let topMoodsData: TopMood[] = [];
     
     try {
       // 1. Fetch top artists (last 4 weeks)
@@ -677,6 +776,90 @@ export const useSpotifyAuth = () => {
       });
       const topAlbums = Array.from(albumMap.values());
       
+      // --- MOOD ANALYSIS --- START (Copied from fetchAndSaveSpotifyData) ---
+      console.log(`[useSpotifyAuth] In forceFetchAndSaveSpotifyData: isPremium = ${isPremium}, topTracks.length = ${topTracks.length}`);
+
+      if (isPremium && topTracks.length > 0) {
+        console.log('[useSpotifyAuth] Starting mood analysis for premium user (force fetch).');
+        try {
+          const songsForMoodAnalysis: SongForMoodAnalysis[] = topTracks
+            .slice(0, 20) // Use top 20 tracks for mood analysis
+            .map(track => ({ title: track.name, artist: track.artists[0]?.name || 'Unknown Artist', id: track.id }));
+
+          if (songsForMoodAnalysis.length > 0) {
+            const { data: apiKeyData, error: apiKeyError } = await supabase.rpc('get_google_api_key');
+            if (apiKeyError) {
+              console.error('[useSpotifyAuth] Error response from get_google_api_key RPC (force fetch):', apiKeyError);
+            } else if (!apiKeyData) {
+              console.error('[useSpotifyAuth] Google API key not found or is empty after calling get_google_api_key (force fetch). Please ensure GOOGLE_GEMINI_API_KEY is correctly set in Supabase Vault (with the new name) and the function has permissions.');
+            } else {
+              const googleApiKey = apiKeyData as string;
+              const prompt = generateGeminiMoodAnalysisPrompt(songsForMoodAnalysis);
+              
+              console.log('[useSpotifyAuth] Calling Gemini API for mood analysis (force fetch)...');
+              const geminiResponse = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${googleApiKey}`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    contents: [
+                      {
+                        parts: [
+                          { text: prompt }
+                        ]
+                      }
+                    ],
+                    generationConfig: { 
+                        responseMimeType: "application/json",
+                    }
+                  }),
+                }
+              );
+
+              if (!geminiResponse.ok) {
+                const errorText = await geminiResponse.text();
+                console.error('[useSpotifyAuth] Gemini API error (force fetch):', geminiResponse.status, errorText);
+              } else {
+                const geminiResult = await geminiResponse.json();
+                let categorizedSongs: GeminiMoodResponseItem[] = [];
+                if (geminiResult.candidates && geminiResult.candidates[0].content && geminiResult.candidates[0].content.parts && geminiResult.candidates[0].content.parts[0].text) {
+                    try {
+                        categorizedSongs = JSON.parse(geminiResult.candidates[0].content.parts[0].text);
+                    } catch (parseError) {
+                        console.error('[useSpotifyAuth] Error parsing Gemini JSON response (force fetch):', parseError);
+                        console.error('[useSpotifyAuth] Gemini response text was (force fetch):', geminiResult.candidates[0].content.parts[0].text);
+                    }
+                } else {
+                    console.warn('[useSpotifyAuth] Gemini response structure not as expected (force fetch).');
+                }
+
+                if (Array.isArray(categorizedSongs) && categorizedSongs.length > 0) {
+                  const moodCounts: { [moodName: string]: number } = {};
+                  categorizedSongs.forEach(song => {
+                    if (song.determinedMood && MUSIC_MOODS.some(m => m.moodName === song.determinedMood)) {
+                      moodCounts[song.determinedMood] = (moodCounts[song.determinedMood] || 0) + 1;
+                    }
+                  });
+                  const sortedMoods = Object.entries(moodCounts)
+                    .map(([name, count]) => ({ name, count, score: count }))
+                    .sort((a, b) => b.count - a.count);
+                  topMoodsData = sortedMoods.slice(0, 3);
+                  console.log('[useSpotifyAuth] Top moods calculated (force fetch):', topMoodsData);
+                } else {
+                    console.warn('[useSpotifyAuth] No valid categorized songs from Gemini or parsing failed (force fetch).');
+                }
+              }
+            }
+          }
+        } catch (moodError: any) {
+          console.error('[useSpotifyAuth] Error during mood analysis (force fetch):', moodError);
+        }
+      }
+      // --- MOOD ANALYSIS --- END ---
+      
       // 5. Prepare the data based on premium status
       const limitedArtists = isPremium ? topArtists.slice(0, 5) : topArtists.slice(0, 3);
       const limitedTracks = isPremium ? topTracks.slice(0, 5) : topTracks.slice(0, 3);
@@ -698,11 +881,13 @@ export const useSpotifyAuth = () => {
           top_tracks: limitedTracks,
           top_albums: limitedAlbums,
           top_genres: limitedGenres,
+          top_moods: topMoodsData,
           raw_data: {
             full_artists: topArtists,
             full_tracks: topTracks,
             full_albums: topAlbums,
-            full_genres: topGenres
+            full_genres: topGenres,
+            full_moods: topMoodsData
           }
         }, {
           onConflict: 'user_id,service_id,snapshot_date'

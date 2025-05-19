@@ -156,6 +156,8 @@ export type RootStackParamList = {
     matchUserId: string;
     matchName: string;
     matchProfilePicture?: string | null;
+    commonTags?: string[]; // <-- Add this
+    isFirstInteractionFromMatches?: boolean;
   };
   OtherUserProfileScreen: {
     userId: string;

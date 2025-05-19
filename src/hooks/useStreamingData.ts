@@ -43,15 +43,22 @@ export type TopGenre = {
   score: number;
 };
 
+export type TopMood = {
+  name: string;
+  score: number; // Using score similar to genres, can be based on count or weighted
+  count: number; // Explicit count of occurrences
+};
+
 export type StreamingData = {
   top_artists: TopArtist[];
   top_tracks: TopTrack[];
   top_albums: TopAlbum[];
   top_genres: TopGenre[];
+  top_moods?: TopMood[]; // Added top_moods, optional for now
   raw_data?: any;
 };
 
-export type StreamingServiceId = 'spotify' | 'apple_music' | 'youtubemusic' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | '';
+export type StreamingServiceId = 'spotify' | 'apple_music' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | ''; // Removed youtubemusic
 
 // Helper utility functions (outside the hook)
 export const calculateTopGenres = (artists: TopArtist[]): TopGenre[] => {
@@ -120,7 +127,6 @@ export const calculateTopTracksFromRecent = (recentTracks: TopTrack[]): TopTrack
 // Hook for streaming data operations
 export const useStreamingData = (userId?: string | null, authProps?: {
   isSpotifyLoggedIn: boolean; 
-  isYouTubeMusicLoggedIn: boolean;
 }) => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +135,7 @@ export const useStreamingData = (userId?: string | null, authProps?: {
   const [topTracks, setTopTracks] = useState<TopTrack[]>([]);
   const [topGenres, setTopGenres] = useState<TopGenre[]>([]);
   const [topAlbums, setTopAlbums] = useState<TopAlbum[]>([]);
+  const [topMoods, setTopMoods] = useState<TopMood[]>([]); // Added topMoods state
   const [streamingData, setStreamingData] = useState<StreamingData | null>(null);
   const [hasData, setHasData] = useState<boolean>(false);
   
@@ -150,6 +157,9 @@ export const useStreamingData = (userId?: string | null, authProps?: {
       const limitedTracks = isPremium ? data.top_tracks.slice(0, 5) : data.top_tracks.slice(0, 3);
       const limitedAlbums = isPremium ? data.top_albums.slice(0, 5) : data.top_albums.slice(0, 3);
       const limitedGenres = isPremium ? data.top_genres.slice(0, 5) : data.top_genres.slice(0, 3);
+      // For moods, premium users get top 3. Free users might not get this, or it's handled by the calling function.
+      // Assuming top_moods in `data` is already prepared (e.g., top 3 if premium, empty/null otherwise)
+      const finalTopMoods = data.top_moods || [];
       
       // Create a snapshot date (today)
       const snapshotDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
@@ -166,11 +176,13 @@ export const useStreamingData = (userId?: string | null, authProps?: {
           top_tracks: limitedTracks,
           top_albums: limitedAlbums, 
           top_genres: limitedGenres,
+          top_moods: finalTopMoods, // Added top_moods
           raw_data: {
             full_artists: data.top_artists,
             full_tracks: data.top_tracks,
             full_albums: data.top_albums,
-            full_genres: data.top_genres
+            full_genres: data.top_genres,
+            full_moods: data.raw_data?.full_moods // Store all categorized moods if available
           }
         }, {
           onConflict: 'user_id,service_id,snapshot_date'
@@ -237,17 +249,18 @@ export const useStreamingData = (userId?: string | null, authProps?: {
       }
 
       // Convert to StreamingData format for compatibility
-      const streamingData: StreamingData = {
+      const streamingDataResult: StreamingData = {
         top_artists: data[0].top_artists || [],
         top_tracks: data[0].top_tracks || [],
         top_albums: data[0].top_albums || [],
         top_genres: data[0].top_genres || [],
+        top_moods: data[0].top_moods || [], // Added top_moods
         raw_data: data[0].raw_data
       };
       
-      console.log(`[useStreamingData] Successfully retrieved data for ${serviceId}: ${streamingData.top_artists.length} artists, ${streamingData.top_tracks.length} tracks`);
+      console.log(`[useStreamingData] Successfully retrieved data for ${serviceId}: ${streamingDataResult.top_artists.length} artists, ${streamingDataResult.top_tracks.length} tracks, ${streamingDataResult.top_moods?.length || 0} moods`);
 
-      return { data: streamingData };
+      return { data: streamingDataResult };
     } catch (error) {
       console.error('[useStreamingData] Error getting streaming data:', error);
       return { 
@@ -269,23 +282,6 @@ export const useStreamingData = (userId?: string | null, authProps?: {
         return authProps.isSpotifyLoggedIn;
       }
       
-      if (service === 'youtubemusic') {
-        // For YouTube Music, we need to check if there's an actual token stored
-        if (!authProps.isYouTubeMusicLoggedIn) return false;
-        
-        // Import only the necessary utility functions from our new utility file
-        // const { getYTMToken } = await import('../lib/YoutubeMusicAuthUtils');
-        
-        // Check if tokens exist without using the hook
-        try {
-          const tokenInfo = await getYTMToken();
-          return !!tokenInfo?.token;
-        } catch (err) {
-          console.error('[useStreamingData] Error checking YTM token:', err);
-          return false;
-        }
-      }
-      
       return false;
     } catch (error) {
       console.error(`[useStreamingData] Error checking service connection for ${service}:`, error);
@@ -295,7 +291,7 @@ export const useStreamingData = (userId?: string | null, authProps?: {
 
   // Force fetch data from a specific service - updated to support YouTube Music
   const forceFetchServiceData = async (
-    service: 'spotify' | 'youtubemusic',
+    service: 'spotify', // Only spotify now
     isPremium: boolean
   ): Promise<boolean> => {
     if (!userId) return false;
@@ -306,26 +302,22 @@ export const useStreamingData = (userId?: string | null, authProps?: {
       if (service === 'spotify' && authProps?.isSpotifyLoggedIn) {
         // We're only handling Spotify API, not modifying Spotify code as requested
         // Use the existing pattern for Spotify
-        const spotifyModule = await import('./useSpotifyAuth');
-        const spotifyAuthHook = spotifyModule.useSpotifyAuth();
-        
+        const spotifyModule = await import('./useSpotifyAuth'); // This might cause a circular dependency if useSpotifyAuth imports useStreamingData. Check this.
+                                                                // It's generally better if useSpotifyAuth calls a method from useStreamingData or updates context/state.
+                                                                // For now, proceeding with caution.
+        const spotifyAuthHook = spotifyModule.useSpotifyAuth(); // This creates a new instance of useSpotifyAuth, which might not be intended if state is involved.
+                                                                 // The forceFetchAndSaveSpotifyData should ideally be part of useSpotifyAuth and directly called.
+                                                                 // Or this hook should expose a method that useSpotifyAuth can call.
+                                                                 // The current pattern in ProfileScreen.tsx for forceFetch is to call `forceFetchServiceData` from `useStreamingData`.
+                                                                 // Let's assume `forceFetchAndSaveSpotifyData` is meant to be called from `useSpotifyAuth` context itself.
+                                                                 // This part needs careful review of how `forceFetchAndSaveSpotifyData` is structured in `useSpotifyAuth`.
+
+        // The User's request implies that the `forceFetchAndSaveSpotifyData` in `useSpotifyAuth`
+        // will be updated to include mood fetching. So this call should remain.
         if (spotifyAuthHook.forceFetchAndSaveSpotifyData) {
           return await spotifyAuthHook.forceFetchAndSaveSpotifyData(userId, isPremium);
         }
         return false;
-      }
-      
-      if (service === 'youtubemusic' && authProps?.isYouTubeMusicLoggedIn) {
-        try {
-          // Import the utility module as a default export
-          const YoutubeMusicDataUtils = (await import('@/lib/YoutubeMusicDataUtils')).default;
-          
-          // Call the utility function directly from the default export
-          return await YoutubeMusicDataUtils.fetchAndSaveYouTubeMusicData(userId, isPremium);
-        } catch (err) {
-          console.error(`[useStreamingData] Error fetching YouTube Music data:`, err);
-          return false;
-        }
       }
       
       return false;
@@ -345,7 +337,7 @@ export const useStreamingData = (userId?: string | null, authProps?: {
       setLoading(true);
       
       // Check main services
-      const services: StreamingServiceId[] = ['spotify', 'youtubemusic'];
+      const services: StreamingServiceId[] = ['spotify']; // Only spotify
       
       // Try each service
       for (const service of services) {
@@ -362,6 +354,7 @@ export const useStreamingData = (userId?: string | null, authProps?: {
             setTopTracks(result.data.top_tracks || []);
             setTopGenres(result.data.top_genres || []);
             setTopAlbums(result.data.top_albums || []);
+            setTopMoods(result.data.top_moods || []); // Added topMoods
             setHasData(true);
             console.log(`[useStreamingData] Successfully loaded data for ${service}`);
             return;
@@ -417,6 +410,7 @@ export const useStreamingData = (userId?: string | null, authProps?: {
     topTracks,
     topGenres,
     topAlbums,
+    topMoods, // Added topMoods
     serviceId,
     hasData,
     saveStreamingData,
