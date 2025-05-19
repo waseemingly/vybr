@@ -57,7 +57,7 @@ import LoginScreen from "@/screens/auth/LoginScreen";
 import MusicLoverSignUpFlow from "@/screens/auth/MusicLoverSignUpFlow";
 import OrganizerSignUpFlow from "@/screens/auth/OrganizerSignUpFlow";
 import SignUpScreen from '@/screens/auth/SignUpScreen';
-import ForgotPasswordScreen from '@/screens/auth/ForgotPasswordScreen';
+// import ForgotPasswordScreen from '@/screens/auth/ForgotPasswordScreen';
 import PremiumSignupScreen from '@/screens/auth/PremiumSignupScreen';
 import PaymentSuccessScreen from '@/screens/auth/PaymentSuccessScreen';
 
@@ -162,7 +162,11 @@ export type RootStackParamList = {
     matchUserId: string;
     matchName: string;
     matchProfilePicture?: string | null;
-    commonTags?: string[]; // <-- Add this
+    commonTags?: string[]; // <-- This was already there
+    topArtists?: string[]; // <-- ADD THIS
+    topTracks?: string[]; // <-- ADD THIS
+    topGenres?: string[]; // <-- ADD THIS
+    topMoods?: string[]; // <-- ADD THIS
     isFirstInteractionFromMatches?: boolean;
   };
   OtherUserProfileScreen: {

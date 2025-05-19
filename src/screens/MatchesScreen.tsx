@@ -16,12 +16,16 @@ interface MatchDbResult {
     match_user_id: string;
     name: string;
     profile_picture: string | null;
-    bio: MusicLoverBio | null; // Use the same MusicLoverBio type
-    is_premium: boolean; // This is the matched user's premium status
+    bio: MusicLoverBio | null;
+    is_premium: boolean;
     city: string | null;
     country: string | null;
-    common_tags: string[];
+    common_tags: string[]; // This will be the overall list of common tags
     compatibility_score: number | null;
+    common_artists: string[]; // Specifically common artists
+    common_tracks: string[];  // Specifically common tracks
+    common_genres: string[];  // Specifically common genres
+    common_moods: string[];   // Specifically common moods
 }
 
 const MatchesScreen: React.FC = () => {
@@ -56,7 +60,7 @@ const MatchesScreen: React.FC = () => {
         if (!isSilentRefresh) {
             setLoadingMatches(true);
         }
-        console.log('[MatchesScreen] Fetching matches for user:', session.user.id);
+        console.log('[MatchesScreen] Calling RPC with p_current_user_id:', session.user.id);
 
         try {
             const { data, error } = await supabase.rpc('get_matches_for_user', {
@@ -66,7 +70,6 @@ const MatchesScreen: React.FC = () => {
             if (error) {
                 console.error('[MatchesScreen] Error fetching matches:', error);
                 if (!isSilentRefresh) Alert.alert('Error', 'Could not load matches. ' + error.message);
-                // Do not clear matches on silent refresh error, keep stale data
             } else if (data) {
                 const formattedMatches: MatchCardProps[] = data.map((match: MatchDbResult) => ({
                     id: match.match_user_id,
@@ -74,18 +77,22 @@ const MatchesScreen: React.FC = () => {
                     name: match.name,
                     image: match.profile_picture,
                     bio: match.bio,
-                    isPremium: match.is_premium, // Matched user's premium status
+                    isPremium: match.is_premium,
                     commonTags: match.common_tags || [],
-                    compatibilityScore: currentUserIsPremium ? (match.compatibility_score ?? undefined) : undefined, // Only show if viewer is premium
+                    compatibilityScore: currentUserIsPremium ? (match.compatibility_score ?? undefined) : undefined,
                     isViewerPremium: currentUserIsPremium,
+                    topArtists: match.common_artists || [],
+                    topTracks: match.common_tracks || [],
+                    topGenres: match.common_genres || [],
+                    topMoods: match.common_moods || [],
                 }));
                 setMatches(formattedMatches);
-                console.log(`[MatchesScreen] Fetched ${formattedMatches.length} matches.`);
+                console.log(`[MatchesScreen] Fetched ${formattedMatches.length} matches. Data:`, formattedMatches);
                 setCurrentMatchIndex(0);
             } else {
-                 setMatches([]); // No data means no matches
+                 setMatches([]); 
                  setCurrentMatchIndex(0);
-                 console.log('[MatchesScreen] No matches data returned.');
+                 console.log('[MatchesScreen] No matches data returned by RPC.');
             }
         } catch (e: any) {
             console.error('[MatchesScreen] Unexpected error fetching matches:', e);
@@ -105,6 +112,10 @@ const MatchesScreen: React.FC = () => {
     const profileAlbumsJSON = useMemo(() => JSON.stringify(musicLoverProfile?.favorite_albums), [musicLoverProfile?.favorite_albums]);
     const profileSongsJSON = useMemo(() => JSON.stringify(musicLoverProfile?.favorite_songs), [musicLoverProfile?.favorite_songs]);
     const streamingDataJSON = useMemo(() => JSON.stringify(streamingData), [streamingData]);
+    const streamingTopArtistsJSON = useMemo(() => JSON.stringify(streamingData?.top_artists), [streamingData?.top_artists]);
+    const streamingTopTracksJSON = useMemo(() => JSON.stringify(streamingData?.top_tracks), [streamingData?.top_tracks]);
+    const streamingTopGenresJSON = useMemo(() => JSON.stringify(streamingData?.top_genres), [streamingData?.top_genres]);
+    const streamingTopMoodsJSON = useMemo(() => JSON.stringify(streamingData?.top_moods), [streamingData?.top_moods]);
 
     // useEffect for profile/streaming data changes (with useRef pattern for content change detection)
     const prevProfileCityRef = useRef<string | null | undefined>(undefined);
@@ -114,6 +125,10 @@ const MatchesScreen: React.FC = () => {
     const prevProfileAlbumsJSONRef = useRef<string | undefined>(undefined);
     const prevProfileSongsJSONRef = useRef<string | undefined>(undefined);
     const prevStreamingDataJSONRef = useRef<string | undefined>(undefined);
+    const prevStreamingTopArtistsJSONRef = useRef<string | undefined>(undefined);
+    const prevStreamingTopTracksJSONRef = useRef<string | undefined>(undefined);
+    const prevStreamingTopGenresJSONRef = useRef<string | undefined>(undefined);
+    const prevStreamingTopMoodsJSONRef = useRef<string | undefined>(undefined);
 
     useEffect(() => {
         if (!session?.user?.id || !hasMusicLoverProfile) {
@@ -128,6 +143,10 @@ const MatchesScreen: React.FC = () => {
         if (profileAlbumsJSON !== prevProfileAlbumsJSONRef.current) changed = true;
         if (profileSongsJSON !== prevProfileSongsJSONRef.current) changed = true;
         if (streamingDataJSON !== prevStreamingDataJSONRef.current) changed = true;
+        if (streamingTopArtistsJSON !== prevStreamingTopArtistsJSONRef.current) changed = true;
+        if (streamingTopTracksJSON !== prevStreamingTopTracksJSONRef.current) changed = true;
+        if (streamingTopGenresJSON !== prevStreamingTopGenresJSONRef.current) changed = true;
+        if (streamingTopMoodsJSON !== prevStreamingTopMoodsJSONRef.current) changed = true;
 
         // Update refs for the next render *after* comparison
         const updateRefs = () => {
@@ -138,6 +157,10 @@ const MatchesScreen: React.FC = () => {
             prevProfileAlbumsJSONRef.current = profileAlbumsJSON;
             prevProfileSongsJSONRef.current = profileSongsJSON;
             prevStreamingDataJSONRef.current = streamingDataJSON;
+            prevStreamingTopArtistsJSONRef.current = streamingTopArtistsJSON;
+            prevStreamingTopTracksJSONRef.current = streamingTopTracksJSON;
+            prevStreamingTopGenresJSONRef.current = streamingTopGenresJSON;
+            prevStreamingTopMoodsJSONRef.current = streamingTopMoodsJSON;
         };
 
         if (changed) {
@@ -148,7 +171,11 @@ const MatchesScreen: React.FC = () => {
                                       prevProfileArtistsJSONRef.current === undefined &&
                                       prevProfileAlbumsJSONRef.current === undefined &&
                                       prevProfileSongsJSONRef.current === undefined &&
-                                      prevStreamingDataJSONRef.current === undefined;
+                                      prevStreamingDataJSONRef.current === undefined &&
+                                      prevStreamingTopArtistsJSONRef.current === undefined &&
+                                      prevStreamingTopTracksJSONRef.current === undefined &&
+                                      prevStreamingTopGenresJSONRef.current === undefined &&
+                                      prevStreamingTopMoodsJSONRef.current === undefined;
             
             if (!isInitialPopulation) {
                 console.log("[MatchesScreen] Profile/Streaming data content changed, triggering silent refresh of matches.");
@@ -162,6 +189,7 @@ const MatchesScreen: React.FC = () => {
         musicLoverProfile?.city, musicLoverProfile?.country, // Primitives
         profileBioJSON, profileArtistsJSON, profileAlbumsJSON, profileSongsJSON, // Memoized strings for comparison
         streamingDataJSON, // Memoized string for comparison
+        streamingTopArtistsJSON, streamingTopTracksJSON, streamingTopGenresJSON, streamingTopMoodsJSON, // Top streaming data
         fetchMatchesCallback // The action
     ]);
 
@@ -214,8 +242,6 @@ const MatchesScreen: React.FC = () => {
             return;
         }
 
-        // The SQL function `get_matches_for_user` will exclude this user on the NEXT fetch.
-        // For an immediate UI update, remove the card locally and adjust index.
         const newMatches = matches.filter(match => match.userId !== matchUserId);
         setMatches(newMatches);
         console.log(`[MatchesScreen] Chat pressed for ${matchUserId}. Card removed locally. Navigating...`);
@@ -225,15 +251,23 @@ const MatchesScreen: React.FC = () => {
         } else if (currentMatchIndex >= newMatches.length && newMatches.length > 0) {
             setCurrentMatchIndex(newMatches.length - 1);
         }
-        // MatchCard.tsx handles its own navigation to the chat screen.
+        
+        // IMPORTANT: Ensure RootStackParamList for IndividualChatScreen accepts these params.
+        // If linter errors persist here, the definition in AppNavigator.ts (or equivalent) for
+        // IndividualChatScreen's params needs to be updated.
         navigation.navigate('IndividualChatScreen', {
             matchUserId: matchDetails.userId,
             matchName: matchDetails.name,
             matchProfilePicture: matchDetails.image,
-            commonTags: matchDetails.commonTags,
+            commonTags: matchDetails.commonTags, // Overall common tags
+            // Pass the categorized common tags
+            topArtists: matchDetails.topArtists,
+            topTracks: matchDetails.topTracks,
+            topGenres: matchDetails.topGenres,
+            topMoods: matchDetails.topMoods, // Already filtered by premium status from SQL/mapping
             isFirstInteractionFromMatches: true
         });
-    }, [matches, currentMatchIndex, navigation]);
+    }, [matches, currentMatchIndex, navigation, currentUserIsPremium]);
 
     const onRefresh = useCallback(() => {
         setIsRefreshing(true);
