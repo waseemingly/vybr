@@ -7,7 +7,9 @@ import { useStreamingData } from '@/hooks/useStreamingData';
 import MatchCard, { MatchCardProps, MusicLoverBio } from '@/components/MatchCard'; // Ensure MusicLoverBio is exported from MatchCard or a shared types file
 import { supabase } from '@/lib/supabase';
 import { APP_CONSTANTS } from '@/config/constants';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from "@/navigation/AppNavigator";
 
 // Type for the data returned by the Supabase RPC function
 interface MatchDbResult {
@@ -28,9 +30,9 @@ const MatchesScreen: React.FC = () => {
     // We listen to changes in musicLoverProfile and streamingData to refetch.
     const { streamingData, loading: streamingDataLoading, fetchStreamingData } = useStreamingData(session?.user?.id, { 
         isSpotifyLoggedIn: musicLoverProfile?.selectedStreamingService === 'spotify',
-        isYouTubeMusicLoggedIn: musicLoverProfile?.selectedStreamingService === 'youtube_music'
     });
 
+    const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
     const [matches, setMatches] = useState<MatchCardProps[]>([]);
     const [loadingMatches, setLoadingMatches] = useState(false);
@@ -206,19 +208,32 @@ const MatchesScreen: React.FC = () => {
     );
 
     const handleChatPress = useCallback((matchUserId: string) => {
+        const matchDetails = matches.find(m => m.userId === matchUserId);
+        if (!matchDetails) {
+            console.error(`[MatchesScreen] Could not find details for match ${matchUserId}`);
+            return;
+        }
+
         // The SQL function `get_matches_for_user` will exclude this user on the NEXT fetch.
         // For an immediate UI update, remove the card locally and adjust index.
         const newMatches = matches.filter(match => match.userId !== matchUserId);
         setMatches(newMatches);
-        console.log(`[MatchesScreen] Chat pressed for ${matchUserId}. Card removed locally. Navigation handled by MatchCard.`);
+        console.log(`[MatchesScreen] Chat pressed for ${matchUserId}. Card removed locally. Navigating...`);
         
         if (newMatches.length === 0) {
             setCurrentMatchIndex(0);
-        } else if (currentMatchIndex >= newMatches.length) {
+        } else if (currentMatchIndex >= newMatches.length && newMatches.length > 0) {
             setCurrentMatchIndex(newMatches.length - 1);
         }
         // MatchCard.tsx handles its own navigation to the chat screen.
-    }, [matches, currentMatchIndex]);
+        navigation.navigate('IndividualChatScreen', {
+            matchUserId: matchDetails.userId,
+            matchName: matchDetails.name,
+            matchProfilePicture: matchDetails.image,
+            commonTags: matchDetails.commonTags,
+            isFirstInteractionFromMatches: true
+        });
+    }, [matches, currentMatchIndex, navigation]);
 
     const onRefresh = useCallback(() => {
         setIsRefreshing(true);

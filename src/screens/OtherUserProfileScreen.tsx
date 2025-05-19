@@ -12,7 +12,7 @@ import ImageViewer from 'react-native-image-zoom-viewer';
 
 import { supabase } from '@/lib/supabase';
 import { useAuth, MusicLoverProfile, MusicLoverBio } from '@/hooks/useAuth';
-import { useStreamingData } from '@/hooks/useStreamingData';
+import { useStreamingData, TopMood } from '@/hooks/useStreamingData';
 import { APP_CONSTANTS } from '@/config/constants';
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator';
 
@@ -41,6 +41,7 @@ interface ExpandedSections {
     topArtists: boolean;
     topTracks: boolean;
     topGenres: boolean;
+    topMoods: boolean;
     favArtists: boolean;
     favSongs: boolean;
 }
@@ -56,7 +57,7 @@ const OtherUserProfileScreen: React.FC = () => {
     const { userId: profileUserId, fromChat, chatImages } = route.params;
     const { 
         streamingData, loading: streamingDataLoading, 
-        topArtists, topAlbums, topTracks, topGenres,
+        topArtists, topAlbums, topTracks, topGenres, topMoods,
         serviceId, hasData
     } = useStreamingData(profileUserId);
 
@@ -76,6 +77,7 @@ const OtherUserProfileScreen: React.FC = () => {
         topArtists: false,
         topTracks: false,
         topGenres: false,
+        topMoods: false,
         favArtists: false,
         favSongs: false,
     });
@@ -1067,8 +1069,8 @@ const OtherUserProfileScreen: React.FC = () => {
                             ))}
                             <Text style={profileStyles.dataSourceText}>
                                 Data from {serviceId || 'their streaming service'}
-                                {!isPremium && topGenres.length > 3 && ` • Upgrade to Premium for top ${topGenres.length}`}
-                                {isPremium && topGenres.length > 5 && ` • Showing top 5 (Premium user)`}
+                                {!isPremium && topGenres.length > 3 && ` • Top 3 shown.`}
+                                {isPremium && topGenres.length > 5 && ` • Top 5 shown.`}
                             </Text>
                             {(topGenres.length > (isPremium ? 5 : 3)) && (
                                 <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("topGenres")}>
@@ -1083,6 +1085,39 @@ const OtherUserProfileScreen: React.FC = () => {
                         <Text style={profileStyles.dataMissingText}>No top genres data available from their streaming service.</Text>
                      )}
                  </ProfileSection>
+
+                {/* Top Moods Section - From Streaming Data (Premium Only for viewing on others' profiles too) */}
+                {isPremium && (
+                    <ProfileSection 
+                        title="Top Moods" 
+                        icon="smile"
+                        hasData={topMoods && topMoods.length > 0}
+                    >
+                        {topMoods && topMoods.length > 0 ? (
+                            <View style={profileStyles.listContainer}> 
+                                {topMoods.slice(0, expandedSections.topMoods ? topMoods.length : 3).map((mood, index) => (
+                                    <View key={`top-stream-mood-${index}`} style={[profileStyles.listItem, {backgroundColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT + '30'}]}>
+                                        <Text style={profileStyles.listItemText}>{mood.name} ({mood.count})</Text>
+                                        <Feather name="smile" size={16} color={APP_CONSTANTS.COLORS.PRIMARY_DARK} />
+                                    </View>
+                                ))}
+                                <Text style={profileStyles.dataSourceText}>
+                                    Data from {serviceId || 'their streaming service'} (Top 3 shown)
+                                </Text>
+                                {(topMoods.length > 3) && (
+                                    <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("topMoods")}>
+                                        <Text style={profileStyles.seeAllButtonText}>
+                                            {expandedSections.topMoods ? "See Less" : `See all ${topMoods.length}`}
+                                        </Text>
+                                        <Feather name={expandedSections.topMoods ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        ) : (
+                            <Text style={profileStyles.dataMissingText}>No top moods data available from their streaming service.</Text>
+                        )}
+                    </ProfileSection>
+                )}
 
                 {/* --- END: TOP STREAMING DATA SECTIONS --- */}
 
@@ -1102,7 +1137,7 @@ const OtherUserProfileScreen: React.FC = () => {
                                     <Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
                                 </View>
                             ))}
-                            {(favArtistsList.length > 5) && (
+                           {(favArtistsList.length > 5) && (
                                 <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("favArtists")}>
                                     <Text style={profileStyles.seeAllButtonText}>
                                         {expandedSections.favArtists ? "See Less" : `See all ${favArtistsList.length}`}
