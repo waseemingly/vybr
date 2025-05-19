@@ -9,7 +9,7 @@ import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useOrganizerMode } from "@/hooks/useOrganizerMode";
 import { useAuth, MusicLoverBio } from "@/hooks/useAuth";
-import { useStreamingData, TopArtist, TopTrack, TopGenre } from '@/hooks/useStreamingData';
+import { useStreamingData, TopArtist, TopTrack, TopGenre, TopMood } from '@/hooks/useStreamingData';
 import { useSpotifyAuth } from '@/hooks/useSpotifyAuth';
 // import { useYouTubeMusicAuth } from '@/hooks/useYouTubeMusicAuth';
 import { APP_CONSTANTS } from "@/config/constants";
@@ -89,6 +89,7 @@ type ExpandedSections = {
     analytics: boolean;
     tracks: boolean;
     genres: boolean;
+    moods: boolean;
     favArtists: boolean;
     favSongs: boolean;
 };
@@ -102,16 +103,16 @@ const ProfileScreen: React.FC = () => {
     const userId = session?.user?.id;
     const { isLoggedIn: isSpotifyLoggedIn } = useSpotifyAuth();
     // const { isLoggedIn: isYouTubeMusicLoggedIn } = useYouTubeMusicAuth();
-    const isYouTubeMusicLoggedInPlaceholder = false; // Placeholder for YouTube Music status
+    // const isYouTubeMusicLoggedInPlaceholder = false; // Placeholder for YouTube Music status
 
     const { 
         streamingData, loading: streamingDataLoading, 
-        topArtists, topTracks, topGenres, 
+        topArtists, topTracks, topGenres, topMoods,
         serviceId, hasData, fetchStreamingData, 
         forceFetchServiceData, isServiceConnected
     } = useStreamingData(userId, {
         isSpotifyLoggedIn,
-        isYouTubeMusicLoggedIn: isYouTubeMusicLoggedInPlaceholder // Pass the placeholder
+        // Removed: isYouTubeMusicLoggedIn: isYouTubeMusicLoggedInPlaceholder
     });
     
     const [expandedSections, setExpandedSections] = useState<ExpandedSections>({
@@ -120,6 +121,7 @@ const ProfileScreen: React.FC = () => {
         analytics: true,
         tracks: false,
         genres: false,
+        moods: false,
         favArtists: false,
         favSongs: false,
     });
@@ -159,11 +161,11 @@ const ProfileScreen: React.FC = () => {
     useEffect(() => {
         if (serviceId) {
             console.log(`[ProfileScreen] Streaming data loaded for service: ${serviceId}`);
-            console.log(`[ProfileScreen] Data summary: ${topArtists.length} artists, ${topTracks.length} tracks, ${topGenres.length} genres`);
+            console.log(`[ProfileScreen] Data summary: ${topArtists.length} artists, ${topTracks.length} tracks, ${topGenres.length} genres, ${topMoods?.length || 0} moods`);
         } else if (!streamingDataLoading && musicLoverProfile?.userId) {
             console.log("[ProfileScreen] No streaming data found. User may need to connect a service.");
         }
-    }, [serviceId, topArtists, topTracks, topGenres, streamingDataLoading, musicLoverProfile]);
+    }, [serviceId, topArtists, topTracks, topGenres, topMoods, streamingDataLoading, musicLoverProfile]);
 
     // Fetch friend count and followed organizers count
     const fetchCounts = useCallback(async () => {
@@ -237,7 +239,7 @@ const ProfileScreen: React.FC = () => {
             console.warn(`[ProfileScreen] Cannot refresh ${service} data: Service not connected.`);
             Alert.alert(
                 "Service Not Connected", 
-                `Your ${service === 'spotify' ? 'Spotify' : 'YouTube Music'} account is not connected. Would you like to connect it now?`,
+                `Your Spotify account is not connected. Would you like to connect it now?`,
                 [
                     { text: "Cancel", style: "cancel" },
                     { text: "Connect", onPress: () => {
@@ -264,12 +266,12 @@ const ProfileScreen: React.FC = () => {
 
             if (success) {
                 console.log(`[ProfileScreen] ${service} data refresh completed successfully.`);
-                Alert.alert('Success!', `Your ${service === 'spotify' ? 'Spotify' : 'YouTube Music'} data has been refreshed.`);
+                Alert.alert('Success!', `Your Spotify data has been refreshed.`);
             } else {
                 console.error(`[ProfileScreen] ${service} data refresh completed but reported failure.`);
                 Alert.alert(
                     'Refresh Partially Complete', 
-                    `We updated your ${service === 'spotify' ? 'Spotify' : 'YouTube Music'} data with available information. Some categories might be missing.`
+                    `We updated your Spotify data with available information. Some categories might be missing.`
                 );
             }
         } catch (error: any) {
@@ -294,7 +296,7 @@ const ProfileScreen: React.FC = () => {
                     <Feather name="music" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
                     <Text style={styles.actionCardTitle}>Connect Music Service</Text>
                     <Text style={styles.actionCardSubtitle}>
-                        Link your Spotify or YouTube Music account to see your top artists, songs, and more
+                        Link your Spotify account to see your top artists, songs, and more
                     </Text>
                 </TouchableOpacity>
             );
@@ -305,9 +307,9 @@ const ProfileScreen: React.FC = () => {
                 <View style={styles.streamingServiceHeader}>
                     <View style={styles.streamingServiceInfo}>
                         <Feather 
-                            name={serviceId === 'spotify' ? 'music' : 'youtube'} 
+                            name={'music'}
                             size={24} 
-                            color={serviceId === 'spotify' ? '#1DB954' : '#FF0000'} 
+                            color={'#1DB954'}
                         />
                         <Text style={styles.streamingServiceName}>
                             {serviceId === 'spotify' ? 'Spotify' : serviceId}
@@ -645,6 +647,88 @@ const ProfileScreen: React.FC = () => {
                             </View>
                         )
                     )}
+                </ProfileSection>
+                
+                {/* Top Moods Section - From Spotify (Premium Only) */} 
+                <ProfileSection 
+                    title="Top Moods" 
+                    icon="smile" 
+                    expanded={expandedSections.moods} 
+                    onToggle={() => toggleSection("moods")} 
+                    hasData={topMoods && topMoods.length > 0} 
+                    isPremiumFeature 
+                    isPremiumUser={isPremium}
+                >
+                    {(serviceId === 'spotify' || isSpotifyLoggedIn) && isPremium && (
+                        <TouchableOpacity 
+                            style={styles.refreshSpotifyButton}
+                            onPress={() => handleForceRefreshStreamingData('spotify')}
+                            disabled={refreshingStreamingData}
+                        >
+                            <View style={styles.refreshButtonContent}>
+                                <Feather 
+                                    name="refresh-cw" 
+                                    size={18} 
+                                    color={refreshingStreamingData ? APP_CONSTANTS.COLORS.TEXT_SECONDARY : APP_CONSTANTS.COLORS.PRIMARY} 
+                                    style={{marginRight: 8}} 
+                                />
+                                <Text style={[
+                                    styles.refreshButtonText, 
+                                    {color: refreshingStreamingData ? APP_CONSTANTS.COLORS.TEXT_SECONDARY : APP_CONSTANTS.COLORS.PRIMARY, fontWeight: '600'}
+                                ]}>
+                                    {refreshingStreamingData ? 'Refreshing...' : 'Refresh Spotify Data'}
+                                </Text>
+                            </View>
+                            {refreshingStreamingData && (
+                                <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{marginLeft: 8}} />
+                            )}
+                        </TouchableOpacity>
+                    )}
+                    
+                    {isPremium && topMoods && topMoods.length > 0 ? (
+                        <View style={styles.analyticsCard}> 
+                            <View style={styles.tagsContainer}>
+                                {topMoods.map((mood: TopMood, index: number) => (
+                                    <View key={`mood-${index}`} style={[styles.genreTag, {backgroundColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT}]}> 
+                                        <Text style={[styles.genreTagText, {color: APP_CONSTANTS.COLORS.PRIMARY_DARK}]}>{mood.name} ({mood.count})</Text>
+                                    </View>
+                                ))}
+                            </View>
+                            <Text style={styles.dataSourceText}>
+                                Data from {serviceId || 'your streaming service'}
+                            </Text>
+                        </View>
+                    ) : refreshingStreamingData && isPremium ? (
+                        <View style={styles.loadingContainer}>
+                            <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            <Text style={styles.loadingText}>Loading Spotify mood data...</Text>
+                        </View>
+                    ) : isPremium ? (
+                        <View style={styles.emptyStateContainer}>
+                            <Text style={styles.emptyStateText}>
+                                {isSpotifyLoggedIn 
+                                    ? 'No mood data available yet. Try refreshing your Spotify data.' 
+                                    : 'Connect your Spotify account to see top moods.'}
+                            </Text>
+                            {!isSpotifyLoggedIn ? (
+                                <TouchableOpacity 
+                                    style={styles.connectServiceButton} 
+                                    onPress={() => navigation.navigate('LinkMusicServicesScreen')}
+                                >
+                                    <Text style={styles.connectServiceButtonText}>Connect Spotify</Text>
+                                </TouchableOpacity>
+                            ) : (
+                                <TouchableOpacity 
+                                    style={styles.refreshSpotifyButton}
+                                    onPress={() => handleForceRefreshStreamingData('spotify')}
+                                >
+                                    <Text style={[styles.refreshButtonText, {color: APP_CONSTANTS.COLORS.PRIMARY}]}>
+                                        Refresh Spotify Data
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    ) : null /* Don't show empty state if not premium and feature is locked */}
                 </ProfileSection>
                 
                 <ProfileSection title="Favorite Artists" icon="star" isPremiumUser={isPremium} expanded={expandedSections.favArtists} onToggle={() => toggleSection("favArtists")} hasData={favArtistsList.length > 0}>

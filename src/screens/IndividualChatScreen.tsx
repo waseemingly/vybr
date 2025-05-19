@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffe
 import {
     View, StyleSheet, ActivityIndicator, Text, TouchableOpacity,
     Platform, TextInput, SectionList, KeyboardAvoidingView, Keyboard,
-    Image, Alert, Modal
+    Image, Alert, Modal, ScrollView
 } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -80,8 +80,9 @@ const IndividualChatScreen: React.FC = () => {
     const route = useRoute<IndividualChatScreenRouteProp>();
     const navigation = useNavigation<RootNavigationProp>();
     const { session } = useAuth();
+    const { musicLoverProfile } = useAuth();
 
-    const { matchUserId } = route.params;
+    const { matchUserId, commonTags, isFirstInteractionFromMatches } = route.params;
     const [dynamicMatchName, setDynamicMatchName] = useState(route.params.matchName || 'Chat');
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
@@ -95,9 +96,13 @@ const IndividualChatScreen: React.FC = () => {
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [imageViewerVisible, setImageViewerVisible] = useState(false);
     const [selectedImages, setSelectedImages] = useState<string[]>([]);
+    const [conversationStarters, setConversationStarters] = useState<string[]>([]);
+    const [loadingStarters, setLoadingStarters] = useState(false);
+    const [currentStarterIndex, setCurrentStarterIndex] = useState(0);
 
     const currentUserId = session?.user?.id;
     const flatListRef = useRef<SectionList<any>>(null);
+    const isCurrentUserPremium = musicLoverProfile?.isPremium;
 
     const mapDbMessageToChatMessage = useCallback((dbMessage: DbMessage): ChatMessage => ({
         _id: dbMessage.id,
@@ -328,6 +333,100 @@ const IndividualChatScreen: React.FC = () => {
         }
     }, [fetchMessages, isBlocked, currentUserId, matchUserId]); // Run when block status or IDs change
 
+    // Fetch Conversation Starters
+    useEffect(() => {
+        const fetchStarters = async () => {
+            if (
+                messages.length === 0 &&
+                isCurrentUserPremium &&
+                commonTags && commonTags.length > 0 &&
+                matchUserId && currentUserId && !isBlocked
+            ) {
+                const fetchedStartersDataKey = `@fetchedStartersData_${currentUserId}_${matchUserId}`;
+                const apiCallAttemptedKey = `@startersApiCallMade_${currentUserId}_${matchUserId}`;
+
+                try {
+                    setLoadingStarters(true); // Start loading
+                    setCurrentStarterIndex(0); // Reset index when fetching
+
+                    // 1. Try to load already fetched starters for this chat
+                    const storedStartersJson = await AsyncStorage.getItem(fetchedStartersDataKey);
+                    if (storedStartersJson) {
+                        const storedStarters = JSON.parse(storedStartersJson);
+                        if (Array.isArray(storedStarters) && storedStarters.length > 0) {
+                            setConversationStarters(storedStarters);
+                            console.log('[ChatScreen] Loaded persisted starters from AsyncStorage.');
+                            setLoadingStarters(false);
+                            return; // Starters found and set, no need to call API
+                        }
+                    }
+
+                    // 2. If no persisted starters, check if API call was already attempted
+                    const apiCallAlreadyAttempted = await AsyncStorage.getItem(apiCallAttemptedKey);
+                    if (apiCallAlreadyAttempted === 'true') {
+                        console.log('[ChatScreen] API call for starters previously attempted and no persisted starters found. Not calling API again.');
+                        setConversationStarters([]); // Ensure it's empty if no persisted data
+                        setLoadingStarters(false);
+                        return;
+                    }
+
+                    // 3. If no persisted starters and API call not yet attempted, then call API
+                    console.log('[ChatScreen] Chat is empty & conditions met, attempting to fetch NEW conversation starters (Postgres Fn) for tags:', commonTags);
+                    
+                    const { data, error: rpcError } = await supabase.rpc('generate_conversation_starters_from_api', {
+                        p_common_tags: commonTags
+                    });
+
+                    await AsyncStorage.setItem(apiCallAttemptedKey, 'true'); // Mark API call as attempted regardless of outcome
+
+                    if (rpcError) {
+                        console.error('[ChatScreen] Supabase RPC error fetching starters:', rpcError);
+                        setConversationStarters([]);
+                    } else if (data && data.starters && Array.isArray(data.starters) && data.starters.length > 0) {
+                        setConversationStarters(data.starters);
+                        await AsyncStorage.setItem(fetchedStartersDataKey, JSON.stringify(data.starters)); // Persist successful fetch
+                        console.log('[ChatScreen] Fetched NEW starters (Postgres Fn) and persisted them:', data.starters);
+                    } else if (data && data.error) {
+                        console.error('[ChatScreen] Error from Postgres function fetching starters:', data.error);
+                        setConversationStarters([]);
+                    } else {
+                        console.log('[ChatScreen] No new starters returned or invalid format from Postgres Fn:', data);
+                        setConversationStarters([]);
+                    }
+                } catch (e: any) {
+                    console.error("[ChatScreen] Failed to fetch/process conversation starters (Postgres Fn):", e.message || e);
+                    setConversationStarters([]);
+                     // Consider if apiCallAttemptedKey should be set here too, but it's in the main path above.
+                } finally {
+                    setLoadingStarters(false);
+                }
+            } else {
+                if (loadingStarters) setLoadingStarters(false); // Ensure loading is off if conditions aren't met
+                if (messages.length === 0) { // Log only if chat is empty but other conditions failed
+                    if (!isCurrentUserPremium) console.log('[ChatScreen] User not premium, not fetching starters.');
+                    else if (!commonTags || commonTags.length === 0) console.log('[ChatScreen] No common tags, not fetching starters.');
+                    else if (isBlocked) console.log('[ChatScreen] Chat is blocked, not fetching starters.');
+                }
+            }
+        };
+
+        fetchStarters();
+    }, [
+        messages.length,
+        isCurrentUserPremium,
+        commonTags,
+        matchUserId,
+        currentUserId,
+        isBlocked
+    ]);
+
+    // Clear Conversation Starters when messages are present
+    useEffect(() => {
+        if (messages.length > 0 && conversationStarters.length > 0) {
+            console.log('[ChatScreen] Messages are present, clearing conversation starters.');
+            setConversationStarters([]);
+        }
+    }, [messages.length, conversationStarters.length]);
 
     // Real-time Subscription Setup
     useEffect(() => {
@@ -594,6 +693,52 @@ const IndividualChatScreen: React.FC = () => {
                 {/* Non-blocking send error banner */}
                 {error && error !== "Could not load messages." && error !== "You cannot chat with this user." && (
                     <View style={styles.errorBanner}><Text style={styles.errorBannerText}>{error}</Text></View>
+                )}
+
+                {/* Conversation Starters */}
+                {loadingStarters && messages.length === 0 && (
+                    <View style={styles.startersLoadingContainer}>
+                        <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} />
+                        <Text style={styles.startersLoadingText}>Loading conversation starters...</Text>
+                    </View>
+                )}
+                {!loadingStarters && conversationStarters.length > 0 && !isBlocked && messages.length === 0 && (
+                    <View style={styles.startersOuterContainer}>
+                        <Text style={styles.startersTitle}>Try these conversation starters:</Text>
+                        <View style={styles.startersNavigationContainer}>
+                            <TouchableOpacity
+                                onPress={() => setCurrentStarterIndex(prev => Math.max(0, prev - 1))}
+                                disabled={currentStarterIndex === 0}
+                                style={[styles.starterNavButton, currentStarterIndex === 0 && styles.starterNavButtonDisabled]}
+                            >
+                                <Feather name="chevron-left" size={20} color={currentStarterIndex === 0 ? '#CBD5E1' : APP_CONSTANTS.COLORS.PRIMARY} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.starterButton}
+                                onPress={() => {
+                                    setInputText(conversationStarters[currentStarterIndex]);
+                                }}
+                            >
+                                <Text style={styles.starterText} numberOfLines={3}>
+                                    {conversationStarters[currentStarterIndex]}
+                                </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                onPress={() => setCurrentStarterIndex(prev => Math.min(conversationStarters.length - 1, prev + 1))}
+                                disabled={currentStarterIndex === conversationStarters.length - 1}
+                                style={[styles.starterNavButton, currentStarterIndex === conversationStarters.length - 1 && styles.starterNavButtonDisabled]}
+                            >
+                                <Feather name="chevron-right" size={20} color={currentStarterIndex === conversationStarters.length - 1 ? '#CBD5E1' : APP_CONSTANTS.COLORS.PRIMARY} />
+                            </TouchableOpacity>
+                        </View>
+                         {conversationStarters.length > 1 && (
+                            <Text style={styles.starterCounterText}>
+                                {currentStarterIndex + 1} / {conversationStarters.length}
+                            </Text>
+                        )}
+                    </View>
                 )}
 
                 <SectionList
@@ -863,6 +1008,90 @@ const styles = StyleSheet.create({
     },
     imageViewerButtonDisabled: {
         opacity: 0.5,
+    },
+    // Styles for Conversation Starters
+    startersContainer: {
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+        backgroundColor: '#F9F9F9',
+    },
+    startersOuterContainer: {
+        paddingVertical: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+        backgroundColor: '#F9F9F9',
+        alignItems: 'center',
+    },
+    startersNavigationContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        width: '100%',
+        paddingHorizontal: 10,
+        marginTop: 8,
+    },
+    starterNavButton: {
+        padding: 8,
+        borderRadius: 20,
+        backgroundColor: '#FFFFFF',
+        borderWidth: 1,
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT || '#A5B4FC',
+    },
+    starterNavButtonDisabled: {
+        backgroundColor: '#F3F4F6',
+        borderColor: '#E5E7EB',
+    },
+    startersTitle: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#4B5563',
+        marginBottom: 0,
+    },
+    startersScrollContent: {
+        paddingRight: 10,
+    },
+    starterButton: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderRadius: 16,
+        marginHorizontal: 8,
+        borderWidth: 1,
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT || '#A5B4FC',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 1,
+        elevation: 1,
+        minHeight: 60,
+        justifyContent: 'center',
+    },
+    starterText: {
+        fontSize: 13,
+        color: APP_CONSTANTS.COLORS.PRIMARY || '#3B82F6',
+        textAlign: 'center',
+    },
+    starterCounterText: {
+        fontSize: 11,
+        color: '#9CA3AF',
+        marginTop: 4,
+    },
+    startersLoadingContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 10,
+        backgroundColor: '#F9F9F9',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    startersLoadingText: {
+        marginLeft: 10,
+        fontSize: 13,
+        color: '#4B5563',
     },
 });
 
