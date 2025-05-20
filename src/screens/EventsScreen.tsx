@@ -2,8 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, Image, FlatList, ScrollView, Modal,
   Dimensions, ActivityIndicator, RefreshControl, Alert, GestureResponderEvent,
-  Platform, SectionList
+  Platform, 
+  // SectionList // No longer used
 } from "react-native";
+// import { TabView, SceneMap, TabBar } from 'react-native-tab-view'; // Removed
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
@@ -51,6 +53,7 @@ export interface MappedEvent {
   organizer: OrganizerInfo; // Use the separate interface
   isViewable: boolean;
   score?: number; // Added for recommendation sorting
+  event_datetime_iso: string; // Added for accurate sorting before display formatting
 }
 
 // Interface for user profile data needed for recommendations
@@ -58,15 +61,14 @@ interface MusicLoverProfileData {
     userId: string;
     country: string | null;
     city: string | null;
-    // Assumed fields based on MusicLoverSignUpFlow and potential streaming sync
     top_genres?: string[];
     top_artists?: string[];
-    // top_songs?: string[]; // Removed as column doesn't exist
-    // Fields from music_lover_profiles
+    top_tracks?: string[]; 
     favorite_artists?: string[];
-    favorite_albums?: string[]; // Harder to match directly
+    favorite_albums?: string[]; 
     favorite_songs?: string[];
-    bio?: MusicLoverBio | null; // Contains musicTaste, dreamConcert etc. Can be null
+    bio?: MusicLoverBio | null; 
+    music_data?: { genres?: string[] }; // Added to reflect potential structure from SQL
 }
 
 // Section type for SectionList
@@ -448,107 +450,124 @@ const calculateEventScore = (event: MappedEvent, userProfile: MusicLoverProfileD
     if (!userProfile) return 0;
     let score = 0;
 
-    // --- Prepare User Preference Sets --- 
+    // --- Prepare User Preference Sets (mirroring SQL logic for current user) ---
+    
+    // 1. User Artists
+    const userArtists = new Set<string>();
+    // From favorite_artists (CSV)
+    (userProfile.favorite_artists ?? []).forEach(a => {
+        if (typeof a === 'string') a.split(',').forEach(subA => userArtists.add(subA.trim().toLowerCase()));
+    });
+    // From top_artists (JSON array of objects with name)
+    (userProfile.top_artists ?? []).forEach(a => {
+        if (typeof a === 'string') userArtists.add(a.toLowerCase()); // Assuming top_artists is already just names from previous processing
+        // If top_artists were raw JSON like [{name: "Artist"}], it would need: if (typeof a === 'object' && a.name) userArtists.add(a.name.toLowerCase());
+    });
+    // Artists from top_tracks (complex extraction, assuming top_tracks are track names and userProfile.top_artists contains artists from tracks)
+    // The SQL function `extract_artist_names_from_tracks_json_array` is complex.
+    // For client-side, if `userProfile.top_artists` already includes artists from tracks (as it should from `useStreamingData` hook if Spotify-like data), we rely on that.
+    // If not, this part would need a client-side equivalent of `extract_artist_names_from_tracks_json_array` if `top_tracks` raw data was available here.
+
+    // 2. User Songs/Tracks
+    const userSongs = new Set<string>();
+    // From favorite_songs (CSV)
+    (userProfile.favorite_songs ?? []).forEach(s => {
+        if (typeof s === 'string') s.split(',').forEach(subS => userSongs.add(subS.trim().toLowerCase()));
+    });
+    // From top_tracks (JSON array of names)
+    (userProfile.top_tracks ?? []).forEach(s => {
+        if (typeof s === 'string') userSongs.add(s.toLowerCase());
+    });
+
+    // 3. User Genres
     const userGenres = new Set<string>();
+    // From music_data.genres (JSON array of strings)
+    (userProfile.music_data?.genres ?? []).forEach(g => {
+        if (typeof g === 'string') userGenres.add(g.toLowerCase());
+    });
+    // From top_genres (JSON array of names)
     (userProfile.top_genres ?? []).forEach(g => {
         if (typeof g === 'string') userGenres.add(g.toLowerCase());
     });
-    // Add genres from bio.musicTaste
-    (userProfile.bio?.musicTaste ?? '').toLowerCase().split(/,| and | with |\s+/).forEach(g => {
-        const trimmed = g.trim();
-        if (trimmed) userGenres.add(trimmed);
-    });
 
-    const userArtists = new Set<string>();
-    (userProfile.top_artists ?? []).forEach(a => {
-        if (typeof a === 'string') userArtists.add(a.toLowerCase());
-    });
-    (userProfile.favorite_artists ?? []).forEach(a => {
-        if (typeof a === 'string') userArtists.add(a.toLowerCase());
-    });
-    // Add artists from bio.dreamConcert
-    (userProfile.bio?.dreamConcert ?? '').toLowerCase().split(/,| and | with /).forEach((artist: string) => {
-        const trimmed = artist.trim();
-        if (trimmed) userArtists.add(trimmed);
-    });
+    // Add items from bio to respective sets (musicTaste to genres, dreamConcert to artists, goToSong to songs)
+    if (userProfile.bio) {
+        (userProfile.bio.musicTaste ?? '').toLowerCase().split(/,| and | with |\s+/).forEach(g => {
+            const trimmed = g.trim();
+            if (trimmed) userGenres.add(trimmed);
+        });
+        (userProfile.bio.dreamConcert ?? '').toLowerCase().split(/,| and | with /).forEach(a => {
+            const trimmed = a.trim();
+            if (trimmed) userArtists.add(trimmed);
+        });
+        const goToSong = userProfile.bio.goToSong?.trim().toLowerCase();
+        if (goToSong) userSongs.add(goToSong);
+    }
 
-    const userSongs = new Set<string>();
-    // (userProfile.top_songs ?? []).forEach(s => userSongs.add(s.toLowerCase())); // Removed top_songs
-    (userProfile.favorite_songs ?? []).forEach(s => {
-        if (typeof s === 'string') userSongs.add(s.toLowerCase());
-    });
-    // Add song from bio.goToSong
-    const goToSong = userProfile.bio?.goToSong?.trim().toLowerCase();
-    if (goToSong) userSongs.add(goToSong);
-
-    // Extract all keywords from bio values (excluding common words could be added)
+    // --- Keyword extraction from remaining bio fields and favorite_albums ---
     const bioKeywords = new Set<string>();
     if (userProfile.bio) {
-        Object.values(userProfile.bio).forEach(value => {
+        // Add other bio fields (firstSong, mustListenAlbum) to keywords
+        const otherBioFields: (keyof MusicLoverBio)[] = ['firstSong', 'mustListenAlbum'];
+        otherBioFields.forEach(key => {
+            const value = userProfile.bio![key];
             if (typeof value === 'string') {
-                value.toLowerCase().split(/\s+|,|\(|\)/).forEach((word: string) => {
-                    const trimmed = word.trim().replace(/[^a-z0-9\-]/g, ''); // Basic cleanup
-                    if (trimmed && trimmed.length > 2) { // Avoid very short/common words
-                        bioKeywords.add(trimmed);
-                    }
+                value.toLowerCase().split(/\s+|,|\(|\)|-|\//).forEach(word => {
+                    const trimmed = word.trim().replace(/[^a-z0-9\-]/g, '');
+                    if (trimmed && trimmed.length > 2) bioKeywords.add(trimmed);
                 });
             }
         });
     }
-    
-    // Combine artist names into keywords as well for broader matching
-    userArtists.forEach(artist => bioKeywords.add(artist));
+    (userProfile.favorite_albums ?? []).forEach(album => {
+        if (typeof album === 'string') {
+            album.toLowerCase().split(/\s+|,|\(|\)|-|\//).forEach(word => {
+                const trimmed = word.trim().replace(/[^a-z0-9\-]/g, '');
+                if (trimmed && trimmed.length > 2) bioKeywords.add(trimmed);
+            });
+        }
+    });
 
-    // --- Score Event Based on Matches --- 
+    // Add all collected artists, genres, songs to bioKeywords for broader text matching against event title/desc
+    userArtists.forEach(a => bioKeywords.add(a)); // Already lowercase
+    userGenres.forEach(g => bioKeywords.add(g));  // Already lowercase
+    userSongs.forEach(s => s.split(/\s+/).forEach(word => bioKeywords.add(word.replace(/[^a-z0-9\-]/g, '')))); // song titles as keywords
+
+
+    // --- Score Event Based on Matches (using the sets prepared above) ---
+    // Match Artists
+    (event.artists ?? []).forEach(eventArtist => {
+        if (userArtists.has(eventArtist.toLowerCase())) {
+            score += SCORE_WEIGHTS.ARTIST_MATCH;
+        }
+    });
 
     // Match Genres
-    (event.genres ?? []).forEach(genre => {
-        const lowerGenre = genre.toLowerCase();
+    (event.genres ?? []).forEach(eventGenre => {
+        const lowerGenre = eventGenre.toLowerCase();
         if (userGenres.has(lowerGenre)) {
             score += SCORE_WEIGHTS.GENRE_MATCH;
         }
+        // Also check if genre name is in general bio keywords (e.g. user mentioned "rock concert" in bio text)
         if (bioKeywords.has(lowerGenre)) {
-            score += SCORE_WEIGHTS.BIO_TASTE_MATCH; 
+            score += SCORE_WEIGHTS.BIO_TASTE_MATCH * 0.5; // Lesser weight than direct genre match
         }
     });
 
-    // Match Artists
-    (event.artists ?? []).forEach(artist => {
-        const lowerArtist = artist.toLowerCase();
-        if (userArtists.has(lowerArtist)) {
-            score += SCORE_WEIGHTS.ARTIST_MATCH;
-        }
-         // Check if artist name appears as a keyword in bio
-        if (bioKeywords.has(lowerArtist)) {
-             score += SCORE_WEIGHTS.BIO_TASTE_MATCH * 0.5; 
-        }
-    });
-
-    // Match Songs (Lower weight)
-    (event.songs ?? []).forEach(song => {
-        const lowerSong = song.toLowerCase();
-        if (userSongs.has(lowerSong)) {
+    // Match Songs
+    (event.songs ?? []).forEach(eventSong => {
+        if (userSongs.has(eventSong.toLowerCase())) {
             score += SCORE_WEIGHTS.SONG_MATCH;
         }
-        // Check if song title keywords appear in bio keywords
-        lowerSong.split(/\s+/).forEach(word => {
-             if (bioKeywords.has(word.replace(/[^a-z0-9\-]/g, ''))) {
-                  score += SCORE_WEIGHTS.BIO_TASTE_MATCH * 0.1; // Very low score for keyword match
-             }
-        });
     });
 
-    // Match keywords from event title/desc with user bio keywords
+    // Match keywords from event title/desc with user bio keywords (includes bio text, album keywords, and all preferred artists/genres/songs)
     const eventText = `${event.title.toLowerCase()} ${event.description.toLowerCase()}`;
-    bioKeywords.forEach(word => {
-        if (eventText.includes(word)) {
-             score += SCORE_WEIGHTS.BIO_TASTE_MATCH * 0.2; // Slightly higher score for direct keyword match in text
+    bioKeywords.forEach(keyword => {
+        if (keyword.length > 2 && eventText.includes(keyword)) { // Ensure keyword is not too short
+             score += SCORE_WEIGHTS.BIO_TASTE_MATCH * 0.2; 
         }
     });
-
-    // Note: Matching favorite_albums is complex. We could extract artist names from album strings,
-    // or check if event artists are associated with user's favorite albums (requires more data).
-    // For now, album matching is implicitly handled via artists/keywords from bio.mustListenAlbum.
 
     return score;
 };
@@ -560,21 +579,37 @@ const EventsScreen: React.FC = () => {
     // State for raw fetched data
     const [rawEvents, setRawEvents] = useState<SupabasePublicEvent[]>([]);
     const [organizerMap, setOrganizerMap] = useState<Map<string, OrganizerInfo>>(new Map());
-    // State for processed event lists
-    const [recommendedEvents, setRecommendedEvents] = useState<MappedEvent[]>([]);
-    const [otherLocalEvents, setOtherLocalEvents] = useState<MappedEvent[]>([]);
-    // State for SectionList
-    const [sections, setSections] = useState<EventSection[]>([]);
-    const [currentPage, setCurrentPage] = useState(1);
-    const [allEventsLoaded, setAllEventsLoaded] = useState(false); // Track if all events are loaded
     
+    // State for processed event lists for tabs
+    const [forYouEvents, setForYouEvents] = useState<MappedEvent[]>([]);
+    const [allEventsTabSource, setAllEventsTabSource] = useState<MappedEvent[]>([]); // Source for "All Events" tab before pagination
+
+    // Pagination states for "For You" tab
+    const [currentPageForYou, setCurrentPageForYou] = useState(1);
+    const [loadedForYouEvents, setLoadedForYouEvents] = useState<MappedEvent[]>([]);
+    const [allForYouEventsLoaded, setAllForYouEventsLoaded] = useState(false);
+    const [isFetchingMoreForYou, setIsFetchingMoreForYou] = useState(false);
+
+    // Pagination states for "All Events" tab
+    const [currentPageAllEvents, setCurrentPageAllEvents] = useState(1);
+    const [loadedAllEvents, setLoadedAllEvents] = useState<MappedEvent[]>([]);
+    const [allAllEventsLoaded, setAllAllEventsLoaded] = useState(false);
+    const [isFetchingMoreAllEvents, setIsFetchingMoreAllEvents] = useState(false);
+
     const [isLoading, setIsLoading] = useState(true); // Combined loading state for profile + initial events
-    const [isFetchingMore, setIsFetchingMore] = useState(false); // For pagination loading
     const [error, setError] = useState<string | null>(null);
     const [selectedEvent, setSelectedEvent] = useState<MappedEvent | null>(null);
     const [modalVisible, setModalVisible] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const navigation = useNavigation<NavigationProp>();
+
+    // TabView state // Replaced with manual tab state
+    // const [index, setIndex] = useState(0);
+    // const [routes] = useState([
+    //     { key: 'forYou', title: 'Events For You' },
+    //     { key: 'allEvents', title: 'All Events' },
+    // ]);
+    const [activeTabIndex, setActiveTabIndex] = useState(0); // 0 for 'For You', 1 for 'All Events'
 
     // Impression tracking refs (keep as is)
     const viewabilityConfig = { itemVisiblePercentThreshold: 50 };
@@ -591,19 +626,18 @@ const EventsScreen: React.FC = () => {
 
     // Fetch User Profile
     const fetchUserProfile = useCallback(async () => {
-        const userId = session?.user?.id; // Access user ID via session
+        const userId = session?.user?.id; 
         if (!userId) {
-            setUserProfile(null); // No user logged in
+            setUserProfile(null); 
             console.log("[EventsScreen] No user logged in, cannot fetch profile.");
             return;
         }
         console.log("[EventsScreen] Fetching user profile data...");
         try {
-            // Fetch profile data (location, bio, favorites)
+            // Fetch profile data (location, bio, favorites, music_data)
             const { data: profileData, error: profileError } = await supabase
                 .from('music_lover_profiles')
-                 // Add favorite fields to select
-                .select('user_id, country, city, bio, favorite_artists, favorite_albums, favorite_songs')
+                .select('user_id, country, city, bio, favorite_artists, favorite_albums, favorite_songs, music_data') // Added music_data
                 .eq('user_id', userId)
                 .single();
 
@@ -615,34 +649,41 @@ const EventsScreen: React.FC = () => {
             // Fetch streaming data (top items)
             const { data: streamingData, error: streamingError } = await supabase
                 .from('user_streaming_data')
-                .select('top_artists, top_genres') // Removed top_songs
+                .select('top_artists, top_genres, top_tracks') // Added top_tracks
                 .eq('user_id', userId)
                 .maybeSingle(); // Use maybeSingle as user might not have connected streaming
 
             if (streamingError) {
                 console.warn("[EventsScreen] Warning fetching streaming data:", streamingError.message);
-                // Don't throw; proceed without streaming data if it fails
             }
 
             if (!profileData) {
                  console.log("[EventsScreen] No base music lover profile found for user.");
-                 setUserProfile(null); // Essential profile part missing
-                 // Optionally set an error state here?
+                 setUserProfile(null); 
                  return;
             }
+
+            // Helper to map JSON array of objects (e.g., [{name: "value"}]) to string array of names
+            const mapJsonArrayToNames = (arr: any[] | undefined): string[] => {
+                if (!Array.isArray(arr)) return [];
+                return arr
+                    .map(item => (item && typeof item.name === 'string' ? item.name.trim().toLowerCase() : null))
+                    .filter((name): name is string => name !== null && name !== '');
+            };
             
             // Combine data
             const combinedProfile: MusicLoverProfileData = {
                 userId: profileData.user_id,
                 country: profileData.country,
                 city: profileData.city,
-                bio: profileData.bio ? (typeof profileData.bio === 'string' ? JSON.parse(profileData.bio) : profileData.bio) : null, // Ensure bio can be null
+                bio: profileData.bio ? (typeof profileData.bio === 'string' ? JSON.parse(profileData.bio) : profileData.bio) : null, 
                 favorite_artists: Array.isArray(profileData.favorite_artists) ? profileData.favorite_artists : [],
                 favorite_albums: Array.isArray(profileData.favorite_albums) ? profileData.favorite_albums : [],
                 favorite_songs: Array.isArray(profileData.favorite_songs) ? profileData.favorite_songs : [],
-                top_genres: Array.isArray(streamingData?.top_genres) ? streamingData.top_genres : [],
-                top_artists: Array.isArray(streamingData?.top_artists) ? streamingData.top_artists : [],
-                // top_songs: Array.isArray(streamingData?.top_songs) ? streamingData.top_songs : [] // Removed
+                music_data: profileData.music_data ? (typeof profileData.music_data === 'string' ? JSON.parse(profileData.music_data) : profileData.music_data) : { genres: [] }, 
+                top_genres: mapJsonArrayToNames(streamingData?.top_genres),
+                top_artists: mapJsonArrayToNames(streamingData?.top_artists),
+                top_tracks: mapJsonArrayToNames(streamingData?.top_tracks) 
             };
 
             console.log("[EventsScreen] Combined user profile data set.");
@@ -713,6 +754,11 @@ const EventsScreen: React.FC = () => {
     // Initial data fetch
     useFocusEffect(useCallback(() => {
         setIsLoading(true); // Start loading indicator
+        // Reset pagination on focus/initial load
+        setCurrentPageForYou(1);
+        setAllForYouEventsLoaded(false);
+        setCurrentPageAllEvents(1);
+        setAllAllEventsLoaded(false);
         Promise.all([fetchUserProfile(), fetchEventsAndOrganizers()]).finally(() => {
            // setIsLoading(false); // Loading is set to false after processing effect runs
         });
@@ -720,16 +766,16 @@ const EventsScreen: React.FC = () => {
 
     // Process events whenever raw data or user profile changes
     useEffect(() => {
-        console.log("[EventsScreen] Processing events...");
-        if (!rawEvents || !userProfile === undefined) { // Wait for profile fetch attempt (even if null)
-             console.log("[EventsScreen] Waiting for raw events or user profile fetch...");
-             return; // Don't process until we have data and profile status
+        console.log("[EventsScreen] Processing events for tabs...");
+        if (!rawEvents || userProfile === undefined) { 
+             console.log("[EventsScreen] Waiting for raw events or user profile fetch status...");
+             setIsLoading(true); // Keep loading true if critical data is missing
+             return; 
         }
         
         const now = new Date();
-        const mappedEvents: MappedEvent[] = rawEvents
-            .filter(event => new Date(event.event_datetime) > now) // Filter for upcoming events here
-            .map((event: SupabasePublicEvent) => {
+        const mappedEventsWithScores: MappedEvent[] = rawEvents
+            .map((event: SupabasePublicEvent) => { // Map first, then filter by date
                 const { date, time } = formatEventDateTime(event.event_datetime);
                 const organizerInfo = organizerMap.get(event.organizer_id);
                 const finalOrganizerData: OrganizerInfo = organizerInfo || {
@@ -737,20 +783,20 @@ const EventsScreen: React.FC = () => {
                     name: DEFAULT_ORGANIZER_NAME,
                     image: null
                 };
-                // Ensure pass_fee_to_user has a default value before scoring
                 const eventForScoring = {
                     ...event,
                     organizer: finalOrganizerData, 
                     isViewable: false, 
-                    images: event.poster_urls ?? [], // Provide default for images
-                    date: date, // Provide default date/time/venue/desc
+                    images: event.poster_urls ?? [],
+                    date: date, 
                     time: time,
                     venue: event.location_text ?? 'N/A',
                     description: event.description ?? '',
                     genres: event.tags_genres ?? [], 
                     artists: event.tags_artists ?? [], 
                     songs: event.tags_songs ?? [],
-                    pass_fee_to_user: event.pass_fee_to_user ?? true, // Ensure boolean
+                    pass_fee_to_user: event.pass_fee_to_user ?? true, 
+                    event_datetime_iso: event.event_datetime // Added missing property
                 }
                 const score = calculateEventScore(eventForScoring as MappedEvent, userProfile);
                 
@@ -770,93 +816,88 @@ const EventsScreen: React.FC = () => {
                     max_reservations: event.max_reservations,
                     organizer: finalOrganizerData,
                     isViewable: false,
-                    score: score, // Assign calculated score
+                    score: score,
+                    event_datetime_iso: event.event_datetime 
                 };
-            });
+            })
+            .filter(event => new Date(event.event_datetime_iso) > now); // Filter for upcoming events AFTER mapping
 
         // Filter by location
-        let locationFilteredEvents = mappedEvents;
+        let locationFilteredEvents = mappedEventsWithScores;
         if (userProfile?.country && userProfile.city) {
             console.log(`[EventsScreen] Filtering for Country: ${userProfile.country}, City: ${userProfile.city}`);
-            locationFilteredEvents = mappedEvents.filter(event => 
+            locationFilteredEvents = mappedEventsWithScores.filter(event => 
                 event.country === userProfile.country && event.city === userProfile.city
             );
-            console.log(`[EventsScreen] Found ${locationFilteredEvents.length} events in user's location.`);
+            console.log(`[EventsScreen] Found ${locationFilteredEvents.length} events in user's location after scoring.`);
         } else {
-            console.log("[EventsScreen] User location not available, showing all upcoming events.");
-            // Or decide to show nothing if location is mandatory for feed?
-            // locationFilteredEvents = []; // Uncomment to show nothing if no user location
+            console.log("[EventsScreen] User location not available, showing all upcoming events globally (if any).");
         }
 
-        // Separate into recommended and other
+        // Populate "For You" tab data
         const recommended = locationFilteredEvents
             .filter(event => event.score && event.score > 0)
-            .sort((a, b) => (b.score ?? 0) - (a.score ?? 0)); // Sort by score desc
+            .sort((a, b) => (b.score ?? 0) - (a.score ?? 0)); 
+        setForYouEvents(recommended);
 
-        const otherLocal = locationFilteredEvents
-            .filter(event => !event.score || event.score <= 0)
-             // Already sorted by date ascending from initial fetch
+        // Populate "All Events" tab data (all in location, sorted by date)
+        // If no location, it shows all global upcoming events sorted by date
+        const allInLocationSortedByDate = [...locationFilteredEvents].sort((a, b) => 
+            new Date(a.event_datetime_iso).getTime() - new Date(b.event_datetime_iso).getTime()
+        );
+        setAllEventsTabSource(allInLocationSortedByDate);
+        
+        // Reset pagination for both tabs as source data changed
+        setCurrentPageForYou(1);
+        setAllForYouEventsLoaded(false);
+        setCurrentPageAllEvents(1);
+        setAllAllEventsLoaded(false);
 
-        setRecommendedEvents(recommended);
-        setOtherLocalEvents(otherLocal);
-        setCurrentPage(1); // Reset page on new data/profile
-        setAllEventsLoaded(false); // Reset loaded status
-        setIsLoading(false); // Stop initial loading indicator
-        setRefreshing(false); // Stop refresh indicator
-        console.log(`[EventsScreen] Processing complete. Recommended: ${recommended.length}, Other Local: ${otherLocal.length}`);
+        setIsLoading(false); 
+        setRefreshing(false); 
+        console.log(`[EventsScreen] Processing complete. For You (source): ${recommended.length}, All Events (source): ${allInLocationSortedByDate.length}`);
 
     }, [rawEvents, organizerMap, userProfile]);
 
-    // Update displayed sections based on pagination
-     useEffect(() => {
-        console.log(`[EventsScreen] Updating sections for page: ${currentPage}`);
-        const startIndex = 0; // Start from beginning each time
-        const endIndex = currentPage * EVENTS_PER_PAGE;
-        
-        const recommendedToShow = recommendedEvents.slice(startIndex, endIndex);
-        const remainingSlots = endIndex - recommendedToShow.length;
-        const otherLocalToShow = remainingSlots > 0 ? otherLocalEvents.slice(0, remainingSlots) : [];
-
-        const newSections: EventSection[] = [];
-
-        if (recommendedToShow.length > 0) {
-            newSections.push({ title: "Recommended For You", data: recommendedToShow });
-        }
-
-        if (otherLocalToShow.length > 0) {
-            let otherTitle = "Other Upcoming Events";
-            if (userProfile?.city && userProfile.country) {
-                otherTitle = `Other Events in ${userProfile.city}, ${userProfile.country}`;
-            } else if (recommendedToShow.length === 0) {
-                 // If no recommendations and no user location, fallback title
-                 otherTitle = "Upcoming Events";
-            }
-            // Only add section if it wasn't implicitly covered by recommendations
-            if (recommendedToShow.length < recommendedEvents.length || recommendedEvents.length === 0) {
-                 newSections.push({ title: otherTitle, data: otherLocalToShow });
-            }
-        }
-        
-        setSections(newSections);
-
-        // Check if all events are loaded
-        const totalDisplayed = recommendedToShow.length + otherLocalToShow.length;
-        const totalAvailable = recommendedEvents.length + otherLocalEvents.length;
-        if (totalDisplayed >= totalAvailable) {
-            console.log("[EventsScreen] All events loaded.");
-            setAllEventsLoaded(true);
+    // Update displayed events for "For You" tab based on pagination
+    useEffect(() => {
+        const endIndex = currentPageForYou * EVENTS_PER_PAGE;
+        const newLoadedForYou = forYouEvents.slice(0, endIndex);
+        setLoadedForYouEvents(newLoadedForYou);
+        if (newLoadedForYou.length >= forYouEvents.length && forYouEvents.length > 0) {
+            setAllForYouEventsLoaded(true);
         } else {
-             setAllEventsLoaded(false);
+            setAllForYouEventsLoaded(false);
         }
-        setIsFetchingMore(false); // Stop pagination loading indicator
+        setIsFetchingMoreForYou(false);
+    }, [forYouEvents, currentPageForYou]);
 
-    }, [recommendedEvents, otherLocalEvents, currentPage, userProfile]);
+    // Update displayed events for "All Events" tab based on pagination
+    useEffect(() => {
+        const endIndex = currentPageAllEvents * EVENTS_PER_PAGE;
+        const newLoadedAll = allEventsTabSource.slice(0, endIndex);
+        setLoadedAllEvents(newLoadedAll);
+        if (newLoadedAll.length >= allEventsTabSource.length && allEventsTabSource.length > 0) {
+            setAllAllEventsLoaded(true);
+        } else {
+            setAllAllEventsLoaded(false);
+        }
+        setIsFetchingMoreAllEvents(false);
+    }, [allEventsTabSource, currentPageAllEvents]);
 
-    const handleLoadMore = () => {
-        if (!isFetchingMore && !allEventsLoaded) {
-            console.log("[EventsScreen] Loading more events...");
-            setIsFetchingMore(true);
-            setCurrentPage(prevPage => prevPage + 1);
+    const handleLoadMoreForYou = () => {
+        if (!isFetchingMoreForYou && !allForYouEventsLoaded) {
+            console.log("[EventsScreen] Loading more for 'For You' tab...");
+            setIsFetchingMoreForYou(true);
+            setCurrentPageForYou(prevPage => prevPage + 1);
+        }
+    };
+
+    const handleLoadMoreAllEvents = () => {
+        if (!isFetchingMoreAllEvents && !allAllEventsLoaded) {
+            console.log("[EventsScreen] Loading more for 'All Events' tab...");
+            setIsFetchingMoreAllEvents(true);
+            setCurrentPageAllEvents(prevPage => prevPage + 1);
         }
     };
 
@@ -864,102 +905,185 @@ const EventsScreen: React.FC = () => {
     const onRefresh = useCallback(() => {
         console.log("[EventsScreen] Refresh triggered.");
         setRefreshing(true);
-        setCurrentPage(1); // Reset page on refresh
-        setAllEventsLoaded(false);
+        setCurrentPageForYou(1); 
+        setAllForYouEventsLoaded(false);
+        setCurrentPageAllEvents(1);
+        setAllAllEventsLoaded(false);
+        setIsLoading(true); // Show loading indicator during refresh fetch
         // Re-fetch profile and events
         Promise.all([fetchUserProfile(), fetchEventsAndOrganizers()])
-            .catch(err => console.error("Error during refresh:", err))
-            .finally(() => {
-                // Processing useEffect will handle setting refreshing to false
-            });
+            .catch(err => {
+                console.error("Error during refresh:", err);
+                setError("Failed to refresh data.");
+            })
+            // Processing useEffect will handle setting isLoading/refreshing to false
     }, [fetchUserProfile, fetchEventsAndOrganizers]);
 
     // Modal control (Unchanged)
     const handleEventPress = (event: MappedEvent) => { setSelectedEvent(event); setModalVisible(true); };
     const handleCloseModal = () => { setModalVisible(false); setSelectedEvent(null); };
 
-    // Render Section Header
-    const renderSectionHeader = ({ section: { title } }: { section: EventSection }) => (
-        <Text style={styles.sectionHeader}>{title}</Text>
-    );
+    // Render Section Header // NO LONGER USED with FlatList per tab
+    // const renderSectionHeader = ({ section: { title } }: { section: EventSection }) => ( ... );
 
-     // Render Footer for pagination loading or end message
-    const renderListFooter = () => {
+     // Render Footer for pagination loading or end message - adaptable for FlatList
+    const renderListFooter = (isFetchingMore: boolean, allLoaded: boolean, itemsExist: boolean) => {
         if (isFetchingMore) {
             return <ActivityIndicator style={{ marginVertical: 20 }} size="small" color="#3B82F6" />;
         }
-        if (allEventsLoaded && (recommendedEvents.length + otherLocalEvents.length > 0)) {
+        if (allLoaded && itemsExist) { // Only show "No more events" if some items were loaded
              return <Text style={styles.endListText}>No more events</Text>;
         }
         return null;
     };
 
-    // Main render logic using SectionList
-    const renderContent = () => {
-        // Initial Loading state
-        if (isLoading && sections.length === 0) return <View style={styles.centeredContainer}><ActivityIndicator size="large" color="#3B82F6" /></View>;
+    const renderEmptyList = (tabKey: 'forYou' | 'allEvents') => {
+        let message = "No Events Found";
+        let subMessage = "Check back later for events!";
+
+        if (tabKey === 'forYou') {
+            message = "No Recommendations For You Yet";
+            subMessage = userProfile?.city 
+                ? `We couldn't find events matching your profile in ${userProfile.city}. Try updating your preferences or check other events!`
+                : "Update your music profile to get personalized event recommendations!";
+        } else if (tabKey === 'allEvents') {
+            message = "No Events In Your Area";
+            subMessage = userProfile?.city
+                ? `We couldn't find any upcoming events in ${userProfile.city} right now.`
+                : "We couldn't find any upcoming events. Set your location in your profile for local listings!";
+        }
+         if (isLoading) return null; // Don't show empty if still loading initially
+
+        return (
+            <View style={styles.centeredContainerEmptyList}>
+                 <Feather name="coffee" size={40} color="#9CA3AF" />
+                 <Text style={styles.emptyText}>{message}</Text>
+                 <Text style={styles.emptySubText}>{subMessage}</Text>
+             </View>
+        );
+    };
+
+    const renderCustomTabBar = () => {
+        return (
+            <View style={styles.tabBarContainer}>
+                <TouchableOpacity 
+                    style={[styles.tabItem, activeTabIndex === 0 && styles.activeTabItem]}
+                    onPress={() => setActiveTabIndex(0)}
+                >
+                    <Text style={[styles.tabText, activeTabIndex === 0 && styles.activeTabText]}>Events For You</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                    style={[styles.tabItem, activeTabIndex === 1 && styles.activeTabItem]}
+                    onPress={() => setActiveTabIndex(1)}
+                >
+                    <Text style={[styles.tabText, activeTabIndex === 1 && styles.activeTabText]}>All Events</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    };
+
+    // Main render logic
+    const renderMainContent = () => {
+        // Initial Loading state (covers profile fetch and initial event fetch)
+        if (isLoading && forYouEvents.length === 0 && allEventsTabSource.length === 0 && !error) {
+             return <View style={styles.centeredContainer}><ActivityIndicator size="large" color="#3B82F6" /></View>;
+        }
         
         // Error state
-        if (error && !isLoading) return (
-             <View style={styles.centeredContainer}>
-                 <Feather name="alert-triangle" size={40} color="#F87171" />
-                 <Text style={styles.errorText}>{error}</Text>
-                 {!isLoading && (
+        if (error && !isLoading) { 
+             return (
+                 <View style={styles.centeredContainer}>
+                     <Feather name="alert-triangle" size={40} color="#F87171" />
+                     <Text style={styles.errorText}>{error}</Text>
                      <TouchableOpacity onPress={onRefresh} style={styles.retryButton}>
                          <Text style={styles.retryButtonText}>Retry</Text>
                      </TouchableOpacity>
-                 )}
-             </View>
-         );
+                 </View>
+             );
+         }
          
-        // Empty state (after loading, no errors, but no events found for user/location)
-        if (!isLoading && !refreshing && sections.every(sec => sec.data.length === 0)) return (
-             <View style={styles.centeredContainer}>
-                 <Feather name="coffee" size={40} color="#9CA3AF" />
-                 <Text style={styles.emptyText}>No Events Found</Text>
-                 <Text style={styles.emptySubText}>
-                     {userProfile?.city ? `We couldn't find events matching your profile in ${userProfile.city}. Check back later!` : "Check back later for events!"}
-                 </Text>
-             </View>
-         );
-         
-        // Display SectionList
+        // If no error and not loading, show Tabs and content.
+        // Empty states are handled by FlatList's ListEmptyComponent.
         return (
-            <SectionList
-                sections={sections}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                    <EventCard
-                        event={item}
-                        onPress={() => handleEventPress(item)}
-                        isViewable={item.isViewable} // isViewable state is not managed per item here, needs onViewableItemsChanged logic if required
+            <View style={{ flex: 1 }}>
+                {renderCustomTabBar()}
+                {activeTabIndex === 0 && (
+                    <FlatList
+                        data={loadedForYouEvents}
+                        keyExtractor={(item) => `forYou-${item.id}`}
+                        renderItem={({ item }) => (
+                            <EventCard
+                                event={item}
+                                onPress={() => handleEventPress(item)}
+                                isViewable={item.isViewable} 
+                            />
+                        )}
+                        contentContainerStyle={styles.eventsList}
+                        style={styles.flatListContainerOnly}
+                        onEndReached={handleLoadMoreForYou}
+                        onEndReachedThreshold={0.5}
+                        ListFooterComponent={() => renderListFooter(isFetchingMoreForYou, allForYouEventsLoaded, loadedForYouEvents.length > 0)}
+                        ListEmptyComponent={() => renderEmptyList('forYou')}
+                        refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]} /> }
                     />
                 )}
-                renderSectionHeader={renderSectionHeader}
-                contentContainerStyle={styles.eventsList}
-                style={styles.flatListContainer}
-                refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]} /> }
-                onViewableItemsChanged={onViewableItemsChangedRef.current} // Impression tracking
-                viewabilityConfig={viewabilityConfigRef.current} // Impression tracking
-                onEndReached={handleLoadMore}
-                onEndReachedThreshold={0.5} // Load more when 50% scrolled
-                ListFooterComponent={renderListFooter}
-                stickySectionHeadersEnabled={false} // Optional: makes headers scroll with content
-            />
+                {activeTabIndex === 1 && (
+                    <FlatList
+                        data={loadedAllEvents}
+                        keyExtractor={(item) => `allEvents-${item.id}`}
+                        renderItem={({ item }) => (
+                            <EventCard
+                                event={item}
+                                onPress={() => handleEventPress(item)}
+                                isViewable={item.isViewable} 
+                            />
+                        )}
+                        contentContainerStyle={styles.eventsList}
+                        style={styles.flatListContainerOnly}
+                        onEndReached={handleLoadMoreAllEvents}
+                        onEndReachedThreshold={0.5}
+                        ListFooterComponent={() => renderListFooter(isFetchingMoreAllEvents, allAllEventsLoaded, loadedAllEvents.length > 0)}
+                        ListEmptyComponent={() => renderEmptyList('allEvents')}
+                        refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]} /> }
+                    />
+                )}
+            </View>
         );
     };
 
     return (
         <SafeAreaView edges={["top"]} style={styles.container}>
             <View style={styles.rootContainer}>
-                <View style={styles.header}><View style={styles.headerTitleRow}><View style={styles.titleContainer}><Feather name="calendar" size={22} color="#60A5FA" style={styles.headerIcon} /><Text style={styles.title}>Upcoming Events</Text></View></View><Text style={styles.subtitle}>Discover concerts and music events</Text></View>
-                {renderContent()}
+                <View style={styles.header}>
+                  <View style={styles.headerTitleRow}>
+                    <View style={styles.titleContainer}>
+                      <Feather name="calendar" size={22} color="#60A5FA" style={styles.headerIcon} />
+                      <Text style={styles.title}>Events</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.subtitle}>Discover concerts and music events</Text>
+                </View>
+                {/* Wrap renderMainContent in a View that can have a RefreshControl if TabView itself doesn't support it well */}
+                 <View style={{flex: 1}}> 
+                    {/* It's often better to put RefreshControl on individual lists within tabs 
+                        or use a custom solution if a global one over TabView is needed.
+                        For simplicity, if FlatLists inside tabs become scrollable, their own
+                        RefreshControl would be more standard. Adding a global one here for now.
+                    */}
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]}>
+                         {/* This ^ might not work as expected if TabView's content isn't directly scrollable from here.
+                             Consider adding refreshControl to each FlatList in renderScene instead.
+                             Removing from here for now as it's better on individual lists.
+                          */}
+                    </RefreshControl>
+                    {renderMainContent()}
+                 </View>
             </View>
             <EventDetailModal
                 event={selectedEvent}
                 visible={modalVisible}
                 onClose={handleCloseModal}
-                navigation={navigation} // Pass navigation prop
+                navigation={navigation}
             />
         </SafeAreaView>
     );
@@ -969,13 +1093,21 @@ const EventsScreen: React.FC = () => {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: "#f8fafc", },
     centeredContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#f8fafc', },
+    centeredContainerEmptyList: { // For FlatList's ListEmptyComponent
+        flex: 1, // Takes up available space in FlatList
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        padding: 20, 
+        marginTop: Dimensions.get('window').height * 0.1 // Push down a bit
+    },
     errorText: { fontSize: 16, fontWeight: '600', color: '#DC2626', marginTop: 10, textAlign: 'center', },
     retryButton: { backgroundColor: '#3B82F6', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, marginTop: 15, },
     retryButtonText: { color: '#FFF', fontWeight: '600', },
     emptyText: { fontSize: 18, fontWeight: '600', color: '#4B5563', marginTop: 10, },
     emptySubText: { fontSize: 14, color: '#6B7280', marginTop: 5, textAlign: 'center', },
     rootContainer: { flex: 1, },
-    flatListContainer: { flex: 1, },
+    flatListContainer: { flex: 1, }, // Original style, might not be needed if tabs have own lists
+    flatListContainerOnly: { flex: 1 }, // Specific for FlatList inside TabView scene
     header: { paddingTop: 16, paddingBottom: 0, paddingHorizontal: 0, backgroundColor: "white", borderBottomWidth: 1, borderBottomColor: '#E5E7EB', },
     headerTitleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, marginBottom: 8 },
     titleContainer: { flexDirection: "row", alignItems: "center", },
@@ -1081,24 +1213,39 @@ const styles = StyleSheet.create({
     quantityValue: { fontSize: 18, fontWeight: '600', color: '#1F2937', minWidth: 30, textAlign: 'center' },
     bookNowButton: { backgroundColor: "#3B82F6", flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, marginTop: 24, marginBottom: 24, },
     bookNowButtonText: { color: "white", fontWeight: "600", fontSize: 16, marginLeft: 8, },
-    disabledButton: { backgroundColor: '#9CA3AF' },
+    disabledButton: { backgroundColor: '#9CA3AF' }, // Assuming this might be used by modal
     infoOnlyBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, marginTop: 24, marginBottom: 24 },
     infoOnlyText: { marginLeft: 8, fontSize: 14, color: '#4B5563', flexShrink: 1 },
-    sectionHeader: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#374151',
-        backgroundColor: '#f8fafc', // Match background
-        paddingVertical: 8,
-        paddingHorizontal: 0, // Use list padding
-        marginTop: 10, // Add some space above headers
-        marginBottom: 5,
-    },
     endListText: {
         textAlign: 'center',
         color: '#9CA3AF',
         paddingVertical: 20,
         fontSize: 14,
+    },
+    tabBarContainer: {
+        flexDirection: 'row',
+        height: 50,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+        backgroundColor: 'white',
+    },
+    tabItem: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingBottom: 2, // for the active indicator line
+    },
+    activeTabItem: {
+        borderBottomWidth: 3,
+        borderBottomColor: APP_CONSTANTS.COLORS.PRIMARY || '#3B82F6',
+    },
+    tabText: {
+        fontSize: 14,
+        color: '#6B7280',
+        fontWeight: '600',
+    },
+    activeTabText: {
+        color: APP_CONSTANTS.COLORS.PRIMARY || '#3B82F6',
     },
 });
 
