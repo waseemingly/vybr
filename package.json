@@ -120,6 +120,7 @@
     "@types/base-64": "^1.0.2",
     "@types/react": "~19.0.10",
     "@types/react-dom": "^19.0.0",
+    "@types/react-native-tab-view": "^1.0.6",
     "@types/react-native-vector-icons": "^6.4.18",
     "@types/react-navigation": "^3.0.8",
     "@types/stripe-v3": "^3.1.33",
