@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
     View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
     ActivityIndicator, Alert, Animated, Image, Platform,
-    Dimensions
+    Dimensions, Keyboard
 } from 'react-native';
 import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -139,7 +139,9 @@ const MusicLoverSignUpFlow = () => {
         createMusicLoverProfile,
         updatePremiumStatus,
         requestMediaLibraryPermissions, // Use this before picking
-        loading: authLoading // Hook's loading state
+        loading: authLoading, // Hook's loading state
+        checkUsernameExists, // Use these real functions from useAuth
+        checkEmailExists     // Use these real functions from useAuth 
     } = useAuth();
     
     // Spotify auth hook
@@ -179,6 +181,19 @@ const MusicLoverSignUpFlow = () => {
     const [error, setError] = useState('');
     const slideAnim = useRef(new Animated.Value(0)).current; // Animation value
 
+    // Input Refs for focus management
+    const lastNameInputRef = useRef<TextInput>(null);
+    const usernameInputRef = useRef<TextInput>(null);
+    const emailInputRef = useRef<TextInput>(null);
+    const passwordInputRef = useRef<TextInput>(null);
+    const confirmPasswordInputRef = useRef<TextInput>(null);
+
+    // Username and Email validation state
+    const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'error'>('idle');
+    const [usernameFeedback, setUsernameFeedback] = useState('');
+    const [emailStatus, setEmailStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'error'>('idle');
+    const [emailFeedback, setEmailFeedback] = useState('');
+
     // Location data lists
     const [countries, setCountries] = useState<any[]>([]);
     const [states, setStates] = useState<any[]>([]);
@@ -189,6 +204,15 @@ const MusicLoverSignUpFlow = () => {
         const trimmedValue = (typeof value === 'string' && !field.startsWith('paymentInfo.') && field !== 'password' && field !== 'confirmPassword' && field !== 'selectedStreamingService' && field !== 'profilePictureUri' && field !== 'profilePicturePreview' && field !== 'profilePictureMimeType')
             ? value.trimStart()
             : value;
+
+        if (field === 'username') {
+            setUsernameStatus('idle');
+            setUsernameFeedback('');
+        }
+        if (field === 'email') {
+            setEmailStatus('idle');
+            setEmailFeedback('');
+        }
 
         if (field.startsWith('bio.')) {
             const bioField = field.split('.')[1] as keyof MusicLoverBio;
@@ -275,14 +299,21 @@ const MusicLoverSignUpFlow = () => {
     const validateAccountDetailsStep = (): boolean => {
         console.log('[MusicLoverSignUpFlow] Validating Account Details Step...');
         
-        // Don't set error state here - it causes render loops
         if (!formData.firstName.trim()) return false;
         if (!formData.lastName.trim()) return false;
+        
+        // Username checks
         if (!formData.username.trim()) return false;
         if (/\s/.test(formData.username.trim())) return false;
+        if (formData.username.trim().length < 3) return false;
+        if (usernameStatus !== 'valid') return false; // Crucial: must be checked and valid
+
+        // Email checks
         if (!formData.email.trim()) return false;
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(formData.email.trim())) return false;
+        if (emailStatus !== 'valid') return false; // Crucial: must be checked and valid
+        
         if (!formData.password) return false;
         if (formData.password.length < 8) return false;
         if (formData.password !== formData.confirmPassword) return false;
@@ -292,20 +323,40 @@ const MusicLoverSignUpFlow = () => {
         return true;
     };
 
-    // Get error message without setting state
+    // Get error message for general errors, not username/email specific feedback
     const getAccountDetailsError = (): string => {
         if (!formData.firstName.trim()) return 'Please enter your first name';
         if (!formData.lastName.trim()) return 'Please enter your last name';
+        
+        // Username format errors (if not caught by blur, or for initial submit click)
+        // These are now primarily handled by inline feedback.
+        // But if user clicks submit before blur, these can provide general error.
         if (!formData.username.trim()) return 'Please enter a username';
         if (/\s/.test(formData.username.trim())) return 'Username cannot contain spaces';
+        if (formData.username.trim().length < 3) return 'Username must be at least 3 characters';
+        // Do not return "Username taken" here, rely on inline feedback and validateAccountDetailsStep
+
+        // Email format errors (similar to username)
         if (!formData.email.trim()) return 'Please enter your email';
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(formData.email.trim())) return 'Please enter a valid email address';
+        // Do not return "Email taken" here
+
         if (!formData.password) return 'Please enter a password';
         if (formData.password.length < 8) return 'Password must be at least 8 characters long';
         if (formData.password !== formData.confirmPassword) return 'Passwords do not match';
         if (!formData.termsAccepted) return 'Please accept the Terms and Conditions';
-        return '';
+        
+        // If username/email status is invalid but feedback is already shown,
+        // we might not need a general error message for them.
+        // If status is 'idle' or 'checking', validateAccountDetailsStep handles it.
+        if (usernameStatus === 'invalid' && usernameFeedback) return ''; // Let inline feedback show
+        if (emailStatus === 'invalid' && emailFeedback) return ''; // Let inline feedback show
+        if (usernameStatus === 'error') return usernameFeedback; // Show error from check
+        if (emailStatus === 'error') return emailFeedback; // Show error from check
+
+
+        return ''; // All good or errors handled by inline feedback
     };
 
     const validateProfileDetailsStep = (): boolean => {
@@ -483,8 +534,10 @@ const MusicLoverSignUpFlow = () => {
     const prepareProfileData = (userId: string): CreateMusicLoverProfileData => {
         // Validate age input
         const age = formData.age ? parseInt(formData.age) : null;
-        if (age !== null && (isNaN(age) || age < 13 || age > 120)) {
-            throw new Error('Please enter a valid age between 13 and 120');
+        // Age validation is now primarily in validateProfileDetailsStep, but good to have a fallback
+        if (formData.age && (age === null || isNaN(age) || age < 1 || age > 120)) { // Stricter check if age is provided
+             Alert.alert('Invalid Age', 'Please enter a valid age between 1 and 120, or leave it blank.');
+             throw new Error('Invalid age provided.');
         }
 
         // Create a basic profile data object with known properties
@@ -766,31 +819,71 @@ const MusicLoverSignUpFlow = () => {
     const handleStepSubmit = async () => {
         console.log(`[MusicLoverSignUpFlow] handleStepSubmit called for step: ${currentStep}`);
         
-        // Get the appropriate error message based on current step
-        let errorMessage = '';
+        let currentStepIsValid = true;
+        let stepErrorMessage = '';
+
         switch (currentStep) {
             case 'account-details':
-                errorMessage = getAccountDetailsError();
+                // Trigger blur handlers if fields are filled but not yet validated (e.g., user clicks "Continue" quickly)
+                if (formData.username.trim() && usernameStatus === 'idle') {
+                    await handleUsernameBlur(); // await to ensure status updates
+                }
+                if (formData.email.trim() && emailStatus === 'idle') {
+                    await handleEmailBlur(); // await to ensure status updates
+                }
+
+                currentStepIsValid = validateAccountDetailsStep();
+                if (!currentStepIsValid) {
+                    // Prioritize inline feedback for username/email if status is invalid/error
+                    if (usernameStatus === 'invalid' || usernameStatus === 'error') {
+                        // Inline feedback is already visible, general error not needed for this
+                    } else if (emailStatus === 'invalid' || emailStatus === 'error') {
+                        // Inline feedback is already visible
+                    } else {
+                         stepErrorMessage = getAccountDetailsError(); // Get other errors
+                    }
+                    // If status is 'checking', button should be disabled anyway.
+                    // If 'idle' but field is filled, we've triggered blur above.
+                    // If 'idle' and field empty, getAccountDetailsError will catch it.
+                }
                 break;
             case 'profile-details':
-                errorMessage = getProfileDetailsError();
+                currentStepIsValid = validateProfileDetailsStep();
+                if (!currentStepIsValid) {
+                    stepErrorMessage = getProfileDetailsError();
+                }
                 break;
             case 'streaming-service':
-                errorMessage = getStreamingServiceError();
+                currentStepIsValid = validateStreamingServiceStep();
+                if (!currentStepIsValid) {
+                    stepErrorMessage = getStreamingServiceError();
+                }
                 break;
             case 'subscription':
-                errorMessage = getSubscriptionError();
+                currentStepIsValid = validateSubscriptionStep();
+                if (!currentStepIsValid) {
+                    stepErrorMessage = getSubscriptionError();
+                }
                 break;
             case 'payment':
-                errorMessage = getPaymentError();
+                currentStepIsValid = validatePaymentStep();
+                if (!currentStepIsValid) {
+                    stepErrorMessage = getPaymentError();
+                }
                 break;
         }
         
-        // Set error if any
-        setError(errorMessage);
+        // Set error if any from non-username/email issues
+        setError(stepErrorMessage);
         
-        // Only proceed if no errors
-        if (errorMessage) {
+        // Only proceed if no errors AND current step specific validation passed
+        if (stepErrorMessage || !currentStepIsValid) {
+            if (!stepErrorMessage && !currentStepIsValid && (usernameStatus === 'invalid' || emailStatus === 'invalid')) {
+                // This case means validation failed due to username/email, and inline feedback is shown.
+                // No need to set a general error message.
+            } else if (!stepErrorMessage && !currentStepIsValid) {
+                 setError("Please complete all required fields and correct any errors."); // Generic fallback
+            }
             return;
         }
 
@@ -826,32 +919,127 @@ const MusicLoverSignUpFlow = () => {
             <View style={styles.rowContainer}>
                 <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
                     <Text style={styles.inputLabel}>First Name *</Text>
-                    <TextInput style={styles.input} placeholder="First Name" value={formData.firstName} onChangeText={(text) => handleChange('firstName', text)} autoCapitalize="words" returnKeyType="next" blurOnSubmit={false} onSubmitEditing={() => {/* Focus next */}}/>
+                    <TextInput 
+                        style={styles.input} 
+                        placeholder="First Name" 
+                        value={formData.firstName} 
+                        onChangeText={(text) => handleChange('firstName', text)} 
+                        autoCapitalize="words" 
+                        returnKeyType="next" 
+                        blurOnSubmit={false} 
+                        onSubmitEditing={() => lastNameInputRef.current?.focus()}
+                    />
                 </View>
                 <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
                     <Text style={styles.inputLabel}>Last Name *</Text>
-                    <TextInput style={styles.input} placeholder="Last Name" value={formData.lastName} onChangeText={(text) => handleChange('lastName', text)} autoCapitalize="words" returnKeyType="next" blurOnSubmit={false} onSubmitEditing={() => {/* Focus next */}}/>
+                    <TextInput 
+                        ref={lastNameInputRef}
+                        style={styles.input} 
+                        placeholder="Last Name" 
+                        value={formData.lastName} 
+                        onChangeText={(text) => handleChange('lastName', text)} 
+                        autoCapitalize="words" 
+                        returnKeyType="next" 
+                        blurOnSubmit={false} 
+                        onSubmitEditing={() => usernameInputRef.current?.focus()}
+                    />
                 </View>
             </View>
             {/* Username */}
             <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Username *</Text>
-                <TextInput style={styles.input} placeholder="Choose a unique username (no spaces)" value={formData.username} onChangeText={(text) => handleChange('username', text.replace(/\s/g, ''))} autoCapitalize="none" autoCorrect={false} returnKeyType="next" blurOnSubmit={false} onSubmitEditing={() => {/* Focus next */}}/>
+                <View style={styles.labelRow}>
+                    <Text style={styles.inputLabel}>Username *</Text>
+                    {usernameStatus === 'checking' && <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={styles.inlineLoader} />}
+                </View>
+                <TextInput 
+                    ref={usernameInputRef}
+                    style={[
+                        styles.input,
+                        usernameStatus === 'invalid' && styles.inputError,
+                        usernameStatus === 'valid' && styles.inputValid,
+                    ]}
+                    placeholder="Choose a unique username (no spaces)" 
+                    value={formData.username} 
+                    onChangeText={(text) => handleChange('username', text.replace(/\s/g, ''))} 
+                    autoCapitalize="none" 
+                    autoCorrect={false} 
+                    returnKeyType="next" 
+                    blurOnSubmit={false} 
+                    onSubmitEditing={() => emailInputRef.current?.focus()}
+                    onBlur={handleUsernameBlur}
+                />
+                {usernameFeedback ? <Text style={[
+                    styles.feedbackText, 
+                    usernameStatus === 'valid' && styles.feedbackTextValid,
+                    (usernameStatus === 'invalid' || usernameStatus === 'error') && styles.feedbackTextError,
+                ]}>{usernameFeedback}</Text> : null}
             </View>
             {/* Email */}
             <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Email *</Text>
-                <TextInput style={styles.input} placeholder="Enter your email address" value={formData.email} onChangeText={(text) => handleChange('email', text)} keyboardType="email-address" autoCapitalize="none" returnKeyType="next" blurOnSubmit={false} onSubmitEditing={() => {/* Focus next */}}/>
+                <View style={styles.labelRow}>
+                    <Text style={styles.inputLabel}>Email *</Text>
+                    {emailStatus === 'checking' && <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={styles.inlineLoader} />}
+                </View>
+                <TextInput 
+                    ref={emailInputRef}
+                    style={[
+                        styles.input,
+                        emailStatus === 'invalid' && styles.inputError,
+                        emailStatus === 'valid' && styles.inputValid,
+                    ]}
+                    placeholder="Enter your email address" 
+                    value={formData.email} 
+                    onChangeText={(text) => handleChange('email', text)} 
+                    keyboardType="email-address" 
+                    autoCapitalize="none" 
+                    returnKeyType="next" 
+                    blurOnSubmit={false} 
+                    onSubmitEditing={() => passwordInputRef.current?.focus()}
+                    onBlur={handleEmailBlur}
+                />
+                 {emailFeedback ? <Text style={[
+                    styles.feedbackText, 
+                    emailStatus === 'valid' && styles.feedbackTextValid,
+                    (emailStatus === 'invalid' || emailStatus === 'error') && styles.feedbackTextError,
+                ]}>{emailFeedback}</Text> : null}
             </View>
             {/* Password */}
             <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Password *</Text>
-                <TextInput style={styles.input} placeholder="Create a password (min. 8 characters)" value={formData.password} onChangeText={(text) => handleChange('password', text)} secureTextEntry autoCapitalize="none" returnKeyType="next" blurOnSubmit={false} onSubmitEditing={() => {/* Focus next */}}/>
+                <TextInput 
+                    ref={passwordInputRef}
+                    style={styles.input} 
+                    placeholder="Create a password (min. 8 characters)" 
+                    value={formData.password} 
+                    onChangeText={(text) => handleChange('password', text)} 
+                    secureTextEntry 
+                    autoCapitalize="none" 
+                    returnKeyType="next" 
+                    blurOnSubmit={false} 
+                    onSubmitEditing={() => confirmPasswordInputRef.current?.focus()}
+                />
             </View>
             {/* Confirm Password */}
             <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Confirm Password *</Text>
-                <TextInput style={styles.input} placeholder="Confirm your password" value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} secureTextEntry autoCapitalize="none" returnKeyType="done" onSubmitEditing={handleStepSubmit} />
+                <TextInput 
+                    ref={confirmPasswordInputRef}
+                    style={styles.input} 
+                    placeholder="Confirm your password" 
+                    value={formData.confirmPassword} 
+                    onChangeText={(text) => handleChange('confirmPassword', text)} 
+                    secureTextEntry 
+                    autoCapitalize="none" 
+                    returnKeyType="done" 
+                    onSubmitEditing={() => {
+                        // Before submitting, ensure keyboard is dismissed to trigger any pending blur events
+                        Keyboard.dismiss();
+                        // A short timeout can help ensure blur events are processed if Keyboard.dismiss() is not enough
+                        setTimeout(() => {
+                            handleStepSubmit();
+                        }, 100);
+                    }}
+                />
             </View>
             {/* Terms */}
             <View style={styles.termsContainer}>
@@ -1156,7 +1344,83 @@ const MusicLoverSignUpFlow = () => {
         }
     }, [formData.countryCode, formData.stateCode]);
 
-    // Render function for Streaming Service Step - UPDATED
+    // --- Username and Email Blur Handlers ---
+    const handleUsernameBlur = async () => {
+        const username = formData.username.trim();
+        if (!username) {
+            setUsernameStatus('invalid');
+            setUsernameFeedback('Username is required.');
+            return;
+        }
+        if (/\s/.test(username)) {
+            setUsernameStatus('invalid');
+            setUsernameFeedback('Username cannot contain spaces.');
+            return;
+        }
+        if (username.length < 3) {
+            setUsernameStatus('invalid');
+            setUsernameFeedback('Username must be at least 3 characters.');
+            return;
+        }
+
+        setUsernameStatus('checking');
+        setUsernameFeedback('Checking availability...');
+        try {
+            // TODO: Replace with: const result = await auth.checkUsernameExists(username);
+            const result = await checkUsernameExists(username); 
+            if (result.error) {
+                setUsernameStatus('error');
+                setUsernameFeedback(result.error || 'Could not verify username.');
+            } else if (result.exists) {
+                setUsernameStatus('invalid');
+                setUsernameFeedback('Username is already taken.');
+            } else {
+                setUsernameStatus('valid');
+                setUsernameFeedback('Username available!');
+            }
+        } catch (e: any) {
+            setUsernameStatus('error');
+            setUsernameFeedback('Error checking username.');
+        }
+    };
+
+    const handleEmailBlur = async () => {
+        const email = formData.email.trim();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!email) {
+            setEmailStatus('invalid');
+            setEmailFeedback('Email is required.');
+            return;
+        }
+        if (!emailRegex.test(email)) {
+            setEmailStatus('invalid');
+            setEmailFeedback('Please enter a valid email address.');
+            return;
+        }
+
+        setEmailStatus('checking');
+        setEmailFeedback('Checking availability...');
+        try {
+            // TODO: Replace with: const result = await auth.checkEmailExists(email);
+            const result = await checkEmailExists(email); // This now correctly calls the music_lover specific check
+            if (result.error) {
+                setEmailStatus('error');
+                setEmailFeedback(result.error || 'Could not verify email.');
+            } else if (result.exists) {
+                setEmailStatus('invalid');
+                setEmailFeedback('Email is already in use by a Music Lover.'); // Clarified feedback
+            } else {
+                setEmailStatus('valid');
+                setEmailFeedback('Email available!');
+            }
+        } catch (e: any) {
+            setEmailStatus('error');
+            setEmailFeedback('Error checking email.');
+        }
+    };
+
+    // --- Render Functions for Steps ---
+
     const renderStreamingServiceStep = () => (
         <ScrollView 
             style={{ width: '100%' }} 
@@ -1426,7 +1690,10 @@ const MusicLoverSignUpFlow = () => {
     // Render current step selector and action button
     const renderCurrentStep = () => {
         const isButtonDisabled = isLoading || authLoading || isSpotifyLoading || 
-            (currentStep === 'subscription' && !formData.subscriptionTier);
+            (currentStep === 'subscription' && !formData.subscriptionTier) ||
+            (currentStep === 'account-details' && (
+                usernameStatus === 'checking' || emailStatus === 'checking'
+            ));
 
         // Compute button text based on current step
         let buttonText = 'Continue';
@@ -1460,16 +1727,26 @@ const MusicLoverSignUpFlow = () => {
                                 (currentStep === 'account-details' && !isAccountValid) ||
                                 (currentStep === 'profile-details' && !isProfileValid) ||
                                 (currentStep === 'subscription' && !formData.subscriptionTier) ||
-                                (currentStep === 'payment' && !isPaymentValid)
+                                (currentStep === 'payment' && !isPaymentValid) ||
+                                (currentStep === 'account-details' && (usernameStatus === 'checking' || emailStatus === 'checking' || usernameStatus === 'invalid' || emailStatus === 'invalid'))
                                 ) && styles.continueButtonDisabled
                             ]}
-                            onPress={handleStepSubmit}
+                            onPress={async () => { // Make onPress async for account-details
+                                if (currentStep === 'account-details') {
+                                    // Ensure keyboard is dismissed to trigger any pending blur events
+                                    Keyboard.dismiss();
+                                    // A short timeout can help ensure blur events are processed
+                                    await new Promise(resolve => setTimeout(resolve, 100)); 
+                                }
+                                handleStepSubmit();
+                            }}
                             disabled={
                                 isLoading || authLoading || isSpotifyLoading ||
                                 (currentStep === 'account-details' && !isAccountValid) ||
                                 (currentStep === 'profile-details' && !isProfileValid) ||
                                 (currentStep === 'subscription' && !formData.subscriptionTier) ||
-                                (currentStep === 'payment' && !isPaymentValid)
+                                (currentStep === 'payment' && !isPaymentValid) ||
+                                (currentStep === 'account-details' && (usernameStatus === 'checking' || emailStatus === 'checking' || usernameStatus === 'invalid' || emailStatus === 'invalid'))
                             }
                             activeOpacity={0.8}
                         >
@@ -1493,7 +1770,56 @@ const MusicLoverSignUpFlow = () => {
         >
             <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
                 <View style={styles.header}>
-                    {/* ... header content ... */}
+                    {/* Add back button to header */}
+                    <TouchableOpacity
+                        style={styles.backButton}
+                        onPress={() => {
+                            if (currentStep === 'account-details') {
+                                // Navigate back to landing page from first step
+                                navigation.goBack(); // Use goBack instead of navigate
+                            } else {
+                                // For other steps, go to previous step
+                                const steps: Step[] = ['account-details', 'profile-details', 'streaming-service', 'subscription', 'payment'];
+                                const currentIndex = steps.indexOf(currentStep);
+                                if (currentIndex > 0) {
+                                    goToPreviousStep(steps[currentIndex - 1]);
+                                }
+                            }
+                        }}
+                    >
+                        <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                    </TouchableOpacity>
+                    <View style={styles.stepIndicatorContainer}>
+                        <View style={[
+                            styles.stepIndicator, 
+                            currentStep === 'account-details' ? styles.stepIndicatorCurrent : 
+                            (currentStep === 'profile-details' || currentStep === 'streaming-service' || 
+                            currentStep === 'subscription' || currentStep === 'payment') ? styles.stepIndicatorActive : {}
+                        ]} />
+                        <View style={[
+                            styles.stepIndicator, 
+                            currentStep === 'profile-details' ? styles.stepIndicatorCurrent : 
+                            (currentStep === 'streaming-service' || currentStep === 'subscription' || 
+                            currentStep === 'payment') ? styles.stepIndicatorActive : {}
+                        ]} />
+                        <View style={[
+                            styles.stepIndicator, 
+                            currentStep === 'streaming-service' ? styles.stepIndicatorCurrent : 
+                            (currentStep === 'subscription' || currentStep === 'payment') ? 
+                            styles.stepIndicatorActive : {}
+                        ]} />
+                        <View style={[
+                            styles.stepIndicator, 
+                            currentStep === 'subscription' ? styles.stepIndicatorCurrent : 
+                            currentStep === 'payment' ? styles.stepIndicatorActive : {}
+                        ]} />
+                        <View style={[
+                            styles.stepIndicator, 
+                            currentStep === 'payment' ? styles.stepIndicatorCurrent : {}
+                        ]} />
+                    </View>
+                    {/* Add a placeholder view to balance the header */}
+                    <View style={{ width: 24 }} />
                 </View>
                 <ScrollView contentContainerStyle={styles.scrollContentContainer}>
                     <Animated.View style={[styles.stepsSlider, { transform: [{ translateX: slideAnim }] }]}>
@@ -1511,9 +1837,25 @@ const MusicLoverSignUpFlow = () => {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: APP_CONSTANTS.COLORS.BACKGROUND },
     gradient: { flex: 1 },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'android' ? 16 : 10, paddingBottom: 8, backgroundColor: 'transparent' },
-    backButton: { padding: 8, zIndex: 1 },
-    stepIndicatorContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flex: 1 },
+    header: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        justifyContent: 'space-between', 
+        paddingHorizontal: 16, 
+        paddingTop: Platform.OS === 'android' ? 16 : 10, 
+        paddingBottom: 8, 
+        backgroundColor: 'transparent' 
+    },
+    backButton: { 
+        padding: 8,
+        zIndex: 1
+    },
+    stepIndicatorContainer: { 
+        flexDirection: 'row', 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        flex: 1
+    },
     stepIndicator: { width: 10, height: 10, borderRadius: 5, backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT, marginHorizontal: 5 },
     stepIndicatorActive: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT },
     stepIndicatorCurrent: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, width: 12, height: 12, borderRadius: 6 },
@@ -1528,6 +1870,13 @@ const styles = StyleSheet.create({
     inputLabel: { fontSize: 14, fontWeight: '600', color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, marginBottom: 6 },
     inputLabelSmall: { fontSize: 13, fontWeight: '500', color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginBottom: 5 },
     input: { backgroundColor: '#FFFFFF', paddingHorizontal: 15, paddingVertical: Platform.OS === 'ios' ? 14 : 12, borderRadius: 8, fontSize: 16, borderWidth: 1, borderColor: APP_CONSTANTS.COLORS.BORDER, color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, width: '100%' },
+    inputError: { borderColor: APP_CONSTANTS.COLORS.ERROR },
+    inputValid: { borderColor: APP_CONSTANTS.COLORS.SUCCESS }, // Assuming you have a SUCCESS color
+    labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    inlineLoader: { marginLeft: 8 },
+    feedbackText: { fontSize: 12, marginTop: 4, paddingLeft: 2 },
+    feedbackTextValid: { color: APP_CONSTANTS.COLORS.SUCCESS || 'green' }, // Provide fallback
+    feedbackTextError: { color: APP_CONSTANTS.COLORS.ERROR },
     inputBio: { backgroundColor: '#FFFFFF', paddingHorizontal: 15, paddingVertical: 12, borderRadius: 8, fontSize: 15, borderWidth: 1, borderColor: APP_CONSTANTS.COLORS.BORDER, color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, width: '100%', minHeight: 45, textAlignVertical: 'top' },
     rowContainer: { flexDirection: 'row', justifyContent: 'space-between', width: '100%' },
     termsContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, marginTop: 8, width: '100%' },

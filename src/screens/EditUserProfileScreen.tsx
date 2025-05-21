@@ -17,6 +17,8 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import { decode } from 'base64-arraybuffer';
 
 // Import location data from country-state-city
 import { Country, State, City } from 'country-state-city';
@@ -56,6 +58,7 @@ const EditUserProfileScreen: React.FC = () => {
     // Profile picture states
     const [profilePictureUri, setProfilePictureUri] = useState(musicLoverProfile?.profilePicture ?? '');
     const [profilePictureMimeType, setProfilePictureMimeType] = useState<string | null>(null);
+    const [profilePictureBase64, setProfilePictureBase64] = useState<string | null>(null);
     const [isProfilePictureChanged, setIsProfilePictureChanged] = useState(false);
     
     // Location states - use optional chaining for safety
@@ -227,12 +230,18 @@ const EditUserProfileScreen: React.FC = () => {
                 allowsEditing: true,
                 aspect: [1, 1],
                 quality: 0.8,
+                base64: Platform.OS === 'web',
             });
 
             if (!result.canceled && result.assets && result.assets.length > 0) {
                 const asset = result.assets[0];
                 setProfilePictureUri(asset.uri);
                 setProfilePictureMimeType(asset.mimeType || 'image/jpeg');
+                if (Platform.OS === 'web' && (asset as any).base64) {
+                    setProfilePictureBase64((asset as any).base64);
+                } else {
+                    setProfilePictureBase64(null);
+                }
                 setIsProfilePictureChanged(true);
             }
         } catch (error: any) {
@@ -288,40 +297,91 @@ const EditUserProfileScreen: React.FC = () => {
             // If profile picture was changed, upload it
             if (isProfilePictureChanged && profilePictureUri) {
                 try {
-                    const fileExt = profilePictureUri.split('.').pop();
-                    const fileName = `${userId}-profile-${Date.now()}.${fileExt}`;
-                    const filePath = `profiles/${fileName}`;
+                    // Determine extension for the filename path in Supabase
+                    let ext = profilePictureUri.split('.').pop()?.toLowerCase().split('?')[0] || 'jpeg';
+                    if (ext && (ext.length > 5 || !/^[a-zA-Z0-9]+$/.test(ext))) ext = 'jpeg';
+                    if (!['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) ext = 'jpeg';
+                    if (ext === 'jpg') ext = 'jpeg';
 
-                    // Prepare the image for upload
-                    const formData = new FormData();
-                    formData.append('file', {
-                        name: fileName,
-                        type: profilePictureMimeType || 'image/jpeg',
-                        uri: profilePictureUri,
-                    } as any); // Using 'as any' to bypass TypeScript checking
+                    const cleanFileName = `${userId}-profile-${Date.now()}`.replace(/[^a-zA-Z0-9-]/g, '_');
+                    const finalFileName = `${cleanFileName}.${ext}`;
+                    const filePath = `profiles/${finalFileName}`;
+
+                    let fileDataArrayBuffer: ArrayBuffer;
+
+                    if (Platform.OS === 'web') {
+                        console.log(`[EditUserProfile WEB] Processing URI: ${profilePictureUri.substring(0,100)}...`);
+                        if (profilePictureBase64) {
+                            fileDataArrayBuffer = decode(profilePictureBase64);
+                        } else if (profilePictureUri.startsWith('data:')) { // Handle if URI itself is a data URI
+                            const base64Data = profilePictureUri.split(',')[1];
+                            if (!base64Data) throw new Error("Invalid data URI format for web upload (no data).");
+                            fileDataArrayBuffer = decode(base64Data);
+                        } else if (profilePictureUri) { // Fallback: if no base64 and not data URI, try to fetch URI
+                            console.warn("[EditUserProfile WEB] Base64 not available, attempting to fetch URI for web.");
+                            const response = await fetch(profilePictureUri);
+                            if (!response.ok) throw new Error(`Failed to fetch profile picture URI for web: ${response.statusText}`);
+                            fileDataArrayBuffer = await response.arrayBuffer();
+                        } else {
+                            throw new Error('Web image data is missing (no base64 or URI).');
+                        }
+                    } else { // Native
+                        console.log(`[EditUserProfile NATIVE] Processing URI: ${profilePictureUri}`);
+                        const fileBase64 = await FileSystem.readAsStringAsync(profilePictureUri, {
+                            encoding: FileSystem.EncodingType.Base64,
+                        });
+                        if (!fileBase64) throw new Error ('Failed to read image as base64 (Native).');
+                        fileDataArrayBuffer = decode(fileBase64);
+                    }
+
+                    if (!fileDataArrayBuffer || fileDataArrayBuffer.byteLength === 0) {
+                        throw new Error('Image data is empty or invalid after processing.');
+                    }
+                    
+                    const finalContentType = profilePictureMimeType || 'image/jpeg'; // Use actual mimeType, fallback to jpeg
 
                     // Upload to storage
-                    const { error: uploadError } = await supabase.storage
-                        .from('profile-pictures')
-                        .upload(filePath, formData);
+                    console.log(`[EditUserProfile] Uploading to Supabase path: ${filePath}, contentType: ${finalContentType}`);
+                    const { data: uploadData, error: uploadError } = await supabase.storage
+                        .from('profile-pictures') 
+                        .upload(filePath, fileDataArrayBuffer, {
+                            contentType: finalContentType, // Use determined content type
+                            cacheControl: '3600',
+                            upsert: true, 
+                        });
 
                     if (uploadError) {
                         console.error('[EditUserProfile] Error uploading profile picture:', uploadError);
-                        // Don't fail the entire operation if only the image upload fails
                         Alert.alert("Image Upload Warning", "Profile saved but image upload failed. You can try updating your picture later.");
-                    } else {
-                        // Update the profile with the new image URL
-                        const { error: updateError } = await supabase
-                            .from('music_lover_profiles')
-                            .update({ profile_picture: filePath })
-                            .eq('user_id', userId);
-                            
-                        if (updateError) {
-                            console.error('[EditUserProfile] Error updating profile with new image path:', updateError);
+                    } else if (uploadData?.path) {
+                        // Get public URL
+                        const { data: urlData } = supabase.storage
+                            .from('profile-pictures')
+                            .getPublicUrl(uploadData.path);
+                        
+                        const publicUrl = urlData?.publicUrl;
+
+                        if (publicUrl) {
+                            // Update the profile with the new image URL
+                            const { error: updateError } = await supabase
+                                .from('music_lover_profiles')
+                                .update({ profile_picture: publicUrl }) // Store the public URL
+                                .eq('user_id', userId);
+                                
+                            if (updateError) {
+                                console.error('[EditUserProfile] Error updating profile with new image URL:', updateError);
+                            }
+                        } else {
+                             console.error('[EditUserProfile] Failed to get public URL for uploaded image.');
+                             Alert.alert("Image Upload Warning", "Image uploaded, but could not retrieve its URL. Profile picture may not update immediately.");
                         }
+                    } else {
+                        console.error('[EditUserProfile] Upload succeeded but no path returned from Supabase.');
+                        Alert.alert("Image Upload Warning", "Image uploaded, but path was not returned. Profile picture may not update.");
                     }
-                } catch (imageError) {
+                } catch (imageError: any) {
                     console.error('[EditUserProfile] Error processing image:', imageError);
+                    Alert.alert("Image Processing Error", `Could not process image for upload: ${imageError.message}`);
                 }
             }
 

@@ -7,6 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
+import { MediaType } from "expo-image-picker";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import * as FileSystem from "expo-file-system";
 import { Buffer } from "buffer";
@@ -49,6 +50,27 @@ interface FormState {
     cityName: string;
 }
 interface ImageAsset { uri: string; mimeType?: string; fileName?: string; }
+
+// Helper function to get a clean, single image MIME type
+const getCleanImageMimeType = (rawMimeType?: string): string | undefined => {
+  if (!rawMimeType) return undefined;
+  // Prioritize specific image types if present in a compound string
+  if (rawMimeType.includes('image/webp')) return 'image/webp';
+  if (rawMimeType.includes('image/jpeg')) return 'image/jpeg';
+  if (rawMimeType.includes('image/png')) return 'image/png';
+  if (rawMimeType.includes('image/gif')) return 'image/gif';
+  if (rawMimeType.includes('image/svg+xml')) return 'image/svg+xml';
+
+  // If it's already a simple, valid image MIME type (and not compound)
+  if (rawMimeType.startsWith('image/') && !rawMimeType.includes(',')) {
+    const knownSimpleTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/svg+xml', 'image/webp'];
+    if (knownSimpleTypes.includes(rawMimeType)) {
+      return rawMimeType;
+    }
+  }
+  // Fallback for unrecognized or complex types not caught above
+  return undefined; 
+};
 
 const CreateEventScreen: React.FC = () => {
   const navigation = useNavigation<CreateEventNavigationProp>();
@@ -256,7 +278,7 @@ const CreateEventScreen: React.FC = () => {
         if (status !== 'granted') { Alert.alert("Permission Required", "Permission to access photos is needed."); return; }
         try {
             let result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                mediaTypes: ImagePicker.MediaType.Images,
                 allowsMultipleSelection: true, 
                 quality: 0.8,
                 selectionLimit: 3 - imageAssets.length,
@@ -267,13 +289,22 @@ const CreateEventScreen: React.FC = () => {
                 const newAssets = result.assets.slice(0, maxToAdd);
                 if (result.assets.length > maxToAdd) { Alert.alert("Limit Reached",`Added ${newAssets.length} image(s). Max 3 total.`); }
                 const assetsToAdd: ImageAsset[] = newAssets.map(a => {
-                    // On web, ensure we have the uri and all needed properties
-                    const uri = Platform.OS === 'web' && (a as any).base64 && a.mimeType
-                        ? `data:${a.mimeType};base64,${(a as any).base64}`
+                    const cleanMimeType = getCleanImageMimeType(a.mimeType);
+
+                    // Use base64 to construct data URI only if cleanMimeType is valid
+                    const uri = Platform.OS === 'web' && (a as any).base64 && cleanMimeType
+                        ? `data:${cleanMimeType};base64,${(a as any).base64}`
                         : a.uri;
+                    
+                    // The mimeType for the ImageAsset should be the one uploadSingleImage will use.
+                    // If cleanMimeType is undefined (meaning original was complex/unknown), 
+                    // uploadSingleImage will rely on 'ext' from the original a.uri.
+                    // So, we pass cleanMimeType if available, otherwise the original a.mimeType.
+                    const effectiveMimeType = cleanMimeType || a.mimeType;
+
                     // Make sure fileName is either string or undefined, not null
                     const fileName = a.fileName || `image-${Date.now()}`;
-                    return { uri, mimeType: a.mimeType, fileName };
+                    return { uri, mimeType: effectiveMimeType, fileName };
                 });
                 setImageAssets(p => [...p, ...assetsToAdd]);
             }
@@ -312,10 +343,6 @@ const CreateEventScreen: React.FC = () => {
            const dataPrefix = uri.split(',')[0];
            const extractedMimeType = dataPrefix.match(/data:(.*?);base64/)?.[1];
            if (extractedMimeType) webMimeType = extractedMimeType;
-           // If the extracted type was webp, force it back to jpeg
-           if (webMimeType === 'image/webp') {
-               webMimeType = 'image/jpeg';
-           }
 
          } else {
            // Handle blob or regular URI
@@ -323,23 +350,24 @@ const CreateEventScreen: React.FC = () => {
            if (!response.ok) throw new Error(`Failed to fetch web URI: ${response.status}`);
            arrayBuffer = await response.arrayBuffer();
            
-           // Use content-type from response if available, but override if webp
-           const contentType = response.headers.get('content-type');
-           if (contentType) webMimeType = contentType;
-            // If the fetched type was webp, force it back to jpeg
-           if (webMimeType === 'image/webp') {
-               webMimeType = 'image/jpeg';
-           }
+           const contentTypeHeader = response.headers.get('content-type');
+           if (contentTypeHeader) webMimeType = contentTypeHeader;
          }
          
          if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty.");
          
-         console.log(`Uploading to Supabase with path: ${filePath}, contentType: ${webMimeType}`); // Debug log
+         let finalWebMimeType = getCleanImageMimeType(webMimeType);
+         if (!finalWebMimeType) {
+            console.warn(`[ImageUpload WEB] Could not determine a clean MIME type from '${webMimeType}' for path: ${filePath}. Falling back to image/${ext} or image/jpeg.`);
+            finalWebMimeType = getCleanImageMimeType(`image/${ext}`) || 'image/jpeg';
+         }
+         
+         console.log(`Uploading to Supabase with path: ${filePath}, finalContentType: ${finalWebMimeType}`);
          
          const { data: uploadData, error: uploadError } = await supabase.storage.from("event_posters").upload(filePath, arrayBuffer, { 
            cacheControl: "3600", 
            upsert: false, 
-           contentType: webMimeType // Use the potentially corrected MIME type
+           contentType: finalWebMimeType 
          });
          
          if (uploadError) {
@@ -356,17 +384,22 @@ const CreateEventScreen: React.FC = () => {
          if (!base64) throw new Error("Failed to read image file."); 
          const arrayBuffer = base64ToArrayBuffer(base64); 
          if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty."); 
-         // Use original mimeType or derived ext for native
-         let contentType = mimeType || `image/${uri.split('.').pop()?.toLowerCase().split('?')[0] || 'jpeg'}`; 
-         if (contentType === 'image/jpg') contentType = 'image/jpeg'; // Normalize jpg
-         if (ext === 'svg' && contentType !== 'image/svg+xml') contentType = 'image/svg+xml'; 
+         
+         let initialNativeMimeType = mimeType || `image/${ext}`;
+         let finalNativeMimeType = getCleanImageMimeType(initialNativeMimeType);
+         if (!finalNativeMimeType) {
+            console.warn(`[ImageUpload NATIVE] Could not determine a clean MIME type from '${initialNativeMimeType}' for path: ${filePath}. Falling back to image/${ext} or image/jpeg.`);
+            finalNativeMimeType = getCleanImageMimeType(`image/${ext}`) || 'image/jpeg';
+         }
+         if (finalNativeMimeType === 'image/jpg') finalNativeMimeType = 'image/jpeg'; // Normalize jpg
+         if (ext === 'svg' && finalNativeMimeType !== 'image/svg+xml') finalNativeMimeType = 'image/svg+xml';
 
-         console.log(`Uploading Native with path: ${filePath}, contentType: ${contentType}`); // Debug log
+         console.log(`Uploading Native with path: ${filePath}, finalContentType: ${finalNativeMimeType}`);
 
          const { data: uploadData, error: uploadError } = await supabase.storage.from("event_posters").upload(filePath, arrayBuffer, { 
            cacheControl: "3600", 
            upsert: false, 
-           contentType: contentType 
+           contentType: finalNativeMimeType
          }); 
          if (uploadError) {
             console.error("Supabase Native Upload Error Details:", uploadError); // Log detailed error
