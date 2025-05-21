@@ -1,7 +1,7 @@
 // components/Auth/OrganizerSignUpFlow.tsx (or wherever it resides)
 import React, { useState, useEffect, useRef } from 'react'; // Add useRef
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image, Platform, Dimensions } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image, Platform, Dimensions, Keyboard } from 'react-native';
+import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,6 +11,12 @@ import { APP_CONSTANTS } from '@/config/constants';
 // import { supabase } from '@/lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import TermsModal from '@/components/TermsModal'; // Import the modal
+
+// Import the RootStackParamList to properly type the navigation
+import type { RootStackParamList } from '@/navigation/AppNavigator'; // Adjust the import path as needed
+
+// Define the navigation prop type
+type OrganizerSignUpNavigationProp = NavigationProp<RootStackParamList>;
 
 // --- Define types --- 
 // type Step = 'account-details' | 'profile-details' | 'payment';
@@ -64,9 +70,9 @@ Refer to the main Vybr Terms & Conditions.
 **By checking the box, you acknowledge that you have read, understood, and agree to be bound by these Organizer Terms & Conditions.**`;
 
 const OrganizerSignUpFlow = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<OrganizerSignUpNavigationProp>();
   // Get new functions from useAuth
-  const { signUp, createOrganizerProfile, requestMediaLibraryPermissions, loading: authLoading } = useAuth();
+  const { signUp, createOrganizerProfile, requestMediaLibraryPermissions, loading: authLoading, checkOrganizerEmailExists } = useAuth();
 
   const [formData, setFormData] = useState({
     companyName: '',
@@ -98,6 +104,10 @@ const OrganizerSignUpFlow = () => {
   const [slideAnim] = useState(new Animated.Value(0));
   const [isTermsModalVisible, setIsTermsModalVisible] = useState(false);
 
+  // Email validation state
+  const [emailStatus, setEmailStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'error'>('idle');
+  const [emailFeedback, setEmailFeedback] = useState('');
+
   // Request permissions on mount
   useEffect(() => {
     requestMediaLibraryPermissions();
@@ -115,6 +125,13 @@ const OrganizerSignUpFlow = () => {
     } else {
       setFormData(prev => ({ ...prev, [field]: value }));
     }
+    
+    // Reset email validation when email is changed
+    if (field === 'email') {
+      setEmailStatus('idle');
+      setEmailFeedback('');
+    }
+    
     setError(''); // Clear error on any change
   };
 
@@ -151,13 +168,68 @@ const OrganizerSignUpFlow = () => {
     });
   };
 
+  // Email validation handler
+  const handleEmailBlur = async () => {
+    const email = formData.email.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    
+    console.log(`[OrganizerSignUpFlow] handleEmailBlur called with email: ${email}`);
+    
+    if (!email) {
+      setEmailStatus('invalid');
+      setEmailFeedback('Email is required.');
+      console.log('[OrganizerSignUpFlow] Email is empty');
+      return;
+    }
+    
+    if (!emailRegex.test(email)) {
+      setEmailStatus('invalid');
+      setEmailFeedback('Please enter a valid email address.');
+      console.log('[OrganizerSignUpFlow] Email format is invalid');
+      return;
+    }
+    
+    console.log('[OrganizerSignUpFlow] Checking email availability...');
+    setEmailStatus('checking');
+    setEmailFeedback('Checking availability...');
+    
+    try {
+      console.log('[OrganizerSignUpFlow] Calling checkOrganizerEmailExists...');
+      const result = await checkOrganizerEmailExists(email);
+      console.log(`[OrganizerSignUpFlow] checkOrganizerEmailExists result:`, result);
+      
+      if (result.error) {
+        setEmailStatus('error');
+        setEmailFeedback(result.error || 'Could not verify email.');
+        console.log(`[OrganizerSignUpFlow] Email check error: ${result.error}`);
+      } else if (result.exists) {
+        setEmailStatus('invalid');
+        setEmailFeedback('Email is already in use by an Organizer.');
+        console.log('[OrganizerSignUpFlow] Email already exists for an Organizer');
+      } else {
+        setEmailStatus('valid');
+        setEmailFeedback('Email available!');
+        console.log('[OrganizerSignUpFlow] Email is available for an Organizer');
+      }
+    } catch (e: any) {
+      console.error('[OrganizerSignUpFlow] Error in email check:', e);
+      setEmailStatus('error');
+      setEmailFeedback('Error checking email.');
+    }
+  };
+
   // Validation functions (remain mostly the same)
   const validateAccountDetailsStep = () => {
-      // ... (keep existing validation)
     if (!formData.companyName.trim()) { setError('Please enter your company name'); return false; }
     if (!formData.email.trim()) { setError('Please enter your company email'); return false; }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.email)) { setError('Please enter a valid email address'); return false; }
+    if (emailStatus !== 'valid') { 
+      if (emailStatus !== 'invalid' || !emailFeedback) {
+        setError('Please ensure your email is valid and available'); 
+      }
+      return false; 
+    }
     if (!formData.password) { setError('Please enter a password'); return false; }
     if (formData.password.length < 8) { setError('Password must be at least 8 characters long'); return false; }
     if (formData.password !== formData.confirmPassword) { setError('Passwords do not match'); return false; }
@@ -301,9 +373,16 @@ const OrganizerSignUpFlow = () => {
 
     switch (currentStep) {
       case 'account-details':
-        if (validateAccountDetailsStep()) {
-          goToNextStep('profile-details');
+        if (formData.email.trim() && emailStatus === 'idle') {
+          await handleEmailBlur();
+          if (!validateAccountDetailsStep()) {
+            return;
+          }
+        } else if (!validateAccountDetailsStep()) {
+          return;
         }
+        
+        goToNextStep('profile-details');
         break;
 
       case 'profile-details':
@@ -319,9 +398,8 @@ const OrganizerSignUpFlow = () => {
     }
   };
 
-  // Render company details step (No changes needed)
+  // Render company details step (Update with email validation UI)
   const renderAccountDetailsStep = () => (
-      // ... No changes here ...
       <View style={styles.stepContent}>
           <Text style={styles.stepTitle}>Company Details</Text>
 
@@ -336,15 +414,35 @@ const OrganizerSignUpFlow = () => {
           </View>
 
           <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Company Email</Text>
+              <View style={styles.labelRow}>
+                <Text style={styles.inputLabel}>Company Email</Text>
+                {emailStatus === 'checking' && <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={styles.inlineLoader} />}
+              </View>
               <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    emailStatus === 'invalid' && styles.inputError,
+                    emailStatus === 'valid' && styles.inputValid,
+                  ]}
                   placeholder="Enter your company email"
                   value={formData.email}
                   onChangeText={(text) => handleChange('email', text)}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  onBlur={() => {
+                    console.log('[OrganizerSignUpFlow] Email input onBlur triggered');
+                    handleEmailBlur();
+                  }}
               />
+              {emailFeedback ? (
+                <Text style={[
+                  styles.feedbackText, 
+                  emailStatus === 'valid' && styles.feedbackTextValid,
+                  (emailStatus === 'invalid' || emailStatus === 'error') && styles.feedbackTextError,
+                ]}>
+                  {emailFeedback}
+                </Text>
+              ) : null}
           </View>
 
           <View style={styles.inputContainer}>
@@ -564,7 +662,8 @@ const OrganizerSignUpFlow = () => {
   // Render current step with appropriate button action/text
   const renderCurrentStep = () => {
      // Determine if the main action button should be disabled
-      const isButtonDisabled = isLoading || authLoading; // Disable if local loading OR auth hook is loading
+      const isButtonDisabled = isLoading || authLoading || 
+        (currentStep === 'account-details' && emailStatus === 'checking');
 
       // Determine button text
       let buttonText = 'Continue';
@@ -624,23 +723,23 @@ const OrganizerSignUpFlow = () => {
         colors={[`${APP_CONSTANTS.COLORS.PRIMARY}05`, 'white']}
         style={styles.gradient}
       >
-        {/* Header remains the same */}
+        {/* Header with updated back button navigation */}
         <View style={styles.header}>
             <TouchableOpacity
                 style={styles.backButton}
                 onPress={() => {
                     if (currentStep === 'account-details') {
-                        navigation.goBack();
+                        // Navigate back to landing page from first step
+                        navigation.goBack(); // Use goBack instead of navigate to specific screen
                     } else {
                         const steps: Step[] = ['account-details', 'profile-details', 'payment'];
                         const currentIndex = steps.indexOf(currentStep);
                         if (currentIndex > 0) {
-                            // Go back with animation (optional, reuse goToNextStep logic reversed?)
-                            setCurrentStep(steps[currentIndex - 1]);
-                             // Reset slide animation if needed when going back
-                             slideAnim.setValue(0); // Or animate backwards
+                            // Go back to previous step with animation
+                            goToPreviousStep(steps[currentIndex - 1]);
                         } else {
-                             navigation.goBack(); // Fallback if already on first step
+                            // Fallback if already on first step
+                            navigation.goBack(); // Use goBack instead of navigate
                         }
                     }
                 }}
@@ -889,6 +988,32 @@ const styles = StyleSheet.create({
         color: 'white',
         fontWeight: '600',
         fontSize: 16,
+    },
+    inputValid: {
+        borderColor: APP_CONSTANTS.COLORS.SUCCESS || '#28a745', // Add fallback in case SUCCESS is not defined
+    },
+    inputError: {
+        borderColor: APP_CONSTANTS.COLORS.ERROR,
+    },
+    labelRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between', 
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    inlineLoader: {
+        marginLeft: 8,
+    },
+    feedbackText: {
+        fontSize: 12,
+        marginTop: 4,
+        paddingLeft: 2,
+    },
+    feedbackTextValid: {
+        color: APP_CONSTANTS.COLORS.SUCCESS || '#28a745', // Add fallback
+    },
+    feedbackTextError: {
+        color: APP_CONSTANTS.COLORS.ERROR,
     },
 });
 

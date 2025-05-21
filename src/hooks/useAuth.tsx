@@ -70,6 +70,9 @@ const AuthContext = createContext<{
     createOrganizerProfile: (profileData: CreateOrganizerProfileData) => Promise<{ error: any } | { success: boolean; logoUrl?: string | null }>;
     updatePremiumStatus: (userId: string, isPremium: boolean) => Promise<{ error: any } | { success: boolean }>;
     requestMediaLibraryPermissions: () => Promise<boolean>;
+    checkUsernameExists: (username: string) => Promise<{ exists: boolean, error?: string }>;
+    checkEmailExists: (email: string) => Promise<{ exists: boolean, error?: string }>; // For Music Lovers
+    checkOrganizerEmailExists: (email: string) => Promise<{ exists: boolean, error?: string }>; // For Organizers
 }>({
     session: null,
     loading: true,
@@ -85,6 +88,9 @@ const AuthContext = createContext<{
     createOrganizerProfile: async () => ({ error: 'Not implemented' }),
     updatePremiumStatus: async () => ({ error: 'Not implemented' }),
     requestMediaLibraryPermissions: async () => false,
+    checkUsernameExists: async () => ({ exists: false, error: 'Not implemented' }),
+    checkEmailExists: async () => ({ exists: false, error: 'Not implemented' }),
+    checkOrganizerEmailExists: async () => ({ exists: false, error: 'Not implemented' }),
 });
 
 // --- Provider Component ---
@@ -538,16 +544,67 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 return { error: new Error('Missing required fields (email, password, userType).') };
             }
 
+            // First check if this email exists in the specific profile table for this user type
+            // (this is a double check, we already do UI validation using our specific email check functions)
+            if (userType === 'organizer') {
+                console.log('[AuthProvider] signUp: Checking if email exists in organizer_profiles table...');
+                const result = await checkOrganizerEmailExists(email);
+                if (result.exists) {
+                    console.error('[AuthProvider] signUp: Email already exists in organizer_profiles table');
+                    return { error: new Error('This email is already registered as an Organizer.') };
+                }
+            } else if (userType === 'music_lover') {
+                console.log('[AuthProvider] signUp: Checking if email exists in music_lover_profiles table...');
+                const result = await checkEmailExists(email);
+                if (result.exists) {
+                    console.error('[AuthProvider] signUp: Email already exists in music_lover_profiles table');
+                    return { error: new Error('This email is already registered as a Music Lover.') };
+                }
+            }
+
             console.log('[AuthProvider] signUp: Calling Supabase auth.signUp...');
             const { data: authData, error: authError } = await supabase.auth.signUp({
                 email, password, options: { data: { user_type: userType, /* optional: first_name, last_name */ } }
             });
+            
             if (authError || !authData?.user) {
                 console.error('[AuthProvider] signUp: Supabase Auth Error:', JSON.stringify(authError, null, 2) || 'No user data returned');
-                if (authError?.message.includes('User already registered')) return { error: new Error('Email already in use. Please try logging in.') };
-                if (authError?.message.includes('Password should be')) return { error: new Error('Password is too weak. Please use a stronger one.') };
+                
+                // Customize the error based on its type
+                if (authError?.message.includes('User already registered')) {
+                    console.error('[AuthProvider] signUp: Email already registered in Supabase auth');
+                    
+                    // Try to get more information about the existing user type
+                    try {
+                        // Check if a user exists with this email in the opposite profile table
+                        const oppositeUserType = userType === 'organizer' ? 'music_lover' : 'organizer';
+                        const profileTable = oppositeUserType === 'organizer' ? 'organizer_profiles' : 'music_lover_profiles';
+                        
+                        console.log(`[AuthProvider] signUp: Checking if email exists in ${profileTable} table...`);
+                        const { count } = await supabase
+                            .from(profileTable)
+                            .select('*', { count: 'exact', head: true })
+                            .eq('email', email);
+                        
+                        if (count && count > 0) {
+                            const friendlyType = oppositeUserType === 'organizer' ? 'an Organizer' : 'a Music Lover';
+                            return { error: new Error(`This email is already registered as ${friendlyType}. Please use a different email or login via the ${friendlyType} portal.`) };
+                        }
+                    } catch (e) {
+                        console.error('[AuthProvider] signUp: Error checking opposite profile table:', e);
+                    }
+                    
+                    // Default message if we couldn't determine more details
+                    return { error: new Error('Email already in use. Please try logging in or use a different email.') };
+                }
+                
+                if (authError?.message.includes('Password should be')) {
+                    return { error: new Error('Password is too weak. Please use a stronger one.') };
+                }
+                
                 return { error: authError || new Error('Sign up failed. Please try again.') };
             }
+            
             const userId = authData.user.id;
             console.log('[AuthProvider] signUp: Auth user created:', userId);
 
@@ -932,6 +989,125 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         }
     };
 
+    const checkUsernameExists = async (username: string): Promise<{ exists: boolean, error?: string }> => {
+        console.log(`[AuthProvider] checkUsernameExists: Checking username "${username}"`);
+        if (!username || username.trim().length < 3) {
+            // Basic client-side check, though MusicLoverSignUpFlow also does this
+            return { exists: false, error: "Username must be at least 3 characters." };
+        }
+        try {
+            // Check against music_lover_profiles table - username field
+            const { data: mlData, error: mlError, count: mlCount } = await supabase
+                .from('music_lover_profiles')
+                .select('username', { count: 'exact', head: true })
+                .eq('username', username.trim());
+
+            if (mlError) {
+                console.error('[AuthProvider] checkUsernameExists: Supabase error:', mlError);
+                return { exists: false, error: `Error checking username: ${mlError.message}` };
+            }
+
+            // If found in music_lover_profiles, return early
+            if (mlCount !== null && mlCount > 0) {
+                console.log(`[AuthProvider] checkUsernameExists: Username "${username}" exists in music_lover_profiles`);
+                return { exists: true };
+            }
+
+            // For organizers, we don't have username but company_name should be unique
+            // Check if this username exists as a company_name in organizer_profiles
+            const { data: orgData, error: orgError, count: orgCount } = await supabase
+                .from('organizer_profiles')
+                .select('company_name', { count: 'exact', head: true })
+                .eq('company_name', username.trim());
+
+            if (orgError) {
+                console.error('[AuthProvider] checkUsernameExists: Supabase error checking organizer_profiles:', orgError);
+                return { exists: false, error: `Error checking username: ${orgError.message}` };
+            }
+
+            const totalCount = (mlCount || 0) + (orgCount || 0);
+            console.log(`[AuthProvider] checkUsernameExists: Count for username "${username}": ${totalCount} (ML: ${mlCount}, Org: ${orgCount})`);
+            return { exists: totalCount > 0 };
+
+        } catch (e: any) {
+            console.error('[AuthProvider] checkUsernameExists: Unexpected error:', e);
+            return { exists: false, error: 'An unexpected error occurred while checking username.' };
+        }
+    };
+
+    // This function is now specifically for Music Lover email checks
+    const checkEmailExists = async (email: string): Promise<{ exists: boolean, error?: string }> => {
+        console.log(`[AuthProvider] checkEmailExists (MusicLover): Checking email "${email}"`);
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!email || !emailRegex.test(email.trim())) {
+            return { exists: false, error: "Invalid email format." };
+        }
+        try {
+            // Check for email in music_lover_profiles table
+            console.log(`[AuthProvider] checkEmailExists (MusicLover): Checking music_lover_profiles table for email "${email}"`);
+            const { error: mlError, count: mlCount } = await supabase
+                .from('music_lover_profiles')
+                .select('email', { count: 'exact', head: true })
+                .eq('email', email.trim());
+
+            if (mlError) {
+                console.error('[AuthProvider] checkEmailExists (MusicLover): Supabase error:', mlError);
+                return { exists: false, error: `Error checking email: ${mlError.message}` };
+            }
+
+            if (mlCount !== null && mlCount > 0) {
+                console.log(`[AuthProvider] checkEmailExists (MusicLover): Email "${email}" exists in music_lover_profiles`);
+                return { exists: true };
+            }
+            
+            console.log(`[AuthProvider] checkEmailExists (MusicLover): Email "${email}" does NOT exist in music_lover_profiles`);
+            return { exists: false };
+
+        } catch (e: any) {
+            console.error('[AuthProvider] checkEmailExists (MusicLover): Unexpected error:', e);
+            return { exists: false, error: 'An unexpected error occurred while checking email.' };
+        }
+    };
+
+    // New function specifically for Organizer email checks
+    const checkOrganizerEmailExists = async (email: string): Promise<{ exists: boolean, error?: string }> => {
+        console.log(`[AuthProvider] checkOrganizerEmailExists: Checking email "${email}"`);
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!email || !emailRegex.test(email.trim())) {
+            return { exists: false, error: "Invalid email format." };
+        }
+        try {
+            console.log(`[AuthProvider] checkOrganizerEmailExists: Querying organizer_profiles table for email "${email}"`);
+            const { data, error: orgError, count } = await supabase
+                .from('organizer_profiles')
+                .select('email', { count: 'exact' }) // Remove head:true to see if data comes back
+                .eq('email', email.trim())
+                .limit(1); // We only need to know if at least one exists
+
+            console.log(`[AuthProvider] checkOrganizerEmailExists: Query result - data:`, data, `count:`, count, `error:`, orgError);
+
+            if (orgError) {
+                console.error('[AuthProvider] checkOrganizerEmailExists: Supabase error:', orgError);
+                return { exists: false, error: `Error checking email: ${orgError.message}` };
+            }
+
+            // Check if data array is not empty OR if count is greater than 0
+            // Supabase might return data and count, or just one of them depending on version/query.
+            const emailExists = (data && data.length > 0) || (count !== null && count > 0);
+
+            if (emailExists) {
+                console.log(`[AuthProvider] checkOrganizerEmailExists: Email "${email}" EXISTS in organizer_profiles`);
+                return { exists: true };
+            }
+            
+            console.log(`[AuthProvider] checkOrganizerEmailExists: Email "${email}" does NOT exist in organizer_profiles`);
+            return { exists: false };
+
+        } catch (e: any) {
+            console.error('[AuthProvider] checkOrganizerEmailExists: Unexpected error:', e);
+            return { exists: false, error: 'An unexpected error occurred while checking email.' };
+        }
+    };
 
     // Provide context value
     return (
@@ -949,7 +1125,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             createMusicLoverProfile,
             createOrganizerProfile,
             updatePremiumStatus,
-            requestMediaLibraryPermissions
+            requestMediaLibraryPermissions,
+            checkUsernameExists,
+            checkEmailExists, // For Music Lovers
+            checkOrganizerEmailExists // For Organizers
         }}>
             {children}
         </AuthContext.Provider>
