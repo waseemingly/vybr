@@ -797,7 +797,7 @@ const ProfileScreen: React.FC = () => {
                         onPress={() => {
                             if (userId && musicLoverProfile?.email) {
                                 console.log(`[ProfileScreen] Navigating to PremiumSignupScreen for user: ${userId}, email: ${musicLoverProfile.email}`);
-                                navigation.navigate('PremiumSignupScreen', {
+                                navigation.navigate('UpgradeScreen', {
                                     userId: userId,
                                     userEmail: musicLoverProfile.email,
                                 });

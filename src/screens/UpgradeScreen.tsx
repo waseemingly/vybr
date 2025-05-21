@@ -10,10 +10,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAuth, MusicLoverBio } from "@/hooks/useAuth";
 import { APP_CONSTANTS } from '../config/constants'; // Adjust path if needed
 
 // Basic placeholder screen for upgrading to premium
 const UpgradeScreen: React.FC = () => {
+    const { session, loading: authLoading, logout, musicLoverProfile, refreshUserProfile } = useAuth();
+    const userId = session?.user?.id;
     const navigation = useNavigation();
 
     const premiumFeatures = [
@@ -57,8 +60,19 @@ const UpgradeScreen: React.FC = () => {
 
                 {/* Placeholder for pricing/purchase options */}
                 <View style={styles.pricingSection}>
-                     <TouchableOpacity style={styles.upgradeButton} onPress={() => { /* TODO: Implement purchase flow */ }}>
-                        <Text style={styles.upgradeButtonText}>Upgrade Now - $X.XX/month</Text>
+                     <TouchableOpacity style={styles.upgradeButton} onPress={() => {
+                            if (userId && musicLoverProfile?.email) {
+                                console.log(`[ProfileScreen] Navigating to PremiumSignupScreen for user: ${userId}, email: ${musicLoverProfile.email}`);
+                                navigation.navigate('PremiumSignupScreen', {
+                                    userId: userId,
+                                    userEmail: musicLoverProfile.email,
+                                });
+                            } else {
+                                console.warn('[ProfileScreen] Cannot navigate to PremiumSignupScreen: userId or email missing.', { userId, email: musicLoverProfile?.email });
+                                Alert.alert("Error", "Could not initiate premium upgrade. User details are missing. Please try logging out and back in.");
+                            }
+                        }}>
+                        <Text style={styles.upgradeButtonText}>Upgrade Now - $4.99/month</Text>
                     </TouchableOpacity>
                     <Text style={styles.disclaimer}>Billing recurs monthly. Cancel anytime.</Text>
                  </View>
