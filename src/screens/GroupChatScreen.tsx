@@ -463,7 +463,11 @@ const styles = StyleSheet.create({
     timeTextBelowBubble: { marginTop: 2, paddingHorizontal: 5, color: '#9CA3AF', },
     timeTextSent: { alignSelf: 'flex-end', marginRight: 5 },
     timeTextReceived: { alignSelf: 'flex-start', marginLeft: 0 },
-    sectionHeader: { alignSelf: 'center', marginVertical: 10, },
+    sectionHeader: {
+        alignSelf: 'center',
+        marginVertical: 10,
+        backgroundColor: '#FFFFFF',
+    },
     sectionHeaderText: { fontSize: 11, fontWeight: '500', color: '#6B7280', backgroundColor: 'rgba(229, 231, 235, 0.7)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, overflow: 'hidden'},
     inputToolbar: { flexDirection: 'row', alignItems: 'flex-end', paddingVertical: 8, paddingHorizontal: 10, borderTopWidth: 1, borderTopColor: '#E5E7EB', backgroundColor: '#FFFFFF', paddingBottom: Platform.OS === 'ios' ? 5 : 8, },
     attachButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginRight: 5, marginBottom: Platform.OS === 'ios' ? 0 : 1, },
