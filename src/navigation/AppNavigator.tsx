@@ -265,6 +265,7 @@ const MainAppStack = () => {
                  <MainStack.Screen name="LinkMusicServicesScreen" component={LinkMusicServicesScreen} options={{ title: 'Link Music Services' }} />
                  <MainStack.Screen name="PremiumSignupScreen" component={PremiumSignupScreen} options={{ title: 'Payment' }} />
                  <MainStack.Screen name="PaymentConfirmationScreen" component={PaymentConfirmationScreen} options={{ title: 'Payment Confirmation' }} />
+                 <MainStack.Screen name="PaymentSuccessScreen" component={PaymentSuccessScreen} />
              </>
         )}
         {/* Screens accessible by both modes */}
