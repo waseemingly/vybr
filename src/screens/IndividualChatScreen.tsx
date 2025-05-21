@@ -917,6 +917,7 @@ const styles = StyleSheet.create({
     sectionHeader: {
         alignItems: 'center',
         marginVertical: 10,
+        backgroundColor: '#FFFFFF',
     },
     sectionHeaderText: {
         fontSize: 14,
