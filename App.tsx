@@ -12,7 +12,9 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
+import { Platform } from 'react-native';
+//import { Linking } from 'react-native';
+import * as Linking from 'expo-linking';
 // IMPORT from custom wrapper
 import { StripeProvider } from './src/lib/stripe'; 
 
@@ -36,18 +38,35 @@ if (!STRIPE_PUBLISHABLE_KEY) {
   // In a real app, you might want to show an error UI or prevent the app from loading
 }
 
+// Configure deep linking for web
+const linking = {
+  prefixes: [Linking.createURL('/')],
+  config: {
+    screens: {
+      MainApp: {
+        screens: {
+          PaymentConfirmationScreen: 'payment-confirmation',
+          PremiumSignupScreen: 'premium-signup',
+          PaymentSuccessScreen: 'payment-success',
+        },
+      },
+    },
+  },
+};
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <StripeProvider 
-        publishableKey={STRIPE_PUBLISHABLE_KEY} // This will be ignored by the web mock due to its type
-        // merchantIdentifier="merchant.com.your.app.id"
-        // urlScheme="yourappcustomscheme"
+        publishableKey={STRIPE_PUBLISHABLE_KEY}
       >
         <OrganizerModeProvider>
           <AuthProvider navigationRef={navigationRef as React.RefObject<NavigationContainerRef<any>>}>
             <SafeAreaProvider>
-              <NavigationContainer ref={navigationRef}>
+              <NavigationContainer 
+                ref={navigationRef}
+                linking={Platform.OS === 'web' ? linking : undefined}
+              >
                 <AppNavigator />
                 <StatusBar style="auto" />
               </NavigationContainer>
