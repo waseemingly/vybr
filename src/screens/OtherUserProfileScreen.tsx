@@ -48,7 +48,17 @@ interface ExpandedSections {
 
 type OtherUserProfileRouteProp = RouteProp<RootStackParamList, 'OtherUserProfileScreen'>;
 type OtherUserProfileNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>;
-type FriendshipStatusDirect = 'not_friends' | 'friends' | 'blocked_by_you' | 'blocked_by_them' | 'loading' | 'error';
+type FriendshipStatusDirect =
+    | 'not_friends'
+    | 'friends'
+    | 'pending_sent'       // Current user sent a request to profileUser
+    | 'pending_received'   // profileUser sent a request to current user
+    | 'rejected_by_you'    // Current user rejected profileUser's request
+    | 'rejected_by_them'   // profileUser rejected current user's request
+    | 'blocked_by_you'
+    | 'blocked_by_them'
+    | 'loading'
+    | 'error';
 
 const OtherUserProfileScreen: React.FC = () => {
     const route = useRoute<OtherUserProfileRouteProp>();
@@ -180,43 +190,79 @@ const OtherUserProfileScreen: React.FC = () => {
         console.log(`[OtherUserProfileScreen] Fetching interaction status between ${currentUserId} and ${profileUserId}`);
         setFriendshipStatus('loading');
         setIsMuted(false);
-        setIsBlocked(false);
+        // setIsBlocked(false); // Reset block status, will be determined below
 
         try {
-            // 1. Check Block Status
+            // 1. Check Block Status (Supersedes other statuses for UI purposes)
             const { data: blockData, error: blockError } = await supabase
                 .from('blocks')
                 .select('blocker_id')
-                .or(`and(blocker_id.eq.${currentUserId},blocked_id.eq.${profileUserId}),and(blocker_id.eq.${profileUserId},blocked_id.eq.${currentUserId})`);
+                .or(`and(blocker_id.eq.${currentUserId},blocked_id.eq.${profileUserId}),and(blocker_id.eq.${profileUserId},blocked_id.eq.${currentUserId})`)
+                .limit(1); // Only need to know if *any* block exists
+
             if (blockError) throw new Error(`Block check failed: ${blockError.message}`);
+
             const blockedByCurrentUser = blockData?.some(b => b.blocker_id === currentUserId) ?? false;
             const blockedByProfileUser = blockData?.some(b => b.blocker_id === profileUserId) ?? false;
-            setIsBlocked(blockedByCurrentUser);
+
+            setIsBlocked(blockedByCurrentUser); // Set main isBlocked state for UI controls
+
             if (blockedByCurrentUser) {
                 console.log("[OtherUserProfileScreen] Interaction Status: Blocked by You");
                 setFriendshipStatus('blocked_by_you');
-                setIsMuted(false); return;
+                setIsMuted(false); // Mute status is irrelevant if blocked
+                return;
             }
             if (blockedByProfileUser) {
                 console.log("[OtherUserProfileScreen] Interaction Status: Blocked by Them");
                 setFriendshipStatus('blocked_by_them');
-                setIsMuted(false); return;
+                setIsMuted(false);
+                return;
             }
 
-            // 2. Check Friendship Status
-            console.log("[OtherUserProfileScreen] Checking for 'accepted' friendship...");
-            const { data: friendData, error: friendError } = await supabase
-                .from('friends')
-                .select('status')
-                .or(`and(user_id_1.eq.${currentUserId},user_id_2.eq.${profileUserId}),and(user_id_1.eq.${profileUserId},user_id_2.eq.${currentUserId})`)
-                .eq('status', 'accepted')
-                .maybeSingle();
-            if (friendError) throw new Error(`Friend check (accepted) failed: ${friendError.message}`);
-            const isCurrentlyFriends = !!friendData;
-            setFriendshipStatus(isCurrentlyFriends ? 'friends' : 'not_friends');
-            console.log(`[OtherUserProfileScreen] Interaction Status (Friendship): ${isCurrentlyFriends ? 'Friends (accepted)' : 'Not friends (or pending/rejected)'}`);
+            // 2. Check Friendship Status (if not blocked)
+            // Determine user_id_low and user_id_high for querying the unique_friendship
+            const user_id_low = currentUserId < profileUserId ? currentUserId : profileUserId;
+            const user_id_high = currentUserId < profileUserId ? profileUserId : currentUserId;
 
-            // 3. Check Mute Status
+            console.log(`[OtherUserProfileScreen] Checking friendship: low=${user_id_low}, high=${user_id_high}`);
+            const { data: friendRow, error: friendError } = await supabase
+                .from('friends')
+                .select('user_id_1, user_id_2, status, requester_id')
+                .eq('user_id_low', user_id_low)
+                .eq('user_id_high', user_id_high)
+                .maybeSingle(); // Expect at most one row due to unique_friendship
+
+            if (friendError) throw new Error(`Friend check failed: ${friendError.message}`);
+
+            if (friendRow) {
+                console.log("[OtherUserProfileScreen] Friend row found:", friendRow);
+                if (friendRow.status === 'accepted') {
+                    setFriendshipStatus('friends');
+                } else if (friendRow.status === 'pending') {
+                    // user_id_1 is always the initial sender in 'pending' state
+                    if (friendRow.user_id_1 === currentUserId) {
+                        setFriendshipStatus('pending_sent');
+                    } else { // friendRow.user_id_1 === profileUserId
+                        setFriendshipStatus('pending_received');
+                    }
+                } else if (friendRow.status === 'rejected') {
+                    // requester_id indicates who performed the rejection
+                    if (friendRow.requester_id === currentUserId) { // You rejected their request
+                        setFriendshipStatus('rejected_by_you');
+                    } else { // They rejected your request (or you rejected theirs and they are requester_id of rejected status)
+                        setFriendshipStatus('rejected_by_them');
+                    }
+                } else {
+                    console.warn("[OtherUserProfileScreen] Unknown friend status:", friendRow.status);
+                    setFriendshipStatus('not_friends'); // Fallback
+                }
+            } else {
+                console.log("[OtherUserProfileScreen] No friend row found. Status: not_friends");
+                setFriendshipStatus('not_friends');
+            }
+
+            // 3. Check Mute Status (only if not blocked)
             console.log("[OtherUserProfileScreen] Checking mute status...");
             const { count: muteCount, error: muteError } = await supabase
                  .from('muted_users')
@@ -230,14 +276,13 @@ const OtherUserProfileScreen: React.FC = () => {
 
         } catch (err: any) {
              console.error("[OtherUserProfileScreen] Error fetching interaction status:", err);
-             setFriendshipStatus('error');
-             setIsMuted(false);
-             setIsBlocked(false);
+             setFriendshipStatus('error'); // Keep a general error state
+             // Do not reset isBlocked here if it was determined before the error
+             // setIsMuted(false); // Mute status might be unreliable
          }
     }, [currentUserId, profileUserId]);
 
     // --- useEffect Hooks (Initial fetch, Focus effect, Interaction after load, Header options) ---
-    // These hooks remain unchanged from previous versions
     useEffect(() => {
         setIsLoading(true);
         setProfileData(null);
@@ -353,79 +398,41 @@ const OtherUserProfileScreen: React.FC = () => {
             console.log("[OtherUserProfileScreen] Add friend conditions not met:", { currentUserIdPresent: !!currentUserId, profileUserIdPresent: !!profileUserId, status: friendshipStatus, isLoading });
             return;
         }
-        console.log(`[OtherUserProfileScreen] Initiating 'Add Friend' action for: ${profileUserId}`);
+        console.log(`[OtherUserProfileScreen] Initiating 'Send Friend Request' action for: ${profileUserId}`);
         setFriendshipStatus('loading');
 
-        const id1 = currentUserId < profileUserId ? currentUserId : profileUserId;
-        const id2 = currentUserId < profileUserId ? profileUserId : currentUserId;
-
+        // user_id_1 is sender, user_id_2 is receiver for 'pending'
+        // requester_id is also sender for 'pending'
         try {
-            console.log(`[OtherUserProfileScreen] Checking for existing relationship: user_id_low=${id1}, user_id_high=${id2}`);
-            const { data: existingRelation, error: checkError } = await supabase
+            const { error: insertError } = await supabase
                 .from('friends')
-                .select('id, status, requester_id')
-                .eq('user_id_low', id1)
-                .eq('user_id_high', id2)
-                .maybeSingle();
+                .insert({
+                    user_id_1: currentUserId, // Sender
+                    user_id_2: profileUserId, // Receiver
+                    status: 'pending',
+                    requester_id: currentUserId // Sender is the requester of 'pending' state
+                });
 
-            if (checkError) {
-                console.error("[OtherUserProfileScreen] Error checking for existing relationship:", JSON.stringify(checkError, null, 2));
-                throw new Error(`Failed to check relationship: ${checkError.message}`);
-            }
-
-            if (existingRelation) {
-                console.log(`[OtherUserProfileScreen] Found existing relationship:`, existingRelation);
-                if (existingRelation.status === 'accepted') {
-                    console.warn("[OtherUserProfileScreen] Relationship already 'accepted'. Correcting state.");
-                    setFriendshipStatus('friends');
-                    fetchFriendsCount();
-                    await fetchInteractionStatus();
+            if (insertError) {
+                if (insertError.message?.toLowerCase().includes('rls') || insertError.message?.toLowerCase().includes('policy')) {
+                   throw new Error(`Permission denied: ${insertError.message}`);
+                } else if (insertError.code === '23505') { // Unique violation
+                    console.warn("[OtherUserProfileScreen] Attempted to send request but a relationship already exists. Fetching latest status.");
+                    await fetchInteractionStatus(); // Refresh status to reflect existing relation
                     return;
                 }
-                 else if (existingRelation.status === 'pending' && existingRelation.requester_id === profileUserId) {
-                    console.log("[OtherUserProfileScreen] Existing request was pending from other user. Accepting it.");
-                    const { error: updateError } = await supabase
-                        .from('friends')
-                        .update({ status: 'accepted', requester_id: currentUserId, updated_at: new Date().toISOString() })
-                        .eq('id', existingRelation.id);
-                    if (updateError) throw new Error(`Failed to accept request: ${updateError.message}`);
-                    console.log("[OtherUserProfileScreen] Successfully updated status to 'accepted'.");
-                    setFriendshipStatus('friends');
-                    fetchFriendsCount();
-                }
-                 else {
-                    console.log(`[OtherUserProfileScreen] Existing relationship status is '${existingRelation.status}'. Attempting to set to 'accepted'.`);
-                    const { error: updateError } = await supabase
-                       .from('friends')
-                       .update({ status: 'accepted', requester_id: currentUserId, updated_at: new Date().toISOString() })
-                       .eq('id', existingRelation.id);
-                    if (updateError) throw new Error(`Failed to force accept: ${updateError.message}. Check RLS.`);
-                    console.log("[OtherUserProfileScreen] Successfully forced status to 'accepted'.");
-                    setFriendshipStatus('friends');
-                    fetchFriendsCount();
+                else {
+                   throw new Error(`Failed to send friend request: ${insertError.message}`);
                 }
             }
-             else {
-                console.log("[OtherUserProfileScreen] No existing relationship found. Inserting new 'accepted' record.");
-                const { error: insertError } = await supabase
-                    .from('friends')
-                    .insert({ user_id_1: id1, user_id_2: id2, status: 'accepted', requester_id: currentUserId });
-                if (insertError) {
-                    if (insertError.message?.toLowerCase().includes('rls') || insertError.message?.toLowerCase().includes('policy')) {
-                       throw new Error(`Permission denied: ${insertError.message}`);
-                    } else {
-                       throw new Error(`Failed to insert friendship: ${insertError.message}`);
-                    }
-                }
-                console.log("[OtherUserProfileScreen] Successfully inserted new 'accepted' friendship.");
-                setFriendshipStatus('friends');
-                fetchFriendsCount();
-            }
+            console.log("[OtherUserProfileScreen] Successfully sent friend request.");
+            setFriendshipStatus('pending_sent'); // Update UI to reflect sent request
+            // fetchFriendsCount(); // No need to fetch count for pending requests generally
 
         } catch (err: any) {
-            console.error("[OtherUserProfileScreen] Error caught during 'Add Friend' action:", err);
-            Alert.alert("Error", `Could not add friend: ${err.message || 'An unknown error occurred.'}`);
-            await fetchInteractionStatus();
+            console.error("[OtherUserProfileScreen] Error caught during 'Send Friend Request' action:", err);
+            Alert.alert("Error", `Could not send friend request: ${err.message || 'An unknown error occurred.'}`);
+            await fetchInteractionStatus(); // Re-fetch to get the correct current state
         }
     };
 
@@ -503,7 +510,7 @@ const OtherUserProfileScreen: React.FC = () => {
     const handleUnfriend = () => {
         console.log("[handleUnfriend] Function called. Current friendshipStatus:", friendshipStatus);
 
-        // Pre-conditions check
+        // Pre-conditions check: Only allow unfriend if status is 'friends'
         if (!currentUserId || !profileUserId || friendshipStatus !== 'friends' || isLoading) {
             console.log("[OtherUserProfileScreen] Unfriend conditions not met:", {
                 currentUserIdPresent: !!currentUserId,
@@ -518,6 +525,84 @@ const OtherUserProfileScreen: React.FC = () => {
         setShowUnfriendConfirmModal(true); // Show the custom modal
     };
 
+    // --- NEW HANDLERS FOR FRIEND REQUESTS ---
+    const handleCancelRequest = async () => {
+        if (!currentUserId || !profileUserId || friendshipStatus !== 'pending_sent' || isLoading) return;
+        console.log(`[OtherUserProfileScreen] Cancelling friend request to: ${profileUserId}`);
+        setFriendshipStatus('loading');
+        try {
+            // Delete the 'pending' request where current user is user_id_1 (sender)
+            const { error } = await supabase
+                .from('friends')
+                .delete()
+                .eq('user_id_1', currentUserId)
+                .eq('user_id_2', profileUserId)
+                .eq('status', 'pending');
+            if (error) throw error;
+            console.log("[OtherUserProfileScreen] Friend request cancelled.");
+            setFriendshipStatus('not_friends');
+        } catch (err: any) {
+            console.error("[OtherUserProfileScreen] Error cancelling friend request:", err);
+            Alert.alert("Error", "Could not cancel friend request.");
+            await fetchInteractionStatus();
+        }
+    };
+
+    const handleAcceptRequest = async () => {
+        if (!currentUserId || !profileUserId || friendshipStatus !== 'pending_received' || isLoading) return;
+        console.log(`[OtherUserProfileScreen] Accepting friend request from: ${profileUserId}`);
+        setFriendshipStatus('loading');
+        try {
+            // Update the 'pending' request where current user is user_id_2 (receiver)
+            // and profileUser is user_id_1 (sender)
+            const { error } = await supabase
+                .from('friends')
+                .update({ status: 'accepted', requester_id: currentUserId /* Current user is accepting */ })
+                .eq('user_id_1', profileUserId) // Original sender
+                .eq('user_id_2', currentUserId) // Original receiver (current user)
+                .eq('status', 'pending');
+            if (error) throw error;
+            console.log("[OtherUserProfileScreen] Friend request accepted.");
+            setFriendshipStatus('friends');
+            fetchFriendsCount(); // Update friend count
+        } catch (err: any) {
+            console.error("[OtherUserProfileScreen] Error accepting friend request:", err);
+            Alert.alert("Error", "Could not accept friend request.");
+            await fetchInteractionStatus();
+        }
+    };
+
+    const handleDeclineRequest = async () => {
+        if (!currentUserId || !profileUserId || friendshipStatus !== 'pending_received' || isLoading) return;
+        console.log(`[OtherUserProfileScreen] Declining friend request from: ${profileUserId}`);
+        setFriendshipStatus('loading');
+        try {
+            // Option 1: Update status to 'rejected'
+            const { error } = await supabase
+                .from('friends')
+                .update({ status: 'rejected', requester_id: currentUserId /* Current user is declining */ })
+                .eq('user_id_1', profileUserId) // Original sender
+                .eq('user_id_2', currentUserId) // Original receiver (current user)
+                .eq('status', 'pending');
+
+            // Option 2: Delete the request row entirely (simpler, less state to manage for 'rejected')
+            // const { error } = await supabase
+            //     .from('friends')
+            //     .delete()
+            //     .eq('user_id_1', profileUserId)
+            //     .eq('user_id_2', currentUserId)
+            //     .eq('status', 'pending');
+
+            if (error) throw error;
+            console.log("[OtherUserProfileScreen] Friend request declined.");
+            setFriendshipStatus('rejected_by_you'); // Or 'not_friends' if deleting
+        } catch (err: any) {
+            console.error("[OtherUserProfileScreen] Error declining friend request:", err);
+            Alert.alert("Error", "Could not decline friend request.");
+            await fetchInteractionStatus();
+        }
+    };
+    
     // handleToggleMute, handleBlock, handleUnblock, submitReport - remain unchanged
     const handleToggleMute = async () => {
         if (!currentUserId || !profileUserId || isBlocked || friendshipStatus === 'blocked_by_them') return;
@@ -768,59 +853,72 @@ const OtherUserProfileScreen: React.FC = () => {
         const currentStatus = friendshipStatus;
         const isLoadingInteraction = currentStatus === 'loading';
 
-        const buttonStyle = [styles.actionButton, styles.friendButton];
-        let iconName: React.ComponentProps<typeof Feather>['name'] = 'user-plus';
-        let buttonText = 'Add Friend';
-        let onPress: () => void | Promise<void> = handleAddFriendDirectly;
-        let disabled = isLoadingInteraction || isBlocked || currentStatus === 'blocked_by_you' || currentStatus === 'error';
+        let primaryButtonConfig: { text: string; icon: React.ComponentProps<typeof Feather>['name']; onPress: () => void; style?: any; textStyle?: any; disabled?: boolean } | null = null;
+        let secondaryButtonConfig: { text: string; onPress: () => void; style?: any; } | null = null;
+
+        const baseButtonStyle = [styles.actionButton];
+        const primaryButtonStyle = [...baseButtonStyle, styles.friendButton];
+        const secondaryButtonStyle = [...baseButtonStyle, styles.secondaryFriendAction];
+        const destructiveButtonStyle = [...baseButtonStyle, styles.destructiveFriendAction];
+
 
         switch (currentStatus) {
             case 'loading':
-                buttonText = 'Loading...';
+                primaryButtonConfig = { text: 'Loading...', icon: 'loader', onPress: () => {}, disabled: true, style: [styles.actionButton, styles.disabledButton] };
                 break;
             case 'friends':
-                iconName = 'user-check';
-                buttonText = 'Friends';
-                buttonStyle.length = 0;
-                buttonStyle.push(styles.actionButton, styles.friendsButton);
-                onPress = handleUnfriend;
-                disabled = isLoadingInteraction;
+                primaryButtonConfig = { text: 'Friends', icon: 'user-check', onPress: handleUnfriend, style: [styles.actionButton, styles.friendsButton], textStyle: styles.actionButtonTextDark };
                 break;
             case 'not_friends':
-                iconName = 'user-plus';
-                buttonText = 'Add Friend';
-                onPress = handleAddFriendDirectly;
-                disabled = isLoadingInteraction;
+            case 'rejected_by_you': // After you reject, you can send a request
+            case 'rejected_by_them': // After they reject, you can send a request again
+                primaryButtonConfig = { text: 'Send Request', icon: 'user-plus', onPress: handleAddFriendDirectly, style: primaryButtonStyle };
                 break;
-             case 'error':
-                 buttonText = 'Error';
-                 iconName = 'alert-circle';
-                 buttonStyle.push(styles.disabledButton);
-                 disabled = true;
-                 onPress = () => {
-                     Alert.alert("Error", "Could not determine friendship status. Please try again later.");
-                     fetchInteractionStatus();
-                 };
+            case 'pending_sent':
+                primaryButtonConfig = { text: 'Cancel Request', icon: 'x-circle', onPress: handleCancelRequest, style: destructiveButtonStyle };
+                break;
+            case 'pending_received':
+                primaryButtonConfig = { text: 'Accept Request', icon: 'check-circle', onPress: handleAcceptRequest, style: [styles.actionButton, styles.acceptButton] };
+                secondaryButtonConfig = { text: 'Decline', onPress: handleDeclineRequest, style: destructiveButtonStyle };
+                break;
+            case 'error':
+                 primaryButtonConfig = { text: 'Error', icon: 'alert-circle', onPress: () => { Alert.alert("Error", "Could not determine friendship status. Please try again later."); fetchInteractionStatus(); }, style: [styles.actionButton, styles.disabledButton], disabled: true };
                  break;
-            case 'blocked_by_you':
-                return null;
+            // No default case needed; if no primaryButtonConfig is set, function returns null below.
+            // Cases for 'blocked_by_you' and 'blocked_by_them' are removed
+            // as the main component rendering should prevent this function from being called with these statuses.
         }
 
+        if (!primaryButtonConfig) return null;
+
         return (
-            <TouchableOpacity
-                style={[...buttonStyle, disabled && styles.disabledButton]}
-                onPress={onPress}
-                disabled={disabled}
-            >
-                {isLoadingInteraction ? (
-                     <ActivityIndicator size="small" color={friendshipStatus === 'friends' ? APP_CONSTANTS.COLORS.SUCCESS_DARK : APP_CONSTANTS.COLORS.WHITE} style={{ marginRight: 8 }}/>
-                 ) : (
-                     <Feather name={iconName} size={16} color={friendshipStatus === 'friends' ? APP_CONSTANTS.COLORS.SUCCESS_DARK : APP_CONSTANTS.COLORS.WHITE} />
-                 )}
-                <Text style={[styles.actionButtonText, friendshipStatus === 'friends' && styles.actionButtonTextDark]}>
-                     {buttonText}
-                 </Text>
-            </TouchableOpacity>
+            <View style={styles.friendActionsContainer}>
+                <TouchableOpacity
+                    style={[...primaryButtonConfig.style, (isLoadingInteraction || primaryButtonConfig.disabled) && styles.disabledButton]}
+                    onPress={primaryButtonConfig.onPress}
+                    disabled={isLoadingInteraction || primaryButtonConfig.disabled}
+                >
+                    {isLoadingInteraction && primaryButtonConfig.icon === 'loader' ? (
+                         <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.WHITE} style={{ marginRight: 8 }}/>
+                     ) : (
+                         <Feather name={primaryButtonConfig.icon} size={16} color={primaryButtonConfig.textStyle?.color || APP_CONSTANTS.COLORS.WHITE} />
+                     )}
+                    <Text style={[styles.actionButtonText, primaryButtonConfig.textStyle]}>
+                         {primaryButtonConfig.text}
+                     </Text>
+                </TouchableOpacity>
+                {secondaryButtonConfig && !isLoadingInteraction && (
+                    <TouchableOpacity
+                        style={[...secondaryButtonConfig.style, isLoadingInteraction && styles.disabledButton]}
+                        onPress={secondaryButtonConfig.onPress}
+                        disabled={isLoadingInteraction}
+                    >
+                        <Text style={styles.actionButtonText}>
+                             {secondaryButtonConfig.text}
+                         </Text>
+                    </TouchableOpacity>
+                )}
+            </View>
         );
      };
 
@@ -858,6 +956,15 @@ const OtherUserProfileScreen: React.FC = () => {
     };
 
     // --- Main Return ---
+    // Blocked states (blocked_by_you, blocked_by_them) are handled by earlier return statements in the component.
+    // Loading and error states are also handled by earlier returns.
+    // This logic differentiates between being friends and other non-blocked/non-error states.
+    const shouldShowFullProfile = friendshipStatus === 'friends';
+    const isProfileRestricted = !shouldShowFullProfile && 
+                              friendshipStatus !== 'loading' && 
+                              friendshipStatus !== 'error';
+
+
     return (
         <View style={styles.container}>
             {/* Image Viewer Modal */}
@@ -971,268 +1078,288 @@ const OtherUserProfileScreen: React.FC = () => {
                      {renderFriendButton()}
                  </View>
 
-                {/* Profile Sections */}
-                <ProfileSection title="Things About Them" icon="info" hasData={allBioDetails.length > 0}>
-                     <View style={profileStyles.bioDetailsListContainer}>
-                         {allBioDetails.map((d, i) => (
-                             <View key={i} style={profileStyles.bioDetailItem}>
-                                 <Text style={profileStyles.bioDetailLabel}>{d.label}:</Text>
-                                 <Text style={profileStyles.bioDetailValue}>{d.value}</Text>
+                {/* Profile Sections - Conditionally render based on friendshipStatus */}
+                {shouldShowFullProfile ? (
+                    <>
+                        <ProfileSection title="Things About Them" icon="info" hasData={allBioDetails.length > 0}>
+                             <View style={profileStyles.bioDetailsListContainer}>
+                                 {allBioDetails.map((d, i) => (
+                                     <View key={i} style={profileStyles.bioDetailItem}>
+                                         <Text style={profileStyles.bioDetailLabel}>{d.label}:</Text>
+                                         <Text style={profileStyles.bioDetailValue}>{d.value}</Text>
+                                     </View>
+                                 ))}
                              </View>
-                         ))}
-                     </View>
-                 </ProfileSection>
+                         </ProfileSection>
 
-                {/* --- START: TOP STREAMING DATA SECTIONS --- */}
+                        {/* --- START: TOP STREAMING DATA SECTIONS --- */}
 
-                {/* Top Artists Section - From Streaming Data */}
-                <ProfileSection 
-                    title="Top Artists" 
-                    icon="bar-chart-2"
-                    hasData={topArtists.length > 0}
-                >
-                    {topArtists.length > 0 ? (
-                        <View style={profileStyles.listContainer}>
-                            {topArtists.slice(0, expandedSections.topArtists ? topArtists.length : (isPremium ? 5 : 3)).map((artist, index) => (
-                                <View key={`top-stream-artist-${index}`} style={profileStyles.listItem}>
-                                    <Text style={profileStyles.listItemText}>{artist.name}</Text>
-                                    <Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                                </View>
-                            ))}
-                            <Text style={profileStyles.dataSourceText}>
-                                Data from {serviceId || 'their streaming service'}
-                                {!isPremium && topArtists.length > 3 && ` • Upgrade to Premium for top ${topArtists.length}`}
-                                {isPremium && topArtists.length > 5 && ` • Showing top 5 (Premium user)`}
-                            </Text>
-                            {(topArtists.length > (isPremium ? 5 : 3)) && (
-                                <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("topArtists")}>
-                                    <Text style={profileStyles.seeAllButtonText}>
-                                        {expandedSections.topArtists ? "See Less" : `See all ${topArtists.length}`}
+                        {/* Top Artists Section - From Streaming Data */}
+                        <ProfileSection 
+                            title="Top Artists" 
+                            icon="bar-chart-2"
+                            hasData={topArtists.length > 0}
+                        >
+                            {topArtists.length > 0 ? (
+                                <View style={profileStyles.listContainer}>
+                                    {topArtists.slice(0, expandedSections.topArtists ? topArtists.length : (isPremium ? 5 : 3)).map((artist, index) => (
+                                        <View key={`top-stream-artist-${index}`} style={profileStyles.listItem}>
+                                            <Text style={profileStyles.listItemText}>{artist.name}</Text>
+                                            <Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                        </View>
+                                    ))}
+                                    <Text style={profileStyles.dataSourceText}>
+                                        Data from {serviceId || 'their streaming service'}
+                                        {!isPremium && topArtists.length > 3 && ` • Upgrade to Premium for top ${topArtists.length}`}
+                                        {isPremium && topArtists.length > 5 && ` • Showing top 5 (Premium user)`}
                                     </Text>
-                                    <Feather name={expandedSections.topArtists ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                                </TouchableOpacity>
-                            )}
-                        </View>
-                    ) : (
-                        <Text style={profileStyles.dataMissingText}>No top artists data available from their streaming service.</Text>
-                    )}
-                </ProfileSection>
-
-                {/* Top Tracks Section - From Streaming Data */}
-                <ProfileSection 
-                    title="Top Tracks" 
-                    icon="trending-up"
-                    hasData={topTracks.length > 0}
-                >
-                    {topTracks.length > 0 ? (
-                        <View style={profileStyles.listContainer}>
-                            {topTracks.slice(0, expandedSections.topTracks ? topTracks.length : (isPremium ? 5 : 3)).map((track, index) => (
-                                <View key={`top-stream-track-${index}`} style={profileStyles.listItem}>
-                                    <View style={profileStyles.listItemDetails}>
-                                        <Text style={profileStyles.listItemText}>{track.name}</Text>
-                                        <Text style={profileStyles.listItemSubtext}>{track.artists.map(a => a.name).join(', ')}</Text>
-                                    </View>
-                                    <Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                    {(topArtists.length > (isPremium ? 5 : 3)) && (
+                                        <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("topArtists")}>
+                                            <Text style={profileStyles.seeAllButtonText}>
+                                                {expandedSections.topArtists ? "See Less" : `See all ${topArtists.length}`}
+                                            </Text>
+                                            <Feather name={expandedSections.topArtists ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
-                            ))}
-                            <Text style={profileStyles.dataSourceText}>
-                                Data from {serviceId || 'their streaming service'}
-                                {!isPremium && topTracks.length > 3 && ` • Upgrade to Premium for top ${topTracks.length}`}
-                                {isPremium && topTracks.length > 5 && ` • Showing top 5 (Premium user)`}
-                            </Text>
-                             {(topTracks.length > (isPremium ? 5 : 3)) && (
-                                <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("topTracks")}>
-                                    <Text style={profileStyles.seeAllButtonText}>
-                                        {expandedSections.topTracks ? "See Less" : `See all ${topTracks.length}`}
-                                    </Text>
-                                    <Feather name={expandedSections.topTracks ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                                </TouchableOpacity>
+                            ) : (
+                                <Text style={profileStyles.dataMissingText}>No top artists data available from their streaming service.</Text>
                             )}
-                        </View>
-                    ) : (
-                        <Text style={profileStyles.dataMissingText}>No top tracks data available from their streaming service.</Text>
-                    )}
-                </ProfileSection>
+                        </ProfileSection>
 
-                {/* Top Genres Section - From Streaming Data */}
-                 <ProfileSection 
-                    title="Top Genres" 
-                    icon="tag"
-                    hasData={topGenres.length > 0}
-                >
-                     {topGenres.length > 0 ? (
-                         <View style={profileStyles.tagsContainer}>
-                            {topGenres.slice(0, expandedSections.topGenres ? topGenres.length : (isPremium ? 5 : 3)).map((genre, i) => (
-                                 <View key={`top-stream-genre-${i}`} style={profileStyles.genreTag}>
-                                     <Text style={profileStyles.genreTagText}>{genre.name}</Text>
+                        {/* Top Tracks Section - From Streaming Data */}
+                        <ProfileSection 
+                            title="Top Tracks" 
+                            icon="trending-up"
+                            hasData={topTracks.length > 0}
+                        >
+                            {topTracks.length > 0 ? (
+                                <View style={profileStyles.listContainer}>
+                                    {topTracks.slice(0, expandedSections.topTracks ? topTracks.length : (isPremium ? 5 : 3)).map((track, index) => (
+                                        <View key={`top-stream-track-${index}`} style={profileStyles.listItem}>
+                                            <View style={profileStyles.listItemDetails}>
+                                                <Text style={profileStyles.listItemText}>{track.name}</Text>
+                                                <Text style={profileStyles.listItemSubtext}>{track.artists.map(a => a.name).join(', ')}</Text>
+                                            </View>
+                                            <Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                        </View>
+                                    ))}
+                                    <Text style={profileStyles.dataSourceText}>
+                                        Data from {serviceId || 'their streaming service'}
+                                        {!isPremium && topTracks.length > 3 && ` • Upgrade to Premium for top ${topTracks.length}`}
+                                        {isPremium && topTracks.length > 5 && ` • Showing top 5 (Premium user)`}
+                                    </Text>
+                                     {(topTracks.length > (isPremium ? 5 : 3)) && (
+                                        <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("topTracks")}>
+                                            <Text style={profileStyles.seeAllButtonText}>
+                                                {expandedSections.topTracks ? "See Less" : `See all ${topTracks.length}`}
+                                            </Text>
+                                            <Feather name={expandedSections.topTracks ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                            ) : (
+                                <Text style={profileStyles.dataMissingText}>No top tracks data available from their streaming service.</Text>
+                            )}
+                        </ProfileSection>
+
+                        {/* Top Genres Section - From Streaming Data */}
+                         <ProfileSection 
+                            title="Top Genres" 
+                            icon="tag"
+                            hasData={topGenres.length > 0}
+                        >
+                             {topGenres.length > 0 ? (
+                                 <View style={profileStyles.tagsContainer}>
+                                    {topGenres.slice(0, expandedSections.topGenres ? topGenres.length : (isPremium ? 5 : 3)).map((genre, i) => (
+                                         <View key={`top-stream-genre-${i}`} style={profileStyles.genreTag}>
+                                             <Text style={profileStyles.genreTagText}>{genre.name}</Text>
+                                         </View>
+                                    ))}
+                                    <Text style={profileStyles.dataSourceText}>
+                                        Data from {serviceId || 'their streaming service'}
+                                        {!isPremium && topGenres.length > 3 && ` • Top 3 shown.`}
+                                        {isPremium && topGenres.length > 5 && ` • Top 5 shown.`}
+                                    </Text>
+                                    {(topGenres.length > (isPremium ? 5 : 3)) && (
+                                        <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("topGenres")}>
+                                            <Text style={profileStyles.seeAllButtonText}>
+                                                {expandedSections.topGenres ? "See Less" : `See all ${topGenres.length}`}
+                                            </Text>
+                                            <Feather name={expandedSections.topGenres ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                        </TouchableOpacity>
+                                    )}
                                  </View>
-                            ))}
-                            <Text style={profileStyles.dataSourceText}>
-                                Data from {serviceId || 'their streaming service'}
-                                {!isPremium && topGenres.length > 3 && ` • Top 3 shown.`}
-                                {isPremium && topGenres.length > 5 && ` • Top 5 shown.`}
-                            </Text>
-                            {(topGenres.length > (isPremium ? 5 : 3)) && (
-                                <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("topGenres")}>
-                                    <Text style={profileStyles.seeAllButtonText}>
-                                        {expandedSections.topGenres ? "See Less" : `See all ${topGenres.length}`}
-                                    </Text>
-                                    <Feather name={expandedSections.topGenres ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                                </TouchableOpacity>
-                            )}
-                         </View>
-                     ) : (
-                        <Text style={profileStyles.dataMissingText}>No top genres data available from their streaming service.</Text>
-                     )}
-                 </ProfileSection>
+                             ) : (
+                                <Text style={profileStyles.dataMissingText}>No top genres data available from their streaming service.</Text>
+                             )}
+                         </ProfileSection>
 
-                {/* Top Moods Section - From Streaming Data (Premium Only for viewing on others' profiles too) */}
-                {isPremium && (
-                    <ProfileSection 
-                        title="Top Moods" 
-                        icon="smile"
-                        hasData={topMoods && topMoods.length > 0}
-                    >
-                        {topMoods && topMoods.length > 0 ? (
-                            <View style={profileStyles.listContainer}> 
-                                {topMoods.slice(0, expandedSections.topMoods ? topMoods.length : 3).map((mood, index) => (
-                                    <View key={`top-stream-mood-${index}`} style={[profileStyles.listItem, {backgroundColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT + '30'}]}>
-                                        <Text style={profileStyles.listItemText}>{mood.name} ({mood.count})</Text>
-                                        <Feather name="smile" size={16} color={APP_CONSTANTS.COLORS.PRIMARY_DARK} />
-                                    </View>
-                                ))}
-                                <Text style={profileStyles.dataSourceText}>
-                                    Data from {serviceId || 'their streaming service'} (Top 3 shown)
-                                </Text>
-                                {(topMoods.length > 3) && (
-                                    <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("topMoods")}>
-                                        <Text style={profileStyles.seeAllButtonText}>
-                                            {expandedSections.topMoods ? "See Less" : `See all ${topMoods.length}`}
+                        {/* Top Moods Section - From Streaming Data (Premium Only for viewing on others' profiles too) */}
+                        {isPremium && (
+                            <ProfileSection 
+                                title="Top Moods" 
+                                icon="smile"
+                                hasData={topMoods && topMoods.length > 0}
+                            >
+                                {topMoods && topMoods.length > 0 ? (
+                                    <View style={profileStyles.listContainer}> 
+                                        {topMoods.slice(0, expandedSections.topMoods ? topMoods.length : 3).map((mood, index) => (
+                                            <View key={`top-stream-mood-${index}`} style={[profileStyles.listItem, {backgroundColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT + '30'}]}>
+                                                <Text style={profileStyles.listItemText}>{mood.name} ({mood.count})</Text>
+                                                <Feather name="smile" size={16} color={APP_CONSTANTS.COLORS.PRIMARY_DARK} />
+                                            </View>
+                                        ))}
+                                        <Text style={profileStyles.dataSourceText}>
+                                            Data from {serviceId || 'their streaming service'} (Top 3 shown)
                                         </Text>
-                                        <Feather name={expandedSections.topMoods ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                                    </TouchableOpacity>
+                                        {(topMoods.length > 3) && (
+                                            <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("topMoods")}>
+                                                <Text style={profileStyles.seeAllButtonText}>
+                                                    {expandedSections.topMoods ? "See Less" : `See all ${topMoods.length}`}
+                                                </Text>
+                                                <Feather name={expandedSections.topMoods ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                ) : (
+                                    <Text style={profileStyles.dataMissingText}>No top moods data available from their streaming service.</Text>
                                 )}
-                            </View>
-                        ) : (
-                            <Text style={profileStyles.dataMissingText}>No top moods data available from their streaming service.</Text>
+                            </ProfileSection>
                         )}
-                    </ProfileSection>
-                )}
 
-                {/* --- END: TOP STREAMING DATA SECTIONS --- */}
+                        {/* --- END: TOP STREAMING DATA SECTIONS --- */}
 
 
-                {/* --- START: FAVORITE (MANUAL) DATA SECTIONS --- */}
-                {/* Favorite Artists Section (Manual) - MODIFIED */}
-                <ProfileSection 
-                    title="Favorite Artists"
-                    icon="star"
-                    hasData={favArtistsList.length > 0}
-                >
-                    {favArtistsList.length > 0 ? (
-                        <View style={profileStyles.listContainer}>
-                            {favArtistsList.slice(0, expandedSections.favArtists ? favArtistsList.length : 5).map((item, index) => (
-                                <View key={`fav-artist-${index}`} style={profileStyles.listItem}>
-                                    <Text style={profileStyles.listItemText}>{item}</Text>
-                                    <Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                        {/* --- START: FAVORITE (MANUAL) DATA SECTIONS --- */}
+                        {/* Favorite Artists Section (Manual) - MODIFIED */}
+                        <ProfileSection 
+                            title="Favorite Artists"
+                            icon="star"
+                            hasData={favArtistsList.length > 0}
+                        >
+                            {favArtistsList.length > 0 ? (
+                                <View style={profileStyles.listContainer}>
+                                    {favArtistsList.slice(0, expandedSections.favArtists ? favArtistsList.length : 5).map((item, index) => (
+                                        <View key={`fav-artist-${index}`} style={profileStyles.listItem}>
+                                            <Text style={profileStyles.listItemText}>{item}</Text>
+                                            <Feather name="user" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                        </View>
+                                    ))}
+                                   {(favArtistsList.length > 5) && (
+                                        <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("favArtists")}>
+                                            <Text style={profileStyles.seeAllButtonText}>
+                                                {expandedSections.favArtists ? "See Less" : `See all ${favArtistsList.length}`}
+                                            </Text>
+                                            <Feather name={expandedSections.favArtists ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
-                            ))}
-                           {(favArtistsList.length > 5) && (
-                                <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("favArtists")}>
-                                    <Text style={profileStyles.seeAllButtonText}>
-                                        {expandedSections.favArtists ? "See Less" : `See all ${favArtistsList.length}`}
-                                    </Text>
-                                    <Feather name={expandedSections.favArtists ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                                </TouchableOpacity>
+                            ) : (
+                                 <Text style={profileStyles.dataMissingText}>No manually added favorite artists.</Text>
                             )}
-                        </View>
-                    ) : (
-                         <Text style={profileStyles.dataMissingText}>No manually added favorite artists.</Text>
-                    )}
-                </ProfileSection>
+                        </ProfileSection>
 
 
-                {/* Favorite Albums Section (Manual) - MODIFIED */}
-                <ProfileSection 
-                    title="Favorite Albums" 
-                    icon="layers"
-                    hasData={favAlbumsList.length > 0}
-                >
-                     {favAlbumsList.length > 0 ? (
-                        <View style={profileStyles.listContainer}>
-                            {favAlbumsList.map((item, index) => (
-                                <View key={`fav-album-${index}`} style={profileStyles.listItem}>
-                                    <Text style={profileStyles.listItemText}>{item}</Text>
-                                    <Feather name="disc" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                        {/* Favorite Albums Section (Manual) - MODIFIED */}
+                        <ProfileSection 
+                            title="Favorite Albums" 
+                            icon="layers"
+                            hasData={favAlbumsList.length > 0}
+                        >
+                             {favAlbumsList.length > 0 ? (
+                                <View style={profileStyles.listContainer}>
+                                    {favAlbumsList.map((item, index) => (
+                                        <View key={`fav-album-${index}`} style={profileStyles.listItem}>
+                                            <Text style={profileStyles.listItemText}>{item}</Text>
+                                            <Feather name="disc" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                        </View>
+                                    ))}
                                 </View>
-                            ))}
-                        </View>
-                     ) : (
-                        <Text style={profileStyles.dataMissingText}>No manually added favorite albums.</Text>
-                     )}
-                </ProfileSection>
+                             ) : (
+                                <Text style={profileStyles.dataMissingText}>No manually added favorite albums.</Text>
+                             )}
+                        </ProfileSection>
 
-                {/* Favorite Songs Section (Manual) - MODIFIED */}
-                <ProfileSection 
-                    title="Favorite Songs" 
-                    icon="heart"
-                    hasData={favSongsList.length > 0}
-                >
-                    {favSongsList.length > 0 ? (
-                        <View style={profileStyles.listContainer}>
-                            {favSongsList.slice(0, expandedSections.favSongs ? favSongsList.length : 5).map((item, index) => (
-                                <View key={`fav-song-${index}`} style={profileStyles.listItem}>
-                                    <Text style={profileStyles.listItemText}>{item}</Text>
-                                    <Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                        {/* Favorite Songs Section (Manual) - MODIFIED */}
+                        <ProfileSection 
+                            title="Favorite Songs" 
+                            icon="heart"
+                            hasData={favSongsList.length > 0}
+                        >
+                            {favSongsList.length > 0 ? (
+                                <View style={profileStyles.listContainer}>
+                                    {favSongsList.slice(0, expandedSections.favSongs ? favSongsList.length : 5).map((item, index) => (
+                                        <View key={`fav-song-${index}`} style={profileStyles.listItem}>
+                                            <Text style={profileStyles.listItemText}>{item}</Text>
+                                            <Feather name="music" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                        </View>
+                                    ))}
+                                   {(favSongsList.length > 5) && (
+                                        <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("favSongs")}>
+                                            <Text style={profileStyles.seeAllButtonText}>
+                                                {expandedSections.favSongs ? "See Less" : `See all ${favSongsList.length}`}
+                                            </Text>
+                                            <Feather name={expandedSections.favSongs ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
-                            ))}
-                           {(favSongsList.length > 5) && (
-                                <TouchableOpacity style={profileStyles.seeAllButton} onPress={() => toggleSection("favSongs")}>
-                                    <Text style={profileStyles.seeAllButtonText}>
-                                        {expandedSections.favSongs ? "See Less" : `See all ${favSongsList.length}`}
-                                    </Text>
-                                    <Feather name={expandedSections.favSongs ? "chevron-up" : "chevron-down"} size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                                </TouchableOpacity>
+                            ) : (
+                                <Text style={profileStyles.dataMissingText}>No manually added favorite songs.</Text>
                             )}
-                        </View>
-                    ) : (
-                        <Text style={profileStyles.dataMissingText}>No manually added favorite songs.</Text>
-                    )}
-                </ProfileSection>
-                {/* --- END: FAVORITE (MANUAL) DATA SECTIONS --- */}
+                        </ProfileSection>
+                        {/* --- END: FAVORITE (MANUAL) DATA SECTIONS --- */}
 
 
-                 {/* More Options Section */}
-                 {!isBlocked && (
-                     <View style={styles.moreOptionsSection}>
-                          <Text style={styles.moreOptionsTitle}>More Options</Text>
-                          {renderMuteButton()}
-                          {renderBlockButton()}
-                      </View>
-                 )}
+                         {/* More Options Section */}
+                         {!isBlocked && (
+                             <View style={styles.moreOptionsSection}>
+                                  <Text style={styles.moreOptionsTitle}>More Options</Text>
+                                  {renderMuteButton()}
+                                  {renderBlockButton()}
+                              </View>
+                         )}
 
-                {/* Shared Media Section */}
-                {fromChat && chatImages && chatImages.length > 0 && (
-                    <View style={styles.moreOptionsSection}>
-                        <Text style={styles.moreOptionsTitle}>Shared Media</Text>
-                        <View style={profileStyles.sharedMediaContainer}>
-                            {chatImages.map((imageUrl: string, index: number) => (
-                                <TouchableOpacity
-                                    key={`shared-media-${index}`}
-                                    onPress={() => {
-                                        setSelectedImageIndex(index);
-                                        setImageViewerVisible(true);
-                                    }}
-                                    style={profileStyles.sharedMediaItem}
-                                >
-                                    <Image
-                                        source={{ uri: imageUrl }}
-                                        style={profileStyles.sharedMediaImage}
-                                        resizeMode="cover"
-                                    />
-                                </TouchableOpacity>
-                            ))}
-                        </View>
+                        {/* Shared Media Section */}
+                        {fromChat && chatImages && chatImages.length > 0 && (
+                            <View style={styles.moreOptionsSection}>
+                                <Text style={styles.moreOptionsTitle}>Shared Media</Text>
+                                <View style={profileStyles.sharedMediaContainer}>
+                                    {chatImages.map((imageUrl: string, index: number) => (
+                                        <TouchableOpacity
+                                            key={`shared-media-${index}`}
+                                            onPress={() => {
+                                                setSelectedImageIndex(index);
+                                                setImageViewerVisible(true);
+                                            }}
+                                            style={profileStyles.sharedMediaItem}
+                                        >
+                                            <Image
+                                                source={{ uri: imageUrl }}
+                                                style={profileStyles.sharedMediaImage}
+                                                resizeMode="cover"
+                                            />
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </View>
+                        )}
+                    </>
+                ) : (
+                    <View style={styles.restrictedProfileContainer}>
+                        <Feather name={friendshipStatus === 'pending_sent' ? "send" : friendshipStatus === 'pending_received' ? "inbox" : "lock"} size={48} color={APP_CONSTANTS.COLORS.DISABLED} />
+                        <Text style={styles.restrictedProfileText}>
+                            {friendshipStatus === 'pending_sent' && `${userName} has not accepted your friend request yet.`}
+                            {friendshipStatus === 'pending_received' && `You have a pending friend request from ${userName}.`}
+                            {(friendshipStatus === 'not_friends' || friendshipStatus === 'rejected_by_you' || friendshipStatus === 'rejected_by_them') && `Send ${userName} a friend request to see more of their profile.`}
+                        </Text>
+                         {/* Optionally, show mute/block if not pending, e.g. 'not_friends' state */}
+                        {(friendshipStatus === 'not_friends' || friendshipStatus === 'rejected_by_you' || friendshipStatus === 'rejected_by_them') && !isBlocked && (
+                             <View style={[styles.moreOptionsSection, {borderTopWidth: 0, marginTop: 20}]}>
+                                  {renderMuteButton()}
+                                  {renderBlockButton()}
+                              </View>
+                        )}
                     </View>
                 )}
             </ScrollView>
@@ -1250,12 +1377,21 @@ const styles = StyleSheet.create({
     infoSubText: { fontSize: 14, color: APP_CONSTANTS.COLORS.DISABLED, textAlign: 'center', marginTop: 5 },
     retryButton: { marginTop: 20, backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, },
     retryButtonText: { color: 'white', fontWeight: '600' },
-    actionsRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: 16, marginBottom: 24, marginTop: -10, gap: 10, minHeight: 40 },
-    actionButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 3, elevation: 2, minWidth: 120, borderWidth: 1, borderColor: 'transparent', },
+    actionsRow: { flexDirection: 'column', alignItems: 'stretch', paddingHorizontal: 16, marginBottom: 24, marginTop: -10, gap: 10, },
+    friendActionsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center', // Center if one button, space-around/between if two
+        gap: 10,
+        width: '100%',
+    },
+    actionButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 15, borderRadius: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 3, elevation: 2, minHeight: 40, borderWidth: 1, borderColor: 'transparent', },
     actionButtonText: { marginLeft: 8, fontSize: 14, fontWeight: '600', color: 'white', },
     actionButtonTextDark: { color: APP_CONSTANTS.COLORS.SUCCESS_DARK },
     friendButton: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, borderColor: APP_CONSTANTS.COLORS.PRIMARY_DARK, },
     friendsButton: { backgroundColor: APP_CONSTANTS.COLORS.SUCCESS_LIGHT, borderColor: APP_CONSTANTS.COLORS.SUCCESS, },
+    acceptButton: { backgroundColor: APP_CONSTANTS.COLORS.SUCCESS, borderColor: APP_CONSTANTS.COLORS.SUCCESS_DARK },
+    secondaryFriendAction: { backgroundColor: '#E5E7EB' /* Placeholder for BACKGROUND_LIGHT_GRAY */, borderColor: '#9CA3AF' /* Placeholder for DISABLED_DARK */, },
+    destructiveFriendAction: { backgroundColor: '#FEE2E2' /* Placeholder for ERROR_LIGHT */, borderColor: APP_CONSTANTS.COLORS.ERROR, },
     disabledButton: { backgroundColor: '#D1D5DB', shadowOpacity: 0, elevation: 0, borderColor: '#B0B0B0', opacity: 0.7 },
     moreOptionsSection: { marginTop: 16, marginBottom: 32, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 20, },
     moreOptionsTitle: { fontSize: 16, fontWeight: '600', color: '#4B5563', marginBottom: 15, textAlign: 'center', },
@@ -1282,6 +1418,27 @@ const styles = StyleSheet.create({
     age: { fontSize: 14, color: "#6B7280", },
     locationSeparator: { color: "#D1D5DB", marginHorizontal: 6, fontSize: 14, },
     locationText: { fontSize: 14, color: "#6B7280", marginLeft: 0, textAlign: 'center' },
+    restrictedProfileContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 30,
+        marginHorizontal: 16,
+        marginTop: 20,
+        backgroundColor: 'white',
+        borderRadius: 12,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
+    },
+    restrictedProfileText: {
+        fontSize: 15,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        textAlign: 'center',
+        marginTop: 15,
+        lineHeight: 22,
+    }
  });
 
 const profileStyles = StyleSheet.create({

@@ -56,6 +56,8 @@ export type StreamingData = {
   top_genres: TopGenre[];
   top_moods?: TopMood[]; // Added top_moods, optional for now
   raw_data?: any;
+  snapshot_date?: string; // Added
+  last_updated?: string;  // Added
 };
 
 export type StreamingServiceId = 'spotify' | 'apple_music' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | ''; // Removed youtubemusic
@@ -249,16 +251,19 @@ export const useStreamingData = (userId?: string | null, authProps?: {
       }
 
       // Convert to StreamingData format for compatibility
+      const dbRecord = data[0];
       const streamingDataResult: StreamingData = {
-        top_artists: data[0].top_artists || [],
-        top_tracks: data[0].top_tracks || [],
-        top_albums: data[0].top_albums || [],
-        top_genres: data[0].top_genres || [],
-        top_moods: data[0].top_moods || [], // Added top_moods
-        raw_data: data[0].raw_data
+        top_artists: dbRecord.top_artists || [],
+        top_tracks: dbRecord.top_tracks || [],
+        top_albums: dbRecord.top_albums || [],
+        top_genres: dbRecord.top_genres || [],
+        top_moods: dbRecord.top_moods || [], // Added top_moods
+        raw_data: dbRecord.raw_data,
+        snapshot_date: dbRecord.snapshot_date, // Populate
+        last_updated: dbRecord.last_updated,    // Populate
       };
       
-      console.log(`[useStreamingData] Successfully retrieved data for ${serviceId}: ${streamingDataResult.top_artists.length} artists, ${streamingDataResult.top_tracks.length} tracks, ${streamingDataResult.top_moods?.length || 0} moods`);
+      console.log(`[useStreamingData] Successfully retrieved data for ${serviceId}: ${streamingDataResult.top_artists.length} artists, ${streamingDataResult.top_tracks.length} tracks, ${streamingDataResult.top_moods?.length || 0} moods, snapshot: ${streamingDataResult.snapshot_date}`);
 
       return { data: streamingDataResult };
     } catch (error) {
@@ -331,48 +336,102 @@ export const useStreamingData = (userId?: string | null, authProps?: {
 
   // Fetch streaming data for the current user
   const fetchStreamingData = async (forceRefresh = false) => {
-    if (!userId) return;
-    
+    if (!userId) return; // userId here is the one passed to the hook, can be current user or other user
+
     try {
       setLoading(true);
-      
-      // Check main services
-      const services: StreamingServiceId[] = ['spotify']; // Only spotify
-      
-      // Try each service
-      for (const service of services) {
-        const isConnected = await isServiceConnected(service);
-        
-        if (isConnected) {
-          console.log(`[useStreamingData] Fetching data for service: ${service}`);
-          const result = await getUserStreamingData(service);
-          
-          if (result.data) {
-            setStreamingData(result.data);
-            setServiceId(service);
-            setTopArtists(result.data.top_artists || []);
-            setTopTracks(result.data.top_tracks || []);
-            setTopGenres(result.data.top_genres || []);
-            setTopAlbums(result.data.top_albums || []);
-            setTopMoods(result.data.top_moods || []); // Added topMoods
-            setHasData(true);
-            console.log(`[useStreamingData] Successfully loaded data for ${service}`);
-            return;
-          } else {
-            console.log(`[useStreamingData] No data found for ${service}`);
-          }
-        } else {
-          console.log(`[useStreamingData] Service ${service} is not connected`);
+      setError(null); // Clear previous errors at the start
+      console.log(`[useStreamingData] Attempting to fetch latest streaming data for user: ${userId}`);
+
+      // Get the most recent snapshot for this user from user_streaming_data
+      const { data: dbData, error: dbError, status } = await supabase
+        .from('user_streaming_data')
+        .select('*') // Select all necessary fields including service_id, top_artists, etc.
+        .eq('user_id', userId)
+        .order('snapshot_date', { ascending: false }) // Get the latest snapshot
+        .limit(1)
+        .maybeSingle(); // Use maybeSingle to handle null gracefully if no record found
+
+      if (dbError) {
+        console.error(`[useStreamingData] Supabase error fetching latest data for user ${userId}:`, dbError);
+        // PGRST116 means no rows found, which is handled by dbData being null.
+        // Only treat other errors as actual fetch errors.
+        if (dbError.code !== 'PGRST116') {
+            setError(dbError.message);
         }
+        // Clear all data states if there's an error or no data
+        setHasData(false);
+        setStreamingData(null);
+        setServiceId(null);
+        setTopArtists([]);
+        setTopTracks([]);
+        setTopGenres([]);
+        setTopAlbums([]);
+        setTopMoods([]);
+        setLoading(false);
+        return;
       }
-      
-      // If we get here, no data was found
-      console.log(`[useStreamingData] No streaming data found for any connected service`);
+
+      if (dbData) { // A record was found
+        console.log(`[useStreamingData] Latest data record found for user ${userId}:`, JSON.stringify(dbData).substring(0, 300) + "...");
+        
+        const streamingDataResult: StreamingData = {
+          top_artists: dbData.top_artists || [],
+          top_tracks: dbData.top_tracks || [],
+          top_albums: dbData.top_albums || [],
+          top_genres: dbData.top_genres || [],
+          top_moods: dbData.top_moods || [],
+          raw_data: dbData.raw_data, // This likely contains the full, non-premium limited data
+          snapshot_date: dbData.snapshot_date,
+          last_updated: dbData.last_updated,
+        };
+
+        setStreamingData(streamingDataResult);
+        setServiceId(dbData.service_id as StreamingServiceId || null);
+        
+        // When displaying another user's profile, we should show what's in their limited fields
+        // (top_artists, top_tracks etc.) as these are what they "share" based on their premium status at time of save.
+        // The 'raw_data' might contain more, but that's for their own full view or potential future use.
+        setTopArtists(streamingDataResult.top_artists);
+        setTopTracks(streamingDataResult.top_tracks);
+        setTopGenres(streamingDataResult.top_genres);
+        setTopAlbums(streamingDataResult.top_albums);
+        setTopMoods(streamingDataResult.top_moods || []);
+        
+        // Determine hasData based on if there are any top items.
+        // This is important because an empty record might exist.
+        const hasAnyData = (streamingDataResult.top_artists.length > 0 ||
+                            streamingDataResult.top_tracks.length > 0 ||
+                            streamingDataResult.top_genres.length > 0 ||
+                            streamingDataResult.top_albums.length > 0 ||
+                            (streamingDataResult.top_moods && streamingDataResult.top_moods.length > 0)
+                           ) || false;
+        setHasData(hasAnyData);
+        
+        console.log(`[useStreamingData] Successfully processed data for user ${userId} from service ${dbData.service_id}. Has Data: ${hasAnyData}. Artists: ${streamingDataResult.top_artists.length}, Tracks: ${streamingDataResult.top_tracks.length}, Moods: ${streamingDataResult.top_moods?.length || 0}, Snapshot: ${streamingDataResult.snapshot_date}`);
+      } else {
+        // No data record found for this user
+        console.log(`[useStreamingData] No streaming data record found for user ${userId} in user_streaming_data table.`);
+        setHasData(false);
+        setStreamingData(null);
+        setServiceId(null);
+        setTopArtists([]);
+        setTopTracks([]);
+        setTopGenres([]);
+        setTopAlbums([]);
+        setTopMoods([]);
+      }
+    } catch (error: any) {
+      console.error('[useStreamingData] Critical error in fetchStreamingData:', error);
+      setError(error.message || 'Unknown error fetching streaming data');
       setHasData(false);
-      
-    } catch (error) {
-      console.error('[useStreamingData] Error in fetchStreamingData:', error);
-      setHasData(false);
+      setStreamingData(null);
+      setServiceId(null);
+      setTopArtists([]);
+      setTopTracks([]);
+      setTopGenres([]);
+      setTopAlbums([]);
+      setTopMoods([]);
     } finally {
       setLoading(false);
     }
