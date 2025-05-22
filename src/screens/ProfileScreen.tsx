@@ -132,6 +132,7 @@ const ProfileScreen: React.FC = () => {
     const [countsLoading, setCountsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [refreshingStreamingData, setRefreshingStreamingData] = useState(false);
+    const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
 
     // Handle navigation to LinkMusicServicesScreen if requested via params
     useEffect(() => {
@@ -229,7 +230,7 @@ const ProfileScreen: React.FC = () => {
     };
 
     // Handle manual refresh of streaming service data
-    const handleForceRefreshStreamingData = async (service: 'spotify') => {
+    const handleForceRefreshStreamingData = useCallback(async (service: 'spotify') => {
         if (!musicLoverProfile || !userId) {
             console.warn(`[ProfileScreen] Cannot refresh ${service} data: Profile or user ID not loaded.`);
             return;
@@ -285,7 +286,35 @@ const ProfileScreen: React.FC = () => {
             await fetchStreamingData(true);
             setRefreshingStreamingData(false);
         }
-    };
+    }, [userId, musicLoverProfile, isServiceConnected, navigation, forceFetchServiceData, fetchStreamingData]);
+
+    // Automatic 30-day refresh logic
+    useEffect(() => {
+        const autoRefreshData = async () => {
+            if (session?.user?.id && isSpotifyLoggedIn && streamingData?.snapshot_date && !isAutoRefreshing && !refreshingStreamingData) {
+                const snapshotDate = new Date(streamingData.snapshot_date);
+                const thirtyDaysAgo = new Date();
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+                if (snapshotDate < thirtyDaysAgo) {
+                    console.log("[ProfileScreen] Streaming data is older than 30 days. Attempting automatic refresh.");
+                    setIsAutoRefreshing(true);
+                    try {
+                        await handleForceRefreshStreamingData('spotify');
+                        console.log("[ProfileScreen] Automatic data refresh successful.");
+                    } catch (error) {
+                        console.error("[ProfileScreen] Error during automatic data refresh:", error);
+                    } finally {
+                        setIsAutoRefreshing(false);
+                    }
+                } else {
+                    console.log("[ProfileScreen] Streaming data is up-to-date. No automatic refresh needed.");
+                }
+            }
+        };
+
+        autoRefreshData();
+    }, [session, isSpotifyLoggedIn, streamingData, handleForceRefreshStreamingData, isAutoRefreshing, refreshingStreamingData]);
 
     // Function to render streaming service card with correct action buttons
     const renderStreamingServiceCard = () => {
@@ -796,13 +825,10 @@ const ProfileScreen: React.FC = () => {
                         style={styles.buyPremiumButton} 
                         onPress={() => {
                             if (userId && musicLoverProfile?.email) {
-                                console.log(`[ProfileScreen] Navigating to PremiumSignupScreen for user: ${userId}, email: ${musicLoverProfile.email}`);
-                                navigation.navigate('UpgradeScreen', {
-                                    userId: userId,
-                                    userEmail: musicLoverProfile.email,
-                                });
+                                console.log(`[ProfileScreen] Navigating to UpgradeScreen for user: ${userId}, email: ${musicLoverProfile.email}`);
+                                navigation.navigate('UpgradeScreen'); 
                             } else {
-                                console.warn('[ProfileScreen] Cannot navigate to PremiumSignupScreen: userId or email missing.', { userId, email: musicLoverProfile?.email });
+                                console.warn('[ProfileScreen] Cannot navigate to UpgradeScreen: userId or email missing.', { userId, email: musicLoverProfile?.email });
                                 Alert.alert("Error", "Could not initiate premium upgrade. User details are missing. Please try logging out and back in.");
                             }
                         }}
