@@ -176,6 +176,7 @@ import {
     Platform,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native'; // Import useFocusEffect
 
 // --- Adjust Imports ---
 import ChatCard from './ChatCard'; // Assuming ChatCard is in the same directory
@@ -187,6 +188,8 @@ export interface IndividualChatListItem {
     partner_first_name: string | null;
     partner_last_name: string | null;
     partner_profile_picture: string | null;
+    current_user_sent_any_message: boolean; // New field
+    partner_sent_any_message: boolean; // New field
     partner_profile_id?: string; // Optional
     unread?: number; // Optional unread count
     isPinned?: boolean; // Optional pinned status
@@ -194,6 +197,7 @@ export interface IndividualChatListItem {
 import { supabase } from '@/lib/supabase'; // Adjust path
 import { useAuth } from '@/hooks/useAuth'; // Adjust path
 import { APP_CONSTANTS } from '@/config/constants'; // Adjust path
+import type { IndividualSubTab } from '@/screens/ChatsScreen'; // Import the type
 // --- End Adjustments ---
 
 // Define structure for Group Chat List Item (from RPC get_group_chat_list)
@@ -218,6 +222,8 @@ export type ChatItem =
 interface ChatsTabsProps {
     activeTab: 'individual' | 'groups';
     setActiveTab: (tab: 'individual' | 'groups') => void;
+    individualSubTab?: IndividualSubTab; // Add new prop
+    setIndividualSubTab?: (subTab: IndividualSubTab) => void; // Add new prop
     onChatOpen: (item: ChatItem) => void; // Handler to navigate to chat
     onProfileOpen?: (item: ChatItem) => void; // Optional handler to open profile
     searchQuery?: string; // Receive search query from parent
@@ -246,6 +252,8 @@ const formatTimestamp = (timestamp: string | null): string => {
 const ChatsTabs: React.FC<ChatsTabsProps> = ({
     activeTab,
     setActiveTab,
+    individualSubTab, // Destructure new prop
+    setIndividualSubTab, // Destructure new prop
     onChatOpen,
     onProfileOpen,
     searchQuery = '', // Default to empty string
@@ -262,7 +270,9 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         if (!session?.user?.id) {
             setError("Not logged in."); setIsLoading(false); setIsRefreshing(false); return;
         }
-        if (!refreshing) setIsLoading(true);
+        if (!refreshing && !isLoading) setIsLoading(true); // Set loading true only if not already loading and not a refresh
+        else if (refreshing) setIsRefreshing(true); // Set refreshing if it is a refresh call
+        
         setError(null);
         console.log("ChatsTabs: Fetching data...");
 
@@ -287,17 +297,29 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         } finally {
             setIsLoading(false); setIsRefreshing(false);
         }
-    }, [session?.user?.id]);
+    }, [session?.user?.id, isLoading]); // Added isLoading to dependencies of fetchData
 
-    // Fetch on mount and when session changes
+    // Fetch on mount and when session changes (initial load)
     useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+        // Only fetch if not already loading to prevent redundant calls from focus + mount
+        if (!isLoading) {
+            fetchData();
+        }
+    }, [session?.user?.id]); // Keep session dependency for initial load on auth change
+
+    // Fetch data when the screen comes into focus
+    useFocusEffect(
+        useCallback(() => {
+            console.log("ChatsTabs: Screen focused, fetching data.");
+            // Call fetchData directly. It will handle its own loading/refreshing state.
+            fetchData(); 
+            // No cleanup needed for this fetchData call
+        }, [fetchData]) // fetchData is memoized
+    );
 
     // Handle pull-to-refresh
     const onRefresh = useCallback(() => {
-        setIsRefreshing(true);
-        fetchData(true);
+        fetchData(true); // Pass true to indicate it's a refresh
     }, [fetchData]);
 
     // Filter data based on search query and active tab
@@ -322,38 +344,147 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         }
     }, [activeTab, individualList, groupList, searchQuery]); // Depend on search query
 
+    // --- Renders the Individual Chat List ---
+    const renderIndividualList = () => {
+        // First, get only individual chats from the main filtered list
+        const individualChats: IndividualChatListItem[] = filteredListData
+            .filter(item => item.type === 'individual')
+            .map(item => item.data as IndividualChatListItem);
 
-    const renderChatItem = ({ item }: { item: ChatItem }) => {
-        // Adapt data structure for ChatCard props
-        const chatCardProps = {
-            id: item.type === 'individual' ? item.data.partner_user_id : item.data.group_id,
-            name: item.type === 'individual'
-                ? `${item.data.partner_first_name || ''} ${item.data.partner_last_name || ''}`.trim() || 'User'
-                : item.data.group_name || `Group (${item.data.member_count || '...'})`, // Show count if no name
-            image: item.type === 'individual' ? item.data.partner_profile_picture : item.data.group_image,
-            lastMessage: item.data.last_message_content || (item.type === 'group' ? 'Group created' : ''),
-            time: formatTimestamp(item.data.last_message_created_at),
-            unread: item.data.unread || 0, // Add unread logic later
-            isPinned: item.data.isPinned || false, // Add pinning logic later
-            membersPreview: item.type === 'group'
-                ? item.data.other_members_preview?.map(m => m.name.split(' ')[0]).join(', ') // Show first names
-                : undefined,
-        };
+        // Determine which list to show based on individualSubTab
+        let listToShow: IndividualChatListItem[] = [];
+        if (individualSubTab === 'pending') {
+            listToShow = individualChats.filter(data => {
+                // Show in pending if: Current user sent AND partner hasn't OR partner sent AND current user hasn't
+                return (data.current_user_sent_any_message && !data.partner_sent_any_message) || 
+                       (!data.current_user_sent_any_message && data.partner_sent_any_message);
+            });
+        } else { // 'chats' subTab
+            listToShow = individualChats.filter(data => {
+                // Show in chats if: Both have sent messages
+                return data.current_user_sent_any_message && data.partner_sent_any_message;
+            });
+        }
+
+        if (isLoading && activeTab === 'individual' && !isRefreshing && listToShow.length === 0) { // Check listToShow.length here too
+            return ( <View style={styles.centered}><ActivityIndicator size="small" color="#6B7280" /></View> );
+        }
+        if (!isLoading && activeTab === 'individual' && listToShow.length === 0) {
+            const emptyMessage = individualSubTab === 'pending' 
+                ? (searchQuery ? "No pending chats match your search." : "No pending chats right now.")
+                : (searchQuery ? "No active chats match your search." : "No active chats yet.");
+            return (
+                <View style={styles.centered}>
+                    <Feather name="message-square" size={30} color="#D1D5DB" style={{ marginBottom: 10 }} />
+                    <Text style={styles.emptyText}>{emptyMessage}</Text>
+                </View>
+            );
+        }
 
         return (
-            <ChatCard
-                id={chatCardProps.id}
-                name={chatCardProps.name}
-                image={chatCardProps.image}
-                lastMessage={chatCardProps.lastMessage}
-                time={chatCardProps.time}
-                unread={chatCardProps.unread}
-                isPinned={chatCardProps.isPinned}
-                membersPreview={chatCardProps.membersPreview}
-                type={item.type}
-                onChatOpen={() => onChatOpen(item)}
-                // Only pass profile open handler for individual chats and if prop exists
-                onProfileOpen={(item.type === 'individual' && onProfileOpen) ? () => onProfileOpen(item) : undefined}
+            <FlatList
+                data={listToShow} // Use the sub-tab filtered list of IndividualChatListItem
+                keyExtractor={(item) => item.partner_user_id}
+                renderItem={({ item }) => (
+                    <ChatCard
+                        id={item.partner_user_id}
+                        name={`${item.partner_first_name || ''} ${item.partner_last_name || ''}`.trim() || 'User'}
+                        image={item.partner_profile_picture}
+                        lastMessage={item.last_message_content || ''}
+                        time={formatTimestamp(item.last_message_created_at)}
+                        unread={item.unread || 0}
+                        isPinned={item.isPinned || false}
+                        type='individual' // Explicitly set type for ChatCard if it needs it
+                        onChatOpen={() => onChatOpen({ type: 'individual', data: item })}
+                        onProfileOpen={(onProfileOpen) ? () => onProfileOpen({ type: 'individual', data: item }) : undefined}
+                    />
+                )}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.listContent}
+                ListEmptyComponent={ // This might be redundant now due to the check above, but can be a fallback
+                    <View style={styles.centered}>
+                        <Text style={styles.emptyText}>
+                            {searchQuery ? 'No results found.' : (individualSubTab === 'pending' ? "No pending chats." : "No active chats.")}
+                        </Text>
+                    </View>
+                 }
+                refreshControl={
+                    <RefreshControl
+                        refreshing={isRefreshing}
+                        onRefresh={onRefresh}
+                        tintColor={APP_CONSTANTS.COLORS.PRIMARY}
+                    />
+                }
+                // Optimization: Remove items that are not visible
+                removeClippedSubviews={Platform.OS === 'android'} // Can cause issues on iOS sometimes
+                initialNumToRender={10} // Render initial batch
+                maxToRenderPerBatch={10} // Render next batch size
+                windowSize={11} // Render items in viewport + buffer
+            />
+        );
+    };
+
+    // --- Renders the Group Chat List (Placeholder or Actual) ---
+    const renderGroupList = () => {
+        const groupChats: GroupChatListItem[] = filteredListData
+            .filter(item => item.type === 'group')
+            .map(item => item.data as GroupChatListItem);
+
+        if (isLoading && activeTab === 'groups' && !isRefreshing && groupChats.length === 0) {
+            return ( <View style={styles.centered}><ActivityIndicator size="small" color="#6B7280" /></View> );
+        }
+
+        if (!isLoading && activeTab === 'groups' && groupChats.length === 0) {
+            const emptyMessage = searchQuery 
+                ? "No groups match your search."
+                : "No group chats yet. Start one!";
+            return (
+                <View style={styles.centered}>
+                    <Feather name="users" size={30} color="#D1D5DB" style={{ marginBottom: 10 }} />
+                    <Text style={styles.emptyText}>{emptyMessage}</Text>
+                </View>
+            );
+        }
+
+        return (
+            <FlatList
+                data={groupChats}
+                keyExtractor={(item) => item.group_id}
+                renderItem={({ item }) => (
+                    <ChatCard
+                        id={item.group_id}
+                        name={item.group_name || `Group (${item.member_count || '...'})`}
+                        image={item.group_image}
+                        lastMessage={item.last_message_content || 'Group created'}
+                        time={formatTimestamp(item.last_message_created_at)}
+                        unread={item.unread || 0}
+                        isPinned={item.isPinned || false}
+                        membersPreview={item.other_members_preview?.map(m => m.name.split(' ')[0]).join(', ')}
+                        type='group'
+                        onChatOpen={() => onChatOpen({ type: 'group', data: item })}
+                        // No profile open for groups, or define specific group info screen
+                    />
+                )}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.listContent}
+                ListEmptyComponent={ // Fallback, though covered above
+                    <View style={styles.centered}>
+                        <Text style={styles.emptyText}>
+                            {searchQuery ? 'No results found.' : 'No group chats yet.'}
+                        </Text>
+                    </View>
+                }
+                refreshControl={
+                    <RefreshControl
+                        refreshing={isRefreshing}
+                        onRefresh={onRefresh}
+                        tintColor={APP_CONSTANTS.COLORS.PRIMARY}
+                    />
+                }
+                removeClippedSubviews={Platform.OS === 'android'}
+                initialNumToRender={10}
+                maxToRenderPerBatch={10}
+                windowSize={11}
             />
         );
     };
@@ -361,26 +492,48 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     // --- Render Component ---
     return (
         <View style={styles.container}>
-            {/* Tab Navigation */}
+            {/* Tab Navigation Buttons */}
             <View style={styles.tabsContainer}>
                 <TouchableOpacity
-                    style={[styles.tabButton, activeTab === 'individual' && styles.activeTabButton]}
-                    onPress={() => setActiveTab('individual')} activeOpacity={0.7} >
-                    <Feather name="message-circle" size={16} color={activeTab === 'individual' ? (APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6') : '#6B7280'} style={styles.tabIcon}/>
-                    <Text style={[styles.tabText, activeTab === 'individual' && styles.activeTabText]}>Individual</Text>
+                    style={[ styles.tabButton, activeTab === "individual" && styles.activeTabButton ]}
+                    onPress={() => setActiveTab("individual")} 
+                    activeOpacity={0.7}
+                >
+                    <Feather name="message-circle" size={16} color={activeTab === "individual" ? APP_CONSTANTS.COLORS.PRIMARY : "#6B7280"} style={styles.tabIcon}/>
+                    <Text style={[ styles.tabText, activeTab === "individual" && styles.activeTabText, ]}> Individual </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                    style={[styles.tabButton, activeTab === 'groups' && styles.activeTabButton]}
-                    onPress={() => setActiveTab('groups')} activeOpacity={0.7} >
-                    <Feather name="users" size={16} color={activeTab === 'groups' ? (APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6') : '#6B7280'} style={styles.tabIcon}/>
-                    <Text style={[styles.tabText, activeTab === 'groups' && styles.activeTabText]}>Groups</Text>
+                    style={[ styles.tabButton, activeTab === "groups" && styles.activeTabButton ]}
+                    onPress={() => setActiveTab("groups")} 
+                    activeOpacity={0.7}
+                >
+                    <Feather name="users" size={16} color={activeTab === "groups" ? APP_CONSTANTS.COLORS.PRIMARY : "#6B7280"} style={styles.tabIcon} />
+                    <Text style={[ styles.tabText, activeTab === "groups" && styles.activeTabText, ]} > Groups </Text>
                 </TouchableOpacity>
             </View>
 
-            {/* Tab Content */}
+            {/* Individual Sub-Tabs (shown only if activeTab is 'individual') */}
+            {activeTab === 'individual' && setIndividualSubTab && (
+                <View style={styles.subTabsContainer}>
+                    <TouchableOpacity
+                        style={[styles.subTabButton, individualSubTab === 'chats' && styles.activeSubTabButton]}
+                        onPress={() => setIndividualSubTab('chats')}
+                    >
+                        <Text style={[styles.subTabText, individualSubTab === 'chats' && styles.activeSubTabText]}>Chats</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.subTabButton, individualSubTab === 'pending' && styles.activeSubTabButton]}
+                        onPress={() => setIndividualSubTab('pending')}
+                    >
+                        <Text style={[styles.subTabText, individualSubTab === 'pending' && styles.activeSubTabText]}>Pending</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+
+            {/* Tab Content Area - Render the correct list based on activeTab */}
             <View style={styles.tabContent}>
                 {isLoading ? (
-                    <View style={styles.centered}><ActivityIndicator color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View>
+                    <View style={styles.centered}><ActivityIndicator color={APP_CONSTANTS.COLORS.PRIMARY} /></View>
                 ) : error ? (
                      <View style={styles.centered}>
                         <Text style={styles.errorText}>{error}</Text>
@@ -390,30 +543,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                         </TouchableOpacity>
                     </View>
                 ) : (
-                    <FlatList
-                        data={filteredListData} // Use the filtered data
-                        renderItem={renderChatItem}
-                        keyExtractor={(item) => `${item.type}-${item.data.group_id || item.data.partner_user_id}`}
-                        showsVerticalScrollIndicator={false}
-                        contentContainerStyle={styles.listContent}
-                        ListEmptyComponent={
-                            <Text style={styles.emptyText}>
-                                {searchQuery ? 'No results found.' : `No ${activeTab} chats yet.`}
-                             </Text>
-                         }
-                        refreshControl={
-                            <RefreshControl
-                                refreshing={isRefreshing}
-                                onRefresh={onRefresh}
-                                tintColor={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'}
-                            />
-                        }
-                        // Optimization: Remove items that are not visible
-                        removeClippedSubviews={Platform.OS === 'android'} // Can cause issues on iOS sometimes
-                        initialNumToRender={10} // Render initial batch
-                        maxToRenderPerBatch={10} // Render next batch size
-                        windowSize={11} // Render items in viewport + buffer
-                    />
+                    activeTab === 'individual' ? renderIndividualList() : renderGroupList()
                 )}
             </View>
         </View>
@@ -425,15 +555,42 @@ const styles = StyleSheet.create({
     container: { flex: 1, },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, },
     errorText: { color: '#DC2626', textAlign: 'center', marginBottom: 15 },
-    retryButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 6, },
+    retryButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, paddingVertical: 8, paddingHorizontal: 15, borderRadius: 6, },
     retryButtonText: { color: 'white', fontWeight: '500', fontSize: 14, marginLeft: 6, },
     emptyText: { textAlign: 'center', color: '#6B7280', marginTop: 40, fontSize: 15, },
-    tabsContainer: { flexDirection: 'row', backgroundColor: 'rgba(59, 130, 246, 0.08)', borderRadius: 8, padding: 4, marginBottom: 12, },
-    tabButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, borderRadius: 6, },
-    activeTabButton: { backgroundColor: 'white', shadowColor: "#000", shadowOffset: { width: 0, height: 1, }, shadowOpacity: 0.08, shadowRadius: 2, elevation: 2, },
+    tabsContainer: { flexDirection: 'row', backgroundColor: 'rgba(59, 130, 246, 0.05)', borderRadius: 10, padding: 4, marginBottom: 8, }, // Adjusted margin
+    tabButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8, },
+    activeTabButton: { backgroundColor: "white", shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2, },
     tabIcon: { marginRight: 6, },
-    tabText: { fontSize: 14, color: '#6B7280', },
-    activeTabText: { color: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', fontWeight: '600', },
+    tabText: { fontSize: 14, color: "#6B7280", fontWeight: '500' },
+    activeTabText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontWeight: "600", },
+    // Sub-tab styles
+    subTabsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        marginBottom: 12, // Space before the list
+        paddingHorizontal: 16, // Match overall screen padding if needed
+    },
+    subTabButton: {
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: 'transparent',
+    },
+    activeSubTabButton: {
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT || '#E0E7FF',
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY || '#A5B4FC',
+    },
+    subTabText: {
+        fontSize: 13,
+        fontWeight: '500',
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY || '#4B5563',
+    },
+    activeSubTabText: {
+        color: APP_CONSTANTS.COLORS.PRIMARY_DARK || APP_CONSTANTS.COLORS.PRIMARY || '#3730A3',
+        fontWeight: '600',
+    },
     tabContent: { flex: 1, },
     listContent: { paddingTop: 4, paddingBottom: 16, }, // Adjust padding as needed
 });
