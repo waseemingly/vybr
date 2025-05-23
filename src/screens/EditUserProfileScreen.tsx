@@ -29,6 +29,21 @@ import { APP_CONSTANTS } from '../config/constants';
 import { supabase } from '../lib/supabase';
 // --------------------
 
+// Helper function to get a clean, single image MIME type (copied from CreateEventScreen)
+const getCleanImageMimeType = (rawMimeType?: string): string | undefined => {
+  if (!rawMimeType) return undefined;
+  if (rawMimeType.includes('image/webp')) return 'image/webp';
+  if (rawMimeType.includes('image/jpeg')) return 'image/jpeg';
+  if (rawMimeType.includes('image/png')) return 'image/png';
+  if (rawMimeType.includes('image/gif')) return 'image/gif';
+  if (rawMimeType.includes('image/svg+xml')) return 'image/svg+xml';
+  if (rawMimeType.startsWith('image/') && !rawMimeType.includes(',')) {
+    const knownSimpleTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/svg+xml', 'image/webp'];
+    if (knownSimpleTypes.includes(rawMimeType)) return rawMimeType;
+  }
+  return undefined;
+};
+
 // Define Param List if navigating further *from* here (if needed)
 type EditUserProfileStackParamList = {
     EditUserProfileHome: undefined;
@@ -284,44 +299,79 @@ const EditUserProfileScreen: React.FC = () => {
                 bio: bioDetails,
             };
 
-            console.log('[EditUserProfile] Saving profile with data:', JSON.stringify(updates));
+            console.log('[EditUserProfile] Attempting to save profile (non-image data) with data:', JSON.stringify(updates));
 
             // Update profile in the database
-            const { error } = await supabase
+            const { error: initialProfileUpdateError } = await supabase
                 .from('music_lover_profiles')
                 .update(updates)
                 .eq('user_id', userId);
 
-            if (error) throw error;
+            if (initialProfileUpdateError) {
+                console.error("[EditUserProfile] Error during initial profile update (non-image data):", initialProfileUpdateError);
+                throw initialProfileUpdateError; // Re-throw to be caught by the main try-catch
+            }
+            console.log("[EditUserProfile] Initial profile update (non-image data) successful.");
 
             // If profile picture was changed, upload it
             if (isProfilePictureChanged && profilePictureUri) {
                 try {
                     // Determine extension for the filename path in Supabase
-                    let ext = profilePictureUri.split('.').pop()?.toLowerCase().split('?')[0] || 'jpeg';
-                    if (ext && (ext.length > 5 || !/^[a-zA-Z0-9]+$/.test(ext))) ext = 'jpeg';
-                    if (!['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) ext = 'jpeg';
-                    if (ext === 'jpg') ext = 'jpeg';
+                    let extHint = profilePictureUri.split('.').pop()?.toLowerCase().split('?')[0];
+                    if (extHint && (extHint.length > 5 || !/^[a-zA-Z0-9]+$/.test(extHint))) {
+                        extHint = undefined; // Unreliable extension
+                    }
+                    if (extHint === 'jpg') extHint = 'jpeg';
+
+                    let finalMimeType = getCleanImageMimeType(profilePictureMimeType || undefined); // Mime type from picker
+                    if (!finalMimeType && extHint) { // Fallback to extension if picker mimeType is bad
+                        finalMimeType = getCleanImageMimeType(`image/${extHint}`);
+                    }
+                    if (!finalMimeType) { // Absolute fallback
+                        finalMimeType = 'image/jpeg';
+                        console.warn(`[EditUserProfile] Could not determine clean MIME for profile pic. Defaulting to ${finalMimeType}. Picker: ${profilePictureMimeType}, URI: ${profilePictureUri.substring(0,100)}`);
+                    }
+
+                    let finalFileExtension = 'jpg';
+                    const typeParts = finalMimeType.split('/');
+                    if (typeParts.length === 2 && typeParts[0] === 'image' && typeParts[1]) {
+                        finalFileExtension = typeParts[1].replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+                    }
 
                     const cleanFileName = `${userId}-profile-${Date.now()}`.replace(/[^a-zA-Z0-9-]/g, '_');
-                    const finalFileName = `${cleanFileName}.${ext}`;
+                    const finalFileName = `${cleanFileName}.${finalFileExtension}`;
                     const filePath = `profiles/${finalFileName}`;
 
                     let fileDataArrayBuffer: ArrayBuffer;
+                    let actualMimeTypeForUpload = finalMimeType;
 
                     if (Platform.OS === 'web') {
                         console.log(`[EditUserProfile WEB] Processing URI: ${profilePictureUri.substring(0,100)}...`);
                         if (profilePictureBase64) {
                             fileDataArrayBuffer = decode(profilePictureBase64);
-                        } else if (profilePictureUri.startsWith('data:')) { // Handle if URI itself is a data URI
+                            // The profilePictureMimeType from picker should be used if base64 is present
+                            const cleanedPickerMimeType = getCleanImageMimeType(profilePictureMimeType || undefined);
+                            if (cleanedPickerMimeType) actualMimeTypeForUpload = cleanedPickerMimeType;
+
+                        } else if (profilePictureUri.startsWith('data:')) { 
                             const base64Data = profilePictureUri.split(',')[1];
                             if (!base64Data) throw new Error("Invalid data URI format for web upload (no data).");
                             fileDataArrayBuffer = decode(base64Data);
-                        } else if (profilePictureUri) { // Fallback: if no base64 and not data URI, try to fetch URI
+                            const dataUriMimeType = profilePictureUri.match(/data:(.*?);base64/)?.[1];
+                            if (dataUriMimeType) {
+                                const cleanedDataUriMimeType = getCleanImageMimeType(dataUriMimeType);
+                                if (cleanedDataUriMimeType) actualMimeTypeForUpload = cleanedDataUriMimeType;
+                            }
+                        } else if (profilePictureUri) { 
                             console.warn("[EditUserProfile WEB] Base64 not available, attempting to fetch URI for web.");
                             const response = await fetch(profilePictureUri);
                             if (!response.ok) throw new Error(`Failed to fetch profile picture URI for web: ${response.statusText}`);
                             fileDataArrayBuffer = await response.arrayBuffer();
+                            const contentTypeHeader = response.headers.get('content-type');
+                            if (contentTypeHeader) {
+                                const cleanedHeaderMimeType = getCleanImageMimeType(contentTypeHeader);
+                                if (cleanedHeaderMimeType) actualMimeTypeForUpload = cleanedHeaderMimeType;
+                            }
                         } else {
                             throw new Error('Web image data is missing (no base64 or URI).');
                         }
@@ -332,22 +382,29 @@ const EditUserProfileScreen: React.FC = () => {
                         });
                         if (!fileBase64) throw new Error ('Failed to read image as base64 (Native).');
                         fileDataArrayBuffer = decode(fileBase64);
+                        // For native, trust the picker's mime type more directly
+                        const cleanedNativePickerMimeType = getCleanImageMimeType(profilePictureMimeType || undefined);
+                        if (cleanedNativePickerMimeType) {
+                            actualMimeTypeForUpload = cleanedNativePickerMimeType;
+                        } else {
+                            actualMimeTypeForUpload = finalMimeType; // fallback to URI derived if picker was bad
+                        }
                     }
 
                     if (!fileDataArrayBuffer || fileDataArrayBuffer.byteLength === 0) {
                         throw new Error('Image data is empty or invalid after processing.');
                     }
                     
-                    const finalContentType = profilePictureMimeType || 'image/jpeg'; // Use actual mimeType, fallback to jpeg
+                    if (!actualMimeTypeForUpload) actualMimeTypeForUpload = 'image/jpeg'; // Final safety net
 
                     // Upload to storage
-                    console.log(`[EditUserProfile] Uploading to Supabase path: ${filePath}, contentType: ${finalContentType}`);
+                    console.log(`[EditUserProfile] Uploading to Supabase path: ${filePath}, contentType: ${actualMimeTypeForUpload}`);
                     const { data: uploadData, error: uploadError } = await supabase.storage
                         .from('profile-pictures') 
                         .upload(filePath, fileDataArrayBuffer, {
-                            contentType: finalContentType, // Use determined content type
+                            contentType: actualMimeTypeForUpload, 
                             cacheControl: '3600',
-                            upsert: true, 
+                            upsert: false,
                         });
 
                     if (uploadError) {
