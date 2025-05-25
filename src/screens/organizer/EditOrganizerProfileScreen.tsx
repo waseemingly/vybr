@@ -24,6 +24,21 @@ import { supabase } from '../../lib/supabase';
 import { decode } from 'base64-arraybuffer'; // For image upload
 // --------------------
 
+// Helper function to get a clean, single image MIME type (copied from other screens)
+const getCleanImageMimeType = (rawMimeType?: string): string | undefined => {
+  if (!rawMimeType) return undefined;
+  if (rawMimeType.includes('image/webp')) return 'image/webp';
+  if (rawMimeType.includes('image/jpeg')) return 'image/jpeg';
+  if (rawMimeType.includes('image/png')) return 'image/png';
+  if (rawMimeType.includes('image/gif')) return 'image/gif';
+  if (rawMimeType.includes('image/svg+xml')) return 'image/svg+xml';
+  if (rawMimeType.startsWith('image/') && !rawMimeType.includes(',')) {
+    const knownSimpleTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/svg+xml', 'image/webp'];
+    if (knownSimpleTypes.includes(rawMimeType)) return rawMimeType;
+  }
+  return undefined;
+};
+
 // Define Param List if needed
 type EditOrganizerProfileStackParamList = {
     EditOrganizerProfileHome: undefined;
@@ -47,6 +62,7 @@ const EditOrganizerProfileScreen: React.FC = () => {
     const [logoUrl, setLogoUrl] = useState(organizerProfile?.logo ?? null);
     const [newLogoUri, setNewLogoUri] = useState<string | null>(null); // Store local URI of selected new logo
     const [pickedImageBase64, setPickedImageBase64] = useState<string | null>(null); // State for base64 data
+    const [pickedImageMimeType, setPickedImageMimeType] = useState<string | null>(null); // State for picked image mimeType
 
     const [isSaving, setIsSaving] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
@@ -94,10 +110,12 @@ const EditOrganizerProfileScreen: React.FC = () => {
             setNewLogoUri(asset.uri); // Keep local URI for display
             setPickedImageBase64(asset.base64 ?? null); // Store base64 in state
             setLogoUrl(asset.uri); // Update display image immediately
+            setPickedImageMimeType(asset.mimeType ?? null); // Store the mimeType
         } else {
             // Reset if cancelled or error
             setNewLogoUri(null);
             setPickedImageBase64(null);
+            setPickedImageMimeType(null); // Reset mimeType
         }
     };
 
@@ -108,22 +126,45 @@ const EditOrganizerProfileScreen: React.FC = () => {
         let uploadedLogoPath: string | null = organizerProfile?.logo ?? null; // Start with existing logo
 
         // 1. Upload new logo if base64 data exists in state
-        if (pickedImageBase64) {
+        if (pickedImageBase64 && newLogoUri) { // Ensure newLogoUri is also present for extension hint
             setIsUploading(true);
             try {
                 const base64 = pickedImageBase64;
 
-                // No need to re-read asset, use state
-                // const asset = (await ImagePicker.getPendingResultAsync())?.[0]; 
-                // const base64 = asset?.base64;
+                let extHint = newLogoUri.split('.').pop()?.toLowerCase().split('?')[0];
+                if (extHint && (extHint.length > 5 || !/^[a-zA-Z0-9]+$/.test(extHint))) {
+                    extHint = undefined;
+                }
+                if (extHint === 'jpg') extHint = 'jpeg';
 
-                // Base64 is already in state, proceed with upload
-                const filePath = `${userId}/${Date.now()}.png`;
+                let finalMimeType = getCleanImageMimeType(pickedImageMimeType || undefined);
+                if (!finalMimeType && extHint) {
+                    finalMimeType = getCleanImageMimeType(`image/${extHint}`);
+                }
+                if (!finalMimeType) {
+                    finalMimeType = 'image/png'; // Default for logos if all else fails
+                    console.warn(`[EditOrganizerProfile] Could not determine clean MIME for logo. Defaulting to ${finalMimeType}. Picker: ${pickedImageMimeType}, URI: ${newLogoUri.substring(0,100)}`);
+                }
+
+                let finalFileExtension = 'png';
+                const typeParts = finalMimeType.split('/');
+                if (typeParts.length === 2 && typeParts[0] === 'image' && typeParts[1]) {
+                    finalFileExtension = typeParts[1].replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+                }
+
+                const filePath = `${userId}/${Date.now()}.${finalFileExtension}`;
+                const actualMimeTypeForUpload = finalMimeType; // finalMimeType should be good here
+
+                console.log(`[EditOrganizerProfile] Uploading logo. Path: ${filePath}, ContentType: ${actualMimeTypeForUpload}`);
+
                 const { data: uploadData, error: uploadError } = await supabase.storage
-                    .from('organizer-logos') // Ensure this bucket exists and has policies set up
-                    .upload(filePath, decode(base64), { contentType: 'image/png' });
+                    .from('organizer-logos') 
+                    .upload(filePath, decode(base64), { contentType: actualMimeTypeForUpload });
 
-                if (uploadError) throw uploadError;
+                if (uploadError) {
+                    console.error("[EditOrganizerProfile] Supabase Logo Upload Error:", uploadError);
+                    throw uploadError;
+                }
 
                 // Get public URL
                 const { data: urlData } = supabase.storage
@@ -131,8 +172,9 @@ const EditOrganizerProfileScreen: React.FC = () => {
                     .getPublicUrl(filePath);
 
                 uploadedLogoPath = urlData.publicUrl;
-                setNewLogoUri(null); // Clear local URI after successful upload
-                setPickedImageBase64(null); // Clear base64 state after successful upload
+                setNewLogoUri(null); 
+                setPickedImageBase64(null); 
+                setPickedImageMimeType(null); // Clear picked mimeType
 
             } catch (error: any) {
                  console.error("Error uploading logo:", error);

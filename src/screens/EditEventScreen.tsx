@@ -17,6 +17,7 @@ import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/nativ
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Country, State, City } from 'country-state-city'; // Added import
+import { decode } from 'base64-arraybuffer'; // Added import
 
 // Navigation Type definitions
 type OrganizerStackParamList = {
@@ -56,27 +57,35 @@ interface FormState {
     stateName: string;
     cityName: string;
 }
-interface ImageAsset { uri: string; mimeType?: string; fileName?: string; isNew?: boolean; existingUrl?: string; } // Added isNew, existingUrl
+interface ImageAsset { uri: string; mimeType?: string; fileName?: string; isNew?: boolean; existingUrl?: string; base64?: string | null; } // Added isNew, existingUrl, base64
 
 // Helper function to get a clean, single image MIME type
 const getCleanImageMimeType = (rawMimeType?: string): string | undefined => {
-  if (!rawMimeType) return undefined;
-  // Prioritize specific image types if present in a compound string
-  if (rawMimeType.includes('image/webp')) return 'image/webp';
-  if (rawMimeType.includes('image/jpeg')) return 'image/jpeg';
-  if (rawMimeType.includes('image/png')) return 'image/png';
-  if (rawMimeType.includes('image/gif')) return 'image/gif';
-  if (rawMimeType.includes('image/svg+xml')) return 'image/svg+xml';
+  if (!rawMimeType || typeof rawMimeType !== 'string') return undefined;
 
-  // If it's already a simple, valid image MIME type (and not compound)
-  if (rawMimeType.startsWith('image/') && !rawMimeType.includes(',')) {
-    const knownSimpleTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/svg+xml', 'image/webp'];
-    if (knownSimpleTypes.includes(rawMimeType)) {
-      return rawMimeType;
+  const knownSimpleTypes = ['image/webp', 'image/jpeg', 'image/png', 'image/gif', 'image/svg+xml'];
+  
+  // First, check if rawMimeType is already one of the known simple types
+  if (knownSimpleTypes.includes(rawMimeType)) {
+    return rawMimeType;
+  }
+
+  // If it's a compound string, try to extract one of the known types
+  for (const type of knownSimpleTypes) {
+    if (rawMimeType.includes(type)) {
+      return type; // Return the first known type found
     }
   }
-  // Fallback for unrecognized or complex types not caught above
-  return undefined; 
+  
+  // Fallback for simple image types not in the known list but correctly formatted
+  // This part is less critical if the above extraction works for known types.
+  if (rawMimeType.startsWith('image/') && !rawMimeType.includes(',')) {
+      // For now, we rely on the knownSimpleTypes for robust extraction from compound strings.
+      // If it's a simple 'image/customtype' not in our list, it might not be caught here
+      // unless it was an exact match at the beginning.
+  }
+
+  return undefined; // If no known type is found or extracted
 };
 
 // Existing Event Data Structure from Supabase - ensure it includes country, state, city if they exist
@@ -387,19 +396,13 @@ const EditEventScreen: React.FC = () => {
             });
             if (!result.canceled && result.assets) {
                 const assetsToAdd: ImageAsset[] = result.assets.map(a => {
-                    const cleanMimeType = getCleanImageMimeType(a.mimeType);
-
-                    // For web, handle base64 data if available and use cleanMimeType for data URI
-                    const uri = Platform.OS === 'web' && (a as any).base64 && cleanMimeType
-                        ? `data:${cleanMimeType};base64,${(a as any).base64}`
-                        : a.uri;
-                    
-                    // Similar to CreateEventScreen, use the cleaned/original mimeType appropriately
-                    const effectiveMimeType = cleanMimeType || a.mimeType;
-                    
-                    // Ensure fileName is not null (use generated name if needed)
+                    const uri = a.uri; 
+                    // Store the raw mimeType from the picker, or fallback. Crucial for web base64 uploads.
+                    const assetMimeType = a.mimeType || 'image/jpeg'; 
                     const fileName = a.fileName || `image-${Date.now()}`;
-                    return { uri, mimeType: effectiveMimeType, fileName, isNew: true };
+                    const base64 = Platform.OS === 'web' ? (a as any).base64 : null;
+
+                    return { uri, mimeType: assetMimeType, fileName, isNew: true, base64 };
                 });
                 setImageAssets(p => [...p, ...assetsToAdd]);
             }
@@ -412,115 +415,134 @@ const EditEventScreen: React.FC = () => {
        }
        setImageAssets(p => p.filter((_, i) => i !== index)); // Correct way to remove item
    };
-   const base64ToArrayBuffer = (base64: string): ArrayBuffer => { try{ const b = Buffer.from(base64, 'base64'); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); } catch(e){ console.error("Base64 Err:",e); throw new Error("Failed image process."); } };
    const uploadSingleImage = async (userId: string, asset: ImageAsset): Promise<string | null> => {
         if (!asset.isNew || !asset.uri) return asset.existingUrl ?? null;
         
-        const { uri, mimeType, fileName: originalFileName } = asset; 
+        const { uri, mimeType: assetMimeTypeFromPicker, fileName: originalFileName, base64: assetBase64 } = asset; 
         try { 
-            let ext = uri.split('.').pop()?.toLowerCase().split('?')[0] || 'jpeg'; 
-            if (ext && (ext.length > 5 || !/^[a-z0-9]+$/.test(ext))) ext = 'jpeg'; 
-            if (!['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(ext)) ext = 'jpeg'; 
-            if (ext === 'jpg') ext = 'jpeg'; 
+            // 1. Determine initial extension from URI (as a fallback or hint)
+            let extHint = uri.split('.').pop()?.toLowerCase().split('?')[0];
+            if (extHint && (extHint.length > 5 || !/^[a-zA-Z0-9]+$/.test(extHint))) {
+                extHint = undefined;
+            }
+            if (extHint === 'jpg') extHint = 'jpeg'; // Normalize
+
+            // 2. Determine the best MIME type
+            let finalMimeType = getCleanImageMimeType(assetMimeTypeFromPicker);
+            if (!finalMimeType && extHint) {
+                finalMimeType = getCleanImageMimeType(`image/${extHint}`);
+            }
+            if (!finalMimeType) {
+                finalMimeType = 'image/jpeg'; // Absolute fallback
+                console.warn(`[EditEvent - ImageUpload] Could not determine clean MIME type for URI ${uri.substring(0,100)}. Defaulting to ${finalMimeType}. Picker: ${assetMimeTypeFromPicker}`);
+            }
+
+            // 3. Determine file extension from finalMimeType
+            let finalFileExtension = 'jpg';
+            const typeParts = finalMimeType.split('/');
+            if (typeParts.length === 2 && typeParts[0] === 'image' && typeParts[1]) {
+                finalFileExtension = typeParts[1].replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+            }
             
-            const fileName = `${originalFileName ? originalFileName.split('.')[0].replace(/[^a-zA-Z0-9]/g, '_') : 'event-image'}-${Date.now()}.${ext}`; 
+            const cleanOriginalFileName = originalFileName ? originalFileName.split('.')[0].replace(/[^a-zA-Z0-9-]/g, '_') : 'event-image';
+            const fileName = `${cleanOriginalFileName}-${Date.now()}.${finalFileExtension}`;
             const filePath = `${userId}/${fileName}`;
             
-            if (Platform.OS === 'web') { 
-                // Enhanced web upload handling
-                let arrayBuffer: ArrayBuffer;
-                let webMimeType: string = mimeType || `image/${ext}`;
-                
-                if (uri.startsWith('data:')) {
-                    // Handle data URI format (base64)
-                    const base64Data = uri.split(',')[1];
-                    if (!base64Data) throw new Error("Invalid data URI format");
-                    const binary = atob(base64Data);
-                    const bytes = new Uint8Array(binary.length);
-                    for (let i = 0; i < binary.length; i++) {
-                        bytes[i] = binary.charCodeAt(i);
-                    }
-                    arrayBuffer = bytes.buffer;
-                    
-                    // Extract mime type from data URI if available, but override if webp
-                    const dataPrefix = uri.split(',')[0];
-                    const extractedMimeType = dataPrefix.match(/data:(.*?);base64/)?.[1];
-                    if (extractedMimeType) webMimeType = extractedMimeType;
-                } else {
-                    // Handle blob or regular URI
-                    const response = await fetch(uri);
-                    if (!response.ok) throw new Error(`Failed to fetch web URI: ${response.status}`);
-                    arrayBuffer = await response.arrayBuffer();
-                    
-                    const contentTypeHeader = response.headers.get('content-type');
-                    if (contentTypeHeader) webMimeType = contentTypeHeader;
-                }
-                
-                if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty.");
+            let arrayBuffer: ArrayBuffer;
+            let actualMimeTypeForUpload = finalMimeType;
 
-                let finalWebMimeType = getCleanImageMimeType(webMimeType);
-                if (!finalWebMimeType) {
-                    console.warn(`[ImageUpload WEB] Could not determine a clean MIME type from '${webMimeType}' for path: ${filePath}. Falling back to image/${ext} or image/jpeg.`);
-                    finalWebMimeType = getCleanImageMimeType(`image/${ext}`) || 'image/jpeg';
+            if (Platform.OS === 'web') { 
+                console.log(`[EditEvent WEB] Processing URI: ${uri.substring(0,100)}...`);
+                if (assetBase64) {
+                    arrayBuffer = decode(assetBase64);
+                    const cleanedPickerMimeType = getCleanImageMimeType(assetMimeTypeFromPicker);
+                    if (cleanedPickerMimeType) {
+                        actualMimeTypeForUpload = cleanedPickerMimeType;
+                    } else {
+                        console.warn(`[EditEvent WEB] assetBase64 present, but assetMimeTypeFromPicker ('${assetMimeTypeFromPicker}') was not clean. Using derived: ${actualMimeTypeForUpload}`);
+                    }
+                } else if (uri.startsWith('data:')) {
+                    const base64Data = uri.split(',')[1];
+                    if (!base64Data) throw new Error("Invalid data URI format (WEB).");
+                    arrayBuffer = decode(base64Data);
+                    const dataUriMimeType = uri.match(/data:(.*?);base64/)?.[1];
+                    if (dataUriMimeType) {
+                        const cleanedDataUriMimeType = getCleanImageMimeType(dataUriMimeType);
+                        if (cleanedDataUriMimeType) actualMimeTypeForUpload = cleanedDataUriMimeType;
+                    }
+                } else {
+                    console.warn("[EditEvent WEB] Base64 not available, attempting to fetch URI.");
+                    const response = await fetch(uri);
+                    if (!response.ok) throw new Error(`Failed to fetch web URI: ${response.status} ${response.statusText}`);
+                    arrayBuffer = await response.arrayBuffer();
+                    const contentTypeHeader = response.headers.get('content-type');
+                    if (contentTypeHeader) {
+                        const cleanedHeaderMimeType = getCleanImageMimeType(contentTypeHeader);
+                        if (cleanedHeaderMimeType) actualMimeTypeForUpload = cleanedHeaderMimeType;
+                    }
                 }
                 
-                console.log(`Uploading to Supabase with path: ${filePath}, finalContentType: ${finalWebMimeType}`); 
+                if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error("Image data empty or invalid after processing (WEB).");
+                if (!actualMimeTypeForUpload) actualMimeTypeForUpload = 'image/jpeg'; // Final safety net for MIME type
+
+                console.log(`[EditEvent - ImageUpload WEB] Path: ${filePath}, ContentType: ${actualMimeTypeForUpload}`); 
                 
+                // --- Create a File object for web upload ---
+                const blob = new Blob([arrayBuffer], { type: actualMimeTypeForUpload });
+                const fileToUpload = new File([blob], fileName, { type: actualMimeTypeForUpload });
+                // -------------------------------------------
+
                 const { data: uploadData, error: uploadError } = await supabase.storage.from("event_posters").upload(
                     filePath, 
-                    arrayBuffer, 
+                    fileToUpload, // Upload the File object
                     { 
                         cacheControl: "3600", 
                         upsert: false, 
-                        contentType: finalWebMimeType 
+                        contentType: actualMimeTypeForUpload // Re-add explicit contentType
                     }
                 );
                 
                 if (uploadError) {
-                     console.error("Supabase Upload Error Details:", uploadError); // Log detailed error
+                     console.error("[EditEvent - ImageUpload WEB] Supabase Error:", uploadError);
                      throw new Error(`Supabase upload error: ${uploadError.message}`);
                 }
-                if (!uploadData?.path) throw new Error("Upload succeeded but no path returned.");
+                if (!uploadData?.path) throw new Error("Upload succeeded but no path returned (WEB).");
                 
                 const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(uploadData.path);
                 return urlData?.publicUrl ?? null;
-            } else { 
-                // Native upload logic (unchanged, assuming native handles webp ok or converts)
-                const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }); 
-                if (!base64) throw new Error("Failed to read image file."); 
-                const arrayBuffer = base64ToArrayBuffer(base64); 
-                if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty."); 
 
-                let initialNativeMimeType = mimeType || `image/${ext}`;
-                let finalNativeMimeType = getCleanImageMimeType(initialNativeMimeType);
-                if (!finalNativeMimeType) {
-                    console.warn(`[ImageUpload NATIVE] Could not determine a clean MIME type from '${initialNativeMimeType}' for path: ${filePath}. Falling back to image/${ext} or image/jpeg.`);
-                    finalNativeMimeType = getCleanImageMimeType(`image/${ext}`) || 'image/jpeg';
+            } else { // Native
+                console.log(`[EditEvent NATIVE] Processing URI: ${uri}`);
+                const fileBase64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }); 
+                if (!fileBase64) throw new Error("Failed to read image as base64 (Native)."); 
+                arrayBuffer = decode(fileBase64); 
+                if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error("Image data empty or invalid after processing (Native)."); 
+
+                const cleanedNativeMimeType = getCleanImageMimeType(assetMimeTypeFromPicker);
+                if (cleanedNativeMimeType) {
+                    actualMimeTypeForUpload = cleanedNativeMimeType;
+                } else {
+                    actualMimeTypeForUpload = finalMimeType; // Fallback
                 }
-                if (finalNativeMimeType === 'image/jpg') finalNativeMimeType = 'image/jpeg'; 
-                if (ext === 'svg' && finalNativeMimeType !== 'image/svg+xml') finalNativeMimeType = 'image/svg+xml'; 
+                if (!actualMimeTypeForUpload) actualMimeTypeForUpload = 'image/jpeg'; // Final safety net
 
-                console.log(`Uploading Native with path: ${filePath}, finalContentType: ${finalNativeMimeType}`);
+                console.log(`[EditEvent - ImageUpload NATIVE] Path: ${filePath}, ContentType: ${actualMimeTypeForUpload}`);
 
                 const { data: uploadData, error: uploadError } = await supabase.storage.from("event_posters").upload(
                     filePath, 
                     arrayBuffer, 
-                    { 
-                        cacheControl: "3600", 
-                        upsert: false, 
-                        contentType: finalNativeMimeType
-                    }
+                    { cacheControl: "3600", upsert: false, contentType: actualMimeTypeForUpload }
                 ); 
                 if (uploadError) {
-                    console.error("Supabase Native Upload Error Details:", uploadError); // Log detailed error
+                    console.error("[EditEvent - ImageUpload NATIVE] Supabase Error:", uploadError);
                     throw new Error(`Supabase upload error: ${uploadError.message}`);
                 }
-                if (!uploadData?.path) throw new Error("Upload succeeded but no path returned."); 
+                if (!uploadData?.path) throw new Error("Upload succeeded but no path returned (NATIVE)."); 
                 const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(uploadData.path); 
                 return urlData?.publicUrl ?? null;
             }
         } catch (e: any) { 
-            console.error(`[ImageUpload] Error for ${uri}:`, e); 
+            console.error(`[EditEvent - ImageUpload] Error for URI ${uri.substring(0,100)}:`, e); 
             return null; 
         }
     };
@@ -531,14 +553,41 @@ const EditEventScreen: React.FC = () => {
        try {
            const results = await Promise.all(uploadPromises);
            const finalUrls = results.filter((url): url is string => url !== null);
-           const newUploadCount = assets.filter(a => a.isNew).length;
-           const successfulNewUploads = finalUrls.length - assets.filter(a => !a.isNew).length;
-           if (newUploadCount > 0 && successfulNewUploads < newUploadCount) {
-               Alert.alert("Partial Upload Failed", `Could not upload ${newUploadCount - successfulNewUploads} new image(s). Existing images were kept.`);
+           
+           // Differentiate between new uploads and existing URLs that were kept
+           let newImagesAttempted = 0;
+           let newImagesSuccessfullyUploaded = 0;
+           let existingImagesKept = 0;
+
+           assets.forEach(asset => {
+               if (asset.isNew) {
+                   newImagesAttempted++;
+                   // Check if the original URI (if it was a placeholder or local URI for a new image)
+                   // resulted in a new public URL being generated and included in finalUrls.
+                   // This is a bit tricky as direct mapping from asset.uri to finalUrl isn't straightforward
+                   // if multiple uploads happen. A simpler check is just on counts if all succeed.
+               }
+           });
+
+           // A more robust way to count successful *new* uploads would require tagging or mapping
+           // the asset through the uploadSingleImage promise to its result.
+           // For now, we compare total new assets vs. the increase in URL count beyond existing ones.
+
+           const existingUrlsAmongFinal = finalUrls.filter(url => assets.some(a => !a.isNew && a.existingUrl === url)).length;
+           newImagesSuccessfullyUploaded = finalUrls.length - existingUrlsAmongFinal;
+           
+           // A simpler alert if new uploads were attempted but not all were successful
+           if (newImagesAttempted > 0 && newImagesSuccessfullyUploaded < newImagesAttempted) {
+               Alert.alert("Partial Upload Failed", `Could not upload ${newImagesAttempted - newImagesSuccessfullyUploaded} new image(s). Existing images and any successful new uploads were kept.`);
            }
-           console.log(`Finished image processing. Final URLs: ${finalUrls.length}`);
+
+           console.log(`Finished image processing. Final URLs: ${finalUrls.length}, New uploads successful: ${newImagesSuccessfullyUploaded}/${newImagesAttempted}`);
            return finalUrls;
-       } catch (error) { console.error("Image update batch error:", error); Alert.alert("Upload Error", "An error occurred uploading images."); return assets.filter(a => !a.isNew && a.existingUrl).map(a => a.existingUrl!);
+       } catch (error) { 
+           console.error("Image update batch error:", error); 
+           Alert.alert("Upload Error", "An error occurred uploading images."); 
+           // Fallback to only existing URLs if batch fails
+           return assets.filter(a => !a.isNew && a.existingUrl).map(a => a.existingUrl!);
        }
    };
 
