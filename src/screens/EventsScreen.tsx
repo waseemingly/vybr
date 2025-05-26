@@ -3,12 +3,13 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Image, FlatList, ScrollView, Modal,
   Dimensions, ActivityIndicator, RefreshControl, Alert, GestureResponderEvent,
   Platform, 
+  Share, // Added Share API
   // SectionList // No longer used
 } from "react-native";
 // import { TabView, SceneMap, TabBar } from 'react-native-tab-view'; // Removed
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { useNavigation, useFocusEffect, useRoute, RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { supabase } from "../lib/supabase"; // Adjust path, remove EventBooking if unused
 import { useAuth } from "../hooks/useAuth"; // Adjust path
@@ -18,6 +19,10 @@ import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNav
 import ImageSwiper from '@/components/ImageSwiper'; // <-- Import the new component
 
 // Define navigation prop using imported types
+// Add openEventId to EventsScreen params in RootStackParamList
+// Example: EventsScreen: { openEventId?: string; initialScreenTab?: 'forYou' | 'allEvents' };
+type EventsScreenRouteProp = RouteProp<RootStackParamList, 'EventsScreen'>;
+
 type NavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>;
 
 // Export interfaces for reuse
@@ -134,6 +139,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
     const [quantity, setQuantity] = useState(1);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
     const scrollViewRef = useRef<ScrollView>(null);
+    const [shareModalVisible, setShareModalVisible] = useState(false);
 
     useEffect(() => { if (visible) { setQuantity(1); setCurrentImageIndex(0); } }, [visible]);
 
@@ -235,6 +241,50 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
         onClose();
     };
 
+    const handleShare = async () => {
+        if (!event) return;
+        setShareModalVisible(true);
+    };
+
+    const handleExternalShare = async () => {
+        if (!event) return;
+        try {
+            const result = await Share.share({
+                message: `Check out this event: ${event.title} on ${event.date} at ${event.venue}. Find out more on Vybr!`,
+                // url: 'YOUR_APP_STORE_LINK_OR_EVENT_DEEPLINK', // Optional: replace with a deep link to the event in your app
+                title: `Vybr Event: ${event.title}`
+            });
+            
+            if (result.action === Share.sharedAction) {
+                if (result.activityType) {
+                    // shared with activity type of result.activityType
+                    console.log('Shared with activity type:', result.activityType);
+                } else {
+                    // shared
+                    console.log('Shared');
+                }
+            } else if (result.action === Share.dismissedAction) {
+                // dismissed
+                console.log('Share dismissed');
+            }
+        } catch (error: any) {
+            Alert.alert("Error", error.message);
+        }
+        setShareModalVisible(false);
+    };
+
+    const handleNavigateToShareWithChat = () => {
+        setShareModalVisible(false);
+        onClose(); // Close the event modal
+        navigation.navigate('ShareEventScreen' as any, {
+            eventId: event.id,
+            eventTitle: event.title,
+            eventDate: event.date,
+            eventVenue: event.venue,
+            eventImage: event.images?.[0] || DEFAULT_EVENT_IMAGE
+        });
+    };
+
     return (
         <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
           <View style={styles.modalContainer}>
@@ -327,6 +377,11 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
                             </View>
                           </>
                       )}
+                      {/* Share Button */}
+                        <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
+                            <Feather name="share-2" size={18} color="#3B82F6" />
+                            <Text style={styles.shareButtonText}>Share Event</Text>
+                        </TouchableOpacity>
                       {/* Proceed Button */}
                       {canBookOrReserve && (
                           <TouchableOpacity style={styles.bookNowButton} onPress={handleProceedToConfirmation} >
@@ -335,12 +390,53 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
                           </TouchableOpacity>
                       )}
                       {!canBookOrReserve && event.booking_type === 'INFO_ONLY' && (
-                          <View style={styles.infoOnlyBadge}><Feather name="info" size={16} color="#6B7280" /><Text style={styles.infoOnlyText}>Info only. No booking required.</Text></View>
+                          <View style={styles.infoOnlyBadge}><Feather name="info" size={16} color="#6B7280" /><Text style={styles.infoOnlyText}> No booking required.</Text></View>
                       )}
                   </View>
               </ScrollView>
             </View>
           </View>
+          
+          {/* Share Options Modal */}
+          <Modal
+              visible={shareModalVisible}
+              transparent={true}
+              animationType="fade"
+              onRequestClose={() => setShareModalVisible(false)}
+          >
+              <TouchableOpacity 
+                  style={styles.shareModalOverlay}
+                  activeOpacity={1}
+                  onPress={() => setShareModalVisible(false)}
+              >
+                  <View style={styles.shareModalContent}>
+                      <Text style={styles.shareModalTitle}>Share Event</Text>
+                      
+                      <TouchableOpacity 
+                          style={styles.shareOption}
+                          onPress={handleNavigateToShareWithChat}
+                      >
+                          <Feather name="message-circle" size={24} color="#3B82F6" />
+                          <Text style={styles.shareOptionText}>Share to Chats</Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity 
+                          style={styles.shareOption}
+                          onPress={handleExternalShare}
+                      >
+                          <Feather name="external-link" size={24} color="#10B981" />
+                          <Text style={styles.shareOptionText}>Share to External Apps</Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity
+                          style={[styles.shareOption, styles.cancelShareOption]}
+                          onPress={() => setShareModalVisible(false)}
+                      >
+                          <Text style={styles.cancelShareText}>Cancel</Text>
+                      </TouchableOpacity>
+                  </View>
+              </TouchableOpacity>
+          </Modal>
         </Modal>
     );
 };
@@ -360,7 +456,7 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress,
      const basePrice = event.ticket_price;
      const priceText = event.booking_type === 'TICKETED'
                       ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user)
-                      : event.booking_type === 'RESERVATION' ? "Reservation" : "Info Only";
+                      : event.booking_type === 'RESERVATION' ? "Reservation" : "";
      let buttonText = "View";
      let buttonIcon: React.ComponentProps<typeof Feather>['name'] = "info";
      if (event.booking_type === 'TICKETED') { buttonText = "Get Tickets"; buttonIcon = "tag"; }
@@ -575,6 +671,7 @@ const calculateEventScore = (event: MappedEvent, userProfile: MusicLoverProfileD
 // --- Main Events Screen ---
 const EventsScreen: React.FC = () => {
     const { session } = useAuth(); // Get session, user is inside session.user
+    const route = useRoute<EventsScreenRouteProp>(); // Get route object
     const [userProfile, setUserProfile] = useState<MusicLoverProfileData | null>(null);
     // State for raw fetched data
     const [rawEvents, setRawEvents] = useState<SupabasePublicEvent[]>([]);
@@ -604,11 +701,6 @@ const EventsScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
 
     // TabView state // Replaced with manual tab state
-    // const [index, setIndex] = useState(0);
-    // const [routes] = useState([
-    //     { key: 'forYou', title: 'Events For You' },
-    //     { key: 'allEvents', title: 'All Events' },
-    // ]);
     const [activeTabIndex, setActiveTabIndex] = useState(0); // 0 for 'For You', 1 for 'All Events'
 
     // Impression tracking refs (keep as is)
@@ -759,10 +851,26 @@ const EventsScreen: React.FC = () => {
         setAllForYouEventsLoaded(false);
         setCurrentPageAllEvents(1);
         setAllAllEventsLoaded(false);
-        Promise.all([fetchUserProfile(), fetchEventsAndOrganizers()]).finally(() => {
+
+        const { openEventId, initialScreenTab } = route.params || {};
+        if (initialScreenTab === 'allEvents') {
+            setActiveTabIndex(1);
+        } else {
+            setActiveTabIndex(0); // Default to 'For You' or handle other tabs
+        }
+
+        Promise.all([fetchUserProfile(), fetchEventsAndOrganizers()])
+            .then(() => {
+                if (openEventId) {
+                    // The processing useEffect will handle finding and setting the event
+                    // Ensure it runs AFTER data is fetched and processed
+                    console.log(`[EventsScreen] Focus: Received openEventId: ${openEventId}`);
+                }
+            })
+            .finally(() => {
            // setIsLoading(false); // Loading is set to false after processing effect runs
         });
-    }, [fetchUserProfile, fetchEventsAndOrganizers]));
+    }, [fetchUserProfile, fetchEventsAndOrganizers, route.params]));
 
     // Process events whenever raw data or user profile changes
     useEffect(() => {
@@ -853,11 +961,74 @@ const EventsScreen: React.FC = () => {
         setCurrentPageAllEvents(1);
         setAllAllEventsLoaded(false);
 
+        // --- Auto-open event modal if openEventId is present ---
+        const { openEventId } = route.params || {};
+        if (openEventId && (allInLocationSortedByDate.length > 0 || recommended.length > 0)) {
+            let eventToOpen: MappedEvent | undefined;
+            // Prioritize finding it in the initially suggested tab or current active tab
+            if (activeTabIndex === 1) { // All Events tab
+                eventToOpen = allInLocationSortedByDate.find(event => event.id === openEventId);
+            }
+            if (!eventToOpen && activeTabIndex === 0) { // For You tab
+                eventToOpen = recommended.find(event => event.id === openEventId);
+            }
+            // If not found in the active tab, search the other one
+            if (!eventToOpen) {
+                if (activeTabIndex === 1) { // Was All Events, check For You
+                     eventToOpen = recommended.find(event => event.id === openEventId);
+                } else { // Was For You, check All Events
+                     eventToOpen = allInLocationSortedByDate.find(event => event.id === openEventId);
+                }
+            }
+            // Fallback: If still not found, search all raw mapped events (before tab-specific sorting/filtering)
+            if (!eventToOpen) {
+                 const allMapped = rawEvents.map((event: SupabasePublicEvent) => { 
+                    const { date, time } = formatEventDateTime(event.event_datetime);
+                    const organizerInfo = organizerMap.get(event.organizer_id);
+                    const finalOrganizerData: OrganizerInfo = organizerInfo || {
+                        userId: event.organizer_id,
+                        name: DEFAULT_ORGANIZER_NAME,
+                        image: null
+                    };
+                    return {
+                        id: event.id, title: event.title,
+                        images: event.poster_urls?.length > 0 ? event.poster_urls : [DEFAULT_EVENT_IMAGE],
+                        date: date, time: time,
+                        venue: event.location_text ?? "N/A",
+                        country: event.country, city: event.city,
+                        genres: event.tags_genres ?? [], artists: event.tags_artists ?? [], songs: event.tags_songs ?? [],
+                        description: event.description ?? "No description.",
+                        booking_type: event.booking_type,
+                        ticket_price: event.ticket_price,
+                        pass_fee_to_user: event.pass_fee_to_user ?? true,
+                        max_tickets: event.max_tickets, max_reservations: event.max_reservations,
+                        organizer: finalOrganizerData,
+                        isViewable: false, score: 0, // Score might not be relevant here if just opening
+                        event_datetime_iso: event.event_datetime 
+                    };
+                }).filter(event => new Date(event.event_datetime_iso) > now);
+                eventToOpen = allMapped.find(e => e.id === openEventId);
+            }
+
+            if (eventToOpen) {
+                console.log(`[EventsScreen] Auto-opening event modal for: ${openEventId}`);
+                setSelectedEvent(eventToOpen);
+                setModalVisible(true);
+                // Clear the param so it doesn't re-trigger on next focus without a new navigation action
+                navigation.setParams({ openEventId: undefined, initialScreenTab: undefined } as any);
+            } else {
+                console.warn(`[EventsScreen] Event with ID ${openEventId} not found after fetching and processing.`);
+                // Optionally clear params if event not found to prevent retries
+                 navigation.setParams({ openEventId: undefined, initialScreenTab: undefined } as any);
+            }
+        }
+        // --- End auto-open logic ---
+
         setIsLoading(false); 
         setRefreshing(false); 
         console.log(`[EventsScreen] Processing complete. For You (source): ${recommended.length}, All Events (source): ${allInLocationSortedByDate.length}`);
 
-    }, [rawEvents, organizerMap, userProfile]);
+    }, [rawEvents, organizerMap, userProfile, route.params, navigation, activeTabIndex]); // Added route.params, navigation, activeTabIndex
 
     // Update displayed events for "For You" tab based on pagination
     useEffect(() => {
@@ -1247,6 +1418,65 @@ const styles = StyleSheet.create({
     activeTabText: {
         color: APP_CONSTANTS.COLORS.PRIMARY || '#3B82F6',
     },
+    shareButton: { // Style for the new share button
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: 24,
+        borderRadius: 12,
+        marginTop: 10, // Adjusted from 24 to give space if book now button is present
+        marginBottom: 10, // Adjusted from 24
+        backgroundColor: '#E0E7FF', // Lighter blue or a distinct color
+    },
+    shareButtonText: { // Style for the share button text
+        color: '#3B82F6', // Primary color
+        fontWeight: '600',
+        fontSize: 16,
+        marginLeft: 8,
+    },
+    shareModalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    shareModalContent: {
+        backgroundColor: 'white',
+        borderRadius: 16,
+        padding: 20,
+        width: '80%',
+        maxWidth: 400,
+    },
+    shareModalTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#1F2937',
+        marginBottom: 16,
+        textAlign: 'center',
+    },
+    shareOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F3F4F6',
+    },
+    shareOptionText: {
+        fontSize: 16,
+        marginLeft: 12,
+        color: '#4B5563',
+    },
+    cancelShareOption: {
+        justifyContent: 'center',
+        borderBottomWidth: 0,
+        marginTop: 8,
+    },
+    cancelShareText: {
+        color: '#EF4444',
+        fontSize: 16,
+        fontWeight: '500',
+    }
 });
 
 export default EventsScreen;

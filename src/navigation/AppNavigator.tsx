@@ -26,6 +26,7 @@ import UpgradeScreen from '@/screens/UpgradeScreen';
 import IndividualChatScreen from '@/screens/IndividualChatScreen';
 import OtherUserProfileScreen from '@/screens/OtherUserProfileScreen';
 import FriendsListScreen from '@/screens/FriendsListScreen';
+import ShareEventScreen from '@/screens/ShareEventScreen';
 
 // User Settings Screens
 import EditUserProfileScreen from '@/screens/EditUserProfileScreen';
@@ -134,6 +135,13 @@ export type MainStackParamList = {
   UpcomingEventsListScreen: { userId?: string, organizerId?: string }; // Added optional params
   PastEventsListScreen: { userId?: string, organizerId?: string }; // Added optional params
   ViewOrganizerProfileScreen: { organizerId: string }; // Added params
+  ShareEventScreen: {
+    eventId: string;
+    eventTitle: string;
+    eventDate: string;
+    eventVenue: string;
+    eventImage?: string;
+  };
   
   VenueProfileScreen: { venueId:string }; // Assuming venueId might be string too
   VenueDetailScreen: { venueId: string }; // Assuming venueId might be string too
@@ -171,6 +179,15 @@ export type RootStackParamList = {
     topGenres?: string[]; // <-- ADD THIS
     topMoods?: string[]; // <-- ADD THIS
     isFirstInteractionFromMatches?: boolean;
+    // Parameters for navigating from Event screens to Chat to pre-fill sharing
+    sharedEventData?: {
+      eventId: string;
+      eventTitle: string;
+      eventDate: string;
+      eventVenue: string;
+      eventImage: string;
+      isSharing: boolean; 
+    };
   };
   OtherUserProfileScreen: {
     userId: string;
@@ -184,6 +201,15 @@ export type RootStackParamList = {
       groupId: string;
       groupName?: string | null; // Pass initial name, might update
       groupImage?: string | null; // Pass initial image, might update
+      // Parameters for navigating from Event screens to Chat to pre-fill sharing
+      sharedEventData?: { 
+        eventId: string;
+        eventTitle: string;
+        eventDate: string;
+        eventVenue: string;
+        eventImage: string;
+        isSharing: boolean;
+      };
   };
    GroupInfoScreen: { // Screen for viewing/managing group details
        groupId: string;
@@ -197,7 +223,13 @@ export type RootStackParamList = {
   // *** END Group Chat Screens ***
 
   // ViewOrganizerProfileScreen REMOVED from RootStack
-  ChatsScreen: undefined;
+  ChatsScreen: undefined; // This screen is part of UserTabs
+
+  // Define params for EventsScreen, as it can be navigated to with these specific params
+  EventsScreen: {
+    openEventId?: string;
+    initialScreenTab?: 'forYou' | 'allEvents'; // Or your specific tab keys
+  };
 
   NotFoundGlobal?: undefined;
   // Include signup flows here for direct navigation if needed during incomplete profile state
@@ -246,7 +278,7 @@ const MainAppStack = () => {
                  <MainStack.Screen name="OrgBillingHistoryScreen" component={OrgBillingHistoryScreen} options={{ title: 'Billing History' }}/>
                  <MainStack.Screen name="UserListScreen" component={UserListScreen} options={{ title: 'Followers' }}/>
                  <MainStack.Screen name="OverallAnalyticsScreen" component={OverallAnalyticsScreen} options={{ title: 'Overall Analytics' }}/>
-    
+                 <MainStack.Screen name="ShareEventScreen" component={ShareEventScreen} options={{ title: 'Share Event' }}/>
              </>
         ) : (
              <>
@@ -266,6 +298,7 @@ const MainAppStack = () => {
                  <MainStack.Screen name="PremiumSignupScreen" component={PremiumSignupScreen} options={{ title: 'Payment' }} />
                  <MainStack.Screen name="PaymentConfirmationScreen" component={PaymentConfirmationScreen} options={{ title: 'Payment Confirmation' }} />
                  <MainStack.Screen name="PaymentSuccessScreen" component={PaymentSuccessScreen} />
+                 <MainStack.Screen name="ShareEventScreen" component={ShareEventScreen} options={{ title: 'Share Event' }}/>
              </>
         )}
         {/* Screens accessible by both modes */}

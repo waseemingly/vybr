@@ -170,7 +170,6 @@ const OrganizerPostsScreen = () => {
           <View style={styles.cardActions}>
             <TouchableOpacity style={styles.actionButton} onPress={(e) => { e.stopPropagation(); handleEditPress(item.id); }}><Feather name="edit-2" size={14} color="#3B82F6" /><Text style={styles.actionButtonText}>Edit</Text></TouchableOpacity>
             <TouchableOpacity style={styles.actionButton} onPress={(e) => { e.stopPropagation(); navigation.navigate("EventDetail", { eventId: item.id }); }}><Feather name="bar-chart-2" size={14} color="#3B82F6" /><Text style={styles.actionButtonText}>Analytics</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton} onPress={(e) => { e.stopPropagation(); Alert.alert("Share", `Share feature coming soon!`); }}><Feather name="share-2" size={14} color="#3B82F6" /><Text style={styles.actionButtonText}>Share</Text></TouchableOpacity>
           </View>
         </View>
       </TouchableOpacity>
