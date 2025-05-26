@@ -7,7 +7,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
-import { MediaType } from "expo-image-picker";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import * as FileSystem from "expo-file-system";
 import { Buffer } from "buffer";
@@ -53,23 +52,31 @@ interface ImageAsset { uri: string; mimeType?: string; fileName?: string; }
 
 // Helper function to get a clean, single image MIME type
 const getCleanImageMimeType = (rawMimeType?: string): string | undefined => {
-  if (!rawMimeType) return undefined;
-  // Prioritize specific image types if present in a compound string
-  if (rawMimeType.includes('image/webp')) return 'image/webp';
-  if (rawMimeType.includes('image/jpeg')) return 'image/jpeg';
-  if (rawMimeType.includes('image/png')) return 'image/png';
-  if (rawMimeType.includes('image/gif')) return 'image/gif';
-  if (rawMimeType.includes('image/svg+xml')) return 'image/svg+xml';
+  if (!rawMimeType || typeof rawMimeType !== 'string') return undefined;
 
-  // If it's already a simple, valid image MIME type (and not compound)
-  if (rawMimeType.startsWith('image/') && !rawMimeType.includes(',')) {
-    const knownSimpleTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/svg+xml', 'image/webp'];
-    if (knownSimpleTypes.includes(rawMimeType)) {
-      return rawMimeType;
+  const knownSimpleTypes = ['image/webp', 'image/jpeg', 'image/png', 'image/gif', 'image/svg+xml'];
+  
+  // First, check if rawMimeType is already one of the known simple types
+  if (knownSimpleTypes.includes(rawMimeType)) {
+    return rawMimeType;
+  }
+
+  // If it's a compound string, try to extract one of the known types
+  for (const type of knownSimpleTypes) {
+    if (rawMimeType.includes(type)) {
+      return type; // Return the first known type found
     }
   }
-  // Fallback for unrecognized or complex types not caught above
-  return undefined; 
+  
+  // Fallback for simple image types not in the known list but correctly formatted
+  // This part is less critical if the above extraction works for known types.
+  if (rawMimeType.startsWith('image/') && !rawMimeType.includes(',')) {
+      // For now, we rely on the knownSimpleTypes for robust extraction from compound strings.
+      // If it's a simple 'image/customtype' not in our list, it might not be caught here
+      // unless it was an exact match at the beginning.
+  }
+
+  return undefined; // If no known type is found or extracted
 };
 
 const CreateEventScreen: React.FC = () => {
@@ -278,7 +285,7 @@ const CreateEventScreen: React.FC = () => {
         if (status !== 'granted') { Alert.alert("Permission Required", "Permission to access photos is needed."); return; }
         try {
             let result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                mediaTypes: 'images',
                 allowsMultipleSelection: true, 
                 quality: 0.8,
                 selectionLimit: 3 - imageAssets.length,
@@ -315,25 +322,22 @@ const CreateEventScreen: React.FC = () => {
    const uploadSingleImage = async (userId: string, asset: ImageAsset): Promise<string | null> => { 
      const { uri, mimeType: assetMimeTypeFromPicker, fileName: originalFileName } = asset; 
      try { 
-       // 1. Determine initial extension from URI (as a fallback or hint)
        let extHint = uri.split('.').pop()?.toLowerCase().split('?')[0];
        if (extHint && (extHint.length > 5 || !/^[a-zA-Z0-9]+$/.test(extHint))) {
            extHint = undefined;
        }
-       if (extHint === 'jpg') extHint = 'jpeg'; // Normalize for MIME type check consistency
+       if (extHint === 'jpg') extHint = 'jpeg';
 
-       // 2. Determine the best MIME type using the picker's mimeType and URI extension hint
        let finalMimeType = getCleanImageMimeType(assetMimeTypeFromPicker);
-       if (!finalMimeType && extHint) { // If picker's mimeType is not useful, try with extension
+       if (!finalMimeType && extHint) {
            finalMimeType = getCleanImageMimeType(`image/${extHint}`);
        }
-       if (!finalMimeType) { // Absolute fallback
+       if (!finalMimeType) {
            finalMimeType = 'image/jpeg';
            console.warn(`[ImageUpload] Could not determine clean MIME type for URI ${uri.substring(0,100)}. Defaulting to ${finalMimeType}. Picker provided: ${assetMimeTypeFromPicker}`);
        }
 
-       // 3. Determine the file extension from the finalMimeType
-       let finalFileExtension = 'jpg'; // Default extension
+       let finalFileExtension = 'jpg';
        const typeParts = finalMimeType.split('/');
        if (typeParts.length === 2 && typeParts[0] === 'image' && typeParts[1]) {
            finalFileExtension = typeParts[1].replace('jpeg', 'jpg').replace('svg+xml', 'svg');
@@ -344,7 +348,7 @@ const CreateEventScreen: React.FC = () => {
        const filePath = `${userId}/${fileName}`; 
        
        let arrayBuffer: ArrayBuffer;
-       let actualMimeTypeForUpload = finalMimeType; // Start with the determined MIME type
+       let actualMimeTypeForUpload = finalMimeType;
 
        if (Platform.OS === 'web') { 
          if (uri.startsWith('data:')) {
@@ -367,24 +371,39 @@ const CreateEventScreen: React.FC = () => {
            }
          }
          
-         if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty for web upload.");
+         if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error("Image data is empty for web upload.");
+         if (!actualMimeTypeForUpload) actualMimeTypeForUpload = 'image/jpeg';
          
-         console.log(`[ImageUpload WEB] Uploading to Supabase with path: ${filePath}, contentType: ${actualMimeTypeForUpload}`);
-         
-         const { data: uploadData, error: uploadError } = await supabase.storage.from("event_posters").upload(filePath, arrayBuffer, { 
-           cacheControl: "3600", 
-           upsert: false, 
-           contentType: actualMimeTypeForUpload 
-         });
-         
-         if (uploadError) {
-           console.error("[ImageUpload WEB] Supabase Upload Error Details:", uploadError);
-           throw new Error(`Supabase upload error: ${uploadError.message}`);
-         }
-         if (!uploadData?.path) throw new Error("Upload succeeded but no path returned from Supabase (WEB).");
-         
-         const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(uploadData.path);
-         return urlData?.publicUrl ?? null;
+         const fileToUpload = new File([arrayBuffer], fileName, { type: actualMimeTypeForUpload });
+         console.log(`[ImageUpload WEB] Path: ${filePath}, FileObject Type: ${fileToUpload.type}`);
+
+         // New strategy: Use signed URL for web uploads
+         const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+            .from("event_posters")
+            .createSignedUploadUrl(filePath);
+
+        if (signedUrlError) {
+            console.error("[ImageUpload WEB] Supabase Signed URL Error:", signedUrlError);
+            throw new Error(`Supabase signed URL error: ${signedUrlError.message}`);
+        }
+        if (!signedUrlData?.signedUrl) throw new Error("No signed URL returned (WEB).");
+
+        const uploadResponse = await fetch(signedUrlData.signedUrl, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': fileToUpload.type, // Explicitly set Content-Type from File object
+            },
+            body: fileToUpload,
+        });
+
+        if (!uploadResponse.ok) {
+            const errorBody = await uploadResponse.text();
+            console.error("[ImageUpload WEB] Manual Fetch Upload Error:", uploadResponse.status, errorBody);
+            throw new Error(`Manual fetch upload failed: ${uploadResponse.status} ${errorBody}`);
+        }
+        
+        const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(filePath);
+        return urlData?.publicUrl ?? null;
 
        } else { // Native
          const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }); 
@@ -461,12 +480,18 @@ const CreateEventScreen: React.FC = () => {
     try {
       const posterUrls = await uploadImages(userId, imageAssets);
       if (posterUrls.length !== imageAssets.length && imageAssets.length > 0) {
-        Alert.alert("Upload Issue", "Some images failed to upload. Continuing without them.");
+        // Keep the alert, but consider if behavior should change if some uploads fail criticaly
+        Alert.alert("Upload Issue", "Some images failed to upload. Please check and try again if needed.");
+        // Depending on requirements, you might want to stop submission if posterUrls.length === 0 and imageAssets.length > 0
+        if (posterUrls.length === 0 && imageAssets.length > 0) {
+            setIsSubmitting(false);
+            return; // Stop if no images were successfully uploaded but some were attempted
+        }
       }
-      const processTags = (tagString: string): string[] | null => {
-        if (!tagString?.trim()) return null;
-        const tags = tagString.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0 && tag.length <= 50); // Added length limit
-        return tags.length > 0 ? tags : null;
+      const processTags = (tagString: string): string[] => { // Return string[]
+        if (!tagString?.trim()) return []; // Return empty array
+        const tags = tagString.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0 && tag.length <= 50);
+        return tags; // Return tags array (could be empty)
       };
       const finalGenres = processTags(formState.genres);
       const finalArtists = processTags(formState.artists);
