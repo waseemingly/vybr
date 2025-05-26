@@ -388,7 +388,7 @@ const EditEventScreen: React.FC = () => {
         if (status !== 'granted') { Alert.alert("Permission Required", "Permission to access photos is needed."); return; }
         try {
             let result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                mediaTypes: 'images',
                 allowsMultipleSelection: true,
                 quality: 0.8,
                 selectionLimit: 3 - imageAssets.length, // Limit selection
@@ -420,24 +420,21 @@ const EditEventScreen: React.FC = () => {
         
         const { uri, mimeType: assetMimeTypeFromPicker, fileName: originalFileName, base64: assetBase64 } = asset; 
         try { 
-            // 1. Determine initial extension from URI (as a fallback or hint)
             let extHint = uri.split('.').pop()?.toLowerCase().split('?')[0];
             if (extHint && (extHint.length > 5 || !/^[a-zA-Z0-9]+$/.test(extHint))) {
                 extHint = undefined;
             }
             if (extHint === 'jpg') extHint = 'jpeg'; // Normalize
 
-            // 2. Determine the best MIME type
             let finalMimeType = getCleanImageMimeType(assetMimeTypeFromPicker);
             if (!finalMimeType && extHint) {
                 finalMimeType = getCleanImageMimeType(`image/${extHint}`);
             }
             if (!finalMimeType) {
-                finalMimeType = 'image/jpeg'; // Absolute fallback
+                finalMimeType = 'image/jpeg'; 
                 console.warn(`[EditEvent - ImageUpload] Could not determine clean MIME type for URI ${uri.substring(0,100)}. Defaulting to ${finalMimeType}. Picker: ${assetMimeTypeFromPicker}`);
             }
 
-            // 3. Determine file extension from finalMimeType
             let finalFileExtension = 'jpg';
             const typeParts = finalMimeType.split('/');
             if (typeParts.length === 2 && typeParts[0] === 'image' && typeParts[1]) {
@@ -456,11 +453,7 @@ const EditEventScreen: React.FC = () => {
                 if (assetBase64) {
                     arrayBuffer = decode(assetBase64);
                     const cleanedPickerMimeType = getCleanImageMimeType(assetMimeTypeFromPicker);
-                    if (cleanedPickerMimeType) {
-                        actualMimeTypeForUpload = cleanedPickerMimeType;
-                    } else {
-                        console.warn(`[EditEvent WEB] assetBase64 present, but assetMimeTypeFromPicker ('${assetMimeTypeFromPicker}') was not clean. Using derived: ${actualMimeTypeForUpload}`);
-                    }
+                    if (cleanedPickerMimeType) actualMimeTypeForUpload = cleanedPickerMimeType;
                 } else if (uri.startsWith('data:')) {
                     const base64Data = uri.split(',')[1];
                     if (!base64Data) throw new Error("Invalid data URI format (WEB).");
@@ -471,7 +464,6 @@ const EditEventScreen: React.FC = () => {
                         if (cleanedDataUriMimeType) actualMimeTypeForUpload = cleanedDataUriMimeType;
                     }
                 } else {
-                    console.warn("[EditEvent WEB] Base64 not available, attempting to fetch URI.");
                     const response = await fetch(uri);
                     if (!response.ok) throw new Error(`Failed to fetch web URI: ${response.status} ${response.statusText}`);
                     arrayBuffer = await response.arrayBuffer();
@@ -481,34 +473,40 @@ const EditEventScreen: React.FC = () => {
                         if (cleanedHeaderMimeType) actualMimeTypeForUpload = cleanedHeaderMimeType;
                     }
                 }
-                
                 if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error("Image data empty or invalid after processing (WEB).");
-                if (!actualMimeTypeForUpload) actualMimeTypeForUpload = 'image/jpeg'; // Final safety net for MIME type
-
-                console.log(`[EditEvent - ImageUpload WEB] Path: ${filePath}, ContentType: ${actualMimeTypeForUpload}`); 
+                if (!actualMimeTypeForUpload) actualMimeTypeForUpload = 'image/jpeg';
                 
-                // --- Create a File object for web upload ---
-                const blob = new Blob([arrayBuffer], { type: actualMimeTypeForUpload });
-                const fileToUpload = new File([blob], fileName, { type: actualMimeTypeForUpload });
-                // -------------------------------------------
+                const fileToUpload = new File([arrayBuffer], fileName, { type: actualMimeTypeForUpload });
+                console.log(`[EditEvent - ImageUpload WEB] Path: ${filePath}, FileObject Type: ${fileToUpload.type}`);
 
-                const { data: uploadData, error: uploadError } = await supabase.storage.from("event_posters").upload(
-                    filePath, 
-                    fileToUpload, // Upload the File object
-                    { 
-                        cacheControl: "3600", 
-                        upsert: false, 
-                        contentType: actualMimeTypeForUpload // Re-add explicit contentType
-                    }
-                );
-                
-                if (uploadError) {
-                     console.error("[EditEvent - ImageUpload WEB] Supabase Error:", uploadError);
-                     throw new Error(`Supabase upload error: ${uploadError.message}`);
+                // New strategy: Use signed URL for web uploads
+                const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+                    .from("event_posters")
+                    .createSignedUploadUrl(filePath);
+
+                if (signedUrlError) {
+                    console.error("[EditEvent - ImageUpload WEB] Supabase Signed URL Error:", signedUrlError);
+                    throw new Error(`Supabase signed URL error: ${signedUrlError.message}`);
                 }
-                if (!uploadData?.path) throw new Error("Upload succeeded but no path returned (WEB).");
+                if (!signedUrlData?.signedUrl) throw new Error("No signed URL returned (WEB).");
+
+                const uploadResponse = await fetch(signedUrlData.signedUrl, {
+                    method: 'PUT',
+                    headers: {
+                        // 'Authorization': `Bearer ${signedUrlData.token}`, // Token usually part of signedUrl query params for PUT
+                        'Content-Type': fileToUpload.type, // Explicitly set Content-Type from File object
+                    },
+                    body: fileToUpload,
+                });
+
+                if (!uploadResponse.ok) {
+                    const errorBody = await uploadResponse.text();
+                    console.error("[EditEvent - ImageUpload WEB] Manual Fetch Upload Error:", uploadResponse.status, errorBody);
+                    throw new Error(`Manual fetch upload failed: ${uploadResponse.status} ${errorBody}`);
+                }
                 
-                const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(uploadData.path);
+                // If upload is successful, get the public URL
+                const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(filePath); // Use filePath used for signed URL
                 return urlData?.publicUrl ?? null;
 
             } else { // Native
@@ -629,7 +627,11 @@ const EditEventScreen: React.FC = () => {
               return;
           }
 
-          const processTags = (tagString: string): string[] | null => { if (!tagString?.trim()) return null; const tags = tagString.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0 && tag.length <= 50); return tags.length > 0 ? tags : null; };
+          const processTags = (tagString: string): string[] => {
+            if (!tagString?.trim()) return [];
+            const tags = tagString.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0 && tag.length <= 50);
+            return tags;
+          };
           const finalGenres = processTags(formState.genres);
           const finalArtists = processTags(formState.artists);
           const finalSongs = processTags(formState.songs);
