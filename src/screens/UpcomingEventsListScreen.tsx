@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     View, Text, StyleSheet, FlatList, TouchableOpacity,
-    Image, ActivityIndicator, RefreshControl, ScrollView, Alert, Dimensions
+    Image, ActivityIndicator, RefreshControl, ScrollView, Alert, Dimensions,
+    Share, Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -21,15 +22,22 @@ import {
 import ImageSwiper from '@/components/ImageSwiper';
 
 // Define Navigation and Route Types
-type UpcomingEventsListRouteProp = RouteProp<MainStackParamList, 'UpcomingEventsListScreen'>;
+// type UpcomingEventsListRouteProp = RouteProp<MainStackParamList, 'UpcomingEventsListScreen'>;
+
+// Corrected Route Prop Type to include organizerUserId and organizerName
+type UpcomingEventsListRouteProp = RouteProp<MainStackParamList & { UpcomingEventsListScreen: { organizerUserId: string; organizerName?: string } }, 'UpcomingEventsListScreen'>;
+
 type UpcomingEventsListNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>;
 
 const DEFAULT_EVENT_IMAGE = "https://via.placeholder.com/800x450/D1D5DB/1F2937?text=No+Image";
-const DEFAULT_ORGANIZER_LOGO = APP_CONSTANTS.DEFAULT_ORGANIZER_LOGO;
+// const DEFAULT_ORGANIZER_LOGO = APP_CONSTANTS.DEFAULT_ORGANIZER_LOGO;
+const DEFAULT_ORGANIZER_LOGO = "https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo"; // Using a fallback
 const DEFAULT_ORGANIZER_NAME = "Event Organizer";
 
 // --- NEW: Organizer-specific Event Item View ---
 const OrganizerEventItemView: React.FC<{ item: MappedEvent, navigation: UpcomingEventsListNavigationProp }> = ({ item, navigation }) => {
+    const [shareModalVisible, setShareModalVisible] = useState(false);
+    
     const handleEditPress = (eventId: string) => {
         navigation.navigate("EditEvent", { eventId });
     };
@@ -37,8 +45,38 @@ const OrganizerEventItemView: React.FC<{ item: MappedEvent, navigation: Upcoming
         // Navigate to the Organizer EventDetail screen, not the user-facing one
         navigation.navigate("EventDetail", { eventId });
     };
-    const handleSharePress = (eventId: string) => {
-        Alert.alert("Share Event", "Sharing feature coming soon!");
+
+    const handleSharePress = (event: MappedEvent) => {
+        setShareModalVisible(true);
+    };
+
+    const handleExternalShare = async () => {
+        try {
+            const result = await Share.share({
+                message: `Check out this event: ${item.title} on ${item.date} at ${item.venue}. Find out more on Vybr!`,
+                title: `Vybr Event: ${item.title}`
+            });
+            
+            if (result.action === Share.sharedAction) {
+                console.log('Shared with activity type:', result.activityType || 'Unknown');
+            } else if (result.action === Share.dismissedAction) {
+                console.log('Share dismissed');
+            }
+        } catch (error: any) {
+            Alert.alert("Error", error.message);
+        }
+        setShareModalVisible(false);
+    };
+
+    const handleNavigateToShareWithChat = () => {
+        setShareModalVisible(false);
+        navigation.navigate('ShareEventScreen' as any, {
+            eventId: item.id,
+            eventTitle: item.title,
+            eventDate: item.date,
+            eventVenue: item.venue,
+            eventImage: item.images?.[0] || DEFAULT_EVENT_IMAGE
+        });
     };
 
     return (
@@ -76,12 +114,53 @@ const OrganizerEventItemView: React.FC<{ item: MappedEvent, navigation: Upcoming
                         <Feather name="bar-chart-2" size={14} color={APP_CONSTANTS.COLORS.PRIMARY} />
                         <Text style={organizerCardStyles.actionButtonText}>Analytics</Text>
                     </TouchableOpacity>
-                     <TouchableOpacity style={organizerCardStyles.actionButton} onPress={() => handleSharePress(item.id)}>
+                    <TouchableOpacity style={organizerCardStyles.actionButton} onPress={() => handleSharePress(item)}>
                         <Feather name="share-2" size={14} color={APP_CONSTANTS.COLORS.PRIMARY} />
                         <Text style={organizerCardStyles.actionButtonText}>Share</Text>
                     </TouchableOpacity>
                 </View>
             </View>
+            
+            {/* Share Options Modal */}
+            <Modal
+                visible={shareModalVisible}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setShareModalVisible(false)}
+            >
+                <TouchableOpacity 
+                    style={styles.shareModalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setShareModalVisible(false)}
+                >
+                    <View style={styles.shareModalContent}>
+                        <Text style={styles.shareModalTitle}>Share Event</Text>
+                        
+                        <TouchableOpacity 
+                            style={styles.shareOption}
+                            onPress={handleNavigateToShareWithChat}
+                        >
+                            <Feather name="message-circle" size={24} color="#3B82F6" />
+                            <Text style={styles.shareOptionText}>Share to Chats</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                            style={styles.shareOption}
+                            onPress={handleExternalShare}
+                        >
+                            <Feather name="external-link" size={24} color="#10B981" />
+                            <Text style={styles.shareOptionText}>Share to External Apps</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                            style={[styles.shareOption, styles.cancelShareOption]}
+                            onPress={() => setShareModalVisible(false)}
+                        >
+                            <Text style={styles.cancelShareText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         </TouchableOpacity>
     );
 };
@@ -156,6 +235,7 @@ const UpcomingEventsListScreen: React.FC = () => {
                     max_reservations: event.max_reservations,
                     organizer: organizerInfoFromParams, // Use consistent organizer info
                     isViewable: false, // isViewable might not be needed here
+                    event_datetime_iso: event.event_datetime // Added missing property
                 };
             });
 
@@ -267,6 +347,48 @@ const styles = StyleSheet.create({
     emptyText: { fontSize: 18, fontWeight: '600', color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginTop: 15, textAlign: 'center', },
     emptySubText: { fontSize: 14, color: APP_CONSTANTS.COLORS.DISABLED, marginTop: 8, textAlign: 'center', },
     // Removed placeholder style
+    shareModalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    shareModalContent: {
+        backgroundColor: 'white',
+        borderRadius: 16,
+        padding: 20,
+        width: '80%',
+        maxWidth: 400,
+    },
+    shareModalTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#1F2937',
+        marginBottom: 16,
+        textAlign: 'center',
+    },
+    shareOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F3F4F6',
+    },
+    shareOptionText: {
+        fontSize: 16,
+        marginLeft: 12,
+        color: '#4B5563',
+    },
+    cancelShareOption: {
+        justifyContent: 'center',
+        borderBottomWidth: 0,
+        marginTop: 8,
+    },
+    cancelShareText: {
+        color: '#EF4444',
+        fontSize: 16,
+        fontWeight: '500',
+    }
 });
 
 // --- NEW: Organizer Card Styles (Similar to OrganizerPostsScreen) ---
