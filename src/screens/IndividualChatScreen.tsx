@@ -20,19 +20,11 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import type { RootStackParamList } from "@/navigation/AppNavigator";
 import { APP_CONSTANTS } from '@/config/constants';
-
-// Import necessary items from EventsScreen or a shared location
-// Assuming these are exported from EventsScreen.tsx or a new shared file e.g. '@/components/eventUtils';
 import {
     EventDetailModal,
     type MappedEvent,
     type OrganizerInfo,
-    type SupabasePublicEvent, // May not need this directly if we fetch a simplified version
-    // formatEventDateTime, // This is specific to EventsScreen, might need a local version or pass data differently
-    // DEFAULT_EVENT_IMAGE, // Already in APP_CONSTANTS
-    // DEFAULT_ORGANIZER_LOGO, // Already in APP_CONSTANTS
-    // DEFAULT_ORGANIZER_NAME // This can be a local constant
-} from '@/screens/EventsScreen'; // Adjust path if moved
+} from '@/screens/EventsScreen';
 
 // Types and MessageBubble component
 type IndividualChatScreenRouteProp = RouteProp<RootStackParamList & {
@@ -73,6 +65,16 @@ interface DbMessage {
             eventImage: string;
         }
     } | null;
+    original_content?: string | null;
+    is_edited?: boolean;
+    edited_at?: string | null;
+    is_deleted?: boolean;
+    deleted_at?: string | null;
+    reply_to_message_id?: string | null;
+    is_delivered?: boolean;
+    delivered_at?: string | null;
+    is_seen?: boolean;
+    seen_at?: string | null;
 }
 interface ChatMessage { 
     _id: string; 
@@ -87,12 +89,29 @@ interface ChatMessage {
         eventVenue: string;
         eventImage: string;
     } | null;
+    originalContent?: string | null;
+    isEdited?: boolean;
+    editedAt?: Date | null;
+    isDeleted?: boolean;
+    deletedAt?: Date | null;
+    replyToMessageId?: string | null;
+    replyToMessagePreview?: {
+        text?: string | null;
+        senderName?: string | null;
+        image?: string | null;
+    } | null;
+    isDelivered?: boolean;
+    deliveredAt?: Date | null;
+    isSeen?: boolean;
+    seenAt?: Date | null;
 }
 interface MessageBubbleProps { 
     message: ChatMessage; 
     currentUserId: string | undefined; 
     onImagePress: (imageUrl: string) => void;
     onEventPress?: (eventId: string) => void;
+    onMessageLongPress: (message: ChatMessage) => void;
+    getRepliedMessagePreview: (messageId: string) => ChatMessage['replyToMessagePreview'] | null;
 }
 
 // Add DEFAULT_PROFILE_PIC constant
@@ -115,7 +134,14 @@ const formatEventDateTimeForModal = (isoString: string | null): { date: string; 
     } catch (e) { return { date: "Invalid Date", time: "" }; }
 };
 
-const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, currentUserId, onImagePress, onEventPress }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ 
+    message, 
+    currentUserId, 
+    onImagePress, 
+    onEventPress,
+    onMessageLongPress,
+    getRepliedMessagePreview
+}) => {
     const isCurrentUser = message.user._id === currentUserId;
     const [imageError, setImageError] = useState(false);
     const navigation = useNavigation<RootNavigationProp>();
@@ -139,6 +165,29 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, curre
             onEventPress(message.sharedEvent.eventId);
         }
     };
+
+    // Deleted Message
+    if (message.isDeleted) {
+        return (
+            <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
+                <View style={styles.messageContentContainer}>
+                    <View style={[styles.messageBubble, styles.deletedMessageBubble, isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived]}>
+                        <Feather name="slash" size={14} color={isCurrentUser ? "rgba(255,255,255,0.7)" : "#9CA3AF"} style={{marginRight: 5}}/>
+                        <Text style={[styles.deletedMessageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>
+                            This message was deleted
+                        </Text>
+                    </View>
+                    <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
+                        {formatTime(message.createdAt)}
+                        {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
+                        {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="#A0AEC0" style={{ marginLeft: 4 }} />} 
+                    </Text>
+                </View>
+            </View>
+        );
+    }
+
+    const repliedMessagePreview = message.replyToMessageId ? getRepliedMessagePreview(message.replyToMessageId) : null;
 
     // Shared Event Message
     if (message.sharedEvent) {
@@ -184,9 +233,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, curre
                                 </Text>
                             </View>
                         </TouchableOpacity>
+                        {message.isEdited && <Text style={styles.editedIndicator}>(edited)</Text>}
                     </View>
                     <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
+                        {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
+                        {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="#A0AEC0" style={{ marginLeft: 4 }} />} 
                     </Text>
                 </View>
             </View>
@@ -196,8 +248,30 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, curre
     // Image Message
     if (message.image) {
         return (
-            <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
+            <TouchableOpacity 
+                style={[styles.messageRowTouchable, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}
+                onLongPress={() => onMessageLongPress(message)}
+                delayLongPress={200}
+                activeOpacity={0.8}
+            >
                 <View style={styles.messageContentContainer}>
+                    {/* Reply Preview for Image */} 
+                    {repliedMessagePreview && (
+                        <View style={[styles.replyPreviewContainer, isCurrentUser ? styles.replyPreviewSent : styles.replyPreviewReceived]}>
+                            <View style={styles.replyPreviewBorder} />
+                            <View style={styles.replyPreviewContent}>
+                                <Text style={styles.replyPreviewSenderName}>{repliedMessagePreview.senderName || 'User'}</Text>
+                                {repliedMessagePreview.image ? (
+                                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                        <Feather name="image" size={12} color="#6B7280" style={{marginRight: 4}}/>
+                                        <Text style={styles.replyPreviewText}>Image</Text>
+                                    </View>
+                                ) : (
+                                    <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text}</Text>
+                                )}
+                            </View>
+                        </View>
+                    )}
                     <TouchableOpacity 
                         onPress={() => onImagePress(message.image!)}
                         style={[styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage]}
@@ -213,29 +287,57 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, curre
                                 <Text style={styles.imageErrorText}>Failed to load image</Text>
                             </View>
                         )}
+                        {message.isEdited && <Text style={[styles.editedIndicator, styles.editedIndicatorImage]}>(edited)</Text>}
                     </TouchableOpacity>
                     <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
+                        {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
+                        {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="#A0AEC0" style={{ marginLeft: 4 }} />} 
                     </Text>
                 </View>
-            </View>
+            </TouchableOpacity>
         );
     }
 
     // Regular Text Message
     return (
-        <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
+        <TouchableOpacity 
+            style={[styles.messageRowTouchable, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}
+            onLongPress={() => onMessageLongPress(message)}
+            delayLongPress={200}
+            activeOpacity={0.8}
+        >
             <View style={styles.messageContentContainer}>
+                 {/* Reply Preview for Text */} 
+                {repliedMessagePreview && (
+                    <View style={[styles.replyPreviewContainer, isCurrentUser ? styles.replyPreviewSent : styles.replyPreviewReceived]}>
+                        <View style={styles.replyPreviewBorder} />
+                        <View style={styles.replyPreviewContent}>
+                            <Text style={styles.replyPreviewSenderName}>{repliedMessagePreview.senderName || 'User'}</Text>
+                            {repliedMessagePreview.image ? (
+                                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                    <Feather name="image" size={12} color="#6B7280" style={{marginRight: 4}}/>
+                                    <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text}</Text>
+                                </View>
+                            ) : (
+                                <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text}</Text>
+                            )}
+                        </View>
+                    </View>
+                )}
                 <View style={[styles.messageBubble, isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived]}>
                     <Text style={isCurrentUser ? styles.messageTextSent : styles.messageTextReceived}>
                         {message.text}
                     </Text>
+                    {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
                 </View>
                 <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                     {formatTime(message.createdAt)}
+                    {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
+                    {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="#A0AEC0" style={{ marginLeft: 4 }} />} 
                 </Text>
             </View>
-        </View>
+        </TouchableOpacity>
     );
 });
 
@@ -259,10 +361,20 @@ const generateTagsHash = async (tags: string[]): Promise<string> => {
 const IndividualChatScreen: React.FC = () => {
     const route = useRoute<IndividualChatScreenRouteProp>();
     const navigation = useNavigation<RootNavigationProp>();
-    const { session } = useAuth();
-    const { musicLoverProfile } = useAuth();
+    const { session, musicLoverProfile } = useAuth();
 
-    const { matchUserId, commonTags, isFirstInteractionFromMatches, sharedEventData: initialSharedEventData } = route.params;
+    const currentUserIdFromSession = session?.user?.id;
+    const { 
+        matchUserId: matchUserIdFromRoute,
+        commonTags, 
+        isFirstInteractionFromMatches, 
+        sharedEventData: initialSharedEventData 
+    } = route.params;
+
+    const currentUserId = currentUserIdFromSession;
+    const matchUserId = matchUserIdFromRoute;
+
+    // --- All State Declarations (useState) ---
     const [dynamicMatchName, setDynamicMatchName] = useState(route.params.matchName || 'Chat');
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
@@ -279,17 +391,88 @@ const IndividualChatScreen: React.FC = () => {
     const [conversationStarters, setConversationStarters] = useState<string[]>([]);
     const [loadingStarters, setLoadingStarters] = useState(false);
     const [currentStarterIndex, setCurrentStarterIndex] = useState(0);
-    const [sharedEventMessage, setSharedEventMessage] = useState<string | null>(null); // For composing a shared event message
+    const [sharedEventMessage, setSharedEventMessage] = useState<string | null>(null);
     
-    // --- State for Event Detail Modal ---
+    const [selectedMessageForAction, setSelectedMessageForAction] = useState<ChatMessage | null>(null);
+    const [messageActionModalVisible, setMessageActionModalVisible] = useState(false);
+    const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+    const [editText, setEditText] = useState("");
+    const [replyingToMessage, setReplyingToMessage] = useState<ChatMessage | null>(null);
+    const [messageInfoVisible, setMessageInfoVisible] = useState(false);
+    const [messageInfoData, setMessageInfoData] = useState<any>(null);
+    const [loadingMessageInfo, setLoadingMessageInfo] = useState(false);
+    
     const [selectedEventDataForModal, setSelectedEventDataForModal] = useState<MappedEvent | null>(null);
     const [eventModalVisible, setEventModalVisible] = useState(false);
     const [loadingEventDetails, setLoadingEventDetails] = useState(false);
-    // --- End State for Event Detail Modal ---
+    // --- End State Declarations ---
 
-    const currentUserId = session?.user?.id;
     const flatListRef = useRef<SectionList<any>>(null);
     const isCurrentUserPremium = musicLoverProfile?.isPremium;
+
+    // --- Callback Functions (useCallback) & Other Helpers ---
+
+    const handleEventPressInternal = async (eventId: string) => {
+        if (!eventId) return;
+        console.log("[ChatScreen] Event preview pressed, Event ID:", eventId);
+        setLoadingEventDetails(true);
+        setSelectedEventDataForModal(null); 
+        try {
+            const { data: eventData, error: eventError } = await supabase
+                .from('events_public_data')
+                .select(`
+                    event_id,
+                    event_name,
+                    event_date,
+                    venue_name,
+                    event_poster_url,
+                    MusicLoverProfile:event_organizer_id ( user_id, first_name, last_name, profile_picture ),
+                    event_description,
+                    ticket_link,
+                    genre_tags,
+                    mood_tags,
+                    artist_lineup_names
+                `)
+                .eq('event_id', eventId)
+                .single();
+
+            if (eventError) throw eventError;
+            if (!eventData) throw new Error("Event not found");
+
+            const organizerProfileSource = eventData.MusicLoverProfile as any; 
+            const mappedEvent: MappedEvent = {
+                id: eventData.event_id,
+                title: eventData.event_name || "Event Title",
+                date: formatEventDateTimeForModal(eventData.event_date).date, // Correctly map date part
+                time: formatEventDateTimeForModal(eventData.event_date).time, // Correctly map time part
+                venue: eventData.venue_name || "Venue N/A",
+                images: eventData.event_poster_url ? [eventData.event_poster_url] : [DEFAULT_EVENT_IMAGE_CHAT],
+                organizer: {
+                    userId: organizerProfileSource?.user_id || "N/A", 
+                    name: `${organizerProfileSource?.first_name || ''} ${organizerProfileSource?.last_name || ''}`.trim() || DEFAULT_ORGANIZER_NAME_CHAT,
+                    image: organizerProfileSource?.profile_picture || DEFAULT_ORGANIZER_LOGO_CHAT,
+                },
+                description: eventData.event_description || "No description available.",
+                event_datetime_iso: eventData.event_date || new Date().toISOString(),
+                genres: eventData.genre_tags || [],
+                artists: eventData.artist_lineup_names || [],
+                songs: [], // Default as per MappedEvent if not available from source
+                booking_type: null, // Default
+                ticket_price: null, // Default
+                pass_fee_to_user: false, // Default
+                max_tickets: null, // Default
+                max_reservations: null, // Default
+                isViewable: true, // Default
+            };
+            setSelectedEventDataForModal(mappedEvent);
+            setEventModalVisible(true);
+        } catch (err: any) {
+            console.error("Error fetching event details:", err);
+            Alert.alert("Error", "Could not load event details.");
+        } finally {
+            setLoadingEventDetails(false);
+        }
+    };
 
     const mapDbMessageToChatMessage = useCallback((dbMessage: DbMessage): ChatMessage => {
         let sharedEventInfo: ChatMessage['sharedEvent'] = null;
@@ -302,65 +485,25 @@ const IndividualChatScreen: React.FC = () => {
                 if (parts.length >= 3) {
                     const eventId = parts[1];
                     const detailsString = parts.slice(2).join(':');
-                    
-                    let eventName = detailsString;
-                    let eventDate = 'N/A';
-                    let eventVenue = 'N/A';
-                    
-                    const onSeparator = ' on ';
-                    const atSeparator = ' at ';
-                    
+                    let eventName = detailsString; let eventDate = 'N/A'; let eventVenue = 'N/A';
+                    const onSeparator = ' on '; const atSeparator = ' at ';
                     const atIndex = detailsString.lastIndexOf(atSeparator);
-                    if (atIndex !== -1) {
-                        eventVenue = detailsString.substring(atIndex + atSeparator.length);
-                        eventName = detailsString.substring(0, atIndex);
-                    }
-                    
+                    if (atIndex !== -1) { eventVenue = detailsString.substring(atIndex + atSeparator.length); eventName = detailsString.substring(0, atIndex); }
                     const onIndex = eventName.lastIndexOf(onSeparator);
-                    if (onIndex !== -1) {
-                        eventDate = eventName.substring(onIndex + onSeparator.length);
-                        eventName = eventName.substring(0, onIndex);
-                    }
-                    
-                    sharedEventInfo = {
-                        eventId: eventId,
-                        eventTitle: eventName.trim(),
-                        eventDate: eventDate.trim(),
-                        eventVenue: eventVenue.trim(),
-                        eventImage: DEFAULT_EVENT_IMAGE_CHAT,
-                    };
+                    if (onIndex !== -1) { eventDate = eventName.substring(onIndex + onSeparator.length); eventName = eventName.substring(0, onIndex); }
+                    sharedEventInfo = { eventId: eventId, eventTitle: eventName.trim(), eventDate: eventDate.trim(), eventVenue: eventVenue.trim(), eventImage: DEFAULT_EVENT_IMAGE_CHAT, };
                     displayText = `Shared an event: ${sharedEventInfo.eventTitle}`;
-                } else {
-                    console.warn("SHARED_EVENT string has invalid format:", rawContent);
-                    displayText = "Shared an event";
-                    sharedEventInfo = {
-                        eventId: "unknown",
-                        eventTitle: "Event",
-                        eventDate: "N/A",
-                        eventVenue: "N/A",
-                        eventImage: DEFAULT_EVENT_IMAGE_CHAT,
-                    };
-                }
-            } catch (e) { 
-                console.error("Failed to parse shared event content:", rawContent, e);
-                displayText = "Shared an event";
-                sharedEventInfo = {
-                    eventId: "unknown",
-                    eventTitle: "Event",
-                    eventDate: "N/A",
-                    eventVenue: "N/A",
-                    eventImage: DEFAULT_EVENT_IMAGE_CHAT,
-                };
-            }
+                } else { console.warn("SHARED_EVENT string has invalid format:", rawContent); displayText = "Shared an event"; sharedEventInfo = { eventId: "unknown", eventTitle: "Event", eventDate: "N/A", eventVenue: "N/A", eventImage: DEFAULT_EVENT_IMAGE_CHAT, }; }
+            } catch (e) { console.error("Failed to parse shared event content:", rawContent, e); displayText = "Shared an event"; sharedEventInfo = { eventId: "unknown", eventTitle: "Event", eventDate: "N/A", eventVenue: "N/A", eventImage: DEFAULT_EVENT_IMAGE_CHAT, };}
         }
-
         return {
-            _id: dbMessage.id,
-            text: displayText,
-            createdAt: new Date(dbMessage.created_at),
-            user: { _id: dbMessage.sender_id },
-            image: dbMessage.image_url || null,
-            sharedEvent: sharedEventInfo
+            _id: dbMessage.id, text: displayText, createdAt: new Date(dbMessage.created_at),
+            user: { _id: dbMessage.sender_id }, image: dbMessage.image_url || null, sharedEvent: sharedEventInfo,
+            originalContent: dbMessage.original_content, isEdited: dbMessage.is_edited, editedAt: dbMessage.edited_at ? new Date(dbMessage.edited_at) : null,
+            isDeleted: dbMessage.is_deleted, deletedAt: dbMessage.deleted_at ? new Date(dbMessage.deleted_at) : null,
+            replyToMessageId: dbMessage.reply_to_message_id, isDelivered: dbMessage.is_delivered,
+            deliveredAt: dbMessage.delivered_at ? new Date(dbMessage.delivered_at) : null,
+            isSeen: dbMessage.is_seen, seenAt: dbMessage.seen_at ? new Date(dbMessage.seen_at) : null,
         };
     }, []);
 
@@ -453,16 +596,42 @@ const IndividualChatScreen: React.FC = () => {
         try {
             const { data, error: fetchError } = await supabase
                 .from('messages')
-                .select('*')
+                .select('*, message_status(is_delivered, delivered_at, is_seen, seen_at)')
                 .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${matchUserId}),and(sender_id.eq.${matchUserId},receiver_id.eq.${currentUserId})`)
                 .order('created_at', { ascending: true });
 
             if (fetchError) throw fetchError;
+
+            // Fetch hidden messages for the current user
+            const { data: hiddenMessagesData, error: hiddenMessagesError } = await supabase
+                .from('user_hidden_messages')
+                .select('message_id')
+                .eq('user_id', currentUserId);
+            
+            if (hiddenMessagesError) {
+                console.error("Error fetching hidden messages:", hiddenMessagesError);
+                // Potentially proceed without filtering or show a non-critical error
+            }
+            const hiddenMessageIds = new Set(hiddenMessagesData?.map((h: {message_id: string}) => h.message_id) || []);
+
             if (data) {
-                const fetchedChatMessages = data.map(mapDbMessageToChatMessage);
+                const visibleMessages = data.filter((msg: DbMessage) => !hiddenMessageIds.has(msg.id));
+                const fetchedChatMessages = visibleMessages.map((dbMsg: any) => { // dbMsg can be any because of the join
+                    const chatMsg = mapDbMessageToChatMessage(dbMsg as DbMessage);
+                    // @ts-ignore
+                    const status = dbMsg.message_status && Array.isArray(dbMsg.message_status) ? dbMsg.message_status[0] : dbMsg.message_status;
+                    if (status) {
+                        chatMsg.isDelivered = status.is_delivered;
+                        chatMsg.deliveredAt = status.delivered_at ? new Date(status.delivered_at) : null;
+                        chatMsg.isSeen = status.is_seen;
+                        chatMsg.seenAt = status.seen_at ? new Date(status.seen_at) : null;
+                    }
+                    return chatMsg;
+                });
+
                 setMessages(fetchedChatMessages);
                 checkMutualInitiation(fetchedChatMessages);
-                console.log(`[ChatScreen] Fetched ${data.length} messages.`);
+                console.log(`[ChatScreen] Fetched ${fetchedChatMessages.length} messages.`);
             } else {
                 setMessages([]);
                 setIsChatMutuallyInitiated(false);
@@ -487,50 +656,109 @@ const IndividualChatScreen: React.FC = () => {
         setSharedEventMessage(null);
         setError(null);
         Keyboard.dismiss();
-        // Optimistic UI update will be handled by the subscription to 'messages' table after RPC call succeeds
+
+        const tempId = `temp_shared_${Date.now()}`;
+        const eventMessageText = `Shared an event: ${eventDataToShare.eventTitle}`;
+
+        let replyingToMessagePreview: ChatMessage['replyToMessagePreview'] = null;
+        if (replyingToMessage) {
+            replyingToMessagePreview = {
+                text: replyingToMessage.image ? '[Image]' : replyingToMessage.text,
+                senderName: dynamicMatchName,
+                image: replyingToMessage.image
+            };
+        }
+
+        const optimisticMessage: ChatMessage = {
+            _id: tempId,
+            text: eventMessageText,
+            createdAt: new Date(),
+            user: { _id: currentUserId! },
+            image: null,
+            sharedEvent: {
+                eventId: eventDataToShare.eventId,
+                eventTitle: eventDataToShare.eventTitle,
+                eventDate: eventDataToShare.eventDate,
+                eventVenue: eventDataToShare.eventVenue,
+                eventImage: eventDataToShare.eventImage || DEFAULT_EVENT_IMAGE_CHAT,
+            },
+            replyToMessageId: replyingToMessage?._id || null,
+            replyToMessagePreview: replyingToMessagePreview
+        };
+        setMessages(prev => [...prev, optimisticMessage]);
+        const replyToId = replyingToMessage?._id;
+        setReplyingToMessage(null);
 
         try {
             const { data: rpcData, error: rpcError } = await supabase.rpc('share_event_to_user', {
                 p_event_id: eventId,
-                p_recipient_id: matchUserId
+                p_recipient_id: matchUserId,
+                p_reply_to_message_id: replyToId || null
             });
 
             if (rpcError) throw rpcError;
-            if (!rpcData || !rpcData.success) {
+            if (!rpcData || !rpcData.success || !rpcData.message_id) {
                 throw new Error('Failed to share event via RPC or received invalid response.');
             }
             console.log('[IndividualChatScreen] Event shared to user via RPC successfully, message_id:', rpcData.message_id);
-            // Mark chat as initiated as an event share counts as an interaction
             markChatAsInitiatedInStorage(matchUserId);
+            setMessages(prev => prev.map(msg => 
+                msg._id === tempId ? { ...optimisticMessage, _id: rpcData.message_id } : msg
+            ));
 
         } catch (err: any) {
             console.error("Error sharing event to user:", err);
             setError(`Event share fail: ${err.message}`);
-            // No explicit rollback of optimistic message here as the subscription handles new messages
+            setMessages(prev => prev.filter(msg => msg._id !== tempId));
         }
-    }, [currentUserId, matchUserId, isUploading, markChatAsInitiatedInStorage]);
+    }, [currentUserId, matchUserId, isUploading, markChatAsInitiatedInStorage, replyingToMessage, dynamicMatchName]);
 
     // --- Send Message (Text only, event sharing uses RPC now) ---
     const sendTextMessage = useCallback(async (text: string) => {
          if (!currentUserId || !matchUserId || !text.trim() || isBlocked) { return; }
          const currentUserHasSentBefore = messages.some(msg => msg.user._id === currentUserId);
          const tempId = `temp_txt_${Date.now()}`;
+
+         let replyingToMessagePreview: ChatMessage['replyToMessagePreview'] = null;
+         if (replyingToMessage) {
+             replyingToMessagePreview = {
+                 text: replyingToMessage.image ? '[Image]' : replyingToMessage.text,
+                 senderName: dynamicMatchName,
+                 image: replyingToMessage.image
+             };
+         }
+
          let newMessage: ChatMessage = { 
-             _id: tempId, text: text.trim(), createdAt: new Date(), user: { _id: currentUserId } 
-         };
+             _id: tempId, 
+             text: text.trim(), 
+             createdAt: new Date(), 
+             user: { _id: currentUserId },
+             replyToMessageId: replyingToMessage?._id || null,
+             replyToMessagePreview: replyingToMessagePreview
+         }; 
          setMessages(previousMessages => [...previousMessages, newMessage]);
          setInputText('');
+         const replyToId = replyingToMessage?._id;
+         setReplyingToMessage(null);
          setMessages(prev => { checkMutualInitiation(prev); return prev; });
          Keyboard.dismiss();
          if (!currentUserHasSentBefore) {
              markChatAsInitiatedInStorage(matchUserId);
          }
          try {
-             let insertData: any = { sender_id: currentUserId, receiver_id: matchUserId, content: newMessage.text };
-             const { error: insertError } = await supabase.from('messages').insert(insertData).select('id, created_at').single(); // Select to confirm
+             let insertData: any = { 
+                 sender_id: currentUserId, 
+                 receiver_id: matchUserId, 
+                 content: newMessage.text,
+                 reply_to_message_id: replyToId || null,
+                };
+             const { data: insertedMessage, error: insertError } = await supabase.from('messages').insert(insertData).select('id, created_at').single(); 
              if (insertError) { throw insertError; }
-             // Optimistic update is mostly handled by subscription now, but we can refine it
-             // to replace the temp_txt_ ID with the real ID upon confirmation if needed.
+             if (insertedMessage) {
+                setMessages(prev => prev.map(msg => 
+                    msg._id === tempId ? { ...newMessage, _id: insertedMessage.id, createdAt: new Date(insertedMessage.created_at) } : msg
+                ));
+             }
              setError(null);
          } catch (err: any) { 
              console.error("Error sending message:", err); 
@@ -539,10 +767,10 @@ const IndividualChatScreen: React.FC = () => {
              setInputText(newMessage.text); 
              checkMutualInitiation(messages.filter(msg => msg._id !== tempId)); 
          }
-    }, [currentUserId, matchUserId, isBlocked, checkMutualInitiation, markChatAsInitiatedInStorage, messages]);
+    }, [currentUserId, matchUserId, isBlocked, checkMutualInitiation, markChatAsInitiatedInStorage, messages, replyingToMessage, dynamicMatchName]);
 
     const handleSendPress = () => {
-        if (sharedEventMessage && initialSharedEventData?.eventId) { // Use initialSharedEventData from route.params
+        if (sharedEventMessage && initialSharedEventData?.eventId) {
             shareEventToUser(initialSharedEventData);
         } else if (inputText.trim()) {
             sendTextMessage(inputText);
@@ -639,7 +867,7 @@ const IndividualChatScreen: React.FC = () => {
                 try {
                     // Bypassing client-side cache check. Always go to Edge Function.
                     console.log('[ChatScreen] Invoking Edge Function for NEW starters for tags:', commonTags);
-                    const { data: edgeFnResponse, error: edgeFnError } = await supabase.functions.invoke<{ starters?: string[], error?: string }>(
+                    const { data: edgeFnResponse, error: edgeFnError } = await supabase.functions.invoke(
                         'get-conversation-starters', 
                         { body: { commonTags } }
                     );
@@ -697,44 +925,141 @@ const IndividualChatScreen: React.FC = () => {
     // Real-time Subscription Setup
     useEffect(() => {
         if (!currentUserId || !matchUserId || isBlocked) {
-            return () => { supabase.channel(`chat_${[currentUserId, matchUserId].sort().join('_')}`).unsubscribe(); };
+            return () => { 
+                const channelName = `chat_${[currentUserId, matchUserId].sort().join('_')}`;
+                const messageStatusChannelName = `message_status_updates_${[currentUserId, matchUserId].sort().join('_')}`;
+                supabase.channel(channelName).unsubscribe(); 
+                supabase.channel(messageStatusChannelName).unsubscribe();
+            };
         }
 
         console.log(`[ChatScreen] Subscribing to channel for ${matchUserId}`);
-        const channel = supabase
-            .channel(`chat_${[currentUserId, matchUserId].sort().join('_')}`)
+        const channelName = `chat_${[currentUserId, matchUserId].sort().join('_')}`;
+        const messageChannel = supabase
+            .channel(channelName)
             .on<DbMessage>(
                 'postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'messages',
                   filter: `or(and(sender_id.eq.${currentUserId},receiver_id.eq.${matchUserId}),and(sender_id.eq.${matchUserId},receiver_id.eq.${currentUserId}))` },
-                (payload) => {
+                async (payload: any) => {
                     if (isBlocked) return;
                     console.log('[ChatScreen] New message received via subscription:', payload.new);
-                    const receivedMessage = mapDbMessageToChatMessage(payload.new as DbMessage);
-                    if (receivedMessage.user._id === matchUserId) {
+                    const newMessageDb = payload.new as DbMessage;
+
+                    // Check if message is hidden for current user
+                    const { data: hiddenCheck } = await supabase.from('user_hidden_messages').select('message_id').eq('user_id', currentUserId).eq('message_id', newMessageDb.id).maybeSingle();
+                    if (hiddenCheck) return; // Skip if hidden
+
+                    const receivedMessage = mapDbMessageToChatMessage(newMessageDb);
+                    
+                    // Add reply preview if it exists
+                    if (receivedMessage.replyToMessageId) {
+                        const repliedMsg = messages.find(m => m._id === receivedMessage.replyToMessageId) || await fetchMessageById(receivedMessage.replyToMessageId);
+                        if (repliedMsg) {
+                            receivedMessage.replyToMessagePreview = {
+                                text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                senderName: repliedMsg.user._id === currentUserId ? musicLoverProfile?.firstName || 'You' : dynamicMatchName,
+                                image: repliedMsg.image
+                            };
+                        }
+                    }
+
+                    if (receivedMessage.user._id === matchUserId || receivedMessage.user._id === currentUserId) { // Process if sender or receiver
                         setMessages(prevMessages => {
-                            if (prevMessages.some(msg => msg._id === receivedMessage._id)) return prevMessages;
-                            return [...prevMessages, receivedMessage];
+                            // Replace temp message or add new message
+                            const existingMsgIndex = prevMessages.findIndex(msg => msg._id.startsWith('temp_') && msg.text === receivedMessage.text && msg.replyToMessageId === receivedMessage.replyToMessageId);
+                            if (existingMsgIndex !== -1) {
+                                const newMessages = [...prevMessages];
+                                newMessages[existingMsgIndex] = receivedMessage;
+                                return newMessages;
+                            } else if (!prevMessages.some(msg => msg._id === receivedMessage._id)) {
+                                return [...prevMessages, receivedMessage];
+                            }
+                            return prevMessages;
                         });
-                    } else if (receivedMessage.user._id === currentUserId) {
-                        setMessages(prevMessages =>
-                            prevMessages.map(msg =>
-                                msg._id.startsWith('temp_') && msg.text === receivedMessage.text
-                                ? receivedMessage
-                                : msg
-                            )
+                    }
+                    checkMutualInitiation([...messages, receivedMessage]);
+                     // If the message is for the current user, mark as delivered
+                    if (receivedMessage.user._id === matchUserId && currentUserId) { // Message from other user to me
+                        markMessageDelivered(receivedMessage._id);
+                    }
+                }
+            )
+            .on<DbMessage>(
+                'postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'messages',
+                  filter: `or(and(sender_id.eq.${currentUserId},receiver_id.eq.${matchUserId}),and(sender_id.eq.${matchUserId},receiver_id.eq.${currentUserId}))` },
+                async (payload: any) => {
+                    if (isBlocked) return;
+                    const updatedMessageDb = payload.new as DbMessage;
+                    
+                     // Check if message update is relevant (e.g., not hidden, unless it's a delete for everyone)
+                    const { data: hiddenCheck } = await supabase.from('user_hidden_messages').select('message_id').eq('user_id', currentUserId).eq('message_id', updatedMessageDb.id).maybeSingle();
+                    if (hiddenCheck && !updatedMessageDb.is_deleted) return; 
+
+                    const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb);
+                    
+                     // Add reply preview if it exists
+                    if (updatedMessageUi.replyToMessageId) {
+                        const repliedMsg = messages.find(m => m._id === updatedMessageUi.replyToMessageId) || await fetchMessageById(updatedMessageUi.replyToMessageId);
+                        if (repliedMsg) {
+                            updatedMessageUi.replyToMessagePreview = {
+                                text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                senderName: repliedMsg.user._id === currentUserId ? musicLoverProfile?.firstName || 'You' : dynamicMatchName,
+                                image: repliedMsg.image
+                            };
+                        }
+                    }
+
+                    setMessages(prev => prev.map(msg => 
+                        msg._id === updatedMessageUi._id ? updatedMessageUi : msg
+                    ));
+
+                    if (editingMessage && editingMessage._id === updatedMessageUi._id && updatedMessageUi.isEdited && currentUserId === updatedMessageUi.user._id) {
+                        setEditingMessage(null);
+                        setEditText("");
+                    }
+                }
+            )
+            .subscribe();
+
+        // Subscription for message_status updates
+        const messageStatusChannelName = `message_status_updates_${[currentUserId, matchUserId].sort().join('_')}`;
+        const statusChannel = supabase
+            .channel(messageStatusChannelName)
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'message_status',
+                  filter: `message_id=in.(SELECT id FROM messages WHERE (sender_id = '${currentUserId}' AND receiver_id = '${matchUserId}') OR (sender_id = '${matchUserId}' AND receiver_id = '${currentUserId}'))`
+                },
+                (payload: any) => {
+                    const statusUpdate = payload.new as {message_id: string; is_delivered: boolean; delivered_at: string; is_seen: boolean; seen_at: string;};
+                    if (statusUpdate && statusUpdate.message_id) {
+                        setMessages(prevMessages => 
+                            prevMessages.map(msg => {
+                                if (msg._id === statusUpdate.message_id) {
+                                    return {
+                                        ...msg,
+                                        isDelivered: statusUpdate.is_delivered,
+                                        deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : null,
+                                        isSeen: statusUpdate.is_seen,
+                                        seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : null,
+                                    };
+                                }
+                                return msg;
+                            })
                         );
                     }
-                    checkMutualInitiation([...messages, receivedMessage]); // Re-check with the new message
                 }
             )
             .subscribe();
 
         return () => {
-            console.log(`[ChatScreen] Unsubscribing from channel for ${matchUserId}`);
-            supabase.removeChannel(channel);
+            console.log(`[ChatScreen] Unsubscribing from channels for ${matchUserId}`);
+            supabase.removeChannel(messageChannel);
+            supabase.removeChannel(statusChannel);
         };
-    }, [currentUserId, matchUserId, mapDbMessageToChatMessage, isBlocked, checkMutualInitiation, messages]);
+    }, [currentUserId, matchUserId, mapDbMessageToChatMessage, isBlocked, checkMutualInitiation, messages, editingMessage, musicLoverProfile, dynamicMatchName]);
 
     // Group messages by date for section headers
     const sections = useMemo(() => {
@@ -773,7 +1098,7 @@ const IndividualChatScreen: React.FC = () => {
     };
 
     // Update pickAndSendImage function
-    const pickAndSendImage = async () => {
+    const pickAndSendImage = useCallback(async () => {
         if (!currentUserId || !matchUserId || isUploading) {
             console.log('[pickAndSendImage] Aborted: Missing userId/matchUserId or already uploading.');
             return;
@@ -825,15 +1150,29 @@ const IndividualChatScreen: React.FC = () => {
         try {
             // Create a temporary message to show in the UI
             tempId = `temp_${Date.now()}_img`;
+
+            let replyingToMessagePreview: ChatMessage['replyToMessagePreview'] = null;
+            if (replyingToMessage) {
+                replyingToMessagePreview = {
+                    text: replyingToMessage.image ? '[Image]' : replyingToMessage.text,
+                    senderName: dynamicMatchName,
+                    image: replyingToMessage.image
+                };
+            }
+
             const optimisticMessage: ChatMessage = {
                 _id: tempId,
-                text: '[Image]',
+                text: '',
                 createdAt: new Date(),
                 user: { _id: currentUserId },
-                image: imageUri
+                image: imageUri,
+                replyToMessageId: replyingToMessage?._id || null,
+                replyToMessagePreview: replyingToMessagePreview
             };
 
             setMessages(prev => [...prev, optimisticMessage]);
+            const replyToId = replyingToMessage?._id;
+            setReplyingToMessage(null);
 
             let fileData: string;
             if (Platform.OS === 'web') {
@@ -890,8 +1229,9 @@ const IndividualChatScreen: React.FC = () => {
                 .insert({
                     sender_id: currentUserId,
                     receiver_id: matchUserId,
-                    content: '[Image]',
-                    image_url: urlData.publicUrl
+                    content: '',
+                    image_url: urlData.publicUrl,
+                    reply_to_message_id: replyToId || null,
                 })
                 .select('id, created_at, image_url')
                 .single();
@@ -922,17 +1262,16 @@ const IndividualChatScreen: React.FC = () => {
         } finally {
             setIsUploading(false);
         }
-    };
+    }, [currentUserId, matchUserId, isUploading, replyingToMessage, dynamicMatchName, supabase]); // Added supabase back for now, ensure it is stable
 
     // Handle shared event data from navigation params (for composing the message)
     useEffect(() => {
         if (initialSharedEventData && initialSharedEventData.isSharing) {
-            const { eventTitle, eventDate, eventVenue } = initialSharedEventData;
-            // The input text is now set by the sharedEventPreview component
-            // setInputText(`Check out this event: ${eventTitle} on ${eventDate} at ${eventVenue}`);
-            setSharedEventMessage(JSON.stringify(initialSharedEventData)); // Store data for sending via RPC
+            setSharedEventMessage(JSON.stringify(initialSharedEventData)); 
+            // Clear the sharing flag from route params to prevent re-triggering
+            navigation.setParams({ sharedEventData: { ...initialSharedEventData, isSharing: false } });
         }
-    }, [initialSharedEventData]);
+    }, [initialSharedEventData, navigation]);
 
     const renderEventSharePreview = () => {
         if (!sharedEventMessage || !initialSharedEventData) return null;
@@ -964,93 +1303,191 @@ const IndividualChatScreen: React.FC = () => {
         );
     };
 
-    // --- Fetch and Prepare Event for Modal ---
-    const fetchAndPrepareEventForModal = useCallback(async (eventId: string) => {
-        if (!eventId) return;
-        setLoadingEventDetails(true);
-        try {
-            const { data: eventData, error: eventError } = await supabase
-                .from('events')
-                .select('id, title, description, event_datetime, location_text, poster_urls, tags_genres, tags_artists, tags_songs, organizer_id, event_type, booking_type, ticket_price, pass_fee_to_user, max_tickets, max_reservations, country, city')
-                .eq('id', eventId)
-                .single();
+    // --- New Chat Feature Handlers ---
 
-            if (eventError || !eventData) {
-                throw eventError || new Error('Event not found');
-            }
+    const handleMessageLongPress = (message: ChatMessage) => {
+        if (message.isDeleted) return; // Don't show actions for already deleted messages
+        setSelectedMessageForAction(message);
+        setMessageActionModalVisible(true);
+    };
 
-            let organizerDetails: OrganizerInfo = {
-                userId: eventData.organizer_id || 'unknown',
-                name: DEFAULT_ORGANIZER_NAME_CHAT,
-                image: DEFAULT_ORGANIZER_LOGO_CHAT
-            };
+    const handleReply = () => {
+        if (!selectedMessageForAction) return;
+        setReplyingToMessage(selectedMessageForAction);
+        setMessageActionModalVisible(false);
+        setSelectedMessageForAction(null);
+    };
 
-            if (eventData.organizer_id) {
-                try {
-                    const { data: orgData, error: orgError } = await supabase
-                        .from('organizer_profiles')
-                        .select('user_id, company_name, logo')
-                        .eq('user_id', eventData.organizer_id)
-                        .single();
-                        
-                    if (orgData) {
-                        organizerDetails = {
-                            userId: orgData.user_id,
-                            name: orgData.company_name || DEFAULT_ORGANIZER_NAME_CHAT,
-                            image: orgData.logo || DEFAULT_ORGANIZER_LOGO_CHAT
-                        };
-                    }
-                } catch (orgError) {
-                    console.warn("Could not fetch organizer details:", orgError);
-                    // Continue with default organizer details
-                }
-            }
-            
-            const { date, time } = formatEventDateTimeForModal(eventData.event_datetime);
-
-            const mappedEvent: MappedEvent = {
-                id: eventData.id,
-                title: eventData.title,
-                images: eventData.poster_urls?.length > 0 ? eventData.poster_urls : [DEFAULT_EVENT_IMAGE_CHAT],
-                date: date,
-                time: time,
-                venue: eventData.location_text ?? 'N/A',
-                country: eventData.country,
-                city: eventData.city,
-                genres: eventData.tags_genres ?? [],
-                artists: eventData.tags_artists ?? [],
-                songs: eventData.tags_songs ?? [],
-                description: eventData.description ?? 'No description available.',
-                booking_type: eventData.booking_type as any,
-                ticket_price: eventData.ticket_price,
-                pass_fee_to_user: eventData.pass_fee_to_user ?? true,
-                max_tickets: eventData.max_tickets,
-                max_reservations: eventData.max_reservations,
-                organizer: organizerDetails,
-                isViewable: false, // Not relevant for modal display from chat
-                event_datetime_iso: eventData.event_datetime,
-            };
-            setSelectedEventDataForModal(mappedEvent);
-            setEventModalVisible(true);
-
-        } catch (err: any) {
-            console.error("[IndividualChatScreen] Error fetching event details for modal:", err);
-            Alert.alert(
-                "Event Details Unavailable", 
-                "Could not load event details. The event may have been removed or you may not have permission to view it.",
-                [{ text: "OK" }]
-            );
-            setSelectedEventDataForModal(null);
-            setEventModalVisible(false);
-        } finally {
-            setLoadingEventDetails(false);
+    const handleEdit = () => {
+        if (!selectedMessageForAction || selectedMessageForAction.user._id !== currentUserId || selectedMessageForAction.image || selectedMessageForAction.sharedEvent) {
+             Alert.alert("Cannot Edit", "You can only edit your own text messages.");
+            return;
         }
-    }, [supabase]); // Add supabase as dependency
+        setEditingMessage(selectedMessageForAction);
+        setEditText(selectedMessageForAction.text);
+        setMessageActionModalVisible(false);
+        setSelectedMessageForAction(null);
+    };
 
-    // --- Modified handler for event press from message bubble ---
-    const handleEventPressFromBubble = useCallback((eventId: string) => {
-        fetchAndPrepareEventForModal(eventId);
-    }, [fetchAndPrepareEventForModal]);
+    const saveEditMessage = async () => {
+        if (!editingMessage || !editText.trim() || editText.trim() === editingMessage.text) {
+            setEditingMessage(null);
+            setEditText("");
+            return;
+        }
+        try {
+            const { error } = await supabase.rpc('edit_message', {
+                message_id_input: editingMessage._id,
+                new_content: editText.trim(),
+            });
+            if (error) throw error;
+            setMessages(prev => prev.map(msg => 
+                msg._id === editingMessage._id 
+                ? { ...msg, text: editText.trim(), isEdited: true, editedAt: new Date() } 
+                : msg
+            ));
+            setEditingMessage(null);
+            setEditText("");
+        } catch (err: any) {
+            Alert.alert("Error", `Failed to edit message: ${err.message}`);
+        }
+    };
+
+    const handleDeleteForMe = async () => {
+        if (!selectedMessageForAction) return;
+        try {
+            const { error } = await supabase.rpc('hide_message_from_my_view', {
+                p_message_id: selectedMessageForAction._id,
+            });
+            if (error) throw error;
+            setMessages(prev => prev.filter(msg => msg._id !== selectedMessageForAction!._id));
+            setMessageActionModalVisible(false);
+            setSelectedMessageForAction(null);
+        } catch (err: any) {
+            Alert.alert("Error", `Failed to delete message for you: ${err.message}`);
+        }
+    };
+
+    const handleDeleteForEveryone = async () => {
+        if (!selectedMessageForAction || selectedMessageForAction.user._id !== currentUserId) {
+            Alert.alert("Cannot Delete", "You can only delete your own messages for everyone.");
+            return;
+        }
+        try {
+            const { error } = await supabase.rpc('delete_chat_message', {
+                message_id_input: selectedMessageForAction._id,
+            });
+            if (error) throw error;
+            setMessages(prev => prev.map(msg => 
+                msg._id === selectedMessageForAction._id 
+                ? { ...msg, 
+                    text: 'This message was deleted', 
+                    isDeleted: true, 
+                    deletedAt: new Date(),
+                    image: null, 
+                    sharedEvent: null 
+                  }
+                : msg
+            ));
+            setMessageActionModalVisible(false);
+            setSelectedMessageForAction(null);
+        } catch (err: any) {
+            Alert.alert("Error", `Failed to delete message: ${err.message}`);
+        }
+    };
+
+    const handleShowMessageInfo = async () => {
+        if (!selectedMessageForAction || selectedMessageForAction.user._id !== currentUserId) {
+            // For individual chats, info is usually only relevant for own messages (sent, delivered, seen)
+            // Or, if we want to show when the *other* user's message was delivered/seen by *us* - this needs clarification
+             Alert.alert("Info", "Message status is shown with checkmarks.");
+             setMessageActionModalVisible(false);
+             setSelectedMessageForAction(null);
+            return;
+        }
+        setMessageActionModalVisible(false);
+        setLoadingMessageInfo(true);
+        setMessageInfoVisible(true);
+        try {
+            const { data, error } = await supabase.rpc('get_individual_message_status', {
+                message_id_input: selectedMessageForAction._id
+            });
+            if (error) throw error;
+            setMessageInfoData(data);
+        } catch (err: any) {
+            Alert.alert("Error", `Failed to get message info: ${err.message}`);
+            setMessageInfoVisible(false); 
+        } finally {
+            setLoadingMessageInfo(false);
+            setSelectedMessageForAction(null); 
+        }
+    };
+
+    const getRepliedMessagePreview = (messageId: string): ChatMessage['replyToMessagePreview'] | null => {
+        const repliedMsg = messages.find(msg => msg._id === messageId);
+        if (repliedMsg) {
+            return {
+                text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                senderName: repliedMsg.user._id === currentUserId ? musicLoverProfile?.firstName || 'You' : dynamicMatchName,
+                image: repliedMsg.image
+            };
+        }
+        return null;
+    };
+
+    // Function to mark a message as delivered (called when a message is received by this user)
+    const markMessageDelivered = async (messageId: string) => {
+        if (!currentUserId) return;
+        try {
+            const { error } = await supabase.rpc('mark_message_delivered', { message_id_input: messageId });
+            if (error) console.error('Error marking message delivered:', error);
+            else {
+                console.log(`Message ${messageId} marked as delivered.`);
+                 // Optimistically update UI or rely on subscription to message_status table
+                setMessages(prev => prev.map(m => m._id === messageId ? {...m, isDelivered: true, deliveredAt: new Date()} : m));
+            }
+        } catch (e) {
+            console.error('Exception marking message delivered:', e);
+        }
+    };
+
+    // Function to mark messages as seen when the chat screen is focused or messages are visible
+    const markMessagesAsSeen = useCallback(async () => {
+        if (!currentUserId || !matchUserId || messages.length === 0) return;
+
+        const unseenMessagesFromOtherUser = messages.filter(
+            msg => msg.user._id === matchUserId && !msg.isSeen
+        );
+
+        if (unseenMessagesFromOtherUser.length === 0) return;
+
+        console.log(`[ChatScreen] Marking ${unseenMessagesFromOtherUser.length} messages as seen from ${matchUserId}`);
+
+        for (const message of unseenMessagesFromOtherUser) {
+            try {
+                const { error } = await supabase.rpc('mark_message_seen', { message_id_input: message._id });
+                if (error) {
+                    console.error(`Error marking message ${message._id} as seen:`, error.message);
+                } else {
+                    // Optimistically update UI or rely on subscription
+                    setMessages(prev => prev.map(m => m._id === message._id ? {...m, isSeen: true, seenAt: new Date()} : m));
+                }
+            } catch (e: any) {
+                console.error(`Exception marking message ${message._id} as seen:`, e.message);
+            }
+        }
+    }, [currentUserId, matchUserId, messages, supabase]);
+
+    // Call markMessagesAsSeen when the screen focuses and when new messages arrive from the other user
+    useFocusEffect(
+        useCallback(() => {
+            markMessagesAsSeen();
+        }, [markMessagesAsSeen])
+    );
+    useEffect(() => {
+        // Also mark as seen if new messages arrive while screen is focused
+        markMessagesAsSeen();
+    }, [messages, markMessagesAsSeen]);
 
     // --- Render Logic ---
     if (loading && messages.length === 0 && !isBlocked) {
@@ -1147,7 +1584,9 @@ const IndividualChatScreen: React.FC = () => {
                             message={item} 
                             currentUserId={currentUserId} 
                             onImagePress={handleImagePress}
-                            onEventPress={handleEventPressFromBubble} // Use new handler
+                            onEventPress={handleEventPressInternal}
+                            onMessageLongPress={handleMessageLongPress}
+                            getRepliedMessagePreview={getRepliedMessagePreview}
                         />
                     )}
                     renderSectionHeader={({ section: { title } }) => (
@@ -1190,7 +1629,27 @@ const IndividualChatScreen: React.FC = () => {
                     stickySectionHeadersEnabled
                 />
 
-                {/* Shared Event Preview */}
+                {/* Replying To Preview */} 
+                {replyingToMessage && (
+                    <View style={styles.replyingToContainer}>
+                        <View style={styles.replyingToContent}>
+                            <Text style={styles.replyingToTitle} numberOfLines={1}>Replying to {replyingToMessage.user._id === currentUserId ? 'Yourself' : dynamicMatchName}</Text>
+                            {replyingToMessage.image ? (
+                                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                    <Feather name="image" size={14} color="#4B5563" style={{marginRight: 5}}/>
+                                    <Text style={styles.replyingToText} numberOfLines={1}>Image</Text>
+                                </View>
+                            ) : (
+                                <Text style={styles.replyingToText} numberOfLines={1}>{replyingToMessage.text}</Text>
+                            )}
+                        </View>
+                        <TouchableOpacity onPress={() => setReplyingToMessage(null)} style={styles.replyingToCloseButton}>
+                            <Feather name="x" size={18} color="#6B7280" />
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* Shared Event Preview */} 
                 {renderEventSharePreview()}
 
                 <View style={styles.inputToolbar}>
@@ -1215,9 +1674,9 @@ const IndividualChatScreen: React.FC = () => {
                         editable={!isBlocked}
                     />
                     <TouchableOpacity
-                        style={[styles.sendButton, ((!inputText.trim() && !sharedEventMessage) || isBlocked) && styles.sendButtonDisabled]} // Adjust disabled condition
+                        style={[styles.sendButton, ((!inputText.trim() && !sharedEventMessage) || isBlocked) && styles.sendButtonDisabled]}
                         onPress={handleSendPress}
-                        disabled={(!inputText.trim() && !sharedEventMessage) || isBlocked} // Adjust disabled condition
+                        disabled={(!inputText.trim() && !sharedEventMessage) || isBlocked}
                     >
                         <Feather name="send" size={20} color="#FFFFFF" />
                     </TouchableOpacity>
@@ -1240,27 +1699,141 @@ const IndividualChatScreen: React.FC = () => {
                 />
             )}
 
-            {/* --- Event Detail Modal --- */}
-            {selectedEventDataForModal && (
-                <EventDetailModal
-                    event={selectedEventDataForModal}
-                    visible={eventModalVisible}
-                    onClose={() => {
-                        setEventModalVisible(false);
-                        setSelectedEventDataForModal(null);
-                    }}
-                    navigation={navigation as any} // Cast as any if type mismatch, or ensure it matches EventDetailModal's expected NavigationProp
+            {/* Message Action Modal */}
+            <Modal
+                visible={messageActionModalVisible}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => {
+                    setMessageActionModalVisible(false);
+                    setSelectedMessageForAction(null);
+                }}
+            >
+                <TouchableOpacity 
+                    style={styles.modalBackdrop} 
+                    activeOpacity={1} 
+                    onPress={() => {
+                        setMessageActionModalVisible(false);
+                        setSelectedMessageForAction(null);
+                    }} 
                 />
-            )}
-            {/* Loading indicator for event details */}
-            {loadingEventDetails && (
-                <Modal transparent={true} visible={true} onRequestClose={() => {}}>
-                    <View style={styles.loadingOverlay}>
-                        <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY || '#3B82F6'} />
-                        <Text style={styles.loadingOverlayText}>Loading Event...</Text>
+                <View style={styles.actionModalContent}>
+                    {selectedMessageForAction && (
+                        <>
+                            <TouchableOpacity style={styles.actionModalButton} onPress={handleReply}>
+                                <Feather name="corner-up-left" size={20} color="#3B82F6" style={styles.actionModalIcon}/>
+                                <Text style={styles.actionModalButtonText}>Reply</Text>
+                            </TouchableOpacity>
+
+                            {selectedMessageForAction.user._id === currentUserId && !selectedMessageForAction.image && !selectedMessageForAction.sharedEvent && (
+                                <TouchableOpacity style={styles.actionModalButton} onPress={handleEdit}>
+                                    <Feather name="edit-2" size={20} color="#3B82F6" style={styles.actionModalIcon}/>
+                                    <Text style={styles.actionModalButtonText}>Edit</Text>
+                                </TouchableOpacity>
+                            )}
+                            {/* Message Info for own messages in individual chat */}
+                            {selectedMessageForAction.user._id === currentUserId && (
+                                <TouchableOpacity style={styles.actionModalButton} onPress={handleShowMessageInfo}>
+                                    <Feather name="info" size={20} color="#3B82F6" style={styles.actionModalIcon}/>
+                                    <Text style={styles.actionModalButtonText}>Info</Text>
+                                </TouchableOpacity>
+                            )}
+
+                            <TouchableOpacity style={styles.actionModalButton} onPress={handleDeleteForMe}>
+                                <Feather name="trash" size={20} color="#EF4444" style={styles.actionModalIcon}/>
+                                <Text style={[styles.actionModalButtonText, {color: '#EF4444'}]}>Delete for Me</Text>
+                            </TouchableOpacity>
+
+                            {selectedMessageForAction.user._id === currentUserId && (
+                                <TouchableOpacity style={styles.actionModalButton} onPress={handleDeleteForEveryone}>
+                                    <Feather name="trash-2" size={20} color="#EF4444" style={styles.actionModalIcon}/>
+                                    <Text style={[styles.actionModalButtonText, {color: '#EF4444'}]}>Delete for Everyone</Text>
+                                </TouchableOpacity>
+                            )}
+                        </>
+                    )}
+                </View>
+            </Modal>
+
+            {/* Editing Message Modal */}
+            {editingMessage && (
+                <Modal
+                    visible={true} 
+                    transparent={true}
+                    animationType="fade"
+                    onRequestClose={() => {
+                        setEditingMessage(null);
+                        setEditText("");
+                    }}
+                >
+                    <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => {setEditingMessage(null); setEditText("");}}/>
+                    <View style={styles.modalContent}> 
+                        <Text style={styles.modalTitle}>Edit Message</Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            value={editText}
+                            onChangeText={setEditText}
+                            placeholder="Enter new message"
+                            multiline
+                            autoFocus
+                        />
+                        <View style={styles.modalActions}>
+                            <TouchableOpacity 
+                                style={[styles.modalButton, styles.modalButtonCancel]} 
+                                onPress={() => {
+                                    setEditingMessage(null); 
+                                    setEditText("");
+                                }}
+                            >
+                                <Text style={styles.modalButtonTextCancel}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                                style={[styles.modalButton, styles.modalButtonSave, (!editText.trim() || editText.trim() === editingMessage.text) && styles.modalButtonDisabled]} 
+                                onPress={saveEditMessage} 
+                                disabled={!editText.trim() || editText.trim() === editingMessage.text}
+                            >
+                                <Text style={styles.modalButtonTextSave}>Save</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </Modal>
             )}
+
+            {/* Message Info Modal (for individual messages) */}
+            <Modal
+                visible={messageInfoVisible}
+                transparent={true}
+                animationType="slide"
+                onRequestClose={() => setMessageInfoVisible(false)}
+            >
+                <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setMessageInfoVisible(false)} />
+                <View style={styles.messageInfoModalContent}>
+                    <Text style={styles.messageInfoTitle}>Message Info</Text>
+                    {loadingMessageInfo ? (
+                        <ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
+                    ) : messageInfoData ? (
+                        <View>
+                            <Text style={styles.messageInfoText}>Status for your message:</Text>
+                            <Text style={styles.messageInfoDetailText}>Sent: {formatTime(new Date(messageInfoData.sent_at || Date.now()))}</Text>
+                            {messageInfoData.is_delivered && messageInfoData.delivered_at && 
+                                <Text style={styles.messageInfoDetailText}>Delivered: {formatTime(new Date(messageInfoData.delivered_at))}</Text>}
+                            {!messageInfoData.is_delivered && 
+                                <Text style={styles.messageInfoDetailText}>Delivered: Not yet</Text>}
+                            {messageInfoData.is_seen && messageInfoData.seen_at && 
+                                <Text style={styles.messageInfoDetailText}>Seen: {formatTime(new Date(messageInfoData.seen_at))}</Text>}
+                            {!messageInfoData.is_seen && 
+                                <Text style={styles.messageInfoDetailText}>Seen: Not yet</Text>}
+                            {messageInfoData.is_edited && messageInfoData.edited_at && 
+                                <Text style={styles.messageInfoDetailText}>Edited: {formatTime(new Date(messageInfoData.edited_at))}</Text>}
+                        </View>
+                    ) : (
+                        <Text>No information available.</Text>
+                    )}
+                    <TouchableOpacity style={styles.messageInfoCloseButton} onPress={() => setMessageInfoVisible(false)}>
+                        <Text style={styles.messageInfoCloseButtonText}>Close</Text>
+                    </TouchableOpacity>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 };
@@ -1342,6 +1915,9 @@ const styles = StyleSheet.create({
     },
     timeText: {
         fontSize: 10,
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
     },
     timeTextBelowBubble: {
         marginTop: 2,
@@ -1446,7 +2022,6 @@ const styles = StyleSheet.create({
     imageViewerButtonDisabled: {
         opacity: 0.5,
     },
-    // Styles for Conversation Starters
     startersContainer: {
         paddingHorizontal: 10,
         paddingVertical: 8,
@@ -1563,7 +2138,6 @@ const styles = StyleSheet.create({
     sharedEventCloseButton: {
         padding: 5,
     },
-    // Enhanced shared event message styles
     sharedEventMessageBubble: {
         padding: 12,
         maxWidth: 280,
@@ -1611,6 +2185,268 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 16,
     },
+    replyingToContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        backgroundColor: '#E9E9EB',
+        borderTopWidth: 1,
+        borderTopColor: '#DCDCDC',
+    },
+    replyingToContent: {
+        flex: 1,
+    },
+    replyingToTitle: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#333333',
+    },
+    replyingToText: {
+        fontSize: 13,
+        color: '#555555',
+    },
+    replyingToCloseButton: {
+        padding: 5,
+    },
+    actionModalContent: {
+        position: 'absolute',
+        bottom: Platform.OS === 'ios' ? 30 : 15, 
+        left: 15,
+        right: 15,
+        backgroundColor: 'white',
+        borderRadius: 12,
+        paddingVertical: 10,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 5,
+    },
+    actionModalButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+    },
+    actionModalIcon: {
+        marginRight: 15,
+    },
+    actionModalButtonText: {
+        fontSize: 16,
+        color: '#1F2937',
+    },
+    messageInfoModalContent: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'white',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        padding: 20,
+        paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -3 },
+        shadowOpacity: 0.15,
+        shadowRadius: 5,
+        elevation: 10,
+    },
+    messageInfoTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        marginBottom: 15,
+        color: '#1F2937',
+    },
+    messageInfoText: {
+        fontSize: 15,
+        color: '#374151',
+        marginBottom: 10,
+    },
+    messageInfoDetailText: {
+        fontSize: 14,
+        color: '#4B5563',
+        marginBottom: 5,
+    },
+    messageInfoCloseButton: {
+        marginTop: 20,
+        paddingVertical: 12,
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    messageInfoCloseButtonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
+    modalContent: { 
+        backgroundColor: 'white', 
+        borderRadius: 12, 
+        padding: 25, 
+        marginHorizontal: '10%', 
+        marginTop: '30%', 
+        shadowColor: "#000", 
+        shadowOffset: { width: 0, height: 2 }, 
+        shadowOpacity: 0.25, 
+        shadowRadius: 4, 
+        elevation: 5, 
+        minHeight: 200 
+    },
+    modalTitle: { fontSize: 18, fontWeight: '600', marginBottom: 20, textAlign: 'center', color: '#1F2937', },
+    modalInput: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 12, fontSize: 16, marginBottom: 25, minHeight: 60, textAlignVertical: 'top' },
+    modalActions: { flexDirection: 'row', justifyContent: 'space-between', },
+    modalButton: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 6, alignItems: 'center', justifyContent: 'center', minWidth: 90, },
+    modalButtonCancel: { backgroundColor: '#E5E7EB', },
+    modalButtonSave: { backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', },
+    modalButtonDisabled: { backgroundColor: '#A5B4FC', },
+    modalButtonTextCancel: { color: '#4B5563', fontWeight: '500', },
+    modalButtonTextSave: { color: 'white', fontWeight: '600', },
+    imageViewerContainer: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    // Styles for deleted messages, edited indicator, reply previews (adapted from GroupChatScreen)
+    deletedMessageBubble: {
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#E5E7EB', // Consistent with received bubble
+        opacity: 0.8,
+    },
+    deletedMessageText: {
+        fontSize: 14,
+        fontStyle: 'italic',
+        color: '#6B7280',
+    },
+    editedIndicator: {
+        fontSize: 10,
+        fontStyle: 'italic',
+        marginLeft: 4, // Add some margin if it's next to text
+    },
+    editedIndicatorSent: {
+        color: 'rgba(255, 255, 255, 0.7)',
+    },
+    editedIndicatorReceived: {
+        color: '#6B7280',
+    },
+    editedIndicatorImage: { // For images, position might need adjustment or be overlayed
+        position: 'absolute',
+        bottom: 5,
+        right: 5,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        color: 'white',
+        paddingHorizontal: 4,
+        borderRadius: 3,
+        fontSize: 9,
+    },
+    messageRowTouchable: { // Used for messages that have long-press actions
+        flexDirection: 'row',
+        marginVertical: 4, // same as messageRow
+        alignItems: 'flex-end',
+    },
+    replyPreviewContainer: {
+        flexDirection: 'row',
+        backgroundColor: 'rgba(0,0,0,0.03)',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderTopLeftRadius: 8,
+        borderTopRightRadius: 8,
+        marginBottom: -2, // To slightly overlap with the message bubble below
+        maxWidth: '90%', // Constrain width
+    },
+    replyPreviewSent: { // Style for reply preview on a sent message
+        alignSelf: 'flex-end',
+        borderLeftColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        borderLeftWidth: 3,
+    },
+    replyPreviewReceived: { // Style for reply preview on a received message
+        alignSelf: 'flex-start',
+        borderLeftColor: '#A0AEC0', // A neutral color
+        borderLeftWidth: 3,
+    },
+    replyPreviewBorder: {
+        // This view is used for the colored border, already styled by replyPreviewSent/Received
+    },
+    replyPreviewContent: {
+        marginLeft: 6,
+        flexShrink: 1, // Allow text to shrink
+    },
+    replyPreviewSenderName: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#4B5563',
+    },
+    replyPreviewText: {
+        fontSize: 12,
+        color: '#6B7280',
+    },
 });
+
+// Helper to fetch a single message by ID (e.g., for reply previews if not in current `messages` state)
+const fetchMessageById = async (messageId: string): Promise<ChatMessage | null> => {
+    try {
+        const { data: dbMessage, error } = await supabase
+            .from('messages')
+            .select('*, message_status(is_delivered, delivered_at, is_seen, seen_at)')
+            .eq('id', messageId)
+            .single();
+        if (error || !dbMessage) throw error || new Error('Message not found');
+        
+        // Simplified mapDbMessageToChatMessage for this context
+        let sharedEventInfo: ChatMessage['sharedEvent'] = null;
+        const rawContent = dbMessage.content ?? '';
+        let displayText = rawContent;
+        if (rawContent.startsWith('SHARED_EVENT:')) {
+             try {
+                const parts = rawContent.split(':');
+                if (parts.length >= 3) {
+                    const eventId = parts[1]; const detailsString = parts.slice(2).join(':');
+                    let eventName = detailsString; let eventDate = 'N/A'; let eventVenue = 'N/A';
+                    const onSeparator = ' on '; const atSeparator = ' at ';
+                    const atIndex = detailsString.lastIndexOf(atSeparator);
+                    if (atIndex !== -1) { eventVenue = detailsString.substring(atIndex + atSeparator.length); eventName = detailsString.substring(0, atIndex); }
+                    const onIndex = eventName.lastIndexOf(onSeparator);
+                    if (onIndex !== -1) { eventDate = eventName.substring(onIndex + onSeparator.length); eventName = eventName.substring(0, onIndex); }
+                    sharedEventInfo = { eventId: eventId, eventTitle: eventName.trim(), eventDate: eventDate.trim(), eventVenue: eventVenue.trim(), eventImage: DEFAULT_EVENT_IMAGE_CHAT, };
+                    displayText = `Shared an event: ${sharedEventInfo.eventTitle}`; 
+                }
+            } catch (e) { console.error("Failed to parse shared event content for reply:", rawContent, e); }
+        }
+        const chatMsg: ChatMessage = {
+            _id: dbMessage.id,
+            text: displayText,
+            createdAt: new Date(dbMessage.created_at),
+            user: { _id: dbMessage.sender_id },
+            image: dbMessage.image_url || null,
+            sharedEvent: sharedEventInfo,
+            originalContent: dbMessage.original_content,
+            isEdited: dbMessage.is_edited,
+            editedAt: dbMessage.edited_at ? new Date(dbMessage.edited_at) : null,
+            isDeleted: dbMessage.is_deleted,
+            deletedAt: dbMessage.deleted_at ? new Date(dbMessage.deleted_at) : null,
+            replyToMessageId: dbMessage.reply_to_message_id,
+        };
+        // @ts-ignore - dbMessage can be complex due to join
+        const status = dbMessage.message_status && Array.isArray(dbMessage.message_status) ? dbMessage.message_status[0] : dbMessage.message_status;
+        if (status) {
+            chatMsg.isDelivered = status.is_delivered;
+            chatMsg.deliveredAt = status.delivered_at ? new Date(status.delivered_at) : null;
+            chatMsg.isSeen = status.is_seen;
+            chatMsg.seenAt = status.seen_at ? new Date(status.seen_at) : null;
+        }
+        return chatMsg;
+
+    } catch (err) {
+        console.error("Failed to fetch message by ID for reply preview:", err);
+        return null;
+    }
+};
 
 export default IndividualChatScreen;

@@ -55,7 +55,7 @@ yarn install
    ```json
    "extra": {
      "SUPABASE_URL": "your-supabase-url",
-     "SUPABASE_KEY": "your-supabase-anon-key",
+     "SUPABASE_SERVICE_ROLE_KEY": "your-supabase-anon-key",
      "SPOTIFY_CLIENT_ID": "your-spotify-client-id",
      "SPOTIFY_CLIENT_SECRET": "your-spotify-client-secret"
    }
