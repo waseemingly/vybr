@@ -243,7 +243,7 @@ const EditUserProfileScreen: React.FC = () => {
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
                 allowsEditing: true,
-                aspect: [1, 1],
+                aspect: [4, 5], // Enforce 4:5 aspect ratio for cropping
                 quality: 0.8,
                 base64: Platform.OS === 'web',
             });
@@ -682,8 +682,8 @@ const styles = StyleSheet.create({
     },
     profilePicture: {
         width: 100,
-        height: 100,
-        borderRadius: 50,
+        height: 125,
+        borderRadius: 12,
         marginBottom: 12,
         backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT,
         borderWidth: 2,
@@ -691,8 +691,8 @@ const styles = StyleSheet.create({
     },
     profilePicPlaceholder: {
         width: 100,
-        height: 100,
-        borderRadius: 50,
+        height: 125,
+        borderRadius: 12,
         backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT + '80',
         alignItems: 'center',
         justifyContent: 'center',

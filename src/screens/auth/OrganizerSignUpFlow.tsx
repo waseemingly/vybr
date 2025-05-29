@@ -265,7 +265,7 @@ const OrganizerSignUpFlow = () => {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: [1, 1], // Keep aspect ratio for consistency
+        aspect: [4, 5], // Enforce 4:5 aspect ratio for cropping
         quality: 0.8, // Reduce quality slightly for faster uploads
       });
 
@@ -937,20 +937,19 @@ const styles = StyleSheet.create({
         marginVertical: 16,
     },
     logoPreview: {
-        width: 100, // Slightly smaller preview
-        height: 100,
-        borderRadius: 50, // Keep it circular
+        width: 100, 
+        height: 125, // 4:5 aspect ratio (100 * 5/4)
+        borderRadius: 12, // Rounded rectangle
         marginBottom: 16,
-        backgroundColor: '#e0e0e0', // Add a background color for loading/error
+        backgroundColor: '#e0e0e0', 
     },
     logoPlaceholder: {
         width: 100,
-        height: 100,
-        borderRadius: 50,
-        backgroundColor: APP_CONSTANTS.COLORS.BORDER + '30', // Lighter placeholder
+        height: 125, // 4:5 aspect ratio
+        borderRadius: 12, // Rounded rectangle
+        backgroundColor: APP_CONSTANTS.COLORS.BORDER + '30', 
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 16,
     },
     uploadButton: {
         backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
