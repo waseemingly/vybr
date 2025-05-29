@@ -17,11 +17,10 @@ import {
 import * as AuthSession from 'expo-auth-session';
 import { MUSIC_MOODS, generateGeminiMoodAnalysisPrompt, SongForMoodAnalysis, GeminiMoodResponseItem } from '@/lib/moods';
 
-// --- HARDCODED SPOTIFY CONSTANTS ---
+// --- SPOTIFY CONSTANTS ---
 // Constants for Spotify API
 const SPOTIFY_API_URL = 'https://api.spotify.com/v1';
-const CLIENT_ID = '7724af6090634c3db7c82fd54f1a0fff';
-const CLIENT_SECRET = '6b5182f34c854e4ba3642f225f9b9ed6'; // Add client secret
+// CLIENT_ID and CLIENT_SECRET will be fetched from Supabase
 const AUTH_CALLBACK_SCHEME = 'vybr';
 const REGISTERED_WEB_REDIRECT_URI = 'http://127.0.0.1:8081/callback';
 
@@ -63,6 +62,57 @@ export const useSpotifyAuth = () => {
   const [userData, setUserData] = useState<any>(null);
   const [isUpdatingListeningData, setIsUpdatingListeningData] = useState(false);
 
+  // Spotify credentials state
+  const [spotifyClientId, setSpotifyClientId] = useState<string | null>(null);
+  const [spotifyClientSecret, setSpotifyClientSecret] = useState<string | null>(null);
+  const [credentialsLoaded, setCredentialsLoaded] = useState<boolean>(false);
+
+  // Function to fetch Spotify credentials from Supabase
+  const fetchSpotifyCredentials = async (): Promise<{ clientId: string; clientSecret: string } | null> => {
+    try {
+      console.log('[useSpotifyAuth] Fetching Spotify credentials from Supabase...');
+      
+      const [clientIdResponse, clientSecretResponse] = await Promise.all([
+        supabase.rpc('get_spotify_client_id'),
+        supabase.rpc('get_spotify_client_secret')
+      ]);
+
+      if (clientIdResponse.error) {
+        console.error('[useSpotifyAuth] Error fetching Spotify Client ID:', clientIdResponse.error);
+        return null;
+      }
+
+      if (clientSecretResponse.error) {
+        console.error('[useSpotifyAuth] Error fetching Spotify Client Secret:', clientSecretResponse.error);
+        return null;
+      }
+
+      const clientId = clientIdResponse.data as string;
+      const clientSecret = clientSecretResponse.data as string;
+
+      if (!clientId || !clientSecret) {
+        console.error('[useSpotifyAuth] Spotify credentials not found in Supabase Vault. Please ensure SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET are set.');
+        return null;
+      }
+
+      console.log('[useSpotifyAuth] Successfully fetched Spotify credentials from Supabase');
+      setSpotifyClientId(clientId);
+      setSpotifyClientSecret(clientSecret);
+      setCredentialsLoaded(true);
+      
+      return { clientId, clientSecret };
+    } catch (err: any) {
+      console.error('[useSpotifyAuth] Error fetching Spotify credentials:', err);
+      setError('Failed to fetch Spotify configuration. Please try again.');
+      return null;
+    }
+  };
+
+  // Load credentials on mount
+  useEffect(() => {
+    fetchSpotifyCredentials();
+  }, []);
+
   // Determine the redirect URI based on the platform
   const redirectUri = Platform.select({
     web: REGISTERED_WEB_REDIRECT_URI, // Always use the registered URI for web
@@ -74,7 +124,7 @@ export const useSpotifyAuth = () => {
 
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
-      clientId: CLIENT_ID,
+      clientId: spotifyClientId || '', // Use dynamic client ID
       scopes: SPOTIFY_SCOPES,
       redirectUri: redirectUri, // Use the platform-specific redirectUri
       usePKCE: false, // Disable PKCE since we'll use client secret
@@ -155,13 +205,27 @@ export const useSpotifyAuth = () => {
     try {
       console.log('[useSpotifyAuth] Exchanging code for token using client credentials');
       
+      // Ensure we have valid credentials before proceeding
+      let clientId = spotifyClientId;
+      let clientSecret = spotifyClientSecret;
+      
+      if (!clientId || !clientSecret) {
+        console.log('[useSpotifyAuth] Credentials not loaded, fetching from Supabase...');
+        const fetchedCredentials = await fetchSpotifyCredentials();
+        if (!fetchedCredentials) {
+          throw new Error('Failed to fetch Spotify credentials from Supabase');
+        }
+        clientId = fetchedCredentials.clientId;
+        clientSecret = fetchedCredentials.clientSecret;
+      }
+      
       // Manually make the token request instead of using AuthSession.exchangeCodeAsync
       const params = new URLSearchParams();
       params.append('grant_type', 'authorization_code');
       params.append('code', code);
       params.append('redirect_uri', redirectUri);
-      params.append('client_id', CLIENT_ID);
-      params.append('client_secret', CLIENT_SECRET);
+      params.append('client_id', clientId);
+      params.append('client_secret', clientSecret);
       
       const response = await fetch('https://accounts.spotify.com/api/token', {
         method: 'POST',
@@ -236,12 +300,26 @@ export const useSpotifyAuth = () => {
     try {
       console.log('[useSpotifyAuth] Refreshing token with client credentials');
       
+      // Ensure we have valid credentials before proceeding
+      let clientId = spotifyClientId;
+      let clientSecret = spotifyClientSecret;
+      
+      if (!clientId || !clientSecret) {
+        console.log('[useSpotifyAuth] Credentials not loaded during refresh, fetching from Supabase...');
+        const fetchedCredentials = await fetchSpotifyCredentials();
+        if (!fetchedCredentials) {
+          throw new Error('Failed to fetch Spotify credentials from Supabase');
+        }
+        clientId = fetchedCredentials.clientId;
+        clientSecret = fetchedCredentials.clientSecret;
+      }
+      
       // Manually make the refresh token request
       const params = new URLSearchParams();
       params.append('grant_type', 'refresh_token');
       params.append('refresh_token', currentRefreshToken);
-      params.append('client_id', CLIENT_ID);
-      params.append('client_secret', CLIENT_SECRET);
+      params.append('client_id', clientId);
+      params.append('client_secret', clientSecret);
       
       const response = await fetch('https://accounts.spotify.com/api/token', {
         method: 'POST',
@@ -313,6 +391,17 @@ export const useSpotifyAuth = () => {
   const login = useCallback(async () => {
     setError(null);
     console.log('[useSpotifyAuth] Prompting Spotify login...');
+    
+    // Ensure credentials are loaded before proceeding
+    if (!credentialsLoaded || !spotifyClientId) {
+      console.log('[useSpotifyAuth] Credentials not loaded, fetching from Supabase before login...');
+      const credentials = await fetchSpotifyCredentials();
+      if (!credentials) {
+        setError('Failed to load Spotify configuration. Please try again.');
+        return;
+      }
+    }
+    
     console.log(`[useSpotifyAuth] Requested scopes: ${SPOTIFY_SCOPES.join(', ')}`);
     console.log(`[useSpotifyAuth] Redirect URI: ${redirectUri}`);
     
@@ -347,7 +436,7 @@ export const useSpotifyAuth = () => {
       setError(err.message || 'Failed to start Spotify authentication');
       setIsLoading(false);
     }
-  }, [request, promptAsync]);
+  }, [request, promptAsync, credentialsLoaded, spotifyClientId]);
 
   // Function to fetch user profile
   const fetchUserProfile = async (token: string) => {
@@ -974,5 +1063,8 @@ export const useSpotifyAuth = () => {
     forceFetchAndSaveSpotifyData,
     isUpdatingListeningData,
     verifyAuthorizationCompleted,
+    // Add credentials state for debugging/monitoring
+    credentialsLoaded,
+    spotifyClientId: spotifyClientId || null,
   };
 }; 
