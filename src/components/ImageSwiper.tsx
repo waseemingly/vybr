@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   ScrollView,
@@ -19,6 +19,7 @@ interface ImageSwiperProps {
   containerStyle?: StyleProp<ViewStyle>;
   imageStyle?: StyleProp<ImageStyle>;
   height: number; // Explicit height required
+  onViewableChange?: (isViewable: boolean) => void; // New prop for viewability tracking
 }
 
 const ImageSwiper: React.FC<ImageSwiperProps> = ({
@@ -27,8 +28,10 @@ const ImageSwiper: React.FC<ImageSwiperProps> = ({
   containerStyle,
   imageStyle,
   height,
+  onViewableChange,
 }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [hasBeenViewable, setHasBeenViewable] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const { width } = Dimensions.get('window'); // Use screen width for calculation initially
 
@@ -37,6 +40,14 @@ const ImageSwiper: React.FC<ImageSwiperProps> = ({
   const containerWidth = typeof resolvedStyle?.width === 'number' ? resolvedStyle.width : width;
 
   const imageUris = images && images.length > 0 ? images : [defaultImage];
+
+  // Call onViewableChange when component mounts if prop is provided
+  useEffect(() => {
+    if (onViewableChange && !hasBeenViewable) {
+      onViewableChange(true);
+      setHasBeenViewable(true);
+    }
+  }, [onViewableChange, hasBeenViewable]);
 
   const onScroll = (nativeEvent: any) => {
     if (nativeEvent) {

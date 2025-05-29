@@ -259,9 +259,9 @@ const OverallAnalyticsScreen: React.FC = () => {
       // Calculate total costs and format for state
       const result = Object.values(expendituresMap).map(exp => ({
         month: exp.month,
-        impressionCost: parseFloat(exp.impressionCost.toFixed(2)),
-        bookingCost: parseFloat(exp.bookingCost.toFixed(2)),
-        totalCost: parseFloat((exp.impressionCost + exp.bookingCost).toFixed(2)),
+        impressionCost: exp.impressionCost, // Keep exact value
+        bookingCost: exp.bookingCost, // Keep exact value  
+        totalCost: exp.impressionCost + exp.bookingCost, // Keep exact value
       }));
 
       setMonthlyExpenditures(result);
@@ -715,7 +715,7 @@ const OverallAnalyticsScreen: React.FC = () => {
     labels: monthlyExpenditures.map(item => formatMonthLabel(item.month)),
     datasets: [
       {
-        data: monthlyExpenditures.map(item => Number(item.impressionCost.toFixed(2))),
+        data: monthlyExpenditures.map(item => item.impressionCost),
       }
     ],
   };
@@ -724,7 +724,7 @@ const OverallAnalyticsScreen: React.FC = () => {
     labels: monthlyExpenditures.map(item => formatMonthLabel(item.month)),
     datasets: [
       {
-        data: monthlyExpenditures.map(item => Number(item.bookingCost.toFixed(2))),
+        data: monthlyExpenditures.map(item => item.bookingCost),
       }
     ],
   };
@@ -733,7 +733,7 @@ const OverallAnalyticsScreen: React.FC = () => {
     labels: monthlyExpenditures.map(item => formatMonthLabel(item.month)),
     datasets: [
       {
-        data: monthlyExpenditures.map(item => Number(item.totalCost.toFixed(2))),
+        data: monthlyExpenditures.map(item => item.totalCost),
       }
     ],
   };
@@ -742,7 +742,7 @@ const OverallAnalyticsScreen: React.FC = () => {
     labels: eventRevenues.map(item => truncateEventName(item.eventName)),
     datasets: [
       {
-        data: eventRevenues.map(item => parseFloat(item.revenue.toFixed(2))),
+        data: eventRevenues.map(item => item.revenue),
       }
     ],
   };
@@ -769,7 +769,7 @@ const OverallAnalyticsScreen: React.FC = () => {
     labels: monthlyRevenues.map(item => formatMonthLabel(item.month)),
     datasets: [
       {
-        data: monthlyRevenues.map(item => Number(item.revenue.toFixed(2))),
+        data: monthlyRevenues.map(item => item.revenue),
       }
     ],
   };
@@ -1284,10 +1284,10 @@ const OverallAnalyticsScreen: React.FC = () => {
         .map(([tag, count]) => ({ tag, count }));
 
       setAnalyticsSummary({
-        avgCostPerEvent: parseFloat(avgCostPerEvent.toFixed(2)),
-        avgRevenuePerEvent: parseFloat(avgRevenuePerEvent.toFixed(2)),
-        avgAttendeesPerEvent: parseFloat(avgAttendeesPerEvent.toFixed(0)), // Typically whole number
-        avgImpressionsPerEvent: parseFloat(avgImpressionsPerEvent.toFixed(0)), // Whole number
+        avgCostPerEvent: avgCostPerEvent, // Keep exact value
+        avgRevenuePerEvent: avgRevenuePerEvent, // Keep exact value  
+        avgAttendeesPerEvent: avgAttendeesPerEvent, // Keep exact value
+        avgImpressionsPerEvent: avgImpressionsPerEvent, // Keep exact value
         popularTags,
       });
 

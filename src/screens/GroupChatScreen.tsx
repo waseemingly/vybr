@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import {
     View, StyleSheet, ActivityIndicator, Text, TouchableOpacity,
     Platform, TextInput, SectionList, KeyboardAvoidingView, Keyboard,
-    Modal, Alert, Image, ScrollView // Keep Image from react-native, Add ScrollView
+    Modal, Alert, Image, ScrollView, Dimensions,
+    RefreshControl, FlatList, StatusBar // Add FlatList and StatusBar
 } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -139,23 +140,39 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     const isCurrentUser = message.user._id === currentUserId;
     const senderName = message.user.name;
     const [imageError, setImageError] = useState(false);
+    const [hasLoggedImpression, setHasLoggedImpression] = useState(false);
+
+    // Log impression for shared events when message bubble comes into view
+    useEffect(() => {
+        if (message.sharedEvent?.eventId && !hasLoggedImpression) {
+            const logEventImpression = async () => {
+                try {
+                    console.log(`[IMPRESSION] Logging impression for shared event: ${message.sharedEvent?.eventId} from group chat`);
+                    const { error } = await supabase.from('event_impressions').insert({
+                        event_id: message.sharedEvent?.eventId,
+                        user_id: currentUserId || null,
+                        source: 'group_chat',
+                        viewed_at: new Date().toISOString()
+                    });
+                    
+                    if (error) {
+                        console.warn(`[IMPRESSION] Failed for shared event ${message.sharedEvent?.eventId}:`, error.message);
+                    } else {
+                        console.log(`[IMPRESSION] Successfully logged for shared event ${message.sharedEvent?.eventId} by user ${currentUserId || 'anonymous'}`);
+                        setHasLoggedImpression(true);
+                    }
+                } catch (err) {
+                    console.error("[IMPRESSION] Failed to log impression:", err);
+                }
+            };
+            
+            logEventImpression();
+        }
+    }, [message.sharedEvent?.eventId, currentUserId, hasLoggedImpression]);
 
     // Handle event press 
     const handleEventPress = () => {
         if (message.sharedEvent?.eventId && onEventPress) {
-            // Log impression
-            try {
-                supabase.from('event_impressions').insert({
-                    event_id: message.sharedEvent?.eventId,
-                    user_id: currentUserId || null,
-                    source: 'group_chat'
-                }).then(() => {
-                    console.log(`Logged impression for event ${message.sharedEvent?.eventId} from group chat`);
-                });
-            } catch (err) {
-                console.error("Failed to log impression:", err);
-            }
-            
             onEventPress(message.sharedEvent.eventId);
         }
     };
@@ -439,21 +456,18 @@ const GroupChatScreen: React.FC = () => {
                     image: organizerProfileSource?.profile_picture || DEFAULT_ORGANIZER_LOGO_CHAT,
                 },
                 description: eventData.event_description || "No description available.",
-                // ticketLink: eventData.ticket_link || null, // Not in MappedEvent type in EventsScreen.tsx
-                // dateTimeFormatted: formatEventDateTimeForModal(eventData.event_date), // Not in MappedEvent type in EventsScreen.tsx
                 // --- Fields that ARE in MappedEvent from EventsScreen --- 
                 event_datetime_iso: eventData.event_date || new Date().toISOString(), // Make sure to pass this
                 // For simplicity, assuming these are not strictly needed for chat preview, 
                 // but if they are, they should be mapped from eventData.genre_tags etc.
-                genres: eventData.genre_tags || [], 
-                artists: eventData.artist_lineup_names || [], 
+                genres: eventData.genre_tags || [],
+                artists: eventData.artist_lineup_names || [],
                 songs: [], // Assuming songs are not part of events_public_data, adjust if they are
                 booking_type: null, // Add default or map if available in eventData
                 ticket_price: null, // Add default or map if available in eventData
                 pass_fee_to_user: false, // Add default or map if available in eventData
                 max_tickets: null, // Add default or map if available in eventData
                 max_reservations: null, // Add default or map if available in eventData
-                isViewable: true, // Assuming always viewable in this context
                 // country and city are optional in MappedEvent, can be added if available in eventData
             };
             setSelectedEventDataForModal(mappedEvent);
