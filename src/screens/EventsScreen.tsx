@@ -56,7 +56,6 @@ export interface MappedEvent {
   pass_fee_to_user: boolean;
   max_tickets: number | null; max_reservations: number | null;
   organizer: OrganizerInfo; // Use the separate interface
-  isViewable: boolean;
   score?: number; // Added for recommendation sorting
   event_datetime_iso: string; // Added for accurate sorting before display formatting
 }
@@ -454,9 +453,11 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
 // --- End Event Detail Modal ---
 
 // --- Event Card Component ---
-interface EventCardProps { event: MappedEvent; onPress: () => void; isViewable: boolean; }
-export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress, isViewable }) => {
+interface EventCardProps { event: MappedEvent; onPress: () => void; }
+export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress }) => {
     const navigation = useNavigation<NavigationProp>();
+    const [hasLoggedImpression, setHasLoggedImpression] = useState(false);
+    
     // --- Booking Logic (Check type before navigating) ---
      let canBook = false;
      if (event.booking_type === 'TICKETED') {
@@ -500,7 +501,16 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress,
         }
     };
 
-    useEffect(() => { if (isViewable) { logImpression(event.id); } }, [isViewable, event.id]);
+    // Log impression when card comes into view - only once per event per session
+    const logImpressionOnceRef = useRef(false);
+    
+    const handleViewableChange = useCallback((isViewable: boolean) => {
+        if (isViewable && !logImpressionOnceRef.current && !hasLoggedImpression) {
+            logImpressionOnceRef.current = true;
+            setHasLoggedImpression(true);
+            logImpression(event.id, 'feed');
+        }
+    }, [event.id, hasLoggedImpression]);
 
     const cardWidth = Platform.OS === 'web' 
         ? (Dimensions.get('window').width - (styles.eventsList.paddingHorizontal as number) * 2 - CARD_MARGIN_WEB * (CARDS_PER_ROW_WEB - 1)) / CARDS_PER_ROW_WEB
@@ -516,6 +526,7 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress,
                 containerStyle={[styles.eventImageContainer, Platform.OS === 'web' ? { width: imageDimension, height: imageDimension } : { height: imageDimension }]}
                 imageStyle={[styles.eventImageStyle, { width: imageDimension, height: imageDimension }]}
                 height={imageDimension} // Pass calculated 1:1 dimension
+                onViewableChange={handleViewableChange} // Pass the callback to ImageSwiper
              />
              <View style={styles.cardContent}>
                  <Text style={styles.eventTitle} numberOfLines={2}>{event.title}</Text>
@@ -538,9 +549,9 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress,
 });
 // --- End Event Card Component ---
 
-// --- Impression Logging Function (Unchanged) ---
-const logImpression = async (eventId: string) => {
-    console.log(`Logging impression for event: ${eventId}`);
+// --- Impression Logging Function (Enhanced with better logging) ---
+const logImpression = async (eventId: string, source: string = 'feed') => {
+    console.log(`[IMPRESSION] Logging impression for event: ${eventId} from source: ${source}`);
     try {
         const { data: authData } = await supabase.auth.getUser();
         const userId = authData?.user?.id ?? null;
@@ -548,141 +559,18 @@ const logImpression = async (eventId: string) => {
         const { error } = await supabase.from('event_impressions').insert({
             event_id: eventId,
             user_id: userId,
-            source: 'feed' // Assuming impressions logged from the main feed
+            source: source,
+            viewed_at: new Date().toISOString()
         });
+        
         if (error) {
-            console.warn(`[Impression Log] Failed for event ${eventId}:`, error.message);
+            console.warn(`[IMPRESSION] Failed for event ${eventId}:`, error.message);
+        } else {
+            console.log(`[IMPRESSION] Successfully logged for event ${eventId} by user ${userId || 'anonymous'}`);
         }
     } catch (e) {
-        console.error('[Impression Log] Unexpected error:', e);
+        console.error('[IMPRESSION] Unexpected error:', e);
     }
-};
-
-// Function to calculate recommendation score
-const calculateEventScore = (event: MappedEvent, userProfile: MusicLoverProfileData | null): number => {
-    if (!userProfile) return 0;
-    let score = 0;
-
-    // --- Prepare User Preference Sets (mirroring SQL logic for current user) ---
-    
-    // 1. User Artists
-    const userArtists = new Set<string>();
-    // From favorite_artists (CSV)
-    (userProfile.favorite_artists ?? []).forEach(a => {
-        if (typeof a === 'string') a.split(',').forEach(subA => userArtists.add(subA.trim().toLowerCase()));
-    });
-    // From top_artists (JSON array of objects with name)
-    (userProfile.top_artists ?? []).forEach(a => {
-        if (typeof a === 'string') userArtists.add(a.toLowerCase()); // Assuming top_artists is already just names from previous processing
-        // If top_artists were raw JSON like [{name: "Artist"}], it would need: if (typeof a === 'object' && a.name) userArtists.add(a.name.toLowerCase());
-    });
-    // Artists from top_tracks (complex extraction, assuming top_tracks are track names and userProfile.top_artists contains artists from tracks)
-    // The SQL function `extract_artist_names_from_tracks_json_array` is complex.
-    // For client-side, if `userProfile.top_artists` already includes artists from tracks (as it should from `useStreamingData` hook if Spotify-like data), we rely on that.
-    // If not, this part would need a client-side equivalent of `extract_artist_names_from_tracks_json_array` if `top_tracks` raw data was available here.
-
-    // 2. User Songs/Tracks
-    const userSongs = new Set<string>();
-    // From favorite_songs (CSV)
-    (userProfile.favorite_songs ?? []).forEach(s => {
-        if (typeof s === 'string') s.split(',').forEach(subS => userSongs.add(subS.trim().toLowerCase()));
-    });
-    // From top_tracks (JSON array of names)
-    (userProfile.top_tracks ?? []).forEach(s => {
-        if (typeof s === 'string') userSongs.add(s.toLowerCase());
-    });
-
-    // 3. User Genres
-    const userGenres = new Set<string>();
-    // From music_data.genres (JSON array of strings)
-    (userProfile.music_data?.genres ?? []).forEach(g => {
-        if (typeof g === 'string') userGenres.add(g.toLowerCase());
-    });
-    // From top_genres (JSON array of names)
-    (userProfile.top_genres ?? []).forEach(g => {
-        if (typeof g === 'string') userGenres.add(g.toLowerCase());
-    });
-
-    // Add items from bio to respective sets (musicTaste to genres, dreamConcert to artists, goToSong to songs)
-    if (userProfile.bio) {
-        (userProfile.bio.musicTaste ?? '').toLowerCase().split(/,| and | with |\s+/).forEach(g => {
-            const trimmed = g.trim();
-            if (trimmed) userGenres.add(trimmed);
-        });
-        (userProfile.bio.dreamConcert ?? '').toLowerCase().split(/,| and | with /).forEach(a => {
-            const trimmed = a.trim();
-            if (trimmed) userArtists.add(trimmed);
-        });
-        const goToSong = userProfile.bio.goToSong?.trim().toLowerCase();
-        if (goToSong) userSongs.add(goToSong);
-    }
-
-    // --- Keyword extraction from remaining bio fields and favorite_albums ---
-    const bioKeywords = new Set<string>();
-    if (userProfile.bio) {
-        // Add other bio fields (firstSong, mustListenAlbum) to keywords
-        const otherBioFields: (keyof MusicLoverBio)[] = ['firstSong', 'mustListenAlbum'];
-        otherBioFields.forEach(key => {
-            const value = userProfile.bio![key];
-            if (typeof value === 'string') {
-                value.toLowerCase().split(/\s+|,|\(|\)|-|\//).forEach(word => {
-                    const trimmed = word.trim().replace(/[^a-z0-9\-]/g, '');
-                    if (trimmed && trimmed.length > 2) bioKeywords.add(trimmed);
-                });
-            }
-        });
-    }
-    (userProfile.favorite_albums ?? []).forEach(album => {
-        if (typeof album === 'string') {
-            album.toLowerCase().split(/\s+|,|\(|\)|-|\//).forEach(word => {
-                const trimmed = word.trim().replace(/[^a-z0-9\-]/g, '');
-                if (trimmed && trimmed.length > 2) bioKeywords.add(trimmed);
-            });
-        }
-    });
-
-    // Add all collected artists, genres, songs to bioKeywords for broader text matching against event title/desc
-    userArtists.forEach(a => bioKeywords.add(a)); // Already lowercase
-    userGenres.forEach(g => bioKeywords.add(g));  // Already lowercase
-    userSongs.forEach(s => s.split(/\s+/).forEach(word => bioKeywords.add(word.replace(/[^a-z0-9\-]/g, '')))); // song titles as keywords
-
-
-    // --- Score Event Based on Matches (using the sets prepared above) ---
-    // Match Artists
-    (event.artists ?? []).forEach(eventArtist => {
-        if (userArtists.has(eventArtist.toLowerCase())) {
-            score += SCORE_WEIGHTS.ARTIST_MATCH;
-        }
-    });
-
-    // Match Genres
-    (event.genres ?? []).forEach(eventGenre => {
-        const lowerGenre = eventGenre.toLowerCase();
-        if (userGenres.has(lowerGenre)) {
-            score += SCORE_WEIGHTS.GENRE_MATCH;
-        }
-        // Also check if genre name is in general bio keywords (e.g. user mentioned "rock concert" in bio text)
-        if (bioKeywords.has(lowerGenre)) {
-            score += SCORE_WEIGHTS.BIO_TASTE_MATCH * 0.5; // Lesser weight than direct genre match
-        }
-    });
-
-    // Match Songs
-    (event.songs ?? []).forEach(eventSong => {
-        if (userSongs.has(eventSong.toLowerCase())) {
-            score += SCORE_WEIGHTS.SONG_MATCH;
-        }
-    });
-
-    // Match keywords from event title/desc with user bio keywords (includes bio text, album keywords, and all preferred artists/genres/songs)
-    const eventText = `${event.title.toLowerCase()} ${event.description.toLowerCase()}`;
-    bioKeywords.forEach(keyword => {
-        if (keyword.length > 2 && eventText.includes(keyword)) { // Ensure keyword is not too short
-             score += SCORE_WEIGHTS.BIO_TASTE_MATCH * 0.2; 
-        }
-    });
-
-    return score;
 };
 
 // --- Main Events Screen ---
@@ -911,7 +799,6 @@ const EventsScreen: React.FC = () => {
                 const eventForScoring = {
                     ...event,
                     organizer: finalOrganizerData, 
-                    isViewable: false, 
                     images: event.poster_urls ?? [],
                     date: date, 
                     time: time,
@@ -940,7 +827,6 @@ const EventsScreen: React.FC = () => {
                     max_tickets: event.max_tickets,
                     max_reservations: event.max_reservations,
                     organizer: finalOrganizerData,
-                    isViewable: false,
                     score: score,
                     event_datetime_iso: event.event_datetime 
                 };
@@ -1020,7 +906,7 @@ const EventsScreen: React.FC = () => {
                         pass_fee_to_user: event.pass_fee_to_user ?? true,
                         max_tickets: event.max_tickets, max_reservations: event.max_reservations,
                         organizer: finalOrganizerData,
-                        isViewable: false, score: 0, // Score might not be relevant here if just opening
+                        score: 0, // Score might not be relevant here if just opening
                         event_datetime_iso: event.event_datetime 
                     };
                 }).filter(event => new Date(event.event_datetime_iso) > now);
@@ -1209,12 +1095,6 @@ const EventsScreen: React.FC = () => {
                                 <EventCard
                                     event={item}
                                     onPress={() => handleEventPress(item)}
-                                    isViewable={item.isViewable} 
-                                    // Apply no right margin for the last card in a row on web
-                                    // This logic would ideally be in the EventCard style itself or handled by FlatList's columnWrapperStyle if numColumns were used.
-                                    // For now, passing a prop or altering style directly here is a workaround.
-                                    // The current eventCardWeb style adds marginRight to all. This needs more finesse.
-                                    // Let's simplify: eventCardWeb will define width, parent (eventsList) handles spacing with justifyContent.
                                 />
                             );
                         }}
@@ -1242,7 +1122,6 @@ const EventsScreen: React.FC = () => {
                                 <EventCard
                                     event={item}
                                     onPress={() => handleEventPress(item)}
-                                    isViewable={item.isViewable}
                                 />
                             );
                         }}
@@ -1576,5 +1455,132 @@ const styles = StyleSheet.create({
         paddingVertical: 20, // Add some padding if needed
     },
 });
+
+// Function to calculate recommendation score
+const calculateEventScore = (event: MappedEvent, userProfile: MusicLoverProfileData | null): number => {
+    if (!userProfile) return 0;
+    let score = 0;
+
+    // --- Prepare User Preference Sets (mirroring SQL logic for current user) ---
+    
+    // 1. User Artists
+    const userArtists = new Set<string>();
+    // From favorite_artists (CSV)
+    (userProfile.favorite_artists ?? []).forEach(a => {
+        if (typeof a === 'string') a.split(',').forEach(subA => userArtists.add(subA.trim().toLowerCase()));
+    });
+    // From top_artists (JSON array of objects with name)
+    (userProfile.top_artists ?? []).forEach(a => {
+        if (typeof a === 'string') userArtists.add(a.toLowerCase()); // Assuming top_artists is already just names from previous processing
+        // If top_artists were raw JSON like [{name: "Artist"}], it would need: if (typeof a === 'object' && a.name) userArtists.add(a.name.toLowerCase());
+    });
+    // Artists from top_tracks (complex extraction, assuming top_tracks are track names and userProfile.top_artists contains artists from tracks)
+    // The SQL function `extract_artist_names_from_tracks_json_array` is complex.
+    // For client-side, if `userProfile.top_artists` already includes artists from tracks (as it should from `useStreamingData` hook if Spotify-like data), we rely on that.
+    // If not, this part would need a client-side equivalent of `extract_artist_names_from_tracks_json_array` if `top_tracks` raw data was available here.
+
+    // 2. User Songs/Tracks
+    const userSongs = new Set<string>();
+    // From favorite_songs (CSV)
+    (userProfile.favorite_songs ?? []).forEach(s => {
+        if (typeof s === 'string') s.split(',').forEach(subS => userSongs.add(subS.trim().toLowerCase()));
+    });
+    // From top_tracks (JSON array of names)
+    (userProfile.top_tracks ?? []).forEach(s => {
+        if (typeof s === 'string') userSongs.add(s.toLowerCase());
+    });
+
+    // 3. User Genres
+    const userGenres = new Set<string>();
+    // From music_data.genres (JSON array of strings)
+    (userProfile.music_data?.genres ?? []).forEach(g => {
+        if (typeof g === 'string') userGenres.add(g.toLowerCase());
+    });
+    // From top_genres (JSON array of names)
+    (userProfile.top_genres ?? []).forEach(g => {
+        if (typeof g === 'string') userGenres.add(g.toLowerCase());
+    });
+
+    // Add items from bio to respective sets (musicTaste to genres, dreamConcert to artists, goToSong to songs)
+    if (userProfile.bio) {
+        (userProfile.bio.musicTaste ?? '').toLowerCase().split(/,| and | with |\s+/).forEach(g => {
+            const trimmed = g.trim();
+            if (trimmed) userGenres.add(trimmed);
+        });
+        (userProfile.bio.dreamConcert ?? '').toLowerCase().split(/,| and | with /).forEach(a => {
+            const trimmed = a.trim();
+            if (trimmed) userArtists.add(trimmed);
+        });
+        const goToSong = userProfile.bio.goToSong?.trim().toLowerCase();
+        if (goToSong) userSongs.add(goToSong);
+    }
+
+    // --- Keyword extraction from remaining bio fields and favorite_albums ---
+    const bioKeywords = new Set<string>();
+    if (userProfile.bio) {
+        // Add other bio fields (firstSong, mustListenAlbum) to keywords
+        const otherBioFields: (keyof MusicLoverBio)[] = ['firstSong', 'mustListenAlbum'];
+        otherBioFields.forEach(key => {
+            const value = userProfile.bio![key];
+            if (typeof value === 'string') {
+                value.toLowerCase().split(/\s+|,|\(|\)|-|\//).forEach(word => {
+                    const trimmed = word.trim().replace(/[^a-z0-9\-]/g, '');
+                    if (trimmed && trimmed.length > 2) bioKeywords.add(trimmed);
+                });
+            }
+        });
+    }
+    (userProfile.favorite_albums ?? []).forEach(album => {
+        if (typeof album === 'string') {
+            album.toLowerCase().split(/\s+|,|\(|\)|-|\//).forEach(word => {
+                const trimmed = word.trim().replace(/[^a-z0-9\-]/g, '');
+                if (trimmed && trimmed.length > 2) bioKeywords.add(trimmed);
+            });
+        }
+    });
+
+    // Add all collected artists, genres, songs to bioKeywords for broader text matching against event title/desc
+    userArtists.forEach(a => bioKeywords.add(a)); // Already lowercase
+    userGenres.forEach(g => bioKeywords.add(g));  // Already lowercase
+    userSongs.forEach(s => s.split(/\s+/).forEach(word => bioKeywords.add(word.replace(/[^a-z0-9\-]/g, '')))); // song titles as keywords
+
+
+    // --- Score Event Based on Matches (using the sets prepared above) ---
+    // Match Artists
+    (event.artists ?? []).forEach(eventArtist => {
+        if (userArtists.has(eventArtist.toLowerCase())) {
+            score += SCORE_WEIGHTS.ARTIST_MATCH;
+        }
+    });
+
+    // Match Genres
+    (event.genres ?? []).forEach(eventGenre => {
+        const lowerGenre = eventGenre.toLowerCase();
+        if (userGenres.has(lowerGenre)) {
+            score += SCORE_WEIGHTS.GENRE_MATCH;
+        }
+        // Also check if genre name is in general bio keywords (e.g. user mentioned "rock concert" in bio text)
+        if (bioKeywords.has(lowerGenre)) {
+            score += SCORE_WEIGHTS.BIO_TASTE_MATCH * 0.5; // Lesser weight than direct genre match
+        }
+    });
+
+    // Match Songs
+    (event.songs ?? []).forEach(eventSong => {
+        if (userSongs.has(eventSong.toLowerCase())) {
+            score += SCORE_WEIGHTS.SONG_MATCH;
+        }
+    });
+
+    // Match keywords from event title/desc with user bio keywords (includes bio text, album keywords, and all preferred artists/genres/songs)
+    const eventText = `${event.title.toLowerCase()} ${event.description.toLowerCase()}`;
+    bioKeywords.forEach(keyword => {
+        if (keyword.length > 2 && eventText.includes(keyword)) { // Ensure keyword is not too short
+             score += SCORE_WEIGHTS.BIO_TASTE_MATCH * 0.2; 
+        }
+    });
+
+    return score;
+};
 
 export default EventsScreen;

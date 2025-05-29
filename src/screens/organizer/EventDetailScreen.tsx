@@ -444,7 +444,7 @@ const EventDetailScreen = () => {
                                       bezier
                                       style={styles.chartStyle}
                                       yAxisSuffix="$"
-                                      formatYLabel={(value) => parseFloat(value).toFixed(2)}
+                                      formatYLabel={(value) => parseFloat(value).toFixed(4)}
                                   />
                               </View>
                           ) : (
@@ -452,7 +452,7 @@ const EventDetailScreen = () => {
                           )}
                           
                           <Text style={styles.costTotalAmount}>
-                              Total Impression Cost: ${event.totalImpressions ? (event.totalImpressions * 0.0075).toFixed(2) : '0.00'}
+                              Total Impression Cost: ${event.totalImpressions ? (event.totalImpressions * 0.0075).toFixed(4) : '0.0000'}
                           </Text>
                       </View>
                       
@@ -490,7 +490,7 @@ const EventDetailScreen = () => {
                                       bezier
                                       style={styles.chartStyle}
                                       yAxisSuffix="$"
-                                      formatYLabel={(value) => parseFloat(value).toFixed(2)}
+                                      formatYLabel={(value) => parseFloat(value).toFixed(4)}
                                   />
                               </View>
                           ) : (
@@ -500,7 +500,7 @@ const EventDetailScreen = () => {
                           <Text style={styles.costTotalAmount}>
                               Total Transaction Cost: ${
                                   event.confirmedBookingsCount ? 
-                                  (event.confirmedBookingsCount * 0.50).toFixed(2) : '0.00'
+                                  (event.confirmedBookingsCount * 0.50).toFixed(4) : '0.0000'
                               }
                           </Text>
                       </View>
@@ -552,7 +552,7 @@ const EventDetailScreen = () => {
                                       bezier
                                       style={styles.chartStyle}
                                       yAxisSuffix="$"
-                                      formatYLabel={(value) => parseFloat(value).toFixed(2)}
+                                      formatYLabel={(value) => parseFloat(value).toFixed(4)}
                                   />
                               </View>
                           ) : (
@@ -566,7 +566,7 @@ const EventDetailScreen = () => {
                                       (event.totalImpressions ? event.totalImpressions * 0.0075 : 0) +
                                       // Transaction costs - updated to flat $0.50 fee
                                       (event.confirmedBookingsCount ? event.confirmedBookingsCount * 0.50 : 0)
-                                  ).toFixed(2)
+                                  ).toFixed(4)
                               }
                           </Text>
                       </View>

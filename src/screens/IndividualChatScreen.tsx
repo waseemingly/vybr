@@ -144,24 +144,40 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
 }) => {
     const isCurrentUser = message.user._id === currentUserId;
     const [imageError, setImageError] = useState(false);
+    const [hasLoggedImpression, setHasLoggedImpression] = useState(false);
     const navigation = useNavigation<RootNavigationProp>();
+
+    // Log impression for shared events when message bubble comes into view
+    useEffect(() => {
+        if (message.sharedEvent?.eventId && !hasLoggedImpression) {
+            const logEventImpression = async () => {
+                try {
+                    console.log(`[IMPRESSION] Logging impression for shared event: ${message.sharedEvent?.eventId} from individual chat`);
+                    const { error } = await supabase.from('event_impressions').insert({
+                        event_id: message.sharedEvent?.eventId,
+                        user_id: currentUserId || null,
+                        source: 'chat',
+                        viewed_at: new Date().toISOString()
+                    });
+                    
+                    if (error) {
+                        console.warn(`[IMPRESSION] Failed for shared event ${message.sharedEvent?.eventId}:`, error.message);
+                    } else {
+                        console.log(`[IMPRESSION] Successfully logged for shared event ${message.sharedEvent?.eventId} by user ${currentUserId || 'anonymous'}`);
+                        setHasLoggedImpression(true);
+                    }
+                } catch (err) {
+                    console.error("[IMPRESSION] Failed to log impression:", err);
+                }
+            };
+            
+            logEventImpression();
+        }
+    }, [message.sharedEvent?.eventId, currentUserId, hasLoggedImpression]);
 
     // Handle event press 
     const handleEventPress = () => {
         if (message.sharedEvent?.eventId && onEventPress) {
-            // Log impression
-            try {
-                supabase.from('event_impressions').insert({
-                    event_id: message.sharedEvent?.eventId,
-                    user_id: currentUserId || null,
-                    source: 'chat'
-                }).then(() => {
-                    console.log(`Logged impression for event ${message.sharedEvent?.eventId} from chat`);
-                });
-            } catch (error) {
-                console.error("Failed to log impression:", error);
-            }
-            
             onEventPress(message.sharedEvent.eventId);
         }
     };
@@ -366,6 +382,7 @@ const IndividualChatScreen: React.FC = () => {
     const currentUserIdFromSession = session?.user?.id;
     const { 
         matchUserId: matchUserIdFromRoute,
+        matchName,
         commonTags, 
         isFirstInteractionFromMatches, 
         sharedEventData: initialSharedEventData 
@@ -443,26 +460,25 @@ const IndividualChatScreen: React.FC = () => {
             const mappedEvent: MappedEvent = {
                 id: eventData.event_id,
                 title: eventData.event_name || "Event Title",
-                date: formatEventDateTimeForModal(eventData.event_date).date, // Correctly map date part
-                time: formatEventDateTimeForModal(eventData.event_date).time, // Correctly map time part
-                venue: eventData.venue_name || "Venue N/A",
                 images: eventData.event_poster_url ? [eventData.event_poster_url] : [DEFAULT_EVENT_IMAGE_CHAT],
-                organizer: {
-                    userId: organizerProfileSource?.user_id || "N/A", 
-                    name: `${organizerProfileSource?.first_name || ''} ${organizerProfileSource?.last_name || ''}`.trim() || DEFAULT_ORGANIZER_NAME_CHAT,
-                    image: organizerProfileSource?.profile_picture || DEFAULT_ORGANIZER_LOGO_CHAT,
-                },
-                description: eventData.event_description || "No description available.",
-                event_datetime_iso: eventData.event_date || new Date().toISOString(),
+                date: formatEventDateTimeForModal(eventData.event_date).date,
+                time: formatEventDateTimeForModal(eventData.event_date).time,
+                venue: eventData.venue_name || "Venue N/A",
                 genres: eventData.genre_tags || [],
                 artists: eventData.artist_lineup_names || [],
-                songs: [], // Default as per MappedEvent if not available from source
+                songs: [], // Not available in this context
+                description: eventData.event_description || "No description.",
                 booking_type: null, // Default
                 ticket_price: null, // Default
                 pass_fee_to_user: false, // Default
                 max_tickets: null, // Default
                 max_reservations: null, // Default
-                isViewable: true, // Default
+                organizer: {
+                    userId: organizerProfileSource?.user_id || "N/A",
+                    name: `${organizerProfileSource?.first_name || ''} ${organizerProfileSource?.last_name || ''}`.trim() || DEFAULT_ORGANIZER_NAME_CHAT,
+                    image: organizerProfileSource?.profile_picture || DEFAULT_ORGANIZER_LOGO_CHAT,
+                },
+                event_datetime_iso: eventData.event_date || new Date().toISOString(),
             };
             setSelectedEventDataForModal(mappedEvent);
             setEventModalVisible(true);
