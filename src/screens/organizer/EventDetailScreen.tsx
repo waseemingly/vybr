@@ -197,8 +197,12 @@ const EventDetailScreen = () => {
   const handleMoreOptions = () => { Alert.alert("More Options", "Future options: Duplicate Event, Cancel Event, etc."); };
 
   // --- Image Swiper Logic ---
-  const { width } = Dimensions.get('window');
-  const imageContainerWidth = width;
+  const windowWidth = Dimensions.get('window').width;
+  // Constrain the content width on web, and image takes this constrained width
+  const contentContainerMaxWidth = Platform.OS === 'web' ? Math.min(windowWidth * 0.9, 650) : windowWidth;
+  
+  const imageContainerWidth = contentContainerMaxWidth;
+  const imageContainerHeight = imageContainerWidth; // For 1:1 aspect ratio
   const images = event?.images ?? [DEFAULT_EVENT_IMAGE];
 
   const onScroll = (nativeEvent: any) => {
@@ -266,9 +270,20 @@ const EventDetailScreen = () => {
 
   return (
     <SafeAreaView edges={["top"]} style={styles.container}>
-      <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent} refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]} /> }>
+      <ScrollView 
+        style={[
+          styles.scrollContainer,
+          Platform.OS === 'web' && {
+            width: '100%',
+            maxWidth: contentContainerMaxWidth,
+            alignSelf: 'center',
+          }
+        ]}
+        contentContainerStyle={styles.scrollContent} 
+        refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]} /> }
+      >
         {/* --- Image Swiper Start --- */}
-         <View style={styles.imageSwiperContainer}>
+         <View style={[styles.imageSwiperContainer, { height: imageContainerHeight }]}>
              <ScrollView
                  ref={scrollViewRef}
                  horizontal
@@ -276,13 +291,13 @@ const EventDetailScreen = () => {
                  showsHorizontalScrollIndicator={false}
                  onMomentumScrollEnd={(e) => onScroll(e.nativeEvent)}
                  scrollEventThrottle={16}
-                 style={{ width: imageContainerWidth, height: styles.coverImage.height }}
+                 style={{ width: imageContainerWidth, height: imageContainerHeight }}
              >
                  {images.map((uri, index) => (
                      <Image
                          key={index}
                          source={{ uri: uri }}
-                         style={[styles.coverImage, { width: imageContainerWidth }]}
+                         style={[styles.coverImage, { width: imageContainerWidth, height: imageContainerHeight }]}
                          resizeMode="cover"
                      />
                  ))}
@@ -582,15 +597,16 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 16, fontWeight: '600', color: '#4B5563', marginTop: 10, textAlign: 'center' },
   retryButton: { backgroundColor: '#3B82F6', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, marginTop: 15 },
   retryButtonText: { color: '#FFF', fontWeight: '600' },
-  scrollContainer: { flex: 1 },
+  scrollContainer: { 
+    flex: 1,
+  },
   scrollContent: { paddingBottom: 40 },
   imageSwiperContainer: {
       position: 'relative',
       width: '100%',
-      height: 240,
       backgroundColor: '#F3F4F6',
   },
-  coverImage: { width: "100%", height: 240, backgroundColor: '#F3F4F6' },
+  coverImage: { width: "100%", backgroundColor: '#F3F4F6' },
   paginationContainer: {
       position: 'absolute',
       bottom: 15,

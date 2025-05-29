@@ -89,6 +89,10 @@ const DEFAULT_ORGANIZER_NAME = "Event Organizer";
 const TRANSACTION_FEE = 0.50;
 const EVENTS_PER_PAGE = 10;
 
+// Card dimensions for web
+const CARDS_PER_ROW_WEB = 4;
+const CARD_MARGIN_WEB = 16; // Total margin around a card (e.g., 8 on each side if space-between)
+
 // Weights for scoring
 const SCORE_WEIGHTS = {
     GENRE_MATCH: 2,
@@ -145,8 +149,15 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
 
     if (!event) return null;
 
-    const { width } = Dimensions.get('window');
-    const imageContainerWidth = width;
+    // For web, the modal content itself will be constrained, so image can take that width.
+    // For native, it will take screen width.
+    const windowWidth = Dimensions.get('window').width;
+    // We will set a maxWidth for modalContent on web. Image width will be this max width or window width if smaller.
+    const modalContentEffectiveMaxWidth = Platform.OS === 'web' ? Math.min(windowWidth * 0.9, 700) : windowWidth;
+    
+    const imageContainerWidth = modalContentEffectiveMaxWidth; 
+    const imageContainerHeight = imageContainerWidth; // For 1:1 aspect ratio
+
     const images = event.images?.length > 0 ? event.images : [DEFAULT_EVENT_IMAGE];
 
     const onScroll = (nativeEvent: any) => {
@@ -291,7 +302,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
             <View style={styles.modalContent}>
               <TouchableOpacity style={styles.closeButton} onPress={onClose}><Feather name="x" size={24} color="#6B7280" /></TouchableOpacity>
               <ScrollView showsVerticalScrollIndicator={false}>
-                  <View style={styles.imageSwiperContainer}>
+                  <View style={[styles.imageSwiperContainer, { height: imageContainerHeight }]}>
                        <ScrollView
                            ref={scrollViewRef}
                            horizontal
@@ -299,13 +310,13 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
                            showsHorizontalScrollIndicator={false}
                            onMomentumScrollEnd={(e) => onScroll(e.nativeEvent)}
                            scrollEventThrottle={16}
-                           style={{ width: imageContainerWidth, height: styles.modalImage.height }}
+                           style={{ width: imageContainerWidth, height: imageContainerHeight }} // Use dynamic height
                        >
                            {images.map((uri, index) => (
                                <Image
                                    key={index}
                                    source={{ uri: uri }}
-                                   style={[styles.modalImage, { width: imageContainerWidth }]}
+                                   style={[styles.modalImage, { width: imageContainerWidth, height: imageContainerHeight }]} // Use dynamic height
                                    resizeMode="cover"
                                />
                            ))}
@@ -491,14 +502,20 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress,
 
     useEffect(() => { if (isViewable) { logImpression(event.id); } }, [isViewable, event.id]);
 
+    const cardWidth = Platform.OS === 'web' 
+        ? (Dimensions.get('window').width - (styles.eventsList.paddingHorizontal as number) * 2 - CARD_MARGIN_WEB * (CARDS_PER_ROW_WEB - 1)) / CARDS_PER_ROW_WEB
+        : Dimensions.get('window').width - (styles.eventsList.paddingHorizontal as number) * 2;
+    
+    const imageDimension = cardWidth; // For 1:1 aspect ratio
+
     return (
-        <TouchableOpacity style={styles.eventCard} activeOpacity={0.9} onPress={onPress}>
+        <TouchableOpacity style={[styles.eventCard, Platform.OS === 'web' && styles.eventCardWeb]} activeOpacity={0.9} onPress={onPress}>
              <ImageSwiper
                 images={event.images}
                 defaultImage={DEFAULT_EVENT_IMAGE}
-                containerStyle={styles.eventImageContainer}
-                imageStyle={styles.eventImageStyle}
-                height={styles.eventImageStyle.height}
+                containerStyle={[styles.eventImageContainer, Platform.OS === 'web' ? { width: imageDimension, height: imageDimension } : { height: imageDimension }]}
+                imageStyle={[styles.eventImageStyle, { width: imageDimension, height: imageDimension }]}
+                height={imageDimension} // Pass calculated 1:1 dimension
              />
              <View style={styles.cardContent}>
                  <Text style={styles.eventTitle} numberOfLines={2}>{event.title}</Text>
@@ -1100,10 +1117,14 @@ const EventsScreen: React.FC = () => {
      // Render Footer for pagination loading or end message - adaptable for FlatList
     const renderListFooter = (isFetchingMore: boolean, allLoaded: boolean, itemsExist: boolean) => {
         if (isFetchingMore) {
-            return <ActivityIndicator style={{ marginVertical: 20 }} size="small" color="#3B82F6" />;
+            return (
+                <View style={styles.listFooterContainer}> 
+                    <ActivityIndicator style={{ marginVertical: 20 }} size="small" color="#3B82F6" />
+                </View>
+            );
         }
-        if (allLoaded && itemsExist) { // Only show "No more events" if some items were loaded
-             return <Text style={styles.endListText}>No more events</Text>;
+        if (allLoaded && itemsExist) { 
+            return null; // Simply return null to show nothing
         }
         return null;
     };
@@ -1182,14 +1203,27 @@ const EventsScreen: React.FC = () => {
                     <FlatList
                         data={loadedForYouEvents}
                         keyExtractor={(item) => `forYou-${item.id}`}
-                        renderItem={({ item }) => (
-                            <EventCard
-                                event={item}
-                                onPress={() => handleEventPress(item)}
-                                isViewable={item.isViewable} 
-                            />
-                        )}
-                        contentContainerStyle={styles.eventsList}
+                        renderItem={({ item, index }) => {
+                            const isWebLastInRow = Platform.OS === 'web' && (index + 1) % CARDS_PER_ROW_WEB === 0;
+                            return (
+                                <EventCard
+                                    event={item}
+                                    onPress={() => handleEventPress(item)}
+                                    isViewable={item.isViewable} 
+                                    // Apply no right margin for the last card in a row on web
+                                    // This logic would ideally be in the EventCard style itself or handled by FlatList's columnWrapperStyle if numColumns were used.
+                                    // For now, passing a prop or altering style directly here is a workaround.
+                                    // The current eventCardWeb style adds marginRight to all. This needs more finesse.
+                                    // Let's simplify: eventCardWeb will define width, parent (eventsList) handles spacing with justifyContent.
+                                />
+                            );
+                        }}
+                        contentContainerStyle={[
+                            styles.eventsList,
+                            // For web, if using justifyContent: 'center', the centering is handled by eventsList directly.
+                            // If there are fewer than CARDS_PER_ROW_WEB items, they will be centered together.
+                            // Platform.OS === 'web' && loadedForYouEvents.length > 0 && { justifyContent: 'space-between'} // This was changed to center
+                        ]}
                         style={styles.flatListContainerOnly}
                         onEndReached={handleLoadMoreForYou}
                         onEndReachedThreshold={0.5}
@@ -1202,14 +1236,20 @@ const EventsScreen: React.FC = () => {
                     <FlatList
                         data={loadedAllEvents}
                         keyExtractor={(item) => `allEvents-${item.id}`}
-                        renderItem={({ item }) => (
-                            <EventCard
-                                event={item}
-                                onPress={() => handleEventPress(item)}
-                                isViewable={item.isViewable} 
-                            />
-                        )}
-                        contentContainerStyle={styles.eventsList}
+                        renderItem={({ item, index }) => {
+                            const isWebLastInRow = Platform.OS === 'web' && (index + 1) % CARDS_PER_ROW_WEB === 0;
+                            return (
+                                <EventCard
+                                    event={item}
+                                    onPress={() => handleEventPress(item)}
+                                    isViewable={item.isViewable}
+                                />
+                            );
+                        }}
+                        contentContainerStyle={[
+                            styles.eventsList,
+                            // Platform.OS === 'web' && loadedAllEvents.length > 0 && { justifyContent: 'space-between'} // This was changed to center
+                        ]}
                         style={styles.flatListContainerOnly}
                         onEndReached={handleLoadMoreAllEvents}
                         onEndReachedThreshold={0.5}
@@ -1268,7 +1308,8 @@ const styles = StyleSheet.create({
         flex: 1, // Takes up available space in FlatList
         justifyContent: 'center', 
         alignItems: 'center', 
-        padding: 20, 
+        paddingHorizontal: 20, // Changed from padding
+        paddingVertical: 20, // Changed from padding
         marginTop: Dimensions.get('window').height * 0.1 // Push down a bit
     },
     errorText: { fontSize: 16, fontWeight: '600', color: '#DC2626', marginTop: 10, textAlign: 'center', },
@@ -1285,22 +1326,55 @@ const styles = StyleSheet.create({
     headerIcon: { marginRight: 8, },
     title: { fontSize: 22, fontWeight: "bold", color: "#3B82F6", },
     subtitle: { fontSize: 14, color: "#6B7280", marginTop: 0, paddingHorizontal: 16, paddingBottom: 12 },
-    eventsList: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 80, },
-    eventCard: { backgroundColor: "white", borderRadius: 12, overflow: "hidden", marginBottom: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 3, },
+    eventsList: { 
+        paddingHorizontal: 16, 
+        paddingTop: 16, 
+        paddingBottom: 80, 
+        flexGrow: 1, // Allow content to grow and push footer
+        ...(Platform.OS === 'web' ? { 
+            flexDirection: 'row', 
+            flexWrap: 'wrap', 
+            justifyContent: 'center', // Center rows of cards
+        } : {})
+    },
+    eventCard: { 
+        backgroundColor: "white", 
+        borderRadius: 12, 
+        overflow: "hidden", 
+        marginBottom: 20, 
+        shadowColor: "#000", 
+        shadowOffset: { width: 0, height: 2 }, 
+        shadowOpacity: 0.08, 
+        shadowRadius: 4, 
+        elevation: 3,
+        ...(Platform.OS === 'web' ? {} : { width: '100%' }) // Ensure full width on mobile if not web
+    },
+    eventCardWeb: {
+        width: (Dimensions.get('window').width - 16 * 2 - CARD_MARGIN_WEB * (CARDS_PER_ROW_WEB -1) ) / CARDS_PER_ROW_WEB,
+        // marginRight: CARD_MARGIN_WEB, // Remove this
+        marginHorizontal: CARD_MARGIN_WEB / 2, // Add horizontal margin for spacing when centered
+        marginBottom: CARD_MARGIN_WEB, // Keep bottom margin for rows
+        // Remove last item's right margin via nth-child if possible, or handle in FlatList renderItem logic if needed.
+        // For simplicity, all cards have right margin, last one might push container if not careful or if parent has fixed width.
+        // With justifyContent: 'flex-start' on eventsList, this should be okay.
+    },
     imageContainer: { position: "relative", },
-    eventImage: { width: "100%", aspectRatio: 16 / 9, backgroundColor: '#F3F4F6', },
+    eventImage: { width: "100%", backgroundColor: '#F3F4F6', }, // Removed aspectRatio
     // Define eventImageStyle FIRST
     eventImageStyle: {
-        // Calculate height based on aspect ratio (approximate for initial render)
-        height: (Dimensions.get('window').width - 32) * (9 / 16), // 16px padding on each side
+        // height is now dynamic, based on 1:1 aspect ratio of calculated width
+        // width will also be set dynamically
+        backgroundColor: '#F3F4F6', // Keep placeholder color
+        // overflow: 'hidden', // Removed scroll, Image components don't scroll content
     },
     // Add styles for ImageSwiper in the card context
     eventImageContainer: {
-        width: "100%",
-        aspectRatio: 16 / 9, // Maintain aspect ratio
+        width: "100%", // Swiper takes full width of its parent (the card image area)
+        // aspectRatio: 1 / 1, // Enforce 1:1 aspect ratio for the container
         borderTopLeftRadius: 12, // Match card radius
         borderTopRightRadius: 12,
         backgroundColor: '#F3F4F6',
+        overflow: 'hidden', // Ensure images inside conform
     },
     cardContent: { padding: 16, },
     eventTitle: { fontSize: 18, fontWeight: "700", color: "#1F2937", marginBottom: 4, },
@@ -1317,16 +1391,34 @@ const styles = StyleSheet.create({
     bookButton: { backgroundColor: "#3B82F6", flexDirection: "row", alignItems: "center", paddingVertical: 8, paddingHorizontal: 16, borderRadius: 50, },
     bookButtonText: { color: "white", fontWeight: "600", fontSize: 14, marginLeft: 6, },
     // Modal Styles
-    modalContainer: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.6)", justifyContent: "flex-end", },
-    modalContent: { backgroundColor: "white", borderTopLeftRadius: 24, borderTopRightRadius: 24, height: "90%", overflow: "hidden", },
-    closeButton: { position: "absolute", top: 20, left: 16, zIndex: 10, backgroundColor: "rgba(230, 230, 230, 0.8)", borderRadius: 50, padding: 8, },
+    modalContainer: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.6)", justifyContent: "flex-end", alignItems: Platform.OS === 'web' ? 'center' : 'stretch' }, // Center modal on web
+    modalContent: { 
+        backgroundColor: "white", 
+        borderTopLeftRadius: Platform.OS === 'web' ? 12 : 24, // Adjust radius for web if centered
+        borderTopRightRadius: Platform.OS === 'web' ? 12 : 24,
+        height: Platform.OS === 'web' ? "90%" : "90%", // Can adjust height for web too if needed
+        overflow: "hidden", 
+        ...(Platform.OS === 'web' ? {
+            width: '90%', // Take 90% of parent (modalContainer which is centered)
+            maxWidth: 700, // Max width for web modal content
+            maxHeight: Dimensions.get('window').height * 0.9, // Max height relative to viewport height
+            borderRadius: 12, // Apply border radius to all corners on web
+            boxShadow: '0 5px 15px rgba(0,0,0,0.3)', // Add shadow for web
+        } : {})
+    },
+    closeButton: { position: "absolute", top: Platform.OS === 'web' ? 15 : 20, left: Platform.OS === 'web' ? 15 : 16, zIndex: 10, backgroundColor: "rgba(230, 230, 230, 0.8)", borderRadius: 50, padding: 8, },
     imageSwiperContainer: {
         position: 'relative',
-        width: '100%',
-        height: 250,
+        width: '100%', // Take full width of its parent (modalContent)
+        // height will be set dynamically in the component
         backgroundColor: '#F3F4F6',
     },
-    modalImage: { width: "100%", height: 250, backgroundColor: '#F3F4F6', },
+    modalImage: { 
+        // width: "100%", // Will be set dynamically
+        // height: 250, // Will be set dynamically
+        backgroundColor: '#F3F4F6', 
+        // overflow: 'hidden', // Removed scroll, Image components don't scroll content
+    },
     paginationContainer: {
         position: 'absolute',
         bottom: 15,
@@ -1476,7 +1568,13 @@ const styles = StyleSheet.create({
         color: '#EF4444',
         fontSize: 16,
         fontWeight: '500',
-    }
+    },
+    listFooterContainer: {
+        width: '100%', // Ensure it takes full width of the FlatList
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingVertical: 20, // Add some padding if needed
+    },
 });
 
 export default EventsScreen;

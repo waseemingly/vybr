@@ -284,14 +284,15 @@ const CreateEventScreen: React.FC = () => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') { Alert.alert("Permission Required", "Permission to access photos is needed."); return; }
         try {
-            let result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: 'images',
-                allowsMultipleSelection: true, 
-                quality: 0.8,
-                selectionLimit: 3 - imageAssets.length,
-                ...(Platform.OS === 'web' ? { base64: true } : {})
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [1, 1], // Enforce 1:1 aspect ratio for cropping
+                quality: 0.7,
+                allowsMultipleSelection: true, // Keep this if you allow multiple image uploads at once
             });
-            if (!result.canceled && result.assets) {
+
+            if (!result.canceled && result.assets && result.assets.length > 0) {
                 const maxToAdd = 3 - imageAssets.length;
                 const newAssets = result.assets.slice(0, maxToAdd);
                 if (result.assets.length > maxToAdd) { Alert.alert("Limit Reached",`Added ${newAssets.length} image(s). Max 3 total.`); }

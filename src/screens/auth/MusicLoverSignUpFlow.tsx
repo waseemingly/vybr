@@ -502,7 +502,7 @@ const MusicLoverSignUpFlow = () => {
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
                 allowsEditing: true,
-                aspect: [1, 1],
+                aspect: [4, 5], // Enforce 4:5 aspect ratio for cropping
                 quality: 0.8, // Balance quality and size
             });
 
@@ -1886,8 +1886,26 @@ const styles = StyleSheet.create({
     termsLink: { color: APP_CONSTANTS.COLORS.PRIMARY, fontWeight: '600', textDecorationLine: 'underline' },
     requiredText: { fontSize: 12, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginTop: 4, marginBottom: 16, textAlign: 'right', width: '100%' },
     profilePicContainer: { alignItems: 'center', marginVertical: 15 },
-    profilePicPreview: { width: 100, height: 100, borderRadius: 50, marginBottom: 12, backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT, borderWidth: 2, borderColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT },
-    profilePicPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT + '80', alignItems: 'center', justifyContent: 'center', marginBottom: 12, borderWidth: 1, borderColor: APP_CONSTANTS.COLORS.BORDER },
+    profilePicPreview: {
+        width: 100,
+        height: 125, // 4:5 aspect ratio (100 * 5/4)
+        borderRadius: 12, // Rounded rectangle
+        marginBottom: 12,
+        backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT,
+        borderWidth: 2,
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT
+    },
+    profilePicPlaceholder: {
+        width: 100,
+        height: 125, // 4:5 aspect ratio
+        borderRadius: 12, // Rounded rectangle
+        backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT + '80',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: APP_CONSTANTS.COLORS.BORDER
+    },
     uploadButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 },
     uploadButtonText: { color: 'white', fontWeight: '600', fontSize: 14 },
     bioHeader: { marginTop: 15, marginBottom: 10, fontSize: 16, fontWeight: '600', textAlign: 'left', width: '100%' },
