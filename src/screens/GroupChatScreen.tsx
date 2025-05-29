@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
     View, StyleSheet, ActivityIndicator, Text, TouchableOpacity,
     Platform, TextInput, SectionList, KeyboardAvoidingView, Keyboard,
-    Modal, Alert, Image // Keep Image from react-native
+    Modal, Alert, Image, ScrollView // Keep Image from react-native, Add ScrollView
 } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -67,9 +67,28 @@ type GroupChatScreenRouteProp = RouteProp<RootStackParamList & {
     }
 }, 'GroupChatScreen'>;
 type GroupChatScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GroupChatScreen'>;
-interface DbGroupMessage { id: string; created_at: string; sender_id: string; group_id: string; content: string | null; image_url: string | null; is_system_message: boolean; 
+interface DbGroupMessage { 
+    id: string; 
+    created_at: string; 
+    sender_id: string; 
+    group_id: string; 
+    content: string | null; 
+    image_url: string | null; 
+    is_system_message: boolean; 
+    original_content?: string | null;
+    is_edited?: boolean;
+    edited_at?: string | null;
+    is_deleted?: boolean;
+    deleted_at?: string | null;
+    reply_to_message_id?: string | null;
 }
-interface ChatMessage { _id: string; text: string; createdAt: Date; user: { _id: string; name?: string; avatar?: string; }; image?: string | null; isSystemMessage: boolean;
+interface ChatMessage { 
+    _id: string; 
+    text: string; 
+    createdAt: Date; 
+    user: { _id: string; name?: string; avatar?: string; }; 
+    image?: string | null; 
+    isSystemMessage: boolean;
     sharedEvent?: {
         eventId: string;
         eventTitle: string;
@@ -77,16 +96,27 @@ interface ChatMessage { _id: string; text: string; createdAt: Date; user: { _id:
         eventVenue: string;
         eventImage: string;
     } | null;
+    originalContent?: string | null;
+    isEdited?: boolean;
+    editedAt?: Date | null;
+    isDeleted?: boolean;
+    deletedAt?: Date | null;
+    replyToMessageId?: string | null;
+    replyToMessagePreview?: {
+        text?: string | null;
+        senderName?: string | null;
+        image?: string | null;
+    } | null;
 }
 interface UserProfileInfo { user_id: string; first_name: string | null; last_name: string | null; profile_picture: string | null; }
 interface DbGroupChat { id: string; group_name: string; group_image: string | null; can_members_add_others?: boolean; can_members_edit_info?: boolean; }
 
 // --- Constants and Cache ---
 const userProfileCache: Record<string, { name?: string; avatar?: string }> = {};
-const DEFAULT_PROFILE_PIC = APP_CONSTANTS?.DEFAULT_PROFILE_PIC || 'https://via.placeholder.com/40';
+const DEFAULT_PROFILE_PIC = APP_CONSTANTS?.DEFAULT_PROFILE_PIC || 'https://placehold.co/40x40/E0E0E0/757575?text=U'; // Changed to placehold.co
 const DEFAULT_GROUP_PIC = 'https://placehold.co/40x40/e2e8f0/64748b?text=G';
-const DEFAULT_EVENT_IMAGE_CHAT = "https://via.placeholder.com/800x450/D1D5DB/1F2937?text=Event";
-const DEFAULT_ORGANIZER_LOGO_CHAT = "https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo";
+const DEFAULT_EVENT_IMAGE_CHAT = "https://placehold.co/800x450/D1D5DB/1F2937?text=Event"; // Changed to placehold.co
+const DEFAULT_ORGANIZER_LOGO_CHAT = "https://placehold.co/150/BFDBFE/1E40AF?text=Logo"; // Changed to placehold.co
 const DEFAULT_ORGANIZER_NAME_CHAT = "Event Organizer";
 
 // --- GroupMessageBubble Component ---
@@ -95,8 +125,17 @@ interface GroupMessageBubbleProps {
     currentUserId: string | undefined;
     onImagePress: (imageUri: string) => void;
     onEventPress?: (eventId: string) => void;
+    onMessageLongPress: (message: ChatMessage) => void;
+    getRepliedMessagePreview: (messageId: string) => ChatMessage['replyToMessagePreview'] | null;
 }
-const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({ message, currentUserId, onImagePress, onEventPress }) => {
+const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({ 
+    message, 
+    currentUserId, 
+    onImagePress, 
+    onEventPress, 
+    onMessageLongPress,
+    getRepliedMessagePreview
+}) => {
     const isCurrentUser = message.user._id === currentUserId;
     const senderName = message.user.name;
     const [imageError, setImageError] = useState(false);
@@ -107,7 +146,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({ mess
             // Log impression
             try {
                 supabase.from('event_impressions').insert({
-                    event_id: message.sharedEvent.eventId,
+                    event_id: message.sharedEvent?.eventId,
                     user_id: currentUserId || null,
                     source: 'group_chat'
                 }).then(() => {
@@ -125,6 +164,30 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({ mess
     if (message.isSystemMessage) {
         return ( <View style={styles.systemMessageContainer}><Text style={styles.systemMessageText}>{message.text}</Text></View> );
     }
+
+    // Deleted Message
+    if (message.isDeleted) {
+        return (
+            <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
+                 <View style={styles.messageContentContainer}>
+                    {!isCurrentUser && senderName && senderName !== 'User' && (
+                        <Text style={styles.senderName}>{senderName}</Text>
+                    )}
+                    <View style={[styles.messageBubble, styles.deletedMessageBubble, isCurrentUser ? styles.messageBubbleSentText : styles.messageBubbleReceivedText]}>
+                        <Feather name="slash" size={14} color={isCurrentUser ? "rgba(255,255,255,0.7)" : "#9CA3AF"} style={{marginRight: 5}}/>
+                        <Text style={[styles.deletedMessageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>
+                            This message was deleted
+                        </Text>
+                    </View>
+                    <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
+                        {formatTime(message.createdAt)}
+                    </Text>
+                </View>
+            </View>
+        );
+    }
+
+    const repliedMessagePreview = message.replyToMessageId ? getRepliedMessagePreview(message.replyToMessageId) : null;
 
     // Shared Event Message
     if (message.sharedEvent) {
@@ -174,6 +237,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({ mess
                                 </Text>
                             </View>
                         </TouchableOpacity>
+                        {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
                     </View>
                     <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
@@ -186,9 +250,33 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({ mess
     // Image Message
     if (message.image) {
         return (
-            <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
+            <TouchableOpacity 
+                style={[styles.messageRowTouchable, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]} 
+                onLongPress={() => onMessageLongPress(message)}
+                delayLongPress={200}
+                activeOpacity={0.8}
+            >
                 <View style={styles.messageContentContainer}>
                     {!isCurrentUser && senderName && senderName !== 'User' && ( <Text style={styles.senderName}>{senderName}</Text> )}
+                    
+                    {/* Reply Preview for Image */} 
+                    {repliedMessagePreview && (
+                        <View style={[styles.replyPreviewContainer, isCurrentUser ? styles.replyPreviewSent : styles.replyPreviewReceived]}>
+                            <View style={styles.replyPreviewBorder} />
+                            <View style={styles.replyPreviewContent}>
+                                <Text style={styles.replyPreviewSenderName}>{repliedMessagePreview.senderName || 'User'}</Text>
+                                {repliedMessagePreview.image ? (
+                                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                        <Feather name="image" size={12} color="#6B7280" style={{marginRight: 4}}/>
+                                        <Text style={styles.replyPreviewText}>Image</Text>
+                                    </View>
+                                ) : (
+                                    <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text}</Text>
+                                )}
+                            </View>
+                        </View>
+                    )}
+
                     <TouchableOpacity 
                         style={[ styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage ]} 
                         activeOpacity={0.8} 
@@ -206,29 +294,57 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({ mess
                                 <Text style={styles.imageErrorText}>Failed to load image</Text>
                             </View>
                         )}
+                        {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
                     </TouchableOpacity>
                     <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
                     </Text>
                 </View>
-            </View>
+            </TouchableOpacity>
         );
     }
 
     // Text Message
     if (message.text) {
         return (
-            <View style={[ styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived ]}>
+            <TouchableOpacity 
+                style={[styles.messageRowTouchable, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]} 
+                onLongPress={() => onMessageLongPress(message)}
+                delayLongPress={200}
+                activeOpacity={0.8}
+            >
                 <View style={styles.messageContentContainer}>
                      {!isCurrentUser && senderName && senderName !== 'User' && ( <Text style={styles.senderName}>{senderName}</Text> )}
+                    
+                    {/* Reply Preview for Text */} 
+                    {repliedMessagePreview && (
+                        <View style={[styles.replyPreviewContainer, isCurrentUser ? styles.replyPreviewSent : styles.replyPreviewReceived]}>
+                            <View style={styles.replyPreviewBorder} />
+                            <View style={styles.replyPreviewContent}>
+                                <Text style={styles.replyPreviewSenderName}>{repliedMessagePreview.senderName || 'User'}</Text>
+                                {repliedMessagePreview.image ? (
+                                     <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                        <Feather name="image" size={12} color="#6B7280" style={{marginRight: 4}}/>
+                                        <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text}</Text>
+                                    </View>
+                                ) : (
+                                    <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text}</Text>
+                                )}
+                            </View>
+                        </View>
+                    )}
+
                     <View style={[ styles.messageBubble, isCurrentUser ? styles.messageBubbleSentText : styles.messageBubbleReceivedText ]}>
                          <Text style={[styles.messageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>{message.text}</Text>
-                         <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
-                            {formatTime(message.createdAt)}
-                         </Text>
+                         <View style={styles.timeAndEditContainer}>
+                            {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
+                            <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
+                                {formatTime(message.createdAt)}
+                            </Text>
+                         </View>
                     </View>
                 </View>
-            </View>
+            </TouchableOpacity>
         );
     }
 
@@ -264,11 +380,92 @@ const GroupChatScreen: React.FC = () => {
     const [selectedImageIndex, setSelectedImageIndex] = useState(0);
     const [sharedEventMessage, setSharedEventMessage] = useState<string | null>(null);
 
+    // --- State for New Chat Features ---
+    const [selectedMessageForAction, setSelectedMessageForAction] = useState<ChatMessage | null>(null);
+    const [messageActionModalVisible, setMessageActionModalVisible] = useState(false);
+    const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+    const [editText, setEditText] = useState("");
+    const [replyingToMessage, setReplyingToMessage] = useState<ChatMessage | null>(null);
+    const [messageInfoVisible, setMessageInfoVisible] = useState(false);
+    const [messageInfoData, setMessageInfoData] = useState<any>(null);
+    const [loadingMessageInfo, setLoadingMessageInfo] = useState(false);
+    // --- End State for New Chat Features ---
+
     // --- State for Event Detail Modal ---
     const [selectedEventDataForModal, setSelectedEventDataForModal] = useState<MappedEvent | null>(null);
     const [eventModalVisible, setEventModalVisible] = useState(false);
     const [loadingEventDetails, setLoadingEventDetails] = useState(false);
     // --- End State for Event Detail Modal ---
+
+    // --- Event Press Handler (similar to IndividualChatScreen) ---
+    const handleEventPressInternal = async (eventId: string) => {
+        if (!eventId) return;
+        console.log("[GroupChatScreen] Event preview pressed, Event ID:", eventId);
+        setLoadingEventDetails(true);
+        setSelectedEventDataForModal(null); 
+        try {
+            const { data: eventData, error: eventError } = await supabase
+                .from('events_public_data') // Ensure this table name is correct
+                .select(`
+                    event_id,
+                    event_name,
+                    event_date,
+                    venue_name,
+                    event_poster_url,
+                    MusicLoverProfile:event_organizer_id ( user_id, first_name, last_name, profile_picture ),
+                    event_description,
+                    ticket_link,
+                    genre_tags,
+                    mood_tags,
+                    artist_lineup_names
+                `)
+                .eq('event_id', eventId)
+                .single();
+
+            if (eventError) throw eventError;
+            if (!eventData) throw new Error("Event not found");
+            
+            const organizerProfileSource = eventData.MusicLoverProfile as any; // Cast for raw property access
+            const mappedEvent: MappedEvent = {
+                id: eventData.event_id,
+                title: eventData.event_name || "Event Title",
+                date: formatEventDateTimeForModal(eventData.event_date).date, // Correctly map date part
+                time: formatEventDateTimeForModal(eventData.event_date).time, // Add time part
+                venue: eventData.venue_name || "Venue N/A",
+                images: eventData.event_poster_url ? [eventData.event_poster_url] : [DEFAULT_EVENT_IMAGE_CHAT],
+                organizer: {
+                    userId: organizerProfileSource?.user_id || "N/A",
+                    name: `${organizerProfileSource?.first_name || ''} ${organizerProfileSource?.last_name || ''}`.trim() || DEFAULT_ORGANIZER_NAME_CHAT,
+                    image: organizerProfileSource?.profile_picture || DEFAULT_ORGANIZER_LOGO_CHAT,
+                },
+                description: eventData.event_description || "No description available.",
+                // ticketLink: eventData.ticket_link || null, // Not in MappedEvent type in EventsScreen.tsx
+                // dateTimeFormatted: formatEventDateTimeForModal(eventData.event_date), // Not in MappedEvent type in EventsScreen.tsx
+                // --- Fields that ARE in MappedEvent from EventsScreen --- 
+                event_datetime_iso: eventData.event_date || new Date().toISOString(), // Make sure to pass this
+                // For simplicity, assuming these are not strictly needed for chat preview, 
+                // but if they are, they should be mapped from eventData.genre_tags etc.
+                genres: eventData.genre_tags || [], 
+                artists: eventData.artist_lineup_names || [], 
+                songs: [], // Assuming songs are not part of events_public_data, adjust if they are
+                booking_type: null, // Add default or map if available in eventData
+                ticket_price: null, // Add default or map if available in eventData
+                pass_fee_to_user: false, // Add default or map if available in eventData
+                max_tickets: null, // Add default or map if available in eventData
+                max_reservations: null, // Add default or map if available in eventData
+                isViewable: true, // Assuming always viewable in this context
+                // country and city are optional in MappedEvent, can be added if available in eventData
+            };
+            setSelectedEventDataForModal(mappedEvent);
+            setEventModalVisible(true);
+        } catch (err: any) {
+            console.error("Error fetching event details for group chat:", err);
+            Alert.alert("Error", "Could not load event details.");
+        } finally {
+            setLoadingEventDetails(false);
+        }
+    };
+    // --- End Event Press Handler ---
 
     // Memoized sections
     const sections = useMemo(() => { const groups: Record<string, ChatMessage[]> = {}; messages.forEach(msg => { const dateKey = msg.createdAt.toDateString(); if (!groups[dateKey]) groups[dateKey] = []; groups[dateKey].push(msg); }); const sortedKeys = Object.keys(groups).sort((a,b) => new Date(a).getTime() - new Date(b).getTime()); const today = new Date(); today.setHours(0,0,0,0); const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); const oneWeekAgo = new Date(today); oneWeekAgo.setDate(today.getDate() - 7); return sortedKeys.map(dateKey => { const date = new Date(dateKey); date.setHours(0,0,0,0); let title = 'Older'; if (date.getTime() === today.getTime()) title = 'Today'; else if (date.getTime() === yesterday.getTime()) title = 'Yesterday'; else if (date > oneWeekAgo) title = date.toLocaleDateString(undefined, { weekday:'long' }); else title = date.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' }); return { title, data: groups[dateKey] }; }); }, [messages]);
@@ -329,12 +526,18 @@ const GroupChatScreen: React.FC = () => {
             user: { _id: dbMessage.sender_id || 'system', name: dbMessage.sender_id === currentUserId ? 'You' : senderName, avatar: dbMessage.sender_id === currentUserId ? undefined : senderAvatar, }, 
             image: dbMessage.image_url, 
             isSystemMessage: dbMessage.is_system_message, 
-            sharedEvent: sharedEventInfo // Attach parsed shared event data
+            sharedEvent: sharedEventInfo, // Attach parsed shared event data
+            originalContent: dbMessage.original_content,
+            isEdited: dbMessage.is_edited,
+            editedAt: dbMessage.edited_at ? new Date(dbMessage.edited_at) : null,
+            isDeleted: dbMessage.is_deleted,
+            deletedAt: dbMessage.deleted_at ? new Date(dbMessage.deleted_at) : null,
+            replyToMessageId: dbMessage.reply_to_message_id,
         }; 
     }, [currentUserId]);
 
     // Fetch Initial Data
-    const fetchInitialData = useCallback(async () => { if (!currentUserId || !groupId) { setLoadError("Auth/Group ID missing."); setLoading(false); return; } setLoading(true); setLoadError(null); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); try { const { data: groupInfoData, error: groupInfoError } = await supabase.rpc('get_group_info', { group_id_input: groupId }); if (groupInfoError) throw groupInfoError; if (!groupInfoData?.group_details || !groupInfoData?.participants) throw new Error("Incomplete group data."); const groupDetails = groupInfoData.group_details; const participantsRaw: { user_id: string, is_admin: boolean }[] = groupInfoData.participants; const currentUserParticipant = participantsRaw.find(p => p.user_id === currentUserId); setIsCurrentUserAdmin(currentUserParticipant?.is_admin ?? false); setCanMembersAddOthers(groupDetails.can_members_add_others ?? false); setCanMembersEditInfo(groupDetails.can_members_edit_info ?? false); setCurrentGroupName(groupDetails.group_name); setCurrentGroupImage(groupDetails.group_image ?? null); const { data: messagesData, error: messagesError } = await supabase.from('group_chat_messages').select('id, created_at, sender_id, group_id, content, image_url, is_system_message').eq('group_id', groupId).order('created_at', { ascending: true }); if (messagesError) throw messagesError; if (!messagesData || messagesData.length === 0) { setMessages([]); } else { const senderIds = Array.from(new Set(messagesData.filter(msg => !msg.is_system_message && msg.sender_id).map(msg => msg.sender_id))); const profilesMap = new Map<string, UserProfileInfo>(); if (senderIds.length > 0) { const idsToFetch = senderIds.filter(id => !userProfileCache[id]); if (idsToFetch.length > 0) { const { data: profilesData, error: profilesError } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').in('user_id', idsToFetch); if (profilesError) { console.error("Err fetch profiles:", profilesError); } else if (profilesData) { profilesData.forEach((p: UserProfileInfo) => { profilesMap.set(p.user_id, p); const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; const a = p.profile_picture||undefined; userProfileCache[p.user_id] = { name: n, avatar: a }; }); } } senderIds.forEach(id => { if (userProfileCache[id] && !profilesMap.has(id)) { profilesMap.set(id, { user_id: id, first_name: userProfileCache[id].name?.split(' ')[0]||null, last_name: userProfileCache[id].name?.split(' ')[1]||null, profile_picture: userProfileCache[id].avatar||null }); } }); } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You' }; const mappedMessages = messagesData.map(dbMsg => mapDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap)); setMessages(mappedMessages); } } catch (err: any) { console.error("Error fetching initial data:", err); if (err.message?.includes("User is not a member")) { Alert.alert("Access Denied", "Not member.", [{ text: "OK", onPress: () => navigation.goBack() }]); setLoadError("Not a member."); } else { setLoadError(`Load fail: ${err.message || 'Unknown'}`); } setMessages([]); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); } finally { setLoading(false); } }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
+    const fetchInitialData = useCallback(async () => { if (!currentUserId || !groupId) { setLoadError("Auth/Group ID missing."); setLoading(false); return; } setLoading(true); setLoadError(null); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); try { const { data: groupInfoData, error: groupInfoError } = await supabase.rpc('get_group_info', { group_id_input: groupId }); if (groupInfoError) throw groupInfoError; if (!groupInfoData?.group_details || !groupInfoData?.participants) throw new Error("Incomplete group data."); const groupDetails = groupInfoData.group_details; const participantsRaw: { user_id: string, is_admin: boolean }[] = groupInfoData.participants; const currentUserParticipant = participantsRaw.find(p => p.user_id === currentUserId); setIsCurrentUserAdmin(currentUserParticipant?.is_admin ?? false); setCanMembersAddOthers(groupDetails.can_members_add_others ?? false); setCanMembersEditInfo(groupDetails.can_members_edit_info ?? false); setCurrentGroupName(groupDetails.group_name); setCurrentGroupImage(groupDetails.group_image ?? null); const { data: messagesData, error: messagesError } = await supabase.from('group_chat_messages').select('id, created_at, sender_id, group_id, content, image_url, is_system_message, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id').eq('group_id', groupId).order('created_at', { ascending: true }); if (messagesError) throw messagesError; if (!messagesData || messagesData.length === 0) { setMessages([]); } else { const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id); const senderIds = Array.from(new Set(visibleMessages.filter(msg => msg.sender_id).map(msg => msg.sender_id))); const profilesMap = new Map<string, UserProfileInfo>(); if (senderIds.length > 0) { const idsToFetch = senderIds.filter(id => !userProfileCache[id]); if (idsToFetch.length > 0) { const { data: profilesData, error: profilesError } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').in('user_id', idsToFetch); if (profilesError) { console.error("Err fetch profiles:", profilesError); } else if (profilesData) { profilesData.forEach((p: UserProfileInfo) => { profilesMap.set(p.user_id, p); const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; const a = p.profile_picture||undefined; userProfileCache[p.user_id] = { name: n, avatar: a }; }); } } senderIds.forEach(id => { if (userProfileCache[id] && !profilesMap.has(id)) { profilesMap.set(id, { user_id: id, first_name: userProfileCache[id].name?.split(' ')[0]||null, last_name: userProfileCache[id].name?.split(' ')[1]||null, profile_picture: userProfileCache[id].avatar||null }); } }); } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You' }; const mappedMessages = visibleMessages.map(dbMsg => mapDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap)); setMessages(mappedMessages); } } catch (err: any) { console.error("Error fetching initial data:", err); if (err.message?.includes("User is not a member")) { Alert.alert("Access Denied", "Not member.", [{ text: "OK", onPress: () => navigation.goBack() }]); setLoadError("Not a member."); } else { setLoadError(`Load fail: ${err.message || 'Unknown'}`); } setMessages([]); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); } finally { setLoading(false); } }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
 
     // Send Text Message
     const sendTextMessage = useCallback(async (text: string) => { 
@@ -343,6 +546,16 @@ const GroupChatScreen: React.FC = () => {
         const trimmedText = text.trim(); 
         const tempId = `temp_txt_${Date.now()}`; // Differentiate temp ID for text messages
         const currentUserProfile = userProfileCache[currentUserId] || { name: 'You' }; 
+        
+        let replyingToMessagePreview: ChatMessage['replyToMessagePreview'] = null;
+        if (replyingToMessage) {
+            replyingToMessagePreview = {
+                text: replyingToMessage.image ? '[Image]' : replyingToMessage.text,
+                senderName: replyingToMessage.user.name,
+                image: replyingToMessage.image
+            };
+        }
+
         const optimisticMessage: ChatMessage = { 
             _id: tempId, 
             text: trimmedText, 
@@ -353,13 +566,17 @@ const GroupChatScreen: React.FC = () => {
                 avatar: currentUserProfile.avatar 
             }, 
             image: null, 
-            isSystemMessage: false 
+            isSystemMessage: false,
+            replyToMessageId: replyingToMessage?._id || null,
+            replyToMessagePreview: replyingToMessagePreview,
         }; 
         
         setMessages(previousMessages => [...previousMessages, optimisticMessage]); 
         setInputText(''); 
         setSendError(null); 
         Keyboard.dismiss(); 
+        const replyToId = replyingToMessage?._id;
+        setReplyingToMessage(null);
         
         try { 
             // Prepare the message data with metadata if needed
@@ -368,7 +585,8 @@ const GroupChatScreen: React.FC = () => {
                 group_id: groupId, 
                 content: trimmedText, 
                 image_url: null, 
-                is_system_message: false
+                is_system_message: false,
+                reply_to_message_id: replyToId || null,
             };
             
             // If there's a shared event, add it as metadata
@@ -406,33 +624,79 @@ const GroupChatScreen: React.FC = () => {
             setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempId)); 
             setInputText(trimmedText); 
         } 
-    }, [currentUserId, groupId, sendError, isUploading]); // Removed sharedEventMessage from dependencies
+    }, [currentUserId, groupId, sendError, isUploading, replyingToMessage, userProfileCache]);
     
     const shareEventToGroupViaRpc = useCallback(async (eventDataToShare: typeof initialSharedEventData) => {
         if (!currentUserId || !groupId || !eventDataToShare || isUploading) return;
         const { eventId } = eventDataToShare;
 
+        // Optimistic message construction
+        const tempId = `temp_shared_${Date.now()}`;
+        const currentUserProfile = userProfileCache[currentUserId] || { name: 'You' };
+        const eventMessageText = `Shared an event: ${eventDataToShare.eventTitle}`;
+
+        let replyingToMessagePreview: ChatMessage['replyToMessagePreview'] = null;
+        if (replyingToMessage) {
+            replyingToMessagePreview = {
+                text: replyingToMessage.image ? '[Image]' : replyingToMessage.text,
+                senderName: replyingToMessage.user.name,
+                image: replyingToMessage.image
+            };
+        }
+
+        const optimisticMessage: ChatMessage = {
+            _id: tempId,
+            text: eventMessageText,
+            createdAt: new Date(),
+            user: {
+                _id: currentUserId,
+                name: currentUserProfile.name,
+                avatar: currentUserProfile.avatar
+            },
+            image: null,
+            isSystemMessage: false,
+            sharedEvent: {
+                eventId: eventDataToShare.eventId,
+                eventTitle: eventDataToShare.eventTitle,
+                eventDate: eventDataToShare.eventDate,
+                eventVenue: eventDataToShare.eventVenue,
+                eventImage: eventDataToShare.eventImage || DEFAULT_EVENT_IMAGE_CHAT,
+            },
+            replyToMessageId: replyingToMessage?._id || null,
+            replyToMessagePreview: replyingToMessagePreview,
+        };
+
+        setMessages(prevMessages => [...prevMessages, optimisticMessage]);
         setInputText(''); 
-        setSharedEventMessage(null); // Clear composer state
+        setSharedEventMessage(null);
         setSendError(null);
         Keyboard.dismiss();
+        const replyToId = replyingToMessage?._id;
+        setReplyingToMessage(null);
 
         try {
             const { data: rpcData, error: rpcError } = await supabase.rpc('share_event_to_group', {
                 p_event_id: eventId,
-                p_group_id: groupId
+                p_group_id: groupId,
+                p_reply_to_message_id: replyToId || null
             });
             if (rpcError) throw rpcError;
-            if (!rpcData || !rpcData.success) {
+            if (!rpcData || !rpcData.success || !rpcData.message_id) {
                 throw new Error('Failed to share event to group via RPC or received invalid response.');
             }
             console.log('[GroupChatScreen] Event shared to group via RPC, message_id:', rpcData.message_id);
-            // Real-time subscription will handle adding the new message to UI
+            setMessages(prevMessages => prevMessages.map(msg => 
+                msg._id === tempId ? { 
+                    ...optimisticMessage, 
+                    _id: rpcData.message_id
+                } : msg
+            ));
         } catch (err: any) {
             console.error("Error sharing event to group:", err);
             setSendError(`Event share fail: ${err.message}`);
+            setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempId));
         }
-    }, [currentUserId, groupId, isUploading]);
+    }, [currentUserId, groupId, isUploading, replyingToMessage, userProfileCache]);
 
     const handleSendPress = () => { 
         if (sharedEventMessage && initialSharedEventData?.eventId) {
@@ -496,6 +760,16 @@ const GroupChatScreen: React.FC = () => {
             // Create a temporary message to show in the UI
             tempId = `temp_${Date.now()}_img`;
             const currentUserProfile = userProfileCache[currentUserId] || { name: 'You' };
+
+            let replyingToMessagePreview: ChatMessage['replyToMessagePreview'] = null;
+            if (replyingToMessage) {
+                replyingToMessagePreview = {
+                    text: replyingToMessage.image ? '[Image]' : replyingToMessage.text,
+                    senderName: replyingToMessage.user.name,
+                    image: replyingToMessage.image
+                };
+            }
+
             const optimisticMessage: ChatMessage = {
                 _id: tempId,
                 text: '',
@@ -506,10 +780,14 @@ const GroupChatScreen: React.FC = () => {
                     avatar: currentUserProfile.avatar
                 },
                 image: imageUri,
-                isSystemMessage: false
+                isSystemMessage: false,
+                replyToMessageId: replyingToMessage?._id || null,
+                replyToMessagePreview: replyingToMessagePreview,
             };
 
             setMessages(prev => [...prev, optimisticMessage]);
+            const replyToId = replyingToMessage?._id;
+            setReplyingToMessage(null);
 
             let fileData: string;
             if (Platform.OS === 'web') {
@@ -568,9 +846,10 @@ const GroupChatScreen: React.FC = () => {
                     group_id: groupId,
                     content: null,
                     image_url: urlData.publicUrl,
-                    is_system_message: false
+                    is_system_message: false,
+                    reply_to_message_id: replyToId || null,
                 })
-                .select('id, created_at')
+                .select('id, created_at, image_url')
                 .single();
 
             if (insertError) {
@@ -603,8 +882,24 @@ const GroupChatScreen: React.FC = () => {
     };
 
     //real time subscriptions
-    useEffect(() => { if (!groupId || !currentUserId) return; const messageChannel = supabase.channel(`group_chat_messages_${groupId}`).on<DbGroupMessage>( 'postgres_changes',{ event: 'INSERT', schema: 'public', table: 'group_chat_messages', filter: `group_id=eq.${groupId}` }, async (payload) => { const newMessageDb = payload.new; 
+    useEffect(() => { if (!groupId || !currentUserId) return; const messageChannel = supabase.channel(`group_chat_messages_${groupId}`).on<DbGroupMessage>( 'postgres_changes',{ event: 'INSERT', schema: 'public', table: 'group_chat_messages', filter: `group_id=eq.${groupId}` }, async (payload) => { const newMessageDb = payload.new as DbGroupMessage; 
         
+        // Check if message is hidden for current user
+        const { data: hiddenCheck, error: hiddenError } = await supabase
+            .from('user_hidden_messages')
+            .select('message_id')
+            .eq('user_id', currentUserId)
+            .eq('message_id', newMessageDb.id)
+            .maybeSingle();
+
+        if (hiddenError) {
+            console.error("Error checking if RT message is hidden:", hiddenError);
+        }
+        if (hiddenCheck) { // If message is hidden for this user, don't add or update it
+            console.log(`RT message ${newMessageDb.id} is hidden for user, skipping.`);
+            return;
+        }
+
         const rtProfilesMap = new Map<string, UserProfileInfo>(); 
         if (newMessageDb.sender_id && !newMessageDb.is_system_message && !userProfileCache[newMessageDb.sender_id]) { 
             try { 
@@ -616,21 +911,21 @@ const GroupChatScreen: React.FC = () => {
                     userProfileCache[p.user_id]={name:n,avatar:a}; 
                 } 
             } catch (err) { 
-                console.error(`RT Profile Fetch Err ${newMessageDb.sender_id}`, err); 
+                console.error(`RT Profile Fetch Err for updated message ${newMessageDb.sender_id}`, err); 
             } 
-        } 
-        const receivedMessage = mapDbMessageToChatMessage(newMessageDb, rtProfilesMap); 
+        }
+        const receivedMessage = mapDbMessageToChatMessage(newMessageDb, rtProfilesMap);
 
         if (newMessageDb.sender_id === currentUserId) {
             // Message from the current user, likely an optimistic update confirmation
             setMessages(prevMessages =>
                 prevMessages.map(msg => {
                     // If it's a text message confirmation
-                    if (msg._id.startsWith('temp_txt_') && msg.text === receivedMessage.text && !msg.sharedEvent) {
+                    if (msg._id.startsWith('temp_txt_') && msg.text === receivedMessage.text && !msg.sharedEvent && msg.replyToMessageId === receivedMessage.replyToMessageId) {
                         return receivedMessage;
                     }
                     // If it's a shared event confirmation
-                    if (msg._id.startsWith('temp_shared_') && msg.sharedEvent?.eventId === receivedMessage.sharedEvent?.eventId) {
+                    if (msg._id.startsWith('temp_shared_') && msg.sharedEvent?.eventId === receivedMessage.sharedEvent?.eventId && msg.replyToMessageId === receivedMessage.replyToMessageId) {
                         return receivedMessage;
                     }
                     // If it's an image upload confirmation (this part was not explicitly requested to change but good to keep in mind)
@@ -642,10 +937,105 @@ const GroupChatScreen: React.FC = () => {
             );
         } else {
             // Message from another user, or a system message
-            setMessages(prev => prev.some(msg => msg._id === receivedMessage._id) ? prev : [...prev, receivedMessage]); 
+            // Make the callback async to handle await for fetchMessageById
+            (async () => {
+                // Check if message already exists to prevent duplicates from optimistic + RT updates
+                if (messages.some(msg => msg._id === receivedMessage._id)) return;
+
+                let finalReceivedMessage = { ...receivedMessage };
+                // Add replyToMessagePreview for the new message from another user
+                if (finalReceivedMessage.replyToMessageId) {
+                    const repliedMsg = messages.find(m => m._id === finalReceivedMessage.replyToMessageId) || (await fetchMessageById(finalReceivedMessage.replyToMessageId));
+                    if (repliedMsg) {
+                        finalReceivedMessage.replyToMessagePreview = {
+                            text: repliedMsg.image ? (repliedMsg.text || '[Image]') : repliedMsg.text,
+                            senderName: repliedMsg.user.name,
+                            image: repliedMsg.image
+                        };
+                    }
+                }
+                setMessages(prev => [...prev, finalReceivedMessage]);
+            })();
         }
        
-    }).subscribe(); const infoChannel = supabase.channel(`group_info_${groupId}`).on<DbGroupChat>('postgres_changes',{ event: 'UPDATE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },(payload) => { const d=payload.new; if(d.group_name!==currentGroupName){setCurrentGroupName(d.group_name);} if(d.group_image!==currentGroupImage){setCurrentGroupImage(d.group_image);} if(d.can_members_add_others!==undefined){setCanMembersAddOthers(d.can_members_add_others);} if(d.can_members_edit_info!==undefined){setCanMembersEditInfo(d.can_members_edit_info);} }).on<any>('postgres_changes',{ event: 'DELETE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },(payload) => { Alert.alert("Group Deleted", "This group no longer exists.", [{ text: "OK", onPress: () => navigation.popToTop() }]); }).subscribe(); return () => { supabase.removeChannel(messageChannel); supabase.removeChannel(infoChannel); }; }, [groupId, currentUserId, mapDbMessageToChatMessage, navigation, currentGroupName, currentGroupImage, canMembersAddOthers, canMembersEditInfo]);
+    }).on<DbGroupMessage>(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'group_chat_messages', filter: `group_id=eq.${groupId}` },
+        async (payload) => {
+            const updatedMessageDb = payload.new as DbGroupMessage;
+            const oldMessageDb = payload.old as DbGroupMessage;
+
+            // Check if message is hidden for current user
+            const { data: hiddenCheck, error: hiddenError } = await supabase
+                .from('user_hidden_messages')
+                .select('message_id')
+                .eq('user_id', currentUserId)
+                .eq('message_id', updatedMessageDb.id)
+                .maybeSingle();
+
+            if (hiddenError) {
+                console.error("Error checking if RT updated message is hidden:", hiddenError);
+            }
+            if (hiddenCheck && !updatedMessageDb.is_deleted) { // If hidden and not a delete event, ignore
+                console.log(`RT updated message ${updatedMessageDb.id} is hidden, skipping unless it's a delete confirmation.`);
+                 // If it was a delete for everyone, we might want to show it as deleted
+                if (updatedMessageDb.is_deleted) {
+                     setMessages(prev => prev.map(msg => 
+                        msg._id === updatedMessageDb.id 
+                        ? { ...msg, 
+                            text: 'This message was deleted', 
+                            isDeleted: true, 
+                            deletedAt: updatedMessageDb.deleted_at ? new Date(updatedMessageDb.deleted_at) : new Date(),
+                            image: null, // Clear image for deleted messages
+                            sharedEvent: null // Clear shared event for deleted messages
+                          }
+                        : msg
+                    ));
+                }
+                return;
+            }
+
+            const rtProfilesMap = new Map<string, UserProfileInfo>();
+            if (updatedMessageDb.sender_id && !updatedMessageDb.is_system_message && !userProfileCache[updatedMessageDb.sender_id]) {
+                 try { 
+                    const { data: p } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').eq('user_id', updatedMessageDb.sender_id).maybeSingle(); 
+                    if (p) { 
+                        rtProfilesMap.set(p.user_id, p); 
+                        const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; 
+                        const a = p.profile_picture||undefined; 
+                        userProfileCache[p.user_id]={name:n,avatar:a}; 
+                    } 
+                } catch (err) { 
+                    console.error(`RT Profile Fetch Err for updated message ${updatedMessageDb.sender_id}`, err); 
+                } 
+            }
+            const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb, rtProfilesMap);
+
+            // Add replyToMessagePreview for the updated message
+            if (updatedMessageUi.replyToMessageId) {
+                const repliedMsg = messages.find(m => m._id === updatedMessageUi.replyToMessageId) || (await fetchMessageById(updatedMessageUi.replyToMessageId));
+                if (repliedMsg) {
+                    updatedMessageUi.replyToMessagePreview = {
+                        text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                        senderName: repliedMsg.user.name,
+                        image: repliedMsg.image
+                    };
+                }
+            }
+
+            setMessages(prev => prev.map(msg => 
+                msg._id === updatedMessageUi._id ? updatedMessageUi : msg
+            ));
+
+            // If this update was an edit initiated by the current user, close the edit modal
+            if (editingMessage && editingMessage._id === updatedMessageUi._id && updatedMessageUi.isEdited && currentUserId === updatedMessageUi.user._id) {
+                setEditingMessage(null);
+                setEditText("");
+            }
+        }
+    )
+    .subscribe(); 
+    const infoChannel = supabase.channel(`group_info_${groupId}`).on<DbGroupChat>('postgres_changes',{ event: 'UPDATE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },(payload) => { const d=payload.new; if(d.group_name!==currentGroupName){setCurrentGroupName(d.group_name);} if(d.group_image!==currentGroupImage){setCurrentGroupImage(d.group_image);} if(d.can_members_add_others!==undefined){setCanMembersAddOthers(d.can_members_add_others);} if(d.can_members_edit_info!==undefined){setCanMembersEditInfo(d.can_members_edit_info);} }).on<any>('postgres_changes',{ event: 'DELETE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },(payload) => { Alert.alert("Group Deleted", "This group no longer exists.", [{ text: "OK", onPress: () => navigation.popToTop() }]); }).subscribe(); return () => { supabase.removeChannel(messageChannel); supabase.removeChannel(infoChannel); }; }, [groupId, currentUserId, mapDbMessageToChatMessage, navigation, currentGroupName, currentGroupImage, canMembersAddOthers, canMembersEditInfo, editingMessage, messages]);
 
     // Navigation and Header
     const navigateToGroupInfo = () => { if (!groupId || !currentGroupName) return; navigation.navigate('GroupInfoScreen', { groupId, groupName: currentGroupName ?? 'Group', groupImage: currentGroupImage ?? null }); };
@@ -660,11 +1050,12 @@ const GroupChatScreen: React.FC = () => {
     // Handle shared event data
     useEffect(() => {
         if (initialSharedEventData && initialSharedEventData.isSharing) {
-            const { eventTitle, eventDate, eventVenue } = initialSharedEventData;
-            setInputText(`Check out this event: ${eventTitle} on ${eventDate} at ${eventVenue}`);
+            // setInputText logic is now handled by renderEventSharePreview's close button or send action
             setSharedEventMessage(JSON.stringify(initialSharedEventData));
+            // Clear the sharing flag from route params to prevent re-triggering
+            navigation.setParams({ sharedEventData: { ...initialSharedEventData, isSharing: false } });
         }
-    }, [initialSharedEventData]);
+    }, [initialSharedEventData, navigation]);
 
     const handleImagePress = (imageUri: string) => {
         // Find all image messages
@@ -687,7 +1078,166 @@ const GroupChatScreen: React.FC = () => {
         }
     };
 
-    // Custom event share message component
+    // --- New Chat Feature Handlers ---
+    const handleMessageLongPress = (message: ChatMessage) => {
+        if (message.isSystemMessage || message.isDeleted) return;
+        setSelectedMessageForAction(message);
+        setMessageActionModalVisible(true);
+    };
+
+    const handleReply = () => {
+        if (!selectedMessageForAction) return;
+        setReplyingToMessage(selectedMessageForAction);
+        setMessageActionModalVisible(false);
+        setSelectedMessageForAction(null);
+        // Optionally focus text input: inputRef.current?.focus();
+    };
+
+    const handleEdit = () => {
+        if (!selectedMessageForAction || selectedMessageForAction.user._id !== currentUserId || selectedMessageForAction.image) return; // Cannot edit images or others' messages
+        setEditingMessage(selectedMessageForAction);
+        setEditText(selectedMessageForAction.text);
+        setMessageActionModalVisible(false);
+        setSelectedMessageForAction(null);
+    };
+
+    const saveEditMessage = async () => {
+        if (!editingMessage || !editText.trim() || editText.trim() === editingMessage.text) {
+            setEditingMessage(null);
+            setEditText("");
+            return;
+        }
+        try {
+            const { error } = await supabase.rpc('edit_group_message', {
+                message_id_input: editingMessage._id,
+                new_content: editText.trim(),
+            });
+            if (error) throw error;
+            // Optimistic update handled by subscription, or can be done here too
+            setMessages(prev => prev.map(msg => 
+                msg._id === editingMessage._id 
+                ? { ...msg, text: editText.trim(), isEdited: true, editedAt: new Date() } 
+                : msg
+            ));
+            setEditingMessage(null);
+            setEditText("");
+        } catch (err: any) {
+            Alert.alert("Error", `Failed to edit message: ${err.message}`);
+        }
+    };
+
+    const handleDeleteForMe = async () => {
+        if (!selectedMessageForAction) return;
+        try {
+            const { error } = await supabase.rpc('hide_message_from_my_view', {
+                p_message_id: selectedMessageForAction._id,
+            });
+            if (error) throw error;
+            setMessages(prev => prev.filter(msg => msg._id !== selectedMessageForAction!._id));
+            setMessageActionModalVisible(false);
+            setSelectedMessageForAction(null);
+        } catch (err: any) {
+            Alert.alert("Error", `Failed to delete message for you: ${err.message}`);
+        }
+    };
+
+    const handleDeleteForEveryone = async () => {
+        if (!selectedMessageForAction) return;
+
+        const isSender = selectedMessageForAction.user._id === currentUserId;
+        
+        if (!isSender && !isCurrentUserAdmin) {
+            Alert.alert("Permission Denied", "You can only delete your own messages for everyone, or an admin can delete any message.");
+            setMessageActionModalVisible(false);
+            setSelectedMessageForAction(null);
+            return;
+        }
+
+        try {
+            const { error } = await supabase.rpc('delete_group_chat_message', { // Corrected RPC name
+                message_id_input: selectedMessageForAction._id,
+            });
+            if (error) throw error;
+            // Optimistic update is to mark as deleted. Subscription will confirm.
+            setMessages(prev => prev.map(msg => 
+                msg._id === selectedMessageForAction._id 
+                ? { ...msg, 
+                    text: 'This message was deleted', 
+                    isDeleted: true, 
+                    deletedAt: new Date(),
+                    image: null, // Clear image for deleted messages
+                    sharedEvent: null // Clear shared event for deleted messages
+                  }
+                : msg
+            ));
+            setMessageActionModalVisible(false);
+            setSelectedMessageForAction(null);
+        } catch (err: any) {
+            Alert.alert("Error", `Failed to delete message: ${err.message}`);
+        }
+    };
+
+    const handleShowMessageInfo = async () => {
+        if (!selectedMessageForAction) return;
+        setMessageActionModalVisible(false);
+        setLoadingMessageInfo(true);
+        setMessageInfoVisible(true);
+        try {
+            const { data, error } = await supabase.rpc('get_group_message_status', {
+                message_id_input: selectedMessageForAction._id
+            });
+            if (error) throw error;
+            setMessageInfoData(data);
+        } catch (err: any) {
+            Alert.alert("Error", `Failed to get message info: ${err.message}`);
+            setMessageInfoVisible(false); // Close if error
+        } finally {
+            setLoadingMessageInfo(false);
+            setSelectedMessageForAction(null); // Clear selection after action
+        }
+    };
+
+    // Helper to get replied message for preview
+    const getRepliedMessagePreview = (messageId: string): ChatMessage['replyToMessagePreview'] | null => {
+        const repliedMsg = messages.find(msg => msg._id === messageId);
+        if (repliedMsg) {
+            return {
+                text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                senderName: repliedMsg.user.name,
+                image: repliedMsg.image // Pass image for potential preview in reply
+            };
+        }
+        return null;
+    };
+
+    // Helper to fetch a single message by ID (e.g., for reply previews if not in current `messages` state)
+    const fetchMessageById = async (messageId: string): Promise<ChatMessage | null> => {
+        try {
+            const { data: dbMessage, error } = await supabase
+                .from('group_chat_messages')
+                .select('id, created_at, sender_id, group_id, content, image_url, is_system_message, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id')
+                .eq('id', messageId)
+                .single();
+            if (error || !dbMessage) throw error || new Error('Message not found');
+
+            const profilesMap = new Map<string, UserProfileInfo>();
+            if (dbMessage.sender_id && !dbMessage.is_system_message && !userProfileCache[dbMessage.sender_id]) {
+                const { data: p } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').eq('user_id', dbMessage.sender_id).maybeSingle();
+                if (p) {
+                    profilesMap.set(p.user_id, p);
+                    const n = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
+                    const a = p.profile_picture || undefined;
+                    userProfileCache[p.user_id] = { name: n, avatar: a };
+                }
+            }
+            return mapDbMessageToChatMessage(dbMessage as DbGroupMessage, profilesMap);
+        } catch (err) {
+            console.error("Failed to fetch message by ID for reply preview:", err);
+            return null;
+        }
+    };
+
+    // Custom event share preview component
     const renderEventSharePreview = () => {
         if (!sharedEventMessage || !initialSharedEventData) return null;
         
@@ -727,91 +1277,6 @@ const GroupChatScreen: React.FC = () => {
         );
     };
 
-    // --- Fetch and Prepare Event for Modal ---
-    const fetchAndPrepareEventForModal = useCallback(async (eventId: string) => {
-        if (!eventId) return;
-        setLoadingEventDetails(true);
-        try {
-            const { data: eventData, error: eventError } = await supabase
-                .from('events') // Ensure this table name is correct
-                .select('id, title, description, event_datetime, location_text, poster_urls, tags_genres, tags_artists, tags_songs, organizer_id, event_type, booking_type, ticket_price, pass_fee_to_user, max_tickets, max_reservations, country, city')
-                .eq('id', eventId)
-                .single();
-            if (eventError || !eventData) { 
-                throw eventError || new Error('Event not found in group chat fetch'); 
-            }
-
-            let organizerDetails: OrganizerInfo = { 
-                userId: eventData.organizer_id || '-', 
-                name: DEFAULT_ORGANIZER_NAME_CHAT, 
-                image: DEFAULT_ORGANIZER_LOGO_CHAT 
-            };
-            
-            if (eventData.organizer_id) {
-                try {
-                    const { data: orgData } = await supabase
-                        .from('organizer_profiles')
-                        .select('user_id, company_name, logo')
-                        .eq('user_id', eventData.organizer_id)
-                        .single();
-                    
-                    if (orgData) { 
-                        organizerDetails = { 
-                            userId: orgData.user_id, 
-                            name: orgData.company_name || DEFAULT_ORGANIZER_NAME_CHAT, 
-                            image: orgData.logo || DEFAULT_ORGANIZER_LOGO_CHAT 
-                        }; 
-                    }
-                } catch (orgError) {
-                    console.warn("Could not fetch organizer details:", orgError);
-                    // Continue with default organizer details
-                }
-            }
-            
-            const { date, time } = formatEventDateTimeForModal(eventData.event_datetime);
-            const mappedEventData: MappedEvent = {
-                id: eventData.id, 
-                title: eventData.title, 
-                images: eventData.poster_urls?.length ? eventData.poster_urls : [DEFAULT_EVENT_IMAGE_CHAT],
-                date, 
-                time, 
-                venue: eventData.location_text ?? 'N/A', 
-                country: eventData.country, 
-                city: eventData.city,
-                genres: eventData.tags_genres ?? [], 
-                artists: eventData.tags_artists ?? [], 
-                songs: eventData.tags_songs ?? [],
-                description: eventData.description ?? 'No description.', 
-                booking_type: eventData.booking_type as any, 
-                ticket_price: eventData.ticket_price,
-                pass_fee_to_user: eventData.pass_fee_to_user ?? true, 
-                max_tickets: eventData.max_tickets, 
-                max_reservations: eventData.max_reservations,
-                organizer: organizerDetails, 
-                isViewable: false, 
-                event_datetime_iso: eventData.event_datetime,
-            };
-            setSelectedEventDataForModal(mappedEventData);
-            setEventModalVisible(true);
-        } catch (err: any) { 
-            console.error("[GroupChatScreen] Error fetching event for modal:", err);
-            Alert.alert(
-                "Event Details Unavailable", 
-                "Could not load event details. The event may have been removed or you may not have permission to view it.",
-                [{ text: "OK" }]
-            ); 
-            setSelectedEventDataForModal(null); 
-            setEventModalVisible(false);
-        } finally { 
-            setLoadingEventDetails(false); 
-        }
-    }, [supabase]); // Add supabase
-
-    // --- Modified handler for event press from message bubble ---
-    const handleEventPressFromBubble = useCallback((eventId: string) => {
-        fetchAndPrepareEventForModal(eventId);
-    }, [fetchAndPrepareEventForModal]);
-
     // --- Render Logic ---
     if (loading && messages.length === 0) { return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View>; }
     if (loadError && messages.length === 0) { const displayError = loadError.includes('permission') || loadError.includes('session') ? "Permission/session issue." : loadError; return <View style={styles.centered}><Text style={styles.errorText}>{displayError}</Text></View>; }
@@ -835,7 +1300,9 @@ const GroupChatScreen: React.FC = () => {
                             message={item}
                             currentUserId={currentUserId}
                             onImagePress={handleImagePress}
-                            onEventPress={handleEventPressFromBubble}
+                            onEventPress={handleEventPressInternal} // Pass the new internal handler
+                            onMessageLongPress={handleMessageLongPress}
+                            getRepliedMessagePreview={getRepliedMessagePreview}
                         />
                     )}
                     renderSectionHeader={({ section: { title } }) => (
@@ -878,7 +1345,27 @@ const GroupChatScreen: React.FC = () => {
                     stickySectionHeadersEnabled
                 />
 
-                {/* Shared Event Preview */}
+                {/* Replying To Preview */} 
+                {replyingToMessage && (
+                    <View style={styles.replyingToContainer}>
+                        <View style={styles.replyingToContent}>
+                            <Text style={styles.replyingToTitle} numberOfLines={1}>Replying to {replyingToMessage.user.name || 'User'}</Text>
+                            {replyingToMessage.image ? (
+                                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                    <Feather name="image" size={14} color="#4B5563" style={{marginRight: 5}}/>
+                                    <Text style={styles.replyingToText} numberOfLines={1}>Image</Text>
+                                </View>
+                            ) : (
+                                <Text style={styles.replyingToText} numberOfLines={1}>{replyingToMessage.text}</Text>
+                            )}
+                        </View>
+                        <TouchableOpacity onPress={() => setReplyingToMessage(null)} style={styles.replyingToCloseButton}>
+                            <Feather name="x" size={18} color="#6B7280" />
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* Shared Event Preview */} 
                 {renderEventSharePreview()}
 
                 {/* Input Toolbar */}
@@ -902,6 +1389,143 @@ const GroupChatScreen: React.FC = () => {
                  <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setIsEditModalVisible(false)} />
                  <View style={styles.modalContent}><Text style={styles.modalTitle}>Edit Group Name</Text><TextInput style={styles.modalInput} value={editingName} onChangeText={setEditingName} placeholder="Enter new group name" maxLength={50} autoFocus={true} returnKeyType="done" onSubmitEditing={handleUpdateName} /><View style={styles.modalActions}><TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setIsEditModalVisible(false)} disabled={isUpdatingName}><Text style={styles.modalButtonTextCancel}>Cancel</Text></TouchableOpacity><TouchableOpacity style={[ styles.modalButton, styles.modalButtonSave, (isUpdatingName || !editingName.trim() || editingName.trim() === currentGroupName) && styles.modalButtonDisabled ]} onPress={handleUpdateName} disabled={isUpdatingName || !editingName.trim() || editingName.trim() === currentGroupName}>{isUpdatingName ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.modalButtonTextSave}>Save</Text>}</TouchableOpacity></View></View>
              </Modal>
+
+            {/* Message Action Modal */}
+            <Modal
+                visible={messageActionModalVisible}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => {
+                    setMessageActionModalVisible(false);
+                    setSelectedMessageForAction(null);
+                }}
+            >
+                <TouchableOpacity 
+                    style={styles.modalBackdrop} 
+                    activeOpacity={1} 
+                    onPress={() => {
+                        setMessageActionModalVisible(false);
+                        setSelectedMessageForAction(null);
+                    }} 
+                />
+                <View style={styles.actionModalContent}>
+                    {selectedMessageForAction && (
+                        <>
+                            <TouchableOpacity style={styles.actionModalButton} onPress={handleReply}>
+                                <Feather name="corner-up-left" size={20} color="#3B82F6" style={styles.actionModalIcon}/>
+                                <Text style={styles.actionModalButtonText}>Reply</Text>
+                            </TouchableOpacity>
+
+                            {selectedMessageForAction.user._id === currentUserId && !selectedMessageForAction.image && !selectedMessageForAction.sharedEvent && (
+                                <TouchableOpacity style={styles.actionModalButton} onPress={handleEdit}>
+                                    <Feather name="edit-2" size={20} color="#3B82F6" style={styles.actionModalIcon}/>
+                                    <Text style={styles.actionModalButtonText}>Edit</Text>
+                                </TouchableOpacity>
+                            )}
+
+                            <TouchableOpacity style={styles.actionModalButton} onPress={handleShowMessageInfo}>
+                                <Feather name="info" size={20} color="#3B82F6" style={styles.actionModalIcon}/>
+                                <Text style={styles.actionModalButtonText}>Info</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.actionModalButton} onPress={handleDeleteForMe}>
+                                <Feather name="trash" size={20} color="#EF4444" style={styles.actionModalIcon}/>
+                                <Text style={[styles.actionModalButtonText, {color: '#EF4444'}]}>Delete for Me</Text>
+                            </TouchableOpacity>
+
+                            {(selectedMessageForAction.user._id === currentUserId || isCurrentUserAdmin) && (
+                                <TouchableOpacity style={styles.actionModalButton} onPress={handleDeleteForEveryone}>
+                                    <Feather name="trash-2" size={20} color="#EF4444" style={styles.actionModalIcon}/>
+                                    <Text style={[styles.actionModalButtonText, {color: '#EF4444'}]}>Delete for Everyone</Text>
+                                </TouchableOpacity>
+                            )}
+                        </>
+                    )}
+                </View>
+            </Modal>
+
+            {/* Editing Message Modal (Could be an inline input field too) */}
+            {editingMessage && (
+                <Modal
+                    visible={true} // Controlled by editingMessage state
+                    transparent={true}
+                    animationType="fade"
+                    onRequestClose={() => {
+                        setEditingMessage(null);
+                        setEditText("");
+                    }}
+                >
+                    <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => {setEditingMessage(null); setEditText("");}}/>
+                    <View style={styles.modalContent}> 
+                        <Text style={styles.modalTitle}>Edit Message</Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            value={editText}
+                            onChangeText={setEditText}
+                            placeholder="Enter new message"
+                            multiline
+                            autoFocus
+                        />
+                        <View style={styles.modalActions}>
+                            <TouchableOpacity 
+                                style={[styles.modalButton, styles.modalButtonCancel]} 
+                                onPress={() => {
+                                    setEditingMessage(null); 
+                                    setEditText("");
+                                }}
+                            >
+                                <Text style={styles.modalButtonTextCancel}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                                style={[styles.modalButton, styles.modalButtonSave, (!editText.trim() || editText.trim() === editingMessage.text) && styles.modalButtonDisabled]} 
+                                onPress={saveEditMessage} 
+                                disabled={!editText.trim() || editText.trim() === editingMessage.text}
+                            >
+                                <Text style={styles.modalButtonTextSave}>Save</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </Modal>
+            )}
+
+            {/* Message Info Modal */}
+            <Modal
+                visible={messageInfoVisible}
+                transparent={true}
+                animationType="slide"
+                onRequestClose={() => setMessageInfoVisible(false)}
+            >
+                <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setMessageInfoVisible(false)} />
+                <View style={styles.messageInfoModalContent}>
+                    <Text style={styles.messageInfoTitle}>Message Info</Text>
+                    {loadingMessageInfo ? (
+                        <ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
+                    ) : messageInfoData ? (
+                        <ScrollView>
+                            <Text style={styles.messageInfoSectionTitle}>Sent at: {messageInfoData.message_id ? formatTime(new Date(messages.find(m=>m._id === messageInfoData.message_id)?.createdAt || Date.now())) : 'N/A'}</Text>
+                             {/* Add more details based on messageInfoData structure from get_group_message_status */}
+                            <Text style={styles.messageInfoSectionTitle}>Delivered: {messageInfoData.delivered_count} / {messageInfoData.total_members}</Text>
+                            <Text style={styles.messageInfoSectionTitle}>Seen by: {messageInfoData.seen_count} / {messageInfoData.total_members}</Text>
+                            {messageInfoData.members && messageInfoData.members.map((member: any, index: number) => (
+                                <View key={member.user_id || index} style={styles.messageInfoMemberRow}>
+                                    <Image source={{uri: member.profile_picture || DEFAULT_PROFILE_PIC}} style={styles.messageInfoMemberImage} />
+                                    <View style={styles.messageInfoMemberInfo}>
+                                        <Text style={styles.messageInfoMemberName}>{member.first_name || 'User'} {member.last_name || ''}</Text>
+                                        {member.is_seen && member.seen_at && <Text style={styles.messageInfoStatusText}>Seen: {formatTime(new Date(member.seen_at))}</Text>}
+                                        {!member.is_seen && member.is_delivered && member.delivered_at && <Text style={styles.messageInfoStatusText}>Delivered: {formatTime(new Date(member.delivered_at))}</Text>}
+                                        {!member.is_seen && !member.is_delivered && <Text style={styles.messageInfoStatusText}>Sent</Text>}
+                                    </View>
+                                </View>
+                            ))}
+                        </ScrollView>
+                    ) : (
+                        <Text>No information available.</Text>
+                    )}
+                    <TouchableOpacity style={styles.messageInfoCloseButton} onPress={() => setMessageInfoVisible(false)}>
+                        <Text style={styles.messageInfoCloseButtonText}>Close</Text>
+                    </TouchableOpacity>
+                </View>
+            </Modal>
 
             {/* Image Viewer */}
             {imageViewerVisible && selectedImage && (
@@ -1171,6 +1795,196 @@ const styles = StyleSheet.create({
         marginTop: 10,
         color: 'white',
         fontSize: 16,
+    },
+    messageRowTouchable: {
+        flexDirection: 'row',
+        marginVertical: 4,
+        alignItems: 'flex-end',
+    },
+    timeAndEditContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginLeft: 8,
+        alignSelf: 'flex-end',
+    },
+    editedIndicator: {
+        fontSize: 10,
+        fontStyle: 'italic',
+        marginRight: 4,
+    },
+    editedIndicatorSent: {
+        color: 'rgba(255, 255, 255, 0.7)',
+    },
+    editedIndicatorReceived: {
+        color: '#6B7280',
+    },
+    deletedMessageBubble: {
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#E5E7EB',
+        opacity: 0.8,
+    },
+    deletedMessageText: {
+        fontSize: 14,
+        fontStyle: 'italic',
+        color: '#6B7280',
+    },
+    replyPreviewContainer: {
+        flexDirection: 'row',
+        backgroundColor: 'rgba(0,0,0,0.03)',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderTopLeftRadius: 8,
+        borderTopRightRadius: 8,
+        marginBottom: -2,
+        maxWidth: '90%',
+    },
+    replyPreviewSent: {
+        alignSelf: 'flex-end',
+        borderLeftColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        borderLeftWidth: 3,
+    },
+    replyPreviewReceived: {
+        alignSelf: 'flex-start',
+        borderLeftColor: '#A0AEC0',
+        borderLeftWidth: 3,
+    },
+    replyPreviewBorder: {
+    },
+    replyPreviewContent: {
+        marginLeft: 6,
+        flexShrink: 1,
+    },
+    replyPreviewSenderName: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#4B5563',
+    },
+    replyPreviewText: {
+        fontSize: 12,
+        color: '#6B7280',
+    },
+    replyingToContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        backgroundColor: '#E9E9EB',
+        borderTopWidth: 1,
+        borderTopColor: '#DCDCDC',
+    },
+    replyingToContent: {
+        flex: 1,
+    },
+    replyingToTitle: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#333333',
+    },
+    replyingToText: {
+        fontSize: 13,
+        color: '#555555',
+    },
+    replyingToCloseButton: {
+        padding: 5,
+    },
+    actionModalContent: {
+        position: 'absolute',
+        bottom: Platform.OS === 'ios' ? 30 : 15,
+        left: 15,
+        right: 15,
+        backgroundColor: 'white',
+        borderRadius: 12,
+        paddingVertical: 10,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 5,
+    },
+    actionModalButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+    },
+    actionModalIcon: {
+        marginRight: 15,
+    },
+    actionModalButtonText: {
+        fontSize: 16,
+        color: '#1F2937',
+    },
+    messageInfoModalContent: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        maxHeight: '60%',
+        backgroundColor: 'white',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        padding: 20,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -3 },
+        shadowOpacity: 0.15,
+        shadowRadius: 5,
+        elevation: 10,
+    },
+    messageInfoTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        marginBottom: 15,
+        color: '#1F2937',
+    },
+    messageInfoSectionTitle: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#374151',
+        marginTop: 10,
+        marginBottom: 5,
+    },
+    messageInfoMemberRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    messageInfoMemberImage: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        marginRight: 12,
+    },
+    messageInfoMemberInfo: {
+        flex: 1,
+    },
+    messageInfoMemberName: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: '#1F2937',
+    },
+    messageInfoStatusText: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginTop: 2,
+    },
+    messageInfoCloseButton: {
+        marginTop: 20,
+        paddingVertical: 12,
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    messageInfoCloseButtonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: '600',
     },
 });
 
