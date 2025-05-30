@@ -22,6 +22,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { APP_CONSTANTS } from '../../config/constants';
 import { supabase } from '../../lib/supabase';
 import { decode } from 'base64-arraybuffer'; // For image upload
+import ImageCropper from '../../components/ImageCropper'; // Add ImageCropper
 // --------------------
 
 // Helper function to get a clean, single image MIME type (copied from other screens)
@@ -68,6 +69,10 @@ const EditOrganizerProfileScreen: React.FC = () => {
     const [isUploading, setIsUploading] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
 
+    // Web cropping state
+    const [showCropper, setShowCropper] = useState(false);
+    const [tempImageUri, setTempImageUri] = useState<string | null>(null);
+
     const userId = session?.user?.id;
 
     // Effect to update state from profile
@@ -99,24 +104,48 @@ const EditOrganizerProfileScreen: React.FC = () => {
 
         let result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true,
-            aspect: [1, 1], // Square aspect ratio for logo
+            allowsEditing: Platform.OS !== 'web', // Only use built-in editing on mobile
+            aspect: Platform.OS !== 'web' ? [1, 1] : undefined, // Square aspect ratio for logo on mobile
             quality: 0.6, // Compress image slightly
-            base64: true, // Request base64 encoding
+            base64: Platform.OS === 'web', // Request base64 on web for cropping
         });
 
         if (!result.canceled && result.assets && result.assets[0]) {
             const asset = result.assets[0];
-            setNewLogoUri(asset.uri); // Keep local URI for display
-            setPickedImageBase64(asset.base64 ?? null); // Store base64 in state
-            setLogoUrl(asset.uri); // Update display image immediately
-            setPickedImageMimeType(asset.mimeType ?? null); // Store the mimeType
+            
+            if (Platform.OS === 'web') {
+                // On web, show cropper first
+                setTempImageUri(asset.uri);
+                setShowCropper(true);
+            } else {
+                // On mobile, use the cropped result directly
+                setNewLogoUri(asset.uri); // Keep local URI for display
+                setPickedImageBase64(asset.base64 ?? null); // Store base64 in state
+                setLogoUrl(asset.uri); // Update display image immediately
+                setPickedImageMimeType(asset.mimeType ?? null); // Store the mimeType
+            }
         } else {
             // Reset if cancelled or error
             setNewLogoUri(null);
             setPickedImageBase64(null);
             setPickedImageMimeType(null); // Reset mimeType
         }
+    };
+
+    // Handle cropped image from web cropper
+    const handleCroppedImage = (croppedImageUri: string, croppedBase64: string) => {
+        setNewLogoUri(croppedImageUri);
+        setPickedImageBase64(croppedBase64);
+        setLogoUrl(croppedImageUri);
+        setPickedImageMimeType('image/jpeg'); // Cropper outputs JPEG
+        setShowCropper(false);
+        setTempImageUri(null);
+    };
+
+    // Handle cropper cancel
+    const handleCropperCancel = () => {
+        setShowCropper(false);
+        setTempImageUri(null);
     };
 
     // --- Save Handler --- 
@@ -158,7 +187,7 @@ const EditOrganizerProfileScreen: React.FC = () => {
                 console.log(`[EditOrganizerProfile] Uploading logo. Path: ${filePath}, ContentType: ${actualMimeTypeForUpload}`);
 
                 const { data: uploadData, error: uploadError } = await supabase.storage
-                    .from('organizer-logos') 
+                    .from('logos')
                     .upload(filePath, decode(base64), { contentType: actualMimeTypeForUpload });
 
                 if (uploadError) {
@@ -168,7 +197,7 @@ const EditOrganizerProfileScreen: React.FC = () => {
 
                 // Get public URL
                 const { data: urlData } = supabase.storage
-                    .from('organizer-logos')
+                    .from('logos')
                     .getPublicUrl(filePath);
 
                 uploadedLogoPath = urlData.publicUrl;
@@ -276,6 +305,17 @@ const EditOrganizerProfileScreen: React.FC = () => {
 
                  <View style={{ height: 40 }} />
             </ScrollView>
+            
+            {/* Web Image Cropper */}
+            {Platform.OS === 'web' && (
+                <ImageCropper
+                    visible={showCropper}
+                    imageUri={tempImageUri || ''}
+                    aspectRatio={[1, 1]} // Square aspect ratio for logo
+                    onCrop={handleCroppedImage}
+                    onCancel={handleCropperCancel}
+                />
+            )}
         </SafeAreaView>
     );
 };

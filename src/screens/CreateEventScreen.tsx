@@ -16,6 +16,7 @@ import { useAuth } from "../hooks/useAuth";   // Using common path convention
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Country, State, City } from 'country-state-city'; // Added import
+import ImageCropper from '../components/ImageCropper'; // Add ImageCropper
 
 // Navigation Type definitions
 type OrganizerTabParamList = { Posts: undefined; Create: undefined; OrganizerProfile: undefined; };
@@ -107,6 +108,10 @@ const CreateEventScreen: React.FC = () => {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [imageAssets, setImageAssets] = useState<ImageAsset[]>([]);
+
+  // Web cropping state
+  const [showCropper, setShowCropper] = useState(false);
+  const [tempImageUri, setTempImageUri] = useState<string | null>(null);
 
   // Location picker states
   const [countries, setCountries] = useState<any[]>([]);
@@ -286,37 +291,72 @@ const CreateEventScreen: React.FC = () => {
         try {
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                allowsEditing: true,
-                aspect: [1, 1], // Enforce 1:1 aspect ratio for cropping
+                allowsEditing: Platform.OS !== 'web', // Only use built-in editing on mobile
+                aspect: Platform.OS !== 'web' ? [1, 1] : undefined, // Enforce 1:1 aspect ratio for cropping on mobile
                 quality: 0.7,
-                allowsMultipleSelection: true, // Keep this if you allow multiple image uploads at once
+                allowsMultipleSelection: Platform.OS !== 'web', // Only allow multiple on mobile for now
+                base64: Platform.OS === 'web', // Request base64 on web for cropping
             });
 
             if (!result.canceled && result.assets && result.assets.length > 0) {
-                const maxToAdd = 3 - imageAssets.length;
-                const newAssets = result.assets.slice(0, maxToAdd);
-                if (result.assets.length > maxToAdd) { Alert.alert("Limit Reached",`Added ${newAssets.length} image(s). Max 3 total.`); }
-                const assetsToAdd: ImageAsset[] = newAssets.map(a => {
-                    const cleanMimeType = getCleanImageMimeType(a.mimeType);
+                if (Platform.OS === 'web') {
+                    // On web, show cropper for the first image
+                    const asset = result.assets[0];
+                    setTempImageUri(asset.uri);
+                    setShowCropper(true);
+                } else {
+                    // On mobile, use the cropped results directly
+                    const maxToAdd = 3 - imageAssets.length;
+                    const newAssets = result.assets.slice(0, maxToAdd);
+                    if (result.assets.length > maxToAdd) { Alert.alert("Limit Reached",`Added ${newAssets.length} image(s). Max 3 total.`); }
+                    const assetsToAdd: ImageAsset[] = newAssets.map(a => {
+                        const cleanMimeType = getCleanImageMimeType(a.mimeType);
 
-                    // Use base64 to construct data URI only if cleanMimeType is valid
-                    const uri = Platform.OS === 'web' && (a as any).base64 && cleanMimeType
-                        ? `data:${cleanMimeType};base64,${(a as any).base64}`
-                        : a.uri;
-                    
-                    // The mimeType for the ImageAsset should be the one uploadSingleImage will use.
-                    // If cleanMimeType is undefined (meaning original was complex/unknown), 
-                    // uploadSingleImage will rely on 'ext' from the original a.uri.
-                    // So, we pass cleanMimeType if available, otherwise the original a.mimeType.
-                    const effectiveMimeType = cleanMimeType || a.mimeType;
+                        // Use base64 to construct data URI only if cleanMimeType is valid
+                        const uri = Platform.OS === 'web' && (a as any).base64 && cleanMimeType
+                            ? `data:${cleanMimeType};base64,${(a as any).base64}`
+                            : a.uri;
+                        
+                        // The mimeType for the ImageAsset should be the one uploadSingleImage will use.
+                        // If cleanMimeType is undefined (meaning original was complex/unknown), 
+                        // uploadSingleImage will rely on 'ext' from the original a.uri.
+                        // So, we pass cleanMimeType if available, otherwise the original a.mimeType.
+                        const effectiveMimeType = cleanMimeType || a.mimeType;
 
-                    // Make sure fileName is either string or undefined, not null
-                    const fileName = a.fileName || `image-${Date.now()}`;
-                    return { uri, mimeType: effectiveMimeType, fileName };
-                });
-                setImageAssets(p => [...p, ...assetsToAdd]);
+                        // Make sure fileName is either string or undefined, not null
+                        const fileName = a.fileName || `image-${Date.now()}`;
+                        return { uri, mimeType: effectiveMimeType, fileName };
+                    });
+                    setImageAssets(p => [...p, ...assetsToAdd]);
+                }
             }
         } catch (e) { console.error("Image pick error:", e); Alert.alert("Image Error","Could not select images."); }
+    };
+
+    // Handle cropped image from web cropper
+    const handleCroppedImage = (croppedImageUri: string, croppedBase64: string) => {
+        if (imageAssets.length >= 3) {
+            Alert.alert("Limit Reached", "You can only have up to 3 images.");
+            setShowCropper(false);
+            setTempImageUri(null);
+            return;
+        }
+
+        const newAsset: ImageAsset = {
+            uri: croppedImageUri,
+            mimeType: 'image/jpeg', // Cropper outputs JPEG
+            fileName: `image-${Date.now()}.jpg`,
+        };
+        
+        setImageAssets(p => [...p, newAsset]);
+        setShowCropper(false);
+        setTempImageUri(null);
+    };
+
+    // Handle cropper cancel
+    const handleCropperCancel = () => {
+        setShowCropper(false);
+        setTempImageUri(null);
     };
    const removeImage = (index: number) => { setImageAssets(p => { const n = [...p]; n.splice(index, 1); return n; }); };
    const base64ToArrayBuffer = (base64: string): ArrayBuffer => { try{ const b = Buffer.from(base64, 'base64'); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); } catch(e){ console.error("Base64 Err:",e); throw new Error("Failed image process."); } };
@@ -760,6 +800,17 @@ const CreateEventScreen: React.FC = () => {
               <TouchableOpacity style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]} onPress={handleSubmit} disabled={isSubmitting} accessibilityLabel="Create Event Button" >{isSubmitting ? (<ActivityIndicator size="small" color="#fff" />) : (<><Feather name="check-circle" size={18} color="#fff" /><Text style={styles.submitButtonText}>Create Event</Text></>)}</TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
+        
+        {/* Web Image Cropper */}
+        {Platform.OS === 'web' && (
+            <ImageCropper
+                visible={showCropper}
+                imageUri={tempImageUri || ''}
+                aspectRatio={[1, 1]} // 1:1 aspect ratio for event images
+                onCrop={handleCroppedImage}
+                onCancel={handleCropperCancel}
+            />
+        )}
       </LinearGradient>
     </SafeAreaView>
   );

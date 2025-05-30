@@ -11,6 +11,7 @@ import { APP_CONSTANTS } from '@/config/constants';
 // import { supabase } from '@/lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import TermsModal from '@/components/TermsModal'; // Import the modal
+import ImageCropper from '@/components/ImageCropper'; // Add ImageCropper
 
 // Import the RootStackParamList to properly type the navigation
 import type { RootStackParamList } from '@/navigation/AppNavigator'; // Adjust the import path as needed
@@ -103,6 +104,10 @@ const OrganizerSignUpFlow = () => {
   const [uploading, setUploading] = useState(false); // Keep for logo upload UI feedback
   const [slideAnim] = useState(new Animated.Value(0));
   const [isTermsModalVisible, setIsTermsModalVisible] = useState(false);
+
+  // Web cropping state
+  const [showCropper, setShowCropper] = useState(false);
+  const [tempImageUri, setTempImageUri] = useState<string | null>(null);
 
   // Email validation state
   const [emailStatus, setEmailStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'error'>('idle');
@@ -264,23 +269,45 @@ const OrganizerSignUpFlow = () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 5], // Enforce 4:5 aspect ratio for cropping
+        allowsEditing: Platform.OS !== 'web', // Only use built-in editing on mobile
+        aspect: Platform.OS !== 'web' ? [4, 5] : undefined, // Enforce 4:5 aspect ratio for cropping on mobile
         quality: 0.8, // Reduce quality slightly for faster uploads
+        base64: Platform.OS === 'web', // Request base64 on web for cropping
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
          const uri = result.assets[0].uri;
          console.log('Image selected URI:', uri);
-        // Set both URI for upload and preview URI
-        setFormData(prev => ({ ...prev, logoUri: uri, logoPreview: uri }));
-         setError(''); // Clear any previous errors
+         
+         if (Platform.OS === 'web') {
+           // On web, show cropper first
+           setTempImageUri(uri);
+           setShowCropper(true);
+         } else {
+           // On mobile, use the cropped result directly
+           setFormData(prev => ({ ...prev, logoUri: uri, logoPreview: uri }));
+           setError(''); // Clear any previous errors
+         }
       }
     } catch (error) {
       console.error('Error picking logo:', error);
       setError('Failed to pick logo. Please try again.');
        Alert.alert('Error', 'Could not select image. Please ensure you have granted gallery permissions.');
     }
+  };
+
+  // Handle cropped image from web cropper
+  const handleCroppedImage = (croppedImageUri: string, croppedBase64: string) => {
+    setFormData(prev => ({ ...prev, logoUri: croppedImageUri, logoPreview: croppedImageUri }));
+    setShowCropper(false);
+    setTempImageUri(null);
+    setError(''); // Clear any previous errors
+  };
+
+  // Handle cropper cancel
+  const handleCropperCancel = () => {
+    setShowCropper(false);
+    setTempImageUri(null);
   };
 
   // Complete signup process - Updated Flow
@@ -777,6 +804,17 @@ const OrganizerSignUpFlow = () => {
             termsText={termsAndConditionsText} // Uses the organizer-specific text
             title="Organizer Terms & Conditions"
         />
+        
+        {/* Web Image Cropper */}
+        {Platform.OS === 'web' && (
+            <ImageCropper
+                visible={showCropper}
+                imageUri={tempImageUri || ''}
+                aspectRatio={[4, 5]} // 4:5 aspect ratio for logo
+                onCrop={handleCroppedImage}
+                onCancel={handleCropperCancel}
+            />
+        )}
       </LinearGradient>
     </SafeAreaView>
   );

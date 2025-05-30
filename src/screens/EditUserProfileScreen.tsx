@@ -27,6 +27,7 @@ import { Country, State, City } from 'country-state-city';
 import { useAuth, MusicLoverBio } from '../hooks/useAuth';
 import { APP_CONSTANTS } from '../config/constants';
 import { supabase } from '../lib/supabase';
+import ImageCropper from '../components/ImageCropper';
 // --------------------
 
 // Helper function to get a clean, single image MIME type (copied from CreateEventScreen)
@@ -104,6 +105,10 @@ const EditUserProfileScreen: React.FC = () => {
 
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+
+    // Web cropping state
+    const [showCropper, setShowCropper] = useState(false);
+    const [tempImageUri, setTempImageUri] = useState<string | null>(null);
 
     const userId = session?.user?.id;
 
@@ -242,27 +247,51 @@ const EditUserProfileScreen: React.FC = () => {
         try {
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                allowsEditing: true,
-                aspect: [4, 5], // Enforce 4:5 aspect ratio for cropping
+                allowsEditing: Platform.OS !== 'web', // Only use built-in editing on mobile
+                aspect: Platform.OS !== 'web' ? [4, 5] : undefined, // Enforce 4:5 aspect ratio for cropping on mobile
                 quality: 0.8,
-                base64: Platform.OS === 'web',
+                base64: Platform.OS === 'web', // Request base64 on web for cropping
             });
 
             if (!result.canceled && result.assets && result.assets.length > 0) {
                 const asset = result.assets[0];
-                setProfilePictureUri(asset.uri);
-                setProfilePictureMimeType(asset.mimeType || 'image/jpeg');
-                if (Platform.OS === 'web' && (asset as any).base64) {
-                    setProfilePictureBase64((asset as any).base64);
+                
+                if (Platform.OS === 'web') {
+                    // On web, show cropper first
+                    setTempImageUri(asset.uri);
+                    setShowCropper(true);
                 } else {
-                    setProfilePictureBase64(null);
+                    // On mobile, use the cropped result directly
+                    setProfilePictureUri(asset.uri);
+                    setProfilePictureMimeType(asset.mimeType || 'image/jpeg');
+                    if ((asset as any).base64) {
+                        setProfilePictureBase64((asset as any).base64);
+                    } else {
+                        setProfilePictureBase64(null);
+                    }
+                    setIsProfilePictureChanged(true);
                 }
-                setIsProfilePictureChanged(true);
             }
         } catch (error: any) {
             console.error('Error picking profile picture:', error);
             Alert.alert('Image Selection Error', 'Could not select image. Please try again.');
         }
+    };
+
+    // Handle cropped image from web cropper
+    const handleCroppedImage = (croppedImageUri: string, croppedBase64: string) => {
+        setProfilePictureUri(croppedImageUri);
+        setProfilePictureMimeType('image/jpeg'); // Cropper outputs JPEG
+        setProfilePictureBase64(croppedBase64);
+        setIsProfilePictureChanged(true);
+        setShowCropper(false);
+        setTempImageUri(null);
+    };
+
+    // Handle cropper cancel
+    const handleCropperCancel = () => {
+        setShowCropper(false);
+        setTempImageUri(null);
     };
 
     const handleSave = async () => {
@@ -624,6 +653,17 @@ const EditUserProfileScreen: React.FC = () => {
 
                 <View style={{ height: 40 }} />
             </ScrollView>
+            
+            {/* Web Image Cropper */}
+            {Platform.OS === 'web' && (
+                <ImageCropper
+                    visible={showCropper}
+                    imageUri={tempImageUri || ''}
+                    aspectRatio={[4, 5]} // 4:5 aspect ratio for profile picture
+                    onCrop={handleCroppedImage}
+                    onCancel={handleCropperCancel}
+                />
+            )}
         </SafeAreaView>
     );
 };
