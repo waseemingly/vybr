@@ -117,8 +117,8 @@ export const useSpotifyAuth = () => {
   const redirectUri = Platform.select({
     web: REGISTERED_WEB_REDIRECT_URI, // Always use the registered URI for web
     default: AuthSession.makeRedirectUri({
-      native: `${AUTH_CALLBACK_SCHEME}://spotify-auth-callback`, 
-      // For native, AuthSession might use a proxy or require specific setup if not using custom scheme directly
+      native: `${AUTH_CALLBACK_SCHEME}://spotify-auth-callback`,
+      useProxy: false,
     }),
   });
 
