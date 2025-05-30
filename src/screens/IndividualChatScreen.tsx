@@ -2321,13 +2321,6 @@ const styles = StyleSheet.create({
     modalButtonDisabled: { backgroundColor: '#A5B4FC', },
     modalButtonTextCancel: { color: '#4B5563', fontWeight: '500', },
     modalButtonTextSave: { color: 'white', fontWeight: '600', },
-    imageViewerContainer: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    // Styles for deleted messages, edited indicator, reply previews (adapted from GroupChatScreen)
     deletedMessageBubble: {
         paddingVertical: 8,
         paddingHorizontal: 12,

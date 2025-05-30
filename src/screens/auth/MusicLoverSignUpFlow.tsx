@@ -22,6 +22,7 @@ import { Country, State, City } from 'country-state-city';
 // Import the specific types expected by createMusicLoverProfile and for the form state
 import { MusicLoverBio, CreateMusicLoverProfileData } from '@/hooks/useAuth'; // Assuming types are exported from useAuth
 import TermsModal from '@/components/TermsModal'; // Import the new modal
+import ImageCropper from '@/components/ImageCropper'; // Add ImageCropper
 // Import navigation types
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator'; // Import stack param lists
 
@@ -180,6 +181,10 @@ const MusicLoverSignUpFlow = () => {
     const [isLoading, setIsLoading] = useState(false); // Component-level loading (e.g., payment sim)
     const [error, setError] = useState('');
     const slideAnim = useRef(new Animated.Value(0)).current; // Animation value
+
+    // Web cropping state
+    const [showCropper, setShowCropper] = useState(false);
+    const [tempImageUri, setTempImageUri] = useState<string | null>(null);
 
     // Input Refs for focus management
     const lastNameInputRef = useRef<TextInput>(null);
@@ -501,9 +506,10 @@ const MusicLoverSignUpFlow = () => {
             console.log('[MusicLoverSignUpFlow] Launching image picker...');
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                allowsEditing: true,
-                aspect: [4, 5], // Enforce 4:5 aspect ratio for cropping
+                allowsEditing: Platform.OS !== 'web', // Only use built-in editing on mobile
+                aspect: Platform.OS !== 'web' ? [4, 5] : undefined, // Enforce 4:5 aspect ratio for cropping on mobile
                 quality: 0.8, // Balance quality and size
+                base64: Platform.OS === 'web', // Request base64 on web for cropping
             });
 
             if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -512,12 +518,19 @@ const MusicLoverSignUpFlow = () => {
                 console.log(`[MusicLoverSignUpFlow] Image selected. URI: ${asset.uri.substring(0, 100)}...`);
                 console.log(`[MusicLoverSignUpFlow] >> MimeType: ${asset.mimeType}, Size: ${asset.fileSize}, Width: ${asset.width}, Height: ${asset.height}`);
 
-                // *** STORE URI AND MIME TYPE IN STATE ***
-                handleChange('profilePictureUri', asset.uri);
-                handleChange('profilePicturePreview', asset.uri);
-                handleChange('profilePictureMimeType', asset.mimeType); // Store the mimeType
+                if (Platform.OS === 'web') {
+                    // On web, show cropper first
+                    setTempImageUri(asset.uri);
+                    setShowCropper(true);
+                } else {
+                    // On mobile, use the cropped result directly
+                    // *** STORE URI AND MIME TYPE IN STATE ***
+                    handleChange('profilePictureUri', asset.uri);
+                    handleChange('profilePicturePreview', asset.uri);
+                    handleChange('profilePictureMimeType', asset.mimeType); // Store the mimeType
 
-                setError(''); // Clear any previous errors
+                    setError(''); // Clear any previous errors
+                }
             } else {
                 console.log('[MusicLoverSignUpFlow] Image picking cancelled or no assets returned.');
             }
@@ -526,6 +539,22 @@ const MusicLoverSignUpFlow = () => {
             setError(`Failed to pick image: ${error.message || 'Unknown error'}`);
             Alert.alert('Image Selection Error', 'Could not select image. Please try again.');
         }
+    };
+
+    // Handle cropped image from web cropper
+    const handleCroppedImage = (croppedImageUri: string, croppedBase64: string) => {
+        handleChange('profilePictureUri', croppedImageUri);
+        handleChange('profilePicturePreview', croppedImageUri);
+        handleChange('profilePictureMimeType', 'image/jpeg'); // Cropper outputs JPEG
+        setShowCropper(false);
+        setTempImageUri(null);
+        setError(''); // Clear any previous errors
+    };
+
+    // Handle cropper cancel
+    const handleCropperCancel = () => {
+        setShowCropper(false);
+        setTempImageUri(null);
     };
 
     // --- Signup Logic ---
@@ -1828,6 +1857,17 @@ const MusicLoverSignUpFlow = () => {
                 </ScrollView>
                 {/* REMOVED duplicate global action button */}
                 <TermsModal visible={isTermsModalVisible} onClose={() => setIsTermsModalVisible(false)} termsText={termsAndConditionsText} />
+                
+                {/* Web Image Cropper */}
+                {Platform.OS === 'web' && (
+                    <ImageCropper
+                        visible={showCropper}
+                        imageUri={tempImageUri || ''}
+                        aspectRatio={[4, 5]} // 4:5 aspect ratio for profile picture
+                        onCrop={handleCroppedImage}
+                        onCancel={handleCropperCancel}
+                    />
+                )}
             </SafeAreaView>
         </LinearGradient>
     );
