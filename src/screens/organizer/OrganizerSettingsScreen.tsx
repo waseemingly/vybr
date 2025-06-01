@@ -271,7 +271,7 @@ const OrganizerSettingsScreen: React.FC = () => {
 
                 <SettingsSection title="Payment & Billing">
                     {/* Display N/A if profile info isn't available */}
-                    <SettingsItem label="Manage Plan" icon="credit-card" onPress={navigateToManagePlan} value={organizerProfile?.planType ? `Current: ${organizerProfile.planType}` : "Not available"} disabled={!organizerProfile} />
+                    <SettingsItem label="Change Payment Details" icon="credit-card" onPress={navigateToManagePlan} value={organizerProfile?.planType ? `Current: ${organizerProfile.planType}` : "Not available"} disabled={!organizerProfile} />
                     <SettingsItem label="Billing History" icon="file-text" onPress={navigateToBillingHistory} value={organizerProfile?.hasBillingHistory ? "View history" : "Not available"} disabled={!organizerProfile?.hasBillingHistory} />
                 </SettingsSection>
 
