@@ -173,7 +173,8 @@ const MatchCard: React.FC<MatchCardProps> = ({
     const hasTopGenres = topGenres && topGenres.length > 0;
     const hasTopMoods = topMoods && topMoods.length > 0 && isViewerPremium;
 
-    const initialItemsToShow = 3;
+    // UPDATED: Premium users see 5 items initially, free users see 3
+    const initialItemsToShow = isViewerPremium ? 5 : 3;
 
     const renderMusicList = (
         items: string[] | undefined,

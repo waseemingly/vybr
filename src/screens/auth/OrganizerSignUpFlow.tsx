@@ -95,6 +95,7 @@ const OrganizerSignUpFlow = () => {
       cvv: '',
       name: '',
     },
+    logoMimeType: null as string | null, // Added for mobile mimeType storage
   });
 
   const [currentStep, setCurrentStep] = useState<Step>('account-details');
@@ -276,16 +277,23 @@ const OrganizerSignUpFlow = () => {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-         const uri = result.assets[0].uri;
+         const asset = result.assets[0];
+         const uri = asset.uri;
          console.log('Image selected URI:', uri);
+         console.log('Image mimeType:', asset.mimeType);
          
          if (Platform.OS === 'web') {
            // On web, show cropper first
            setTempImageUri(uri);
            setShowCropper(true);
          } else {
-           // On mobile, use the cropped result directly
-           setFormData(prev => ({ ...prev, logoUri: uri, logoPreview: uri }));
+           // On mobile, use the cropped result directly and store mimeType
+           setFormData(prev => ({ 
+             ...prev, 
+             logoUri: uri, 
+             logoPreview: uri,
+             logoMimeType: asset.mimeType ?? null // Handle undefined mimeType
+           }));
            setError(''); // Clear any previous errors
          }
       }
@@ -298,7 +306,12 @@ const OrganizerSignUpFlow = () => {
 
   // Handle cropped image from web cropper
   const handleCroppedImage = (croppedImageUri: string, croppedBase64: string) => {
-    setFormData(prev => ({ ...prev, logoUri: croppedImageUri, logoPreview: croppedImageUri }));
+    setFormData(prev => ({ 
+      ...prev, 
+      logoUri: croppedImageUri, 
+      logoPreview: croppedImageUri,
+      logoMimeType: 'image/jpeg' // Cropper outputs JPEG
+    }));
     setShowCropper(false);
     setTempImageUri(null);
     setError(''); // Clear any previous errors
@@ -357,6 +370,7 @@ const OrganizerSignUpFlow = () => {
         companyName: formData.companyName,
         email: formData.email, // Use the confirmed email
         logoUri: formData.logoUri, // Pass the local URI, hook handles upload
+        logoMimeType: formData.logoMimeType, // Pass the mimeType for upload
         phoneNumber: formData.phoneNumber,
         businessType: formData.businessType || undefined, // Ensure it's string or undefined
         bio: formData.bio,

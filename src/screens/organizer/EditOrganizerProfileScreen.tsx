@@ -16,6 +16,7 @@ import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker'; // For logo upload
+import * as FileSystem from 'expo-file-system'; // Add FileSystem import for mobile base64 conversion
 
 // --- ADJUST PATHS ---
 import { useAuth } from '../../hooks/useAuth';
@@ -118,11 +119,21 @@ const EditOrganizerProfileScreen: React.FC = () => {
                 setTempImageUri(asset.uri);
                 setShowCropper(true);
             } else {
-                // On mobile, use the cropped result directly
-                setNewLogoUri(asset.uri); // Keep local URI for display
-                setPickedImageBase64(asset.base64 ?? null); // Store base64 in state
-                setLogoUrl(asset.uri); // Update display image immediately
-                setPickedImageMimeType(asset.mimeType ?? null); // Store the mimeType
+                // On mobile, use the cropped result directly and read base64 from file
+                try {
+                    // Read the file as base64 for mobile since we didn't request it from picker
+                    const fileBase64 = await FileSystem.readAsStringAsync(asset.uri, {
+                        encoding: FileSystem.EncodingType.Base64,
+                    });
+                    
+                    setNewLogoUri(asset.uri); // Keep local URI for display
+                    setPickedImageBase64(fileBase64); // Store base64 from FileSystem
+                    setLogoUrl(asset.uri); // Update display image immediately
+                    setPickedImageMimeType(asset.mimeType ?? null); // Store the mimeType
+                } catch (error) {
+                    console.error('[EditOrganizerProfile] Error reading image as base64:', error);
+                    Alert.alert('Image Error', 'Could not process the selected image. Please try again.');
+                }
             }
         } else {
             // Reset if cancelled or error
