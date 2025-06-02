@@ -63,6 +63,7 @@ interface DbMessage {
             eventDate: string;
             eventVenue: string;
             eventImage: string;
+            eventDateTime?: string;
         }
     } | null;
     original_content?: string | null;
@@ -88,6 +89,7 @@ interface ChatMessage {
         eventDate: string;
         eventVenue: string;
         eventImage: string;
+        eventDateTime?: string | null; // Add the ISO datetime field
     } | null;
     originalContent?: string | null;
     isEdited?: boolean;
@@ -111,7 +113,9 @@ interface MessageBubbleProps {
     onImagePress: (imageUrl: string) => void;
     onEventPress?: (eventId: string) => void;
     onMessageLongPress: (message: ChatMessage) => void;
+    onReplyPress: (messageId: string) => void;
     getRepliedMessagePreview: (messageId: string) => ChatMessage['replyToMessagePreview'] | null;
+    isHighlighted?: boolean;
 }
 
 // Add DEFAULT_PROFILE_PIC constant
@@ -121,7 +125,84 @@ const DEFAULT_ORGANIZER_LOGO_CHAT = "https://picsum.photos/150/150?random=2"; //
 const DEFAULT_ORGANIZER_NAME_CHAT = "Event Organizer";
 
 // Helper to format timestamps
-const formatTime = (date: Date) => date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+const formatTime = (date: Date) => {
+    try {
+        return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+        return '--:--';
+    }
+};
+
+// Helper to check if event is over
+const isEventOver = (eventDateString: string): boolean => {
+    try {
+        console.log('[DEBUG] Checking if event is over, date string:', eventDateString);
+        
+        // First, try direct parsing
+        let eventDate = new Date(eventDateString);
+        const now = new Date();
+        
+        // If direct parsing failed, try other formats
+        if (isNaN(eventDate.getTime())) {
+            // Try to parse common date formats manually
+            const dateFormats = [
+                eventDateString, // Original format
+                eventDateString.replace(/(\d+)(st|nd|rd|th)/, '$1'), // Remove ordinal suffixes
+                // Handle formats like "Dec 15, 2024" or "December 15, 2024"
+                eventDateString.replace(/(\w+)\s+(\d+),?\s+(\d{4})/, '$1 $2, $3'),
+                // Handle formats like "Dec 15" (assume current year)
+                eventDateString.includes(',') ? eventDateString : `${eventDateString}, ${new Date().getFullYear()}`,
+            ];
+            
+            for (const format of dateFormats) {
+                const parsed = new Date(format);
+                console.log('[DEBUG] Trying format:', format, 'Result:', parsed.toISOString(), 'Valid:', !isNaN(parsed.getTime()));
+                if (!isNaN(parsed.getTime())) {
+                    eventDate = parsed;
+                    break;
+                }
+            }
+            
+            // If still couldn't parse, assume event is not over
+            if (isNaN(eventDate.getTime())) {
+                console.log('[DEBUG] Could not parse event date, assuming not over:', eventDateString);
+                return false;
+            }
+        }
+        
+        const isOver = eventDate < now;
+        console.log('[DEBUG] Event date:', eventDate.toISOString(), 'Now:', now.toISOString(), 'Is over:', isOver);
+        return isOver;
+    } catch (e) {
+        console.warn('Error checking if event is over:', e);
+        return false;
+    }
+};
+
+// Helper to check if event is over using sharedEvent data
+const isSharedEventOver = (sharedEvent: ChatMessage['sharedEvent']): boolean => {
+    if (!sharedEvent) return false;
+    
+    // Use eventDateTime if available (more accurate)
+    if (sharedEvent.eventDateTime) {
+        try {
+            const eventDate = new Date(sharedEvent.eventDateTime);
+            const now = new Date();
+            const isOver = eventDate < now;
+            console.log('[DEBUG] Using eventDateTime:', sharedEvent.eventDateTime, 'Is over:', isOver);
+            return isOver;
+        } catch (e) {
+            console.warn('Error parsing eventDateTime:', sharedEvent.eventDateTime, e);
+        }
+    }
+    
+    // Fallback to eventDate string parsing
+    if (sharedEvent.eventDate) {
+        return isEventOver(sharedEvent.eventDate);
+    }
+    
+    return false;
+};
 
 // Simplified formatEventDateTime for modal (if EventsScreen's one is not directly usable)
 const formatEventDateTimeForModal = (isoString: string | null): { date: string; time: string } => {
@@ -140,7 +221,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
     onImagePress, 
     onEventPress,
     onMessageLongPress,
-    getRepliedMessagePreview
+    onReplyPress,
+    getRepliedMessagePreview,
+    isHighlighted
 }) => {
     const isCurrentUser = message.user._id === currentUserId;
     const [imageError, setImageError] = useState(false);
@@ -150,6 +233,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
     // Log impression for shared events when message bubble comes into view
     useEffect(() => {
         if (message.sharedEvent?.eventId && !hasLoggedImpression) {
+            // Check if event is over - don't log impressions for past events
+            if (isSharedEventOver(message.sharedEvent)) {
+                console.log(`[IMPRESSION] Skipping impression for past event: ${message.sharedEvent.eventId}`);
+                return;
+            }
+            
             const logEventImpression = async () => {
                 try {
                     console.log(`[IMPRESSION] Logging impression for shared event: ${message.sharedEvent?.eventId} from individual chat`);
@@ -178,6 +267,10 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
     // Handle event press 
     const handleEventPress = () => {
         if (message.sharedEvent?.eventId && onEventPress) {
+            // Check if event is over - if so, don't open modal
+            if (isSharedEventOver(message.sharedEvent)) {
+                return; // Don't open modal for past events
+            }
             onEventPress(message.sharedEvent.eventId);
         }
     };
@@ -188,12 +281,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
             <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
                 <View style={styles.messageContentContainer}>
                     <View style={[styles.messageBubble, styles.deletedMessageBubble, isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived]}>
-                        <Feather name="slash" size={14} color={isCurrentUser ? "rgba(255,255,255,0.7)" : "#9CA3AF"} style={{marginRight: 5}}/>
+                        <Feather name="slash" size={14} color={isCurrentUser ? "rgba(255,255,255,0.7)" : "#9CA3AF"} style={{marginRight: 6}}/>
                         <Text style={[styles.deletedMessageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>
                             This message was deleted
                         </Text>
                     </View>
-                    <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
+                    <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
                         {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
                         {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="#A0AEC0" style={{ marginLeft: 4 }} />} 
@@ -207,6 +300,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
 
     // Shared Event Message
     if (message.sharedEvent) {
+        const eventIsOver = isSharedEventOver(message.sharedEvent);
+        
         return (
             <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
                 <View style={styles.messageContentContainer}>
@@ -216,19 +311,27 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                         isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived
                     ]}>
                         <Text style={[
+                            styles.messageText,
                             isCurrentUser ? styles.messageTextSent : styles.messageTextReceived
                         ]}>
                             {message.text}
                         </Text>
                         
                         <TouchableOpacity 
-                            style={styles.sharedEventPreview}
-                            onPress={handleEventPress}
-                            activeOpacity={0.7}
+                            style={[
+                                styles.sharedEventPreview,
+                                eventIsOver && styles.sharedEventPreviewDisabled
+                            ]}
+                            onPress={eventIsOver ? undefined : handleEventPress}
+                            activeOpacity={eventIsOver ? 1 : 0.7}
+                            disabled={eventIsOver}
                         >
                             <Image 
                                 source={{ uri: message.sharedEvent.eventImage || DEFAULT_EVENT_IMAGE_CHAT }}
-                                style={styles.sharedEventPreviewImage}
+                                style={[
+                                    styles.sharedEventPreviewImage,
+                                    eventIsOver && styles.sharedEventPreviewImageDisabled
+                                ]}
                                 resizeMode="cover"
                                 onError={() => setImageError(true)}
                             />
@@ -237,25 +340,45 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                                     <Feather name="image" size={20} color="#FFFFFF" />
                                 </View>
                             )}
+                            {eventIsOver && (
+                                <View style={styles.eventOverOverlay}>
+                                    <Text style={styles.eventOverText}>Event is Over</Text>
+                                </View>
+                            )}
                             <View style={styles.sharedEventPreviewContent}>
-                                <Text style={styles.sharedEventPreviewTitle} numberOfLines={1}>
-                                    {message.sharedEvent.eventTitle}
-                                </Text>
-                                <Text style={styles.sharedEventPreviewDetails} numberOfLines={1}>
-                                    {message.sharedEvent.eventDate}
-                                </Text>
-                                <Text style={styles.sharedEventPreviewDetails} numberOfLines={1}>
-                                    {message.sharedEvent.eventVenue}
-                                </Text>
+                                {eventIsOver ? (
+                                    <>
+                                        <Text style={[styles.sharedEventPreviewTitle, styles.eventOverTitle]} numberOfLines={1}>
+                                            {message.sharedEvent.eventTitle}
+                                        </Text>
+                                        <Text style={[styles.sharedEventPreviewDetails, styles.eventOverDetails]} numberOfLines={1}>
+                                            Event is Over
+                                        </Text>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Text style={styles.sharedEventPreviewTitle} numberOfLines={1}>
+                                            {message.sharedEvent.eventTitle}
+                                        </Text>
+                                        <Text style={styles.sharedEventPreviewDetails} numberOfLines={1}>
+                                            {message.sharedEvent.eventDate}
+                                        </Text>
+                                        <Text style={styles.sharedEventPreviewDetails} numberOfLines={1}>
+                                            {message.sharedEvent.eventVenue}
+                                        </Text>
+                                    </>
+                                )}
                             </View>
                         </TouchableOpacity>
-                        {message.isEdited && <Text style={styles.editedIndicator}>(edited)</Text>}
+                        <View style={styles.timeAndEditContainer}>
+                            {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
+                            <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
+                                {formatTime(message.createdAt)}
+                                {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />} 
+                                {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />} 
+                            </Text>
+                        </View>
                     </View>
-                    <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
-                        {formatTime(message.createdAt)}
-                        {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
-                        {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="#A0AEC0" style={{ marginLeft: 4 }} />} 
-                    </Text>
                 </View>
             </View>
         );
@@ -273,7 +396,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                 <View style={styles.messageContentContainer}>
                     {/* Reply Preview for Image */} 
                     {repliedMessagePreview && (
-                        <View style={[styles.replyPreviewContainer, isCurrentUser ? styles.replyPreviewSent : styles.replyPreviewReceived]}>
+                        <TouchableOpacity 
+                            style={[styles.replyPreviewContainer, isCurrentUser ? styles.replyPreviewSent : styles.replyPreviewReceived]}
+                            onPress={() => message.replyToMessageId && onReplyPress(message.replyToMessageId)}
+                            activeOpacity={0.7}
+                        >
                             <View style={styles.replyPreviewBorder} />
                             <View style={styles.replyPreviewContent}>
                                 <Text style={styles.replyPreviewSenderName}>{repliedMessagePreview.senderName || 'User'}</Text>
@@ -286,11 +413,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                                     <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text}</Text>
                                 )}
                             </View>
-                        </View>
+                        </TouchableOpacity>
                     )}
                     <TouchableOpacity 
                         onPress={() => onImagePress(message.image!)}
-                        style={[styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage]}
+                        style={[styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage, isHighlighted && styles.highlightedImageBubble]}
                     >
                         <Image
                             source={{ uri: message.image }}
@@ -303,9 +430,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                                 <Text style={styles.imageErrorText}>Failed to load image</Text>
                             </View>
                         )}
-                        {message.isEdited && <Text style={[styles.editedIndicator, styles.editedIndicatorImage]}>(edited)</Text>}
+                        {message.isEdited && <Text style={styles.editedIndicatorImage}>(edited)</Text>}
                     </TouchableOpacity>
-                    <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
+                    <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
                         {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
                         {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="#A0AEC0" style={{ marginLeft: 4 }} />} 
@@ -342,16 +469,18 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                     </View>
                 )}
                 <View style={[styles.messageBubble, isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived]}>
-                    <Text style={isCurrentUser ? styles.messageTextSent : styles.messageTextReceived}>
+                    <Text style={[styles.messageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>
                         {message.text}
                     </Text>
-                    {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
+                    <View style={styles.timeAndEditContainer}>
+                        {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
+                        <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
+                            {formatTime(message.createdAt)}
+                            {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />} 
+                            {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />} 
+                        </Text>
+                    </View>
                 </View>
-                <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
-                    {formatTime(message.createdAt)}
-                    {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
-                    {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="#A0AEC0" style={{ marginLeft: 4 }} />} 
-                </Text>
             </View>
         </TouchableOpacity>
     );
@@ -423,6 +552,17 @@ const IndividualChatScreen: React.FC = () => {
     const [eventModalVisible, setEventModalVisible] = useState(false);
     const [loadingEventDetails, setLoadingEventDetails] = useState(false);
     // --- End State Declarations ---
+
+    // --- State for message highlighting ---
+    const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+    // --- End State for message highlighting ---
+
+    // --- State for scroll management ---
+    const [isUserScrolling, setIsUserScrolling] = useState(false);
+    const [isNearBottom, setIsNearBottom] = useState(true);
+    const [isScrollingToMessage, setIsScrollingToMessage] = useState(false);
+    const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    // --- End State for scroll management ---
 
     const flatListRef = useRef<SectionList<any>>(null);
     const isCurrentUserPremium = musicLoverProfile?.isPremium;
@@ -558,10 +698,14 @@ const IndividualChatScreen: React.FC = () => {
                     
                     // Check metadata for stored event image first
                     let eventImage = DEFAULT_EVENT_IMAGE_CHAT;
+                    let eventDateTime: string | null = null;
                     if (dbMessage.metadata && typeof dbMessage.metadata === 'object' && dbMessage.metadata.shared_event) {
                         const metadataEvent = dbMessage.metadata.shared_event as any;
                         if (metadataEvent.eventImage) {
                             eventImage = metadataEvent.eventImage;
+                        }
+                        if (metadataEvent.eventDateTime) {
+                            eventDateTime = metadataEvent.eventDateTime;
                         }
                     }
                     
@@ -571,6 +715,7 @@ const IndividualChatScreen: React.FC = () => {
                         eventDate: eventDate.trim(), 
                         eventVenue: eventVenue.trim(), 
                         eventImage: eventImage,
+                        eventDateTime: eventDateTime,
                     };
                     // Show proper sender name for individual chats
                     const displayName = dbMessage.sender_id === currentUserId ? 'You' : dynamicMatchName;
@@ -792,6 +937,17 @@ const IndividualChatScreen: React.FC = () => {
         setReplyingToMessage(null);
 
         try {
+            // First, fetch the actual event datetime from the database
+            const { data: eventData, error: eventError } = await supabase
+                .from('events')
+                .select('event_datetime, poster_urls')
+                .eq('id', eventId)
+                .single();
+
+            if (eventError) {
+                console.warn('Could not fetch event datetime:', eventError);
+            }
+
             // Create formatted content for the message (similar to group chat format)
             const formattedContent = `SHARED_EVENT:${eventId}:${eventDataToShare.eventTitle} on ${eventDataToShare.eventDate} at ${eventDataToShare.eventVenue}`;
             
@@ -809,7 +965,10 @@ const IndividualChatScreen: React.FC = () => {
                             eventTitle: eventDataToShare.eventTitle,
                             eventDate: eventDataToShare.eventDate,
                             eventVenue: eventDataToShare.eventVenue,
-                            eventImage: eventDataToShare.eventImage || DEFAULT_EVENT_IMAGE_CHAT,
+                            eventImage: (eventData?.poster_urls && eventData.poster_urls.length > 0) 
+                                ? eventData.poster_urls[0] 
+                                : eventDataToShare.eventImage || DEFAULT_EVENT_IMAGE_CHAT,
+                            eventDateTime: eventData?.event_datetime || null, // Store the actual ISO datetime
                         }
                     }
                 })
@@ -1263,6 +1422,106 @@ const IndividualChatScreen: React.FC = () => {
         });
     }, [messages]);
 
+    // --- Proper Scroll to Message Handler ---
+    const handleScrollToMessage = useCallback((messageId: string) => {
+        if (isScrollingToMessage) return; // Prevent multiple simultaneous scrolls
+        
+        // Find the message in sections
+        let targetSectionIndex = -1;
+        let targetItemIndex = -1;
+        
+        for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
+            const itemIndex = sections[sectionIndex].data.findIndex((msg: ChatMessage) => msg._id === messageId);
+            if (itemIndex !== -1) {
+                targetSectionIndex = sectionIndex;
+                targetItemIndex = itemIndex;
+                break;
+            }
+        }
+        
+        if (targetSectionIndex !== -1 && targetItemIndex !== -1) {
+            setIsScrollingToMessage(true);
+            setHighlightedMessageId(messageId);
+            
+            // Clear any existing scroll timeout
+            if (scrollTimeoutRef.current) {
+                clearTimeout(scrollTimeoutRef.current);
+            }
+            
+            // Scroll to the message
+            if (flatListRef.current) {
+                try {
+                    flatListRef.current.scrollToLocation({
+                        sectionIndex: targetSectionIndex,
+                        itemIndex: targetItemIndex,
+                        animated: true,
+                        viewPosition: 0.5, // Center the message in view
+                    });
+                } catch (error) {
+                    console.warn('Failed to scroll to message location:', error);
+                    // Fallback: Try to scroll to the section
+                    try {
+                        flatListRef.current.scrollToLocation({
+                            sectionIndex: targetSectionIndex,
+                            itemIndex: 0,
+                            animated: true,
+                        });
+                    } catch (fallbackError) {
+                        console.warn('Fallback scroll also failed:', fallbackError);
+                    }
+                }
+            }
+            
+            // Remove highlight and reset scroll state after delay
+            scrollTimeoutRef.current = setTimeout(() => {
+                setHighlightedMessageId(null);
+                setIsScrollingToMessage(false);
+            }, 2500);
+        } else {
+            console.warn('Message not found in current view:', messageId);
+        }
+    }, [sections, isScrollingToMessage]);
+    // --- End Scroll to Message Handler ---
+
+    // --- Smart Auto-Scroll Handler ---
+    const handleAutoScrollToBottom = useCallback(() => {
+        if (isUserScrolling || isScrollingToMessage || !isNearBottom) {
+            return; // Don't auto-scroll if user is scrolling or not near bottom
+        }
+        
+        if (flatListRef.current && sections.length > 0 && messages.length > 0) {
+            try {
+                const sectionListRef = flatListRef.current as any;
+                sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: false });
+            } catch (error) {
+                console.warn('Auto-scroll failed:', error);
+            }
+        }
+    }, [isUserScrolling, isScrollingToMessage, isNearBottom, sections.length, messages.length]);
+
+    // --- Scroll Event Handlers ---
+    const handleScrollBeginDrag = useCallback(() => {
+        setIsUserScrolling(true);
+        if (scrollTimeoutRef.current) {
+            clearTimeout(scrollTimeoutRef.current);
+        }
+    }, []);
+
+    const handleScrollEndDrag = useCallback(() => {
+        scrollTimeoutRef.current = setTimeout(() => {
+            setIsUserScrolling(false);
+        }, 1000); // Wait 1 second after user stops scrolling
+    }, []);
+
+    const handleScroll = useCallback((event: any) => {
+        if (isScrollingToMessage) return; // Don't update state during reply navigation
+        
+        const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+        const isAtBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 100; // 100px threshold
+        setIsNearBottom(isAtBottom);
+    }, [isScrollingToMessage]);
+    // --- End Scroll Event Handlers ---
+
     // Add image viewer handlers
     const handleImagePress = (imageUrl: string) => {
         // Get all images from messages
@@ -1672,6 +1931,15 @@ const IndividualChatScreen: React.FC = () => {
         markMessagesAsSeen();
     }, [messages, markMessagesAsSeen]);
 
+    // --- Cleanup scroll timeout on unmount ---
+    useEffect(() => {
+        return () => {
+            if (scrollTimeoutRef.current) {
+                clearTimeout(scrollTimeoutRef.current);
+            }
+        };
+    }, []);
+
     // --- Render Logic ---
     if (loading && messages.length === 0 && !isBlocked) {
         return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View>;
@@ -1769,7 +2037,9 @@ const IndividualChatScreen: React.FC = () => {
                             onImagePress={handleImagePress}
                             onEventPress={handleEventPressInternal}
                             onMessageLongPress={handleMessageLongPress}
+                            onReplyPress={handleScrollToMessage}
                             getRepliedMessagePreview={getRepliedMessagePreview}
+                            isHighlighted={item._id === highlightedMessageId}
                         />
                     )}
                     renderSectionHeader={({ section: { title } }) => (
@@ -1777,39 +2047,16 @@ const IndividualChatScreen: React.FC = () => {
                             <Text style={styles.sectionHeaderText}>{title}</Text>
                         </View>
                     )}
-                    onContentSizeChange={() => {
-                        if (flatListRef.current && sections.length > 0 && messages.length > 0) {
-                            // Use timeout to scroll after render is complete
-                            setTimeout(() => {
-                                if (flatListRef.current) {
-                                    const sectionListRef = flatListRef.current as any;
-                                    sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: false });
-                                }
-                            }, 50);
-                        }
-                    }}
-                    onLayout={() => {
-                        if (flatListRef.current && sections.length > 0 && messages.length > 0) {
-                            // Use timeout to scroll after render is complete
-                            setTimeout(() => {
-                                if (flatListRef.current) {
-                                    const sectionListRef = flatListRef.current as any;
-                                    sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: false });
-                                }
-                            }, 50);
-                        }
-                    }}
+                    onContentSizeChange={handleAutoScrollToBottom}
+                    onLayout={handleAutoScrollToBottom}
                     onScrollToIndexFailed={(info) => {
                         console.warn('Failed to scroll to index:', info);
-                        // Use timeout to scroll after render is complete
-                        setTimeout(() => {
-                            if (flatListRef.current) {
-                                const sectionListRef = flatListRef.current as any;
-                                sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: false });
-                            }
-                        }, 100);
+                        handleAutoScrollToBottom();
                     }}
                     stickySectionHeadersEnabled
+                    onScrollBeginDrag={handleScrollBeginDrag}
+                    onScrollEndDrag={handleScrollEndDrag}
+                    onScroll={handleScroll}
                 />
 
                 {/* Replying To Preview */} 
@@ -2046,46 +2293,61 @@ const styles = StyleSheet.create({
     noMessagesText: { color: '#6B7280', fontSize: 14, marginTop: 30 },
     messageList: { flex: 1, paddingHorizontal: 10, backgroundColor: '#FFFFFF', },
     messageListContent: { paddingVertical: 10, flexGrow: 1, justifyContent: 'flex-end' },
-    messageRow: { flexDirection: 'row', marginVertical: 5, },
-    messageRowSent: { justifyContent: 'flex-end', },
-    messageRowReceived: { justifyContent: 'flex-start', },
+    messageRow: { flexDirection: 'row', marginVertical: 4, alignItems: 'flex-end', },
+    messageRowSent: { justifyContent: 'flex-end', marginLeft: '20%', },
+    messageRowReceived: { justifyContent: 'flex-start', marginRight: '20%', },
     messageContentContainer: {
         maxWidth: '100%',
     },
     messageBubble: {
-        borderRadius: 15,
-        overflow: 'hidden',
-        padding: 0,
-        backgroundColor: 'transparent',
-        alignSelf: 'flex-start',
-        maxWidth: 210,
-        maxHeight: 210,
+        borderRadius: 18,
+        minWidth: 30,
+        marginBottom: 2,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2,
     },
     messageBubbleSent: {
         backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
         borderBottomRightRadius: 4,
         alignSelf: 'flex-end',
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        flexWrap: 'wrap',
+        paddingVertical: 10,
+        paddingHorizontal: 14,
     },
     messageBubbleReceived: {
-        backgroundColor: '#E5E7EB',
+        backgroundColor: '#FFFFFF',
         borderBottomLeftRadius: 4,
         alignSelf: 'flex-start',
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        flexWrap: 'wrap',
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
     },
-    messageTextSent: { color: '#FFFFFF', fontSize: 15, },
-    messageTextReceived: { color: '#1F2937', fontSize: 15, },
-    inputToolbar: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 10, borderTopWidth: 1, borderTopColor: '#E5E7EB', backgroundColor: '#FFFFFF', },
-    textInput: { flex: 1, minHeight: 40, maxHeight: 120, backgroundColor: '#F3F4F6', borderRadius: 20, paddingHorizontal: 15, paddingVertical: Platform.OS === 'ios' ? 10 : 8, fontSize: 15, marginRight: 10, color: '#1F2937', },
-    sendButton: { backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', },
+    messageText: { 
+        fontSize: 15, 
+        lineHeight: 21, 
+        flexShrink: 1,
+    },
+    messageTextSent: { color: '#FFFFFF' },
+    messageTextReceived: { color: '#1F2937' },
+    inputToolbar: { flexDirection: 'row', alignItems: 'flex-end', paddingVertical: 12, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#E5E7EB', backgroundColor: '#FFFFFF', },
+    textInput: { 
+        flex: 1, 
+        minHeight: 44, 
+        maxHeight: 120, 
+        backgroundColor: '#F8F9FA', 
+        borderRadius: 22, 
+        paddingHorizontal: 16, 
+        paddingVertical: Platform.OS === 'ios' ? 12 : 10, 
+        fontSize: 16, 
+        marginHorizontal: 8, 
+        color: '#1F2937',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    sendButton: { backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', },
     sendButtonDisabled: { backgroundColor: '#9CA3AF', },
     headerTitleContainer: {
         flexDirection: 'row',
@@ -2093,40 +2355,58 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     headerProfileImage: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        marginRight: 8,
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        marginRight: 10,
     },
     headerTitleText: {
         fontSize: 18,
         fontWeight: '600',
-        color: '#000',
+        color: '#1F2937',
     },
     blockedText: {
-        color: '#999',
+        color: '#9CA3AF',
     },
     muteIcon: {
-        marginLeft: 4,
+        marginLeft: 6,
     },
     timeText: {
-        fontSize: 10,
+        fontSize: 11,
         display: 'flex',
         flexDirection: 'row',
         alignItems: 'center',
     },
-    timeTextBelowBubble: {
-        marginTop: 2,
-        paddingHorizontal: 5,
-        color: '#9CA3AF',
-    },
     timeTextSent: {
         alignSelf: 'flex-end',
-        marginRight: 5
+        marginRight: 8,
+        marginTop: 4,
+        color: '#9CA3AF',
     },
     timeTextReceived: {
         alignSelf: 'flex-start',
-        marginLeft: 0
+        marginLeft: 8,
+        marginTop: 4,
+        color: '#9CA3AF',
+    },
+    timeTextInsideBubble: {
+        fontSize: 10,
+        marginLeft: 8,
+        alignSelf: 'flex-end',
+        lineHeight: 15,
+    },
+    timeTextInsideSentBubble: { 
+        color: 'rgba(255, 255, 255, 0.7)' 
+    },
+    timeTextInsideReceivedBubble: { 
+        color: '#6B7280'
+    },
+    timeAndEditContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        marginTop: 4,
+        minHeight: 16,
     },
     sectionHeader: {
         alignItems: 'center',
@@ -2138,20 +2418,25 @@ const styles = StyleSheet.create({
         borderBottomColor: 'rgba(0,0,0,0.05)',
     },
     sectionHeaderText: {
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: '600',
-        color: '#8B8B8B',
+        color: '#6B7280',
         textTransform: 'uppercase',
         letterSpacing: 0.5,
     },
     imageBubble: {
-        borderRadius: 15,
+        borderRadius: 18,
         overflow: 'hidden',
         padding: 0,
         backgroundColor: 'transparent',
         alignSelf: 'flex-start',
-        maxWidth: 210,
-        maxHeight: 210,
+        maxWidth: 220,
+        maxHeight: 220,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
     },
     messageBubbleSentImage: {
         alignSelf: 'flex-end',
@@ -2164,9 +2449,9 @@ const styles = StyleSheet.create({
         borderBottomLeftRadius: 4,
     },
     chatImage: {
-        width: 200,
-        height: 200,
-        borderRadius: 14,
+        width: 210,
+        height: 210,
+        borderRadius: 16,
     },
     imageErrorOverlay: {
         position: 'absolute',
@@ -2176,20 +2461,24 @@ const styles = StyleSheet.create({
         bottom: 0,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: 'rgba(0,0,0,0.3)',
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        borderRadius: 16,
     },
     imageErrorText: {
-        color: '#fff',
+        color: '#FFFFFF',
         fontSize: 12,
         marginTop: 4,
+        textAlign: 'center',
     },
     attachButton: {
-        width: 40,
-        height: 40,
+        width: 44,
+        height: 44,
         justifyContent: 'center',
         alignItems: 'center',
-        marginRight: 5,
-        marginBottom: Platform.OS === 'ios' ? 0 : 1,
+        borderRadius: 22,
+        backgroundColor: '#F8F9FA',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
     },
     imageViewerContainer: {
         flex: 1,
@@ -2232,10 +2521,10 @@ const styles = StyleSheet.create({
         backgroundColor: '#F9F9F9',
     },
     startersOuterContainer: {
-        paddingVertical: 8,
+        paddingVertical: 12,
         borderBottomWidth: 1,
         borderBottomColor: '#E5E7EB',
-        backgroundColor: '#F9F9F9',
+        backgroundColor: '#F8F9FA',
         alignItems: 'center',
     },
     startersNavigationContainer: {
@@ -2243,22 +2532,27 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         width: '100%',
-        paddingHorizontal: 10,
-        marginTop: 8,
+        paddingHorizontal: 16,
+        marginTop: 12,
     },
     starterNavButton: {
-        padding: 8,
+        padding: 10,
         borderRadius: 20,
         backgroundColor: '#FFFFFF',
         borderWidth: 1,
         borderColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT || '#A5B4FC',
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
     },
     starterNavButtonDisabled: {
         backgroundColor: '#F3F4F6',
         borderColor: '#E5E7EB',
     },
     startersTitle: {
-        fontSize: 13,
+        fontSize: 14,
         fontWeight: '600',
         color: '#4B5563',
         marginBottom: 0,
@@ -2269,110 +2563,116 @@ const styles = StyleSheet.create({
     starterButton: {
         flex: 1,
         backgroundColor: '#FFFFFF',
-        paddingVertical: 10,
-        paddingHorizontal: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
         borderRadius: 16,
         marginHorizontal: 8,
         borderWidth: 1,
         borderColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT || '#A5B4FC',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
+        shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.05,
-        shadowRadius: 1,
-        elevation: 1,
-        minHeight: 60,
+        shadowRadius: 4,
+        elevation: 2,
+        minHeight: 70,
         justifyContent: 'center',
     },
     starterText: {
-        fontSize: 13,
+        fontSize: 14,
         color: APP_CONSTANTS.COLORS.PRIMARY || '#3B82F6',
         textAlign: 'center',
+        lineHeight: 20,
     },
     starterCounterText: {
-        fontSize: 11,
+        fontSize: 12,
         color: '#9CA3AF',
-        marginTop: 4,
+        marginTop: 6,
     },
     startersLoadingContainer: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 10,
-        backgroundColor: '#F9F9F9',
+        paddingVertical: 12,
+        backgroundColor: '#F8F9FA',
         borderBottomWidth: 1,
         borderBottomColor: '#E5E7EB',
     },
     startersLoadingText: {
         marginLeft: 10,
-        fontSize: 13,
+        fontSize: 14,
         color: '#4B5563',
     },
     sharedEventContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        padding: 10,
+        padding: 12,
         borderTopWidth: 1,
         borderTopColor: '#E5E7EB',
-        backgroundColor: '#F9F9F9',
+        backgroundColor: '#F8F9FA',
     },
     sharedEventContent: {
         flexDirection: 'row',
         alignItems: 'center',
+        flex: 1,
     },
     sharedEventImage: {
-        width: 40,
-        height: 40,
-        borderRadius: 8,
-        marginRight: 10,
+        width: 50,
+        height: 50,
+        borderRadius: 10,
+        marginRight: 12,
     },
     sharedEventInfo: {
         flex: 1,
     },
     sharedEventTitle: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '600',
         color: '#1F2937',
+        marginBottom: 2,
     },
     sharedEventDetails: {
-        fontSize: 12,
+        fontSize: 13,
         color: '#6B7280',
+        marginBottom: 1,
     },
     sharedEventCloseButton: {
-        padding: 5,
+        padding: 8,
+        borderRadius: 16,
+        backgroundColor: '#FFFFFF',
     },
     sharedEventMessageBubble: {
-        padding: 12,
-        maxWidth: 280,
+        padding: 14,
+        maxWidth: 300,
     },
     sharedEventPreview: {
-        marginTop: 8,
-        borderRadius: 12,
+        marginTop: 10,
+        borderRadius: 14,
         borderWidth: 1,
-        borderColor: 'rgba(0,0,0,0.1)',
+        borderColor: 'rgba(0,0,0,0.08)',
         overflow: 'hidden',
         backgroundColor: '#FFFFFF',
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
+        shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2,
+        shadowRadius: 4,
+        elevation: 3,
     },
     sharedEventPreviewImage: {
         width: '100%',
-        height: 130,
+        height: 140,
         backgroundColor: '#F3F4F6',
     },
     sharedEventPreviewContent: {
-        padding: 10,
+        padding: 12,
     },
     sharedEventPreviewTitle: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '600',
         color: '#1F2937',
         marginBottom: 4,
     },
     sharedEventPreviewDetails: {
-        fontSize: 12,
+        fontSize: 13,
         color: '#6B7280',
         marginBottom: 2,
     },
@@ -2380,10 +2680,10 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
     },
     loadingOverlayText: {
-        marginTop: 10,
+        marginTop: 12,
         color: 'white',
         fontSize: 16,
     },
@@ -2391,53 +2691,57 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        backgroundColor: '#E9E9EB',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        backgroundColor: '#F0F1F3',
         borderTopWidth: 1,
-        borderTopColor: '#DCDCDC',
+        borderTopColor: '#E5E7EB',
     },
     replyingToContent: {
         flex: 1,
     },
     replyingToTitle: {
-        fontSize: 13,
+        fontSize: 14,
         fontWeight: '600',
-        color: '#333333',
+        color: '#374151',
+        marginBottom: 2,
     },
     replyingToText: {
         fontSize: 13,
-        color: '#555555',
+        color: '#6B7280',
     },
     replyingToCloseButton: {
-        padding: 5,
+        padding: 6,
+        borderRadius: 12,
+        backgroundColor: '#FFFFFF',
     },
     actionModalContent: {
         position: 'absolute',
-        bottom: Platform.OS === 'ios' ? 30 : 15, 
-        left: 15,
-        right: 15,
+        bottom: Platform.OS === 'ios' ? 34 : 20, 
+        left: 16,
+        right: 16,
         backgroundColor: 'white',
-        borderRadius: 12,
-        paddingVertical: 10,
+        borderRadius: 16,
+        paddingVertical: 8,
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 5,
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 8,
     },
     actionModalButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 12,
+        paddingVertical: 14,
         paddingHorizontal: 20,
     },
     actionModalIcon: {
-        marginRight: 15,
+        marginRight: 16,
     },
     actionModalButtonText: {
         fontSize: 16,
         color: '#1F2937',
+        fontWeight: '500',
     },
     messageInfoModalContent: {
         position: 'absolute',
@@ -2445,38 +2749,38 @@ const styles = StyleSheet.create({
         left: 0,
         right: 0,
         backgroundColor: 'white',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        padding: 20,
-        paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        padding: 24,
+        paddingBottom: Platform.OS === 'ios' ? 40 : 24,
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: -3 },
-        shadowOpacity: 0.15,
-        shadowRadius: 5,
-        elevation: 10,
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 12,
     },
     messageInfoTitle: {
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: 'bold',
         textAlign: 'center',
-        marginBottom: 15,
+        marginBottom: 20,
         color: '#1F2937',
     },
     messageInfoText: {
-        fontSize: 15,
+        fontSize: 16,
         color: '#374151',
-        marginBottom: 10,
+        marginBottom: 12,
     },
     messageInfoDetailText: {
-        fontSize: 14,
+        fontSize: 15,
         color: '#4B5563',
-        marginBottom: 5,
+        marginBottom: 8,
     },
     messageInfoCloseButton: {
-        marginTop: 20,
-        paddingVertical: 12,
+        marginTop: 24,
+        paddingVertical: 14,
         backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
-        borderRadius: 8,
+        borderRadius: 12,
         alignItems: 'center',
     },
     messageInfoCloseButtonText: {
@@ -2484,36 +2788,38 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '600',
     },
-    modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
+    modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
     modalContent: { 
         backgroundColor: 'white', 
-        borderRadius: 12, 
-        padding: 25, 
-        marginHorizontal: '10%', 
-        marginTop: '30%', 
+        borderRadius: 16, 
+        padding: 28, 
+        marginHorizontal: '8%', 
+        marginTop: '25%', 
         shadowColor: "#000", 
-        shadowOffset: { width: 0, height: 2 }, 
-        shadowOpacity: 0.25, 
-        shadowRadius: 4, 
-        elevation: 5, 
-        minHeight: 200 
+        shadowOffset: { width: 0, height: 4 }, 
+        shadowOpacity: 0.3, 
+        shadowRadius: 8, 
+        elevation: 8, 
+        minHeight: 220 
     },
-    modalTitle: { fontSize: 18, fontWeight: '600', marginBottom: 20, textAlign: 'center', color: '#1F2937', },
-    modalInput: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 12, fontSize: 16, marginBottom: 25, minHeight: 60, textAlignVertical: 'top' },
+    modalTitle: { fontSize: 20, fontWeight: '600', marginBottom: 24, textAlign: 'center', color: '#1F2937', },
+    modalInput: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 10, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, marginBottom: 28, minHeight: 80, textAlignVertical: 'top' },
     modalActions: { flexDirection: 'row', justifyContent: 'space-between', },
-    modalButton: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 6, alignItems: 'center', justifyContent: 'center', minWidth: 90, },
-    modalButtonCancel: { backgroundColor: '#E5E7EB', },
+    modalButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 10, alignItems: 'center', justifyContent: 'center', minWidth: 100, },
+    modalButtonCancel: { backgroundColor: '#F3F4F6', },
     modalButtonSave: { backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', },
-    modalButtonDisabled: { backgroundColor: '#A5B4FC', },
-    modalButtonTextCancel: { color: '#4B5563', fontWeight: '500', },
+    modalButtonDisabled: { backgroundColor: '#D1D5DB', },
+    modalButtonTextCancel: { color: '#4B5563', fontWeight: '600', },
     modalButtonTextSave: { color: 'white', fontWeight: '600', },
     deletedMessageBubble: {
-        paddingVertical: 8,
-        paddingHorizontal: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#E5E7EB', // Consistent with received bubble
+        backgroundColor: '#F3F4F6',
         opacity: 0.8,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
     },
     deletedMessageText: {
         fontSize: 14,
@@ -2523,7 +2829,7 @@ const styles = StyleSheet.create({
     editedIndicator: {
         fontSize: 10,
         fontStyle: 'italic',
-        marginLeft: 4, // Add some margin if it's next to text
+        marginRight: 6,
     },
     editedIndicatorSent: {
         color: 'rgba(255, 255, 255, 0.7)',
@@ -2531,56 +2837,115 @@ const styles = StyleSheet.create({
     editedIndicatorReceived: {
         color: '#6B7280',
     },
-    editedIndicatorImage: { // For images, position might need adjustment or be overlayed
+    editedIndicatorImage: {
         position: 'absolute',
-        bottom: 5,
-        right: 5,
-        backgroundColor: 'rgba(0,0,0,0.4)',
+        bottom: 8,
+        right: 8,
+        backgroundColor: 'rgba(0,0,0,0.6)',
         color: 'white',
-        paddingHorizontal: 4,
-        borderRadius: 3,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
         fontSize: 9,
     },
-    messageRowTouchable: { // Used for messages that have long-press actions
+    messageRowTouchable: {
         flexDirection: 'row',
-        marginVertical: 4, // same as messageRow
+        marginVertical: 4,
         alignItems: 'flex-end',
     },
     replyPreviewContainer: {
         flexDirection: 'row',
-        backgroundColor: 'rgba(0,0,0,0.03)',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderTopLeftRadius: 8,
-        borderTopRightRadius: 8,
-        marginBottom: -2, // To slightly overlap with the message bubble below
-        maxWidth: '90%', // Constrain width
+        backgroundColor: 'rgba(0,0,0,0.04)',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderTopLeftRadius: 12,
+        borderTopRightRadius: 12,
+        marginBottom: -2,
+        maxWidth: '90%',
     },
-    replyPreviewSent: { // Style for reply preview on a sent message
+    replyPreviewSent: {
         alignSelf: 'flex-end',
         borderLeftColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
         borderLeftWidth: 3,
     },
-    replyPreviewReceived: { // Style for reply preview on a received message
+    replyPreviewReceived: {
         alignSelf: 'flex-start',
-        borderLeftColor: '#A0AEC0', // A neutral color
+        borderLeftColor: '#A0AEC0',
         borderLeftWidth: 3,
     },
     replyPreviewBorder: {
-        // This view is used for the colored border, already styled by replyPreviewSent/Received
     },
     replyPreviewContent: {
-        marginLeft: 6,
-        flexShrink: 1, // Allow text to shrink
+        marginLeft: 8,
+        flexShrink: 1,
     },
     replyPreviewSenderName: {
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: '600',
         color: '#4B5563',
+        marginBottom: 2,
     },
     replyPreviewText: {
         fontSize: 12,
         color: '#6B7280',
+    },
+    // Highlighting styles
+    highlightedMessageContainer: {
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        borderRadius: 12,
+        padding: 4,
+        margin: 2,
+    },
+    highlightedMessageBubble: {
+        borderWidth: 2,
+        borderColor: 'rgba(59, 130, 246, 0.3)',
+        shadowColor: '#3B82F6',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 4,
+    },
+    highlightedImageBubble: {
+        borderWidth: 2,
+        borderColor: 'rgba(59, 130, 246, 0.3)',
+        shadowColor: '#3B82F6',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 4,
+    },
+    sharedEventPreviewDisabled: {
+        opacity: 0.5,
+    },
+    sharedEventPreviewImageDisabled: {
+        opacity: 0.5,
+    },
+    eventOverOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        borderRadius: 16,
+    },
+    eventOverText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
+    eventOverTitle: {
+        color: '#FFFFFF',
+        fontSize: 15,
+        fontWeight: '600',
+        marginBottom: 2,
+    },
+    eventOverDetails: {
+        color: '#FFFFFF',
+        fontSize: 13,
+        marginBottom: 1,
     },
 });
 
@@ -2620,10 +2985,14 @@ const fetchMessageById = async (messageId: string): Promise<ChatMessage | null> 
                     
                     // Check metadata for stored event image first
                     let eventImage = DEFAULT_EVENT_IMAGE_CHAT;
+                    let eventDateTime: string | null = null;
                     if (dbMessage.metadata && typeof dbMessage.metadata === 'object' && dbMessage.metadata.shared_event) {
                         const metadataEvent = dbMessage.metadata.shared_event as any;
                         if (metadataEvent.eventImage) {
                             eventImage = metadataEvent.eventImage;
+                        }
+                        if (metadataEvent.eventDateTime) {
+                            eventDateTime = metadataEvent.eventDateTime;
                         }
                     }
                     
@@ -2633,6 +3002,7 @@ const fetchMessageById = async (messageId: string): Promise<ChatMessage | null> 
                         eventDate: eventDate.trim(), 
                         eventVenue: eventVenue.trim(), 
                         eventImage: eventImage,
+                        eventDateTime: eventDateTime,
                     };
                     displayText = `Shared an event: ${sharedEventInfo.eventTitle}`; 
                 }

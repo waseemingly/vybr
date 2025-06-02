@@ -37,7 +37,81 @@ const formatTime = (date: Date | string | number): string => {
         const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
         if (!dateObj || isNaN(dateObj.getTime())) return '--:--';
         return dateObj.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-    } catch (e) { console.warn("Fmt err:", date, e); return '--:--'; }
+    } catch (e) { 
+        console.warn("Format time error:", date, e); 
+        return '--:--'; 
+    }
+};
+
+// Helper to check if event is over
+const isEventOver = (eventDateString: string): boolean => {
+    try {
+        console.log('[DEBUG] Checking if event is over, date string:', eventDateString);
+        
+        // First, try direct parsing
+        let eventDate = new Date(eventDateString);
+        const now = new Date();
+        
+        // If direct parsing failed, try other formats
+        if (isNaN(eventDate.getTime())) {
+            // Try to parse common date formats manually
+            const dateFormats = [
+                eventDateString, // Original format
+                eventDateString.replace(/(\d+)(st|nd|rd|th)/, '$1'), // Remove ordinal suffixes
+                // Handle formats like "Dec 15, 2024" or "December 15, 2024"
+                eventDateString.replace(/(\w+)\s+(\d+),?\s+(\d{4})/, '$1 $2, $3'),
+                // Handle formats like "Dec 15" (assume current year)
+                eventDateString.includes(',') ? eventDateString : `${eventDateString}, ${new Date().getFullYear()}`,
+            ];
+            
+            for (const format of dateFormats) {
+                const parsed = new Date(format);
+                console.log('[DEBUG] Trying format:', format, 'Result:', parsed.toISOString(), 'Valid:', !isNaN(parsed.getTime()));
+                if (!isNaN(parsed.getTime())) {
+                    eventDate = parsed;
+                    break;
+                }
+            }
+            
+            // If still couldn't parse, assume event is not over
+            if (isNaN(eventDate.getTime())) {
+                console.log('[DEBUG] Could not parse event date, assuming not over:', eventDateString);
+                return false;
+            }
+        }
+        
+        const isOver = eventDate < now;
+        console.log('[DEBUG] Event date:', eventDate.toISOString(), 'Now:', now.toISOString(), 'Is over:', isOver);
+        return isOver;
+    } catch (e) {
+        console.warn('Error checking if event is over:', e);
+        return false;
+    }
+};
+
+// Helper to check if event is over using sharedEvent data
+const isSharedEventOver = (sharedEvent: ChatMessage['sharedEvent']): boolean => {
+    if (!sharedEvent) return false;
+    
+    // Use eventDateTime if available (more accurate)
+    if (sharedEvent.eventDateTime) {
+        try {
+            const eventDate = new Date(sharedEvent.eventDateTime);
+            const now = new Date();
+            const isOver = eventDate < now;
+            console.log('[DEBUG] Using eventDateTime:', sharedEvent.eventDateTime, 'Is over:', isOver);
+            return isOver;
+        } catch (e) {
+            console.warn('Error parsing eventDateTime:', sharedEvent.eventDateTime, e);
+        }
+    }
+    
+    // Fallback to eventDate string parsing
+    if (sharedEvent.eventDate) {
+        return isEventOver(sharedEvent.eventDate);
+    }
+    
+    return false;
 };
 
 // Simplified formatEventDateTime for modal
@@ -97,6 +171,7 @@ interface ChatMessage {
         eventDate: string;
         eventVenue: string;
         eventImage: string;
+        eventDateTime?: string | null; // Add the ISO datetime field
     } | null;
     originalContent?: string | null;
     isEdited?: boolean;
@@ -128,7 +203,9 @@ interface GroupMessageBubbleProps {
     onImagePress: (imageUri: string) => void;
     onEventPress?: (eventId: string) => void;
     onMessageLongPress: (message: ChatMessage) => void;
+    onReplyPress: (messageId: string) => void;
     getRepliedMessagePreview: (messageId: string) => ChatMessage['replyToMessagePreview'] | null;
+    isHighlighted?: boolean;
 }
 const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({ 
     message, 
@@ -136,7 +213,9 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     onImagePress, 
     onEventPress, 
     onMessageLongPress,
-    getRepliedMessagePreview
+    onReplyPress,
+    getRepliedMessagePreview,
+    isHighlighted = false
 }) => {
     const isCurrentUser = message.user._id === currentUserId;
     const senderName = message.user.name;
@@ -146,6 +225,12 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     // Log impression for shared events when message bubble comes into view
     useEffect(() => {
         if (message.sharedEvent?.eventId && !hasLoggedImpression) {
+            // Check if event is over - don't log impressions for past events
+            if (isSharedEventOver(message.sharedEvent)) {
+                console.log(`[IMPRESSION] Skipping impression for past event: ${message.sharedEvent.eventId}`);
+                return;
+            }
+            
             const logEventImpression = async () => {
                 try {
                     console.log(`[IMPRESSION] Logging impression for shared event: ${message.sharedEvent?.eventId} from group chat`);
@@ -174,13 +259,21 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     // Handle event press 
     const handleEventPress = () => {
         if (message.sharedEvent?.eventId && onEventPress) {
+            // Check if event is over - if so, don't open modal
+            if (isSharedEventOver(message.sharedEvent)) {
+                return; // Don't open modal for past events
+            }
             onEventPress(message.sharedEvent.eventId);
         }
     };
 
     // System Message
     if (message.isSystemMessage) {
-        return ( <View style={styles.systemMessageContainer}><Text style={styles.systemMessageText}>{message.text}</Text></View> );
+        return ( 
+            <View style={styles.systemMessageContainer}>
+                <Text style={styles.systemMessageText}>{message.text}</Text>
+            </View> 
+        );
     }
 
     // Deleted Message
@@ -201,13 +294,13 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                             )}
                         </View>
                     )}
-                    <View style={[styles.messageBubble, styles.deletedMessageBubble, isCurrentUser ? styles.messageBubbleSentText : styles.messageBubbleReceivedText]}>
-                        <Feather name="slash" size={14} color={isCurrentUser ? "rgba(255,255,255,0.7)" : "#9CA3AF"} style={{marginRight: 5}}/>
+                    <View style={[styles.messageBubble, styles.deletedMessageBubble, isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived]}>
+                        <Feather name="slash" size={14} color={isCurrentUser ? "rgba(255,255,255,0.7)" : "#9CA3AF"} style={{marginRight: 6}}/>
                         <Text style={[styles.deletedMessageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>
                             This message was deleted
                         </Text>
                     </View>
-                    <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
+                    <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
                     </Text>
                 </View>
@@ -219,9 +312,11 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
 
     // Shared Event Message
     if (message.sharedEvent) {
+        const eventIsOver = isSharedEventOver(message.sharedEvent);
+        
         return (
             <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
-                <View style={styles.messageContentContainer}>
+                <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
                             <Image 
@@ -238,7 +333,8 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                     <View style={[
                         styles.messageBubble, 
                         styles.sharedEventMessageBubble,
-                        isCurrentUser ? styles.messageBubbleSentText : styles.messageBubbleReceivedText
+                        isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived,
+                        isHighlighted && styles.highlightedMessageBubble
                     ]}>
                         <Text style={[
                             styles.messageText, 
@@ -248,13 +344,20 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                         </Text>
                         
                         <TouchableOpacity 
-                            style={styles.sharedEventPreview}
-                            onPress={handleEventPress}
-                            activeOpacity={0.7}
+                            style={[
+                                styles.sharedEventPreview,
+                                eventIsOver && styles.sharedEventPreviewDisabled
+                            ]}
+                            onPress={eventIsOver ? undefined : handleEventPress}
+                            activeOpacity={eventIsOver ? 1 : 0.7}
+                            disabled={eventIsOver}
                         >
                             <Image 
                                 source={{ uri: message.sharedEvent.eventImage || DEFAULT_EVENT_IMAGE_CHAT }}
-                                style={styles.sharedEventPreviewImage}
+                                style={[
+                                    styles.sharedEventPreviewImage,
+                                    eventIsOver && styles.sharedEventPreviewImageDisabled
+                                ]}
                                 resizeMode="cover"
                                 onError={() => setImageError(true)}
                             />
@@ -263,23 +366,43 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                                     <Feather name="image" size={20} color="#FFFFFF" />
                                 </View>
                             )}
+                            {eventIsOver && (
+                                <View style={styles.eventOverOverlay}>
+                                    <Text style={styles.eventOverText}>Event is Over</Text>
+                                </View>
+                            )}
                             <View style={styles.sharedEventPreviewContent}>
-                                <Text style={styles.sharedEventPreviewTitle} numberOfLines={1}>
-                                    {message.sharedEvent.eventTitle}
-                                </Text>
-                                <Text style={styles.sharedEventPreviewDetails} numberOfLines={1}>
-                                    {message.sharedEvent.eventDate}
-                                </Text>
-                                <Text style={styles.sharedEventPreviewDetails} numberOfLines={1}>
-                                    {message.sharedEvent.eventVenue}
-                                </Text>
+                                {eventIsOver ? (
+                                    <>
+                                        <Text style={[styles.sharedEventPreviewTitle, styles.eventOverTitle]} numberOfLines={1}>
+                                            {message.sharedEvent.eventTitle}
+                                        </Text>
+                                        <Text style={[styles.sharedEventPreviewDetails, styles.eventOverDetails]} numberOfLines={1}>
+                                            Event is Over
+                                        </Text>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Text style={styles.sharedEventPreviewTitle} numberOfLines={1}>
+                                            {message.sharedEvent.eventTitle}
+                                        </Text>
+                                        <Text style={styles.sharedEventPreviewDetails} numberOfLines={1}>
+                                            {message.sharedEvent.eventDate}
+                                        </Text>
+                                        <Text style={styles.sharedEventPreviewDetails} numberOfLines={1}>
+                                            {message.sharedEvent.eventVenue}
+                                        </Text>
+                                    </>
+                                )}
                             </View>
                         </TouchableOpacity>
-                        {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
+                        <View style={styles.timeAndEditContainer}>
+                            {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
+                            <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
+                                {formatTime(message.createdAt)}
+                            </Text>
+                        </View>
                     </View>
-                    <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
-                        {formatTime(message.createdAt)}
-                    </Text>
                 </View>
             </View>
         );
@@ -294,7 +417,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 delayLongPress={200}
                 activeOpacity={0.8}
             >
-                <View style={styles.messageContentContainer}>
+                <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
                             <Image 
@@ -311,7 +434,11 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                     
                     {/* Reply Preview for Image */} 
                     {repliedMessagePreview && (
-                        <View style={[styles.replyPreviewContainer, isCurrentUser ? styles.replyPreviewSent : styles.replyPreviewReceived]}>
+                        <TouchableOpacity 
+                            style={[styles.replyPreviewContainer, isCurrentUser ? styles.replyPreviewSent : styles.replyPreviewReceived]}
+                            onPress={() => message.replyToMessageId && onReplyPress(message.replyToMessageId)}
+                            activeOpacity={0.7}
+                        >
                             <View style={styles.replyPreviewBorder} />
                             <View style={styles.replyPreviewContent}>
                                 <Text style={styles.replyPreviewSenderName}>{repliedMessagePreview.senderName || 'User'}</Text>
@@ -324,11 +451,11 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                                     <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text}</Text>
                                 )}
                             </View>
-                        </View>
+                        </TouchableOpacity>
                     )}
 
                     <TouchableOpacity 
-                        style={[ styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage ]} 
+                        style={[styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage, isHighlighted && styles.highlightedImageBubble]} 
                         activeOpacity={0.8} 
                         onPress={() => onImagePress(message.image!)}
                     >
@@ -344,9 +471,9 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                                 <Text style={styles.imageErrorText}>Failed to load image</Text>
                             </View>
                         )}
-                        {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
+                        {message.isEdited && <Text style={styles.editedIndicatorImage}>(edited)</Text>}
                     </TouchableOpacity>
-                    <Text style={[styles.timeText, styles.timeTextBelowBubble, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
+                    <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
                     </Text>
                 </View>
@@ -363,7 +490,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 delayLongPress={200}
                 activeOpacity={0.8}
             >
-                <View style={styles.messageContentContainer}>
+                <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
                             <Image 
@@ -380,7 +507,11 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                     
                     {/* Reply Preview for Text */} 
                     {repliedMessagePreview && (
-                        <View style={[styles.replyPreviewContainer, isCurrentUser ? styles.replyPreviewSent : styles.replyPreviewReceived]}>
+                        <TouchableOpacity 
+                            style={[styles.replyPreviewContainer, isCurrentUser ? styles.replyPreviewSent : styles.replyPreviewReceived]}
+                            onPress={() => message.replyToMessageId && onReplyPress(message.replyToMessageId)}
+                            activeOpacity={0.7}
+                        >
                             <View style={styles.replyPreviewBorder} />
                             <View style={styles.replyPreviewContent}>
                                 <Text style={styles.replyPreviewSenderName}>{repliedMessagePreview.senderName || 'User'}</Text>
@@ -393,10 +524,10 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                                     <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text}</Text>
                                 )}
                             </View>
-                        </View>
+                        </TouchableOpacity>
                     )}
 
-                    <View style={[ styles.messageBubble, isCurrentUser ? styles.messageBubbleSentText : styles.messageBubbleReceivedText ]}>
+                    <View style={[styles.messageBubble, isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived, isHighlighted && styles.highlightedMessageBubble]}>
                          <Text style={[styles.messageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>{message.text}</Text>
                          <View style={styles.timeAndEditContainer}>
                             {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
@@ -458,6 +589,17 @@ const GroupChatScreen: React.FC = () => {
     const [eventModalVisible, setEventModalVisible] = useState(false);
     const [loadingEventDetails, setLoadingEventDetails] = useState(false);
     // --- End State for Event Detail Modal ---
+
+    // --- State for message highlighting ---
+    const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+    // --- End State for message highlighting ---
+
+    // --- State for scroll management ---
+    const [isUserScrolling, setIsUserScrolling] = useState(false);
+    const [isNearBottom, setIsNearBottom] = useState(true);
+    const [isScrollingToMessage, setIsScrollingToMessage] = useState(false);
+    const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    // --- End State for scroll management ---
 
     // --- Event Press Handler (similar to IndividualChatScreen) ---
     const handleEventPressInternal = async (eventId: string) => {
@@ -608,10 +750,14 @@ const GroupChatScreen: React.FC = () => {
                     
                     // Check metadata for stored event image first
                     let eventImage = DEFAULT_EVENT_IMAGE_CHAT;
+                    let eventDateTime: string | null = null;
                     if (dbMessage.metadata && typeof dbMessage.metadata === 'object' && (dbMessage.metadata as any).shared_event) {
                         const metadataEvent = (dbMessage.metadata as any).shared_event;
                         if (metadataEvent.eventImage) {
                             eventImage = metadataEvent.eventImage;
+                        }
+                        if (metadataEvent.eventDateTime) {
+                            eventDateTime = metadataEvent.eventDateTime;
                         }
                     }
                     
@@ -621,6 +767,7 @@ const GroupChatScreen: React.FC = () => {
                         eventDate: eventDate.trim(),
                         eventVenue: eventVenue.trim(),
                         eventImage: eventImage,
+                        eventDateTime: eventDateTime,
                     };
                     // Show proper user name in the display text
                     const displayName = dbMessage.sender_id === currentUserId ? 'You' : senderName;
@@ -775,6 +922,7 @@ const GroupChatScreen: React.FC = () => {
                 eventDate: eventDataToShare.eventDate,
                 eventVenue: eventDataToShare.eventVenue,
                 eventImage: eventDataToShare.eventImage || DEFAULT_EVENT_IMAGE_CHAT,
+                eventDateTime: eventDataToShare.eventDateTime || null,
             },
             replyToMessageId: replyingToMessage?._id || null,
             replyToMessagePreview: replyingToMessagePreview,
@@ -789,6 +937,17 @@ const GroupChatScreen: React.FC = () => {
         setReplyingToMessage(null);
 
         try {
+            // First, fetch the actual event datetime from the database
+            const { data: eventData, error: eventError } = await supabase
+                .from('events')
+                .select('event_datetime, poster_urls')
+                .eq('id', eventId)
+                .single();
+
+            if (eventError) {
+                console.warn('Could not fetch event datetime:', eventError);
+            }
+
             // Create formatted content for the message (similar to individual chat format)
             const formattedContent = `SHARED_EVENT:${eventId}:${eventDataToShare.eventTitle} on ${eventDataToShare.eventDate} at ${eventDataToShare.eventVenue}`;
             
@@ -807,7 +966,10 @@ const GroupChatScreen: React.FC = () => {
                             eventTitle: eventDataToShare.eventTitle,
                             eventDate: eventDataToShare.eventDate,
                             eventVenue: eventDataToShare.eventVenue,
-                            eventImage: eventDataToShare.eventImage || DEFAULT_EVENT_IMAGE_CHAT,
+                            eventImage: (eventData?.poster_urls && eventData.poster_urls.length > 0) 
+                                ? eventData.poster_urls[0] 
+                                : eventDataToShare.eventImage || DEFAULT_EVENT_IMAGE_CHAT,
+                            eventDateTime: eventData?.event_datetime || null, // Store the actual ISO datetime
                         }
                     }
                 })
@@ -1250,6 +1412,15 @@ const GroupChatScreen: React.FC = () => {
         }
     }, [initialSharedEventData, navigation]);
 
+    // --- Cleanup scroll timeout on unmount ---
+    useEffect(() => {
+        return () => {
+            if (scrollTimeoutRef.current) {
+                clearTimeout(scrollTimeoutRef.current);
+            }
+        };
+    }, []);
+
     const handleImagePress = (imageUri: string) => {
         // Find all image messages
         const imageMessages = messages.filter(msg => msg.image);
@@ -1490,6 +1661,106 @@ const GroupChatScreen: React.FC = () => {
         );
     };
 
+    // --- Scroll to Message Handler ---
+    const handleScrollToMessage = useCallback((messageId: string) => {
+        if (isScrollingToMessage) return; // Prevent multiple simultaneous scrolls
+        
+        // Find the message in sections
+        let targetSectionIndex = -1;
+        let targetItemIndex = -1;
+        
+        for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
+            const itemIndex = sections[sectionIndex].data.findIndex(msg => msg._id === messageId);
+            if (itemIndex !== -1) {
+                targetSectionIndex = sectionIndex;
+                targetItemIndex = itemIndex;
+                break;
+            }
+        }
+        
+        if (targetSectionIndex !== -1 && targetItemIndex !== -1) {
+            setIsScrollingToMessage(true);
+            setHighlightedMessageId(messageId);
+            
+            // Clear any existing scroll timeout
+            if (scrollTimeoutRef.current) {
+                clearTimeout(scrollTimeoutRef.current);
+            }
+            
+            // Scroll to the message
+            if (flatListRef.current) {
+                try {
+                    flatListRef.current.scrollToLocation({
+                        sectionIndex: targetSectionIndex,
+                        itemIndex: targetItemIndex,
+                        animated: true,
+                        viewPosition: 0.5, // Center the message in view
+                    });
+                } catch (error) {
+                    console.warn('Failed to scroll to message location:', error);
+                    // Fallback: Try to scroll to the section
+                    try {
+                        flatListRef.current.scrollToLocation({
+                            sectionIndex: targetSectionIndex,
+                            itemIndex: 0,
+                            animated: true,
+                        });
+                    } catch (fallbackError) {
+                        console.warn('Fallback scroll also failed:', fallbackError);
+                    }
+                }
+            }
+            
+            // Remove highlight and reset scroll state after delay
+            scrollTimeoutRef.current = setTimeout(() => {
+                setHighlightedMessageId(null);
+                setIsScrollingToMessage(false);
+            }, 2500);
+        } else {
+            console.warn('Message not found in current view:', messageId);
+        }
+    }, [sections, isScrollingToMessage]);
+    // --- End Scroll to Message Handler ---
+
+    // --- Smart Auto-Scroll Handler ---
+    const handleAutoScrollToBottom = useCallback(() => {
+        if (isUserScrolling || isScrollingToMessage || !isNearBottom) {
+            return; // Don't auto-scroll if user is scrolling or not near bottom
+        }
+        
+        if (flatListRef.current && sections.length > 0 && messages.length > 0) {
+            try {
+                const sectionListRef = flatListRef.current as any;
+                sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: false });
+            } catch (error) {
+                console.warn('Auto-scroll failed:', error);
+            }
+        }
+    }, [isUserScrolling, isScrollingToMessage, isNearBottom, sections.length, messages.length]);
+
+    // --- Scroll Event Handlers ---
+    const handleScrollBeginDrag = useCallback(() => {
+        setIsUserScrolling(true);
+        if (scrollTimeoutRef.current) {
+            clearTimeout(scrollTimeoutRef.current);
+        }
+    }, []);
+
+    const handleScrollEndDrag = useCallback(() => {
+        scrollTimeoutRef.current = setTimeout(() => {
+            setIsUserScrolling(false);
+        }, 1000); // Wait 1 second after user stops scrolling
+    }, []);
+
+    const handleScroll = useCallback((event: any) => {
+        if (isScrollingToMessage) return; // Don't update state during reply navigation
+        
+        const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+        const isAtBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 100; // 100px threshold
+        setIsNearBottom(isAtBottom);
+    }, [isScrollingToMessage]);
+    // --- End Scroll Event Handlers ---
+
     // --- Render Logic ---
     if (loading && messages.length === 0) { return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View>; }
     if (loadError && messages.length === 0) { const displayError = loadError.includes('permission') || loadError.includes('session') ? "Permission/session issue." : loadError; return <View style={styles.centered}><Text style={styles.errorText}>{displayError}</Text></View>; }
@@ -1515,7 +1786,9 @@ const GroupChatScreen: React.FC = () => {
                             onImagePress={handleImagePress}
                             onEventPress={handleEventPressInternal} // Pass the new internal handler
                             onMessageLongPress={handleMessageLongPress}
+                            onReplyPress={handleScrollToMessage}
                             getRepliedMessagePreview={getRepliedMessagePreview}
+                            isHighlighted={item._id === highlightedMessageId}
                         />
                     )}
                     renderSectionHeader={({ section: { title } }) => (
@@ -1523,39 +1796,16 @@ const GroupChatScreen: React.FC = () => {
                             <Text style={styles.sectionHeaderText}>{title}</Text>
                         </View>
                     )}
-                    onContentSizeChange={() => {
-                        if (flatListRef.current && sections.length > 0 && messages.length > 0) {
-                            // Use timeout to scroll after render is complete
-                            setTimeout(() => {
-                                if (flatListRef.current) {
-                                    const sectionListRef = flatListRef.current as any;
-                                    sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: false });
-                                }
-                            }, 50);
-                        }
-                    }}
-                    onLayout={() => {
-                        if (flatListRef.current && sections.length > 0 && messages.length > 0) {
-                            // Use timeout to scroll after render is complete
-                            setTimeout(() => {
-                                if (flatListRef.current) {
-                                    const sectionListRef = flatListRef.current as any;
-                                    sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: false });
-                                }
-                            }, 50);
-                        }
-                    }}
+                    onContentSizeChange={handleAutoScrollToBottom}
+                    onLayout={handleAutoScrollToBottom}
                     onScrollToIndexFailed={(info) => {
                         console.warn('Failed to scroll to index:', info);
-                        // Use timeout to scroll after render is complete
-                        setTimeout(() => {
-                            if (flatListRef.current) {
-                                const sectionListRef = flatListRef.current as any;
-                                sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: false });
-                            }
-                        }, 100);
+                        handleAutoScrollToBottom();
                     }}
                     stickySectionHeadersEnabled
+                    onScrollBeginDrag={handleScrollBeginDrag}
+                    onScrollEndDrag={handleScrollEndDrag}
+                    onScroll={handleScroll}
                 />
 
                 {/* Replying To Preview */} 
@@ -1793,7 +2043,16 @@ const styles = StyleSheet.create({
     
     // Error and banner styles
     errorText: { color: '#DC2626', fontSize: 16, textAlign: 'center', },
-    errorBanner: { backgroundColor: 'rgba(239, 68, 68, 0.1)', paddingVertical: 8, paddingHorizontal: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(239, 68, 68, 0.2)', },
+    errorBanner: { 
+        backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+        paddingVertical: 8, 
+        paddingHorizontal: 15, 
+        flexDirection: 'row', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        borderBottomWidth: 1, 
+        borderBottomColor: 'rgba(239, 68, 68, 0.2)', 
+    },
     errorBannerText: { color: '#B91C1C', fontSize: 13, flexShrink: 1, marginRight: 10, },
     errorBannerClose: { padding: 4, },
     noMessagesText: { color: '#6B7280', fontSize: 14, textAlign: 'center', },
@@ -1807,34 +2066,155 @@ const styles = StyleSheet.create({
     messageContentContainer: { maxWidth: '100%', },
     
     // Message bubbles
-    messageBubble: { borderRadius: 18, minWidth: 30, marginBottom: 2, },
-    messageBubbleSentText: { backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', borderBottomRightRadius: 4, alignSelf: 'flex-end', paddingVertical: 8, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'flex-end', flexWrap:'wrap', },
-    messageBubbleReceivedText: { backgroundColor: '#E5E7EB', borderBottomLeftRadius: 4, alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'flex-end', flexWrap:'wrap', },
+    messageBubble: { 
+        borderRadius: 18, 
+        minWidth: 30, 
+        marginBottom: 2,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2,
+    },
+    messageBubbleSent: { 
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', 
+        borderBottomRightRadius: 4, 
+        alignSelf: 'flex-end', 
+        paddingVertical: 10, 
+        paddingHorizontal: 14,
+    },
+    messageBubbleReceived: { 
+        backgroundColor: '#FFFFFF', 
+        borderBottomLeftRadius: 4, 
+        alignSelf: 'flex-start', 
+        paddingVertical: 10, 
+        paddingHorizontal: 14,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    
+    // Legacy bubble styles (keeping for backward compatibility)
+    messageBubbleSentText: { 
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', 
+        borderBottomRightRadius: 4, 
+        alignSelf: 'flex-end', 
+        paddingVertical: 10, 
+        paddingHorizontal: 14,
+    },
+    messageBubbleReceivedText: { 
+        backgroundColor: '#FFFFFF', 
+        borderBottomLeftRadius: 4, 
+        alignSelf: 'flex-start', 
+        paddingVertical: 10, 
+        paddingHorizontal: 14,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
     
     // Image messages
-    imageBubble: { borderRadius: 15, overflow: 'hidden', padding: 0, backgroundColor: '#E5E7EB', alignSelf: 'flex-start', maxWidth: 210, maxHeight: 210, borderWidth: 1, borderColor: '#d1d5db', },
-    messageBubbleSentImage: { alignSelf: 'flex-end', backgroundColor: 'transparent', borderBottomRightRadius: 4, },
-    messageBubbleReceivedImage: { alignSelf: 'flex-start', backgroundColor: 'transparent', borderBottomLeftRadius: 4, },
-    chatImage: { width: 200, height: 200, borderRadius: 14, },
+    imageBubble: { 
+        borderRadius: 18, 
+        overflow: 'hidden', 
+        padding: 0, 
+        backgroundColor: 'transparent', 
+        alignSelf: 'flex-start', 
+        maxWidth: 220, 
+        maxHeight: 220,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    messageBubbleSentImage: { 
+        alignSelf: 'flex-end', 
+        backgroundColor: 'transparent', 
+        borderBottomRightRadius: 4, 
+    },
+    messageBubbleReceivedImage: { 
+        alignSelf: 'flex-start', 
+        backgroundColor: 'transparent', 
+        borderBottomLeftRadius: 4, 
+    },
+    chatImage: { 
+        width: 210, 
+        height: 210, 
+        borderRadius: 16, 
+    },
     
     // Text styles
-    messageText: { fontSize: 15, lineHeight: 21, flexShrink: 1, },
+    messageText: { 
+        fontSize: 15, 
+        lineHeight: 21, 
+        flexShrink: 1, 
+    },
     messageTextSent: { color: '#FFFFFF', },
     messageTextReceived: { color: '#1F2937', },
-    senderName: { fontSize: 11, color: '#6B7280', marginBottom: 3, marginLeft: 5, alignSelf: 'flex-start', },
+    senderName: { 
+        fontSize: 12, 
+        color: '#6B7280', 
+        marginBottom: 4, 
+        marginLeft: 6, 
+        alignSelf: 'flex-start',
+        fontWeight: '500',
+    },
     
     // System messages
-    systemMessageContainer: { alignSelf: 'center', backgroundColor: 'rgba(107, 114, 128, 0.1)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4, marginVertical: 8, maxWidth: '80%', },
-    systemMessageText: { fontSize: 11, color: '#4B5563', textAlign: 'center', fontStyle: 'italic', },
+    systemMessageContainer: { 
+        alignSelf: 'center', 
+        backgroundColor: 'rgba(107, 114, 128, 0.1)', 
+        borderRadius: 12, 
+        paddingHorizontal: 12, 
+        paddingVertical: 6, 
+        marginVertical: 8, 
+        maxWidth: '80%', 
+    },
+    systemMessageText: { 
+        fontSize: 12, 
+        color: '#4B5563', 
+        textAlign: 'center', 
+        fontStyle: 'italic',
+        fontWeight: '500',
+    },
     
     // Time indicators
-    timeText: { fontSize: 10, },
-    timeTextInsideBubble: { marginLeft: 8, alignSelf: 'flex-end', lineHeight: 15, },
-    timeTextInsideSentBubble: { color: 'rgba(255, 255, 255, 0.7)' },
-    timeTextInsideReceivedBubble: { color: '#6B7280'},
-    timeTextBelowBubble: { marginTop: 2, paddingHorizontal: 5, color: '#9CA3AF', },
-    timeTextSent: { alignSelf: 'flex-end', marginRight: 5 },
-    timeTextReceived: { alignSelf: 'flex-start', marginLeft: 0 },
+    timeText: { 
+        fontSize: 11, 
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    timeTextInsideBubble: { 
+        fontSize: 10,
+        marginLeft: 8,
+        alignSelf: 'flex-end',
+        lineHeight: 15,
+    },
+    timeTextInsideSentBubble: { 
+        color: 'rgba(255, 255, 255, 0.7)' 
+    },
+    timeTextInsideReceivedBubble: { 
+        color: '#6B7280'
+    },
+    timeTextSent: { 
+        alignSelf: 'flex-end', 
+        marginRight: 8,
+        marginTop: 4,
+        color: '#9CA3AF',
+    },
+    timeTextReceived: { 
+        alignSelf: 'flex-start', 
+        marginLeft: 8,
+        marginTop: 4,
+        color: '#9CA3AF',
+    },
+    timeAndEditContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        marginTop: 4,
+        minHeight: 16,
+    },
     
     // Section headers
     sectionHeader: {
@@ -1847,39 +2227,155 @@ const styles = StyleSheet.create({
         borderBottomColor: 'rgba(0,0,0,0.05)',
     },
     sectionHeaderText: {
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: '600',
-        color: '#8B8B8B',
+        color: '#6B7280',
         textTransform: 'uppercase',
         letterSpacing: 0.5,
     },
     
     // Input area
-    inputToolbar: { flexDirection: 'row', alignItems: 'flex-end', paddingVertical: 8, paddingHorizontal: 10, borderTopWidth: 1, borderTopColor: '#E5E7EB', backgroundColor: '#FFFFFF', paddingBottom: Platform.OS === 'ios' ? 5 : 8, },
-    attachButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginRight: 5, marginBottom: Platform.OS === 'ios' ? 0 : 1, },
-    textInput: { flex: 1, minHeight: 40, maxHeight: 120, backgroundColor: '#F3F4F6', borderRadius: 20, paddingHorizontal: 15, paddingVertical: Platform.OS === 'ios' ? 10 : 8, fontSize: 15, marginRight: 10, color: '#1F2937', textAlignVertical: 'center', },
-    sendButton: { backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginBottom: Platform.OS === 'ios' ? 0 : 1, },
+    inputToolbar: { 
+        flexDirection: 'row', 
+        alignItems: 'flex-end', 
+        paddingVertical: 12, 
+        paddingHorizontal: 16, 
+        borderTopWidth: 1, 
+        borderTopColor: '#E5E7EB', 
+        backgroundColor: '#FFFFFF', 
+        paddingBottom: Platform.OS === 'ios' ? 8 : 12, 
+    },
+    attachButton: { 
+        width: 44, 
+        height: 44, 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        borderRadius: 22,
+        backgroundColor: '#F8F9FA',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    textInput: { 
+        flex: 1, 
+        minHeight: 44, 
+        maxHeight: 120, 
+        backgroundColor: '#F8F9FA', 
+        borderRadius: 22, 
+        paddingHorizontal: 16, 
+        paddingVertical: Platform.OS === 'ios' ? 12 : 10, 
+        fontSize: 16, 
+        marginHorizontal: 8, 
+        color: '#1F2937',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        textAlignVertical: 'center', 
+    },
+    sendButton: { 
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', 
+        width: 44, 
+        height: 44, 
+        borderRadius: 22, 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        marginBottom: Platform.OS === 'ios' ? 0 : 1, 
+    },
     sendButtonDisabled: { backgroundColor: '#9CA3AF', },
     
     // Header
-    headerTitleContainer: { flexDirection: 'row', alignItems: 'center', marginLeft: Platform.OS === 'ios' ? -10 : 0, },
-    headerGroupImage: { width: 32, height: 32, borderRadius: 16, marginRight: 8, backgroundColor: '#E5E7EB', },
-    headerTitleText: { fontSize: 17, fontWeight: '600', color: '#1F2937', },
-    headerButtons: { flexDirection: 'row', marginRight: Platform.OS === 'ios' ? 5 : 10, },
-    headerButton: { paddingHorizontal: 6, paddingVertical: 5, },
+    headerTitleContainer: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        marginLeft: Platform.OS === 'ios' ? -10 : 0, 
+    },
+    headerGroupImage: { 
+        width: 34, 
+        height: 34, 
+        borderRadius: 17, 
+        marginRight: 10, 
+        backgroundColor: '#E5E7EB', 
+    },
+    headerTitleText: { 
+        fontSize: 18, 
+        fontWeight: '600', 
+        color: '#1F2937', 
+    },
+    headerButtons: { 
+        flexDirection: 'row', 
+        marginRight: Platform.OS === 'ios' ? 5 : 10, 
+    },
+    headerButton: { 
+        paddingHorizontal: 8, 
+        paddingVertical: 6, 
+    },
     
     // Edit modal
-    modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', },
-    modalContent: { position: 'absolute', top: '30%', left: '10%', right: '10%', backgroundColor: 'white', borderRadius: 12, padding: 25, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5, width: '80%', minHeight: 200, },
-    modalTitle: { fontSize: 18, fontWeight: '600', marginBottom: 20, textAlign: 'center', color: '#1F2937', },
-    modalInput: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 12, fontSize: 16, marginBottom: 25, },
-    modalActions: { flexDirection: 'row', justifyContent: 'space-between', },
-    modalButton: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 6, alignItems: 'center', justifyContent: 'center', minWidth: 90, },
-    modalButtonCancel: { backgroundColor: '#E5E7EB', },
-    modalButtonSave: { backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', },
-    modalButtonDisabled: { backgroundColor: '#A5B4FC', },
-    modalButtonTextCancel: { color: '#4B5563', fontWeight: '500', },
-    modalButtonTextSave: { color: 'white', fontWeight: '600', },
+    modalBackdrop: { 
+        flex: 1, 
+        backgroundColor: 'rgba(0,0,0,0.5)', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+    },
+    modalContent: { 
+        position: 'absolute', 
+        top: '25%', 
+        left: '8%', 
+        right: '8%', 
+        backgroundColor: 'white', 
+        borderRadius: 16, 
+        padding: 28, 
+        shadowColor: "#000", 
+        shadowOffset: { width: 0, height: 4 }, 
+        shadowOpacity: 0.3, 
+        shadowRadius: 8, 
+        elevation: 8, 
+        width: '84%', 
+        minHeight: 220, 
+    },
+    modalTitle: { 
+        fontSize: 20, 
+        fontWeight: '600', 
+        marginBottom: 24, 
+        textAlign: 'center', 
+        color: '#1F2937', 
+    },
+    modalInput: { 
+        borderWidth: 1, 
+        borderColor: '#D1D5DB', 
+        borderRadius: 10, 
+        paddingHorizontal: 16, 
+        paddingVertical: 14, 
+        fontSize: 16, 
+        marginBottom: 28, 
+    },
+    modalActions: { 
+        flexDirection: 'row', 
+        justifyContent: 'space-between', 
+    },
+    modalButton: { 
+        paddingVertical: 12, 
+        paddingHorizontal: 24, 
+        borderRadius: 10, 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        minWidth: 100, 
+    },
+    modalButtonCancel: { 
+        backgroundColor: '#F3F4F6', 
+    },
+    modalButtonSave: { 
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', 
+    },
+    modalButtonDisabled: { 
+        backgroundColor: '#D1D5DB', 
+    },
+    modalButtonTextCancel: { 
+        color: '#4B5563', 
+        fontWeight: '600', 
+    },
+    modalButtonTextSave: { 
+        color: 'white', 
+        fontWeight: '600', 
+    },
     
     // Image viewer
     imageViewerContainer: {
@@ -1920,10 +2416,10 @@ const styles = StyleSheet.create({
     sharedEventContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        padding: 10,
+        padding: 12,
         borderTopWidth: 1,
         borderTopColor: '#E5E7EB',
-        backgroundColor: '#F9FAFB',
+        backgroundColor: '#F8F9FA',
     },
     sharedEventContent: {
         flexDirection: 'row',
@@ -1931,61 +2427,65 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     sharedEventImage: {
-        width: 40,
-        height: 40,
-        borderRadius: 8,
-        marginRight: 10,
+        width: 50,
+        height: 50,
+        borderRadius: 10,
+        marginRight: 12,
     },
     sharedEventInfo: {
         flex: 1,
     },
     sharedEventTitle: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '600',
         color: '#1F2937',
+        marginBottom: 2,
     },
     sharedEventDetails: {
-        fontSize: 12,
+        fontSize: 13,
         color: '#6B7280',
+        marginBottom: 1,
     },
     sharedEventCloseButton: {
-        padding: 5,
+        padding: 8,
+        borderRadius: 16,
+        backgroundColor: '#FFFFFF',
     },
     
     // Enhanced shared event styles
     sharedEventMessageBubble: {
-        padding: 12,
-        maxWidth: 280,
+        padding: 14,
+        maxWidth: 300,
     },
     sharedEventPreview: {
-        marginTop: 8,
-        borderRadius: 12,
+        marginTop: 10,
+        borderRadius: 14,
         borderWidth: 1,
-        borderColor: 'rgba(0,0,0,0.1)',
+        borderColor: 'rgba(0,0,0,0.08)',
         overflow: 'hidden',
         backgroundColor: '#FFFFFF',
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
+        shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2,
+        shadowRadius: 4,
+        elevation: 3,
     },
     sharedEventPreviewImage: {
         width: '100%', 
-        height: 130,
+        height: 140,
         backgroundColor: '#F3F4F6',
     },
     sharedEventPreviewContent: {
-        padding: 10,
+        padding: 12,
     },
     sharedEventPreviewTitle: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '600',
         color: '#1F2937',
         marginBottom: 4,
     },
     sharedEventPreviewDetails: {
-        fontSize: 12,
+        fontSize: 13,
         color: '#6B7280',
         marginBottom: 2,
     },
@@ -1997,14 +2497,16 @@ const styles = StyleSheet.create({
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: 'rgba(0,0,0,0.3)',
+        backgroundColor: 'rgba(0,0,0,0.4)',
         justifyContent: 'center',
         alignItems: 'center',
+        borderRadius: 16,
     },
     imageErrorText: {
         color: '#FFFFFF',
         fontSize: 12,
         marginTop: 4,
+        textAlign: 'center',
     },
     
     // Loading overlay
@@ -2012,10 +2514,10 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
     },
     loadingOverlayText: {
-        marginTop: 10,
+        marginTop: 12,
         color: 'white',
         fontSize: 16,
     },
@@ -2024,16 +2526,10 @@ const styles = StyleSheet.create({
         marginVertical: 4,
         alignItems: 'flex-end',
     },
-    timeAndEditContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginLeft: 8,
-        alignSelf: 'flex-end',
-    },
     editedIndicator: {
         fontSize: 10,
         fontStyle: 'italic',
-        marginRight: 4,
+        marginRight: 6,
     },
     editedIndicatorSent: {
         color: 'rgba(255, 255, 255, 0.7)',
@@ -2041,13 +2537,26 @@ const styles = StyleSheet.create({
     editedIndicatorReceived: {
         color: '#6B7280',
     },
+    editedIndicatorImage: {
+        position: 'absolute',
+        bottom: 8,
+        right: 8,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        color: 'white',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        fontSize: 9,
+    },
     deletedMessageBubble: {
-        paddingVertical: 8,
-        paddingHorizontal: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#E5E7EB',
+        backgroundColor: '#F3F4F6',
         opacity: 0.8,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
     },
     deletedMessageText: {
         fontSize: 14,
@@ -2056,11 +2565,11 @@ const styles = StyleSheet.create({
     },
     replyPreviewContainer: {
         flexDirection: 'row',
-        backgroundColor: 'rgba(0,0,0,0.03)',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderTopLeftRadius: 8,
-        borderTopRightRadius: 8,
+        backgroundColor: 'rgba(0,0,0,0.04)',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderTopLeftRadius: 12,
+        borderTopRightRadius: 12,
         marginBottom: -2,
         maxWidth: '90%',
     },
@@ -2077,13 +2586,14 @@ const styles = StyleSheet.create({
     replyPreviewBorder: {
     },
     replyPreviewContent: {
-        marginLeft: 6,
+        marginLeft: 8,
         flexShrink: 1,
     },
     replyPreviewSenderName: {
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: '600',
         color: '#4B5563',
+        marginBottom: 2,
     },
     replyPreviewText: {
         fontSize: 12,
@@ -2093,53 +2603,57 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        backgroundColor: '#E9E9EB',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        backgroundColor: '#F0F1F3',
         borderTopWidth: 1,
-        borderTopColor: '#DCDCDC',
+        borderTopColor: '#E5E7EB',
     },
     replyingToContent: {
         flex: 1,
     },
     replyingToTitle: {
-        fontSize: 13,
+        fontSize: 14,
         fontWeight: '600',
-        color: '#333333',
+        color: '#374151',
+        marginBottom: 2,
     },
     replyingToText: {
         fontSize: 13,
-        color: '#555555',
+        color: '#6B7280',
     },
     replyingToCloseButton: {
-        padding: 5,
+        padding: 6,
+        borderRadius: 12,
+        backgroundColor: '#FFFFFF',
     },
     actionModalContent: {
         position: 'absolute',
-        bottom: Platform.OS === 'ios' ? 30 : 15,
-        left: 15,
-        right: 15,
+        bottom: Platform.OS === 'ios' ? 34 : 20,
+        left: 16,
+        right: 16,
         backgroundColor: 'white',
-        borderRadius: 12,
-        paddingVertical: 10,
+        borderRadius: 16,
+        paddingVertical: 8,
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 5,
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 8,
     },
     actionModalButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 12,
+        paddingVertical: 14,
         paddingHorizontal: 20,
     },
     actionModalIcon: {
-        marginRight: 15,
+        marginRight: 16,
     },
     actionModalButtonText: {
         fontSize: 16,
         color: '#1F2937',
+        fontWeight: '500',
     },
     messageInfoModalContent: {
         position: 'absolute',
@@ -2148,33 +2662,33 @@ const styles = StyleSheet.create({
         right: 0,
         maxHeight: '60%',
         backgroundColor: 'white',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        padding: 20,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        padding: 24,
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: -3 },
-        shadowOpacity: 0.15,
-        shadowRadius: 5,
-        elevation: 10,
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 12,
     },
     messageInfoTitle: {
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: 'bold',
         textAlign: 'center',
-        marginBottom: 15,
+        marginBottom: 20,
         color: '#1F2937',
     },
     messageInfoSectionTitle: {
-        fontSize: 15,
+        fontSize: 16,
         fontWeight: '600',
         color: '#374151',
-        marginTop: 10,
-        marginBottom: 5,
+        marginTop: 12,
+        marginBottom: 8,
     },
     messageInfoMemberRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 8,
+        paddingVertical: 10,
         borderBottomWidth: 1,
         borderBottomColor: '#E5E7EB',
     },
@@ -2188,20 +2702,21 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     messageInfoMemberName: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '500',
         color: '#1F2937',
+        marginBottom: 2,
     },
     messageInfoStatusText: {
-        fontSize: 12,
+        fontSize: 13,
         color: '#6B7280',
         marginTop: 2,
     },
     messageInfoCloseButton: {
-        marginTop: 20,
-        paddingVertical: 12,
+        marginTop: 24,
+        paddingVertical: 14,
         backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
-        borderRadius: 8,
+        borderRadius: 12,
         alignItems: 'center',
     },
     messageInfoCloseButtonText: {
@@ -2212,12 +2727,71 @@ const styles = StyleSheet.create({
     senderInfoContainer: {
         flexDirection: 'row',
         alignItems: 'center',
+        marginBottom: 4,
     },
     senderAvatar: {
         width: 32,
         height: 32,
         borderRadius: 16,
         marginRight: 8,
+    },
+    highlightedMessageContainer: {
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        borderRadius: 12,
+        padding: 4,
+        margin: 2,
+    },
+    highlightedMessageBubble: {
+        borderWidth: 2,
+        borderColor: 'rgba(59, 130, 246, 0.3)',
+        shadowColor: '#3B82F6',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 4,
+    },
+    highlightedImageBubble: {
+        borderWidth: 2,
+        borderColor: 'rgba(59, 130, 246, 0.3)',
+        shadowColor: '#3B82F6',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 4,
+    },
+    sharedEventPreviewDisabled: {
+        opacity: 0.5,
+    },
+    sharedEventPreviewImageDisabled: {
+        backgroundColor: '#F3F4F6',
+    },
+    eventOverOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 16,
+    },
+    eventOverText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        marginTop: 4,
+        textAlign: 'center',
+    },
+    eventOverTitle: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#1F2937',
+        marginBottom: 2,
+    },
+    eventOverDetails: {
+        fontSize: 13,
+        color: '#6B7280',
+        marginBottom: 1,
     },
 });
 
