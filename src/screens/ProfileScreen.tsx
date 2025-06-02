@@ -415,6 +415,9 @@ const ProfileScreen: React.FC = () => {
                     <View style={styles.avatarContainer}><Image source={{ uri: profilePictureUrl }} style={styles.avatar} /></View>
                     <View style={styles.profileInfo}>
                         <View style={styles.nameContainer}><Text style={styles.name}>{userName}</Text>{isPremium && (<View style={styles.premiumBadgeName}><Feather name="award" size={10} color="#B8860B" /><Text style={styles.premiumTextName}>Premium</Text></View>)}</View>
+                        {musicLoverProfile.username && (
+                            <Text style={styles.username}>@{musicLoverProfile.username}</Text>
+                        )}
                         <View style={styles.locationAgeContainer}>{userAge && <Text style={styles.age}>{userAge} y/o</Text>}{(userCity || userCountry) && (<>{userAge && <Text style={styles.locationSeparator}>•</Text>}<Feather name="map-pin" size={12} color="#6B7280" style={{ marginRight: 4 }}/><Text style={styles.location}>{userCity}{userCity && userCountry ? ', ' : ''}{userCountry}</Text></>)}</View>
                         <View style={styles.statsContainer}>
                             <TouchableOpacity 
@@ -1006,6 +1009,7 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         lineHeight: 20,
     },
+    username: { fontSize: 14, color: "#6B7280", marginTop: 4, textAlign: 'center' },
 });
 
 export default ProfileScreen;

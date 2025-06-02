@@ -185,6 +185,8 @@ export interface IndividualChatListItem {
     partner_user_id: string;
     last_message_content: string | null;
     last_message_created_at: string;
+    last_message_sender_id?: string; // ID of who sent the last message
+    last_message_sender_name?: string; // Name of who sent the last message
     partner_first_name: string | null;
     partner_last_name: string | null;
     partner_profile_picture: string | null;
@@ -207,6 +209,9 @@ export interface GroupChatListItem {
     group_image: string | null;
     last_message_content: string | null;
     last_message_created_at: string | null;
+    last_message_sender_id?: string; // ID of who sent the last message
+    last_message_sender_name?: string; // Name of who sent the last message
+    current_user_sent_any_message?: boolean; // New field for interaction status
     member_count?: number;
     other_members_preview?: { user_id: string; name: string }[];
     unread?: number; // Placeholder
@@ -235,18 +240,51 @@ const formatTimestamp = (timestamp: string | null): string => {
     try {
         const date = new Date(timestamp);
         const now = new Date();
-        const diffSeconds = (now.getTime() - date.getTime()) / 1000;
-        const diffHours = diffSeconds / 3600;
-        const diffDays = diffHours / 24;
+        const diffMs = now.getTime() - date.getTime();
+        const diffMinutes = Math.floor(diffMs / (1000 * 60));
+        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-        if (diffHours < 24 && date.getDate() === now.getDate()) { // Today
-            return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-        } else if (diffDays < 7) { // Within last week
-             return date.toLocaleDateString([], { weekday: 'short' });
-        } else { // Older than a week
-            return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        if (diffMinutes < 1) return 'now';
+        if (diffMinutes < 60) return `${diffMinutes}m`;
+        if (diffHours < 24) return `${diffHours}h`;
+        if (diffDays < 7) return `${diffDays}d`;
+        
+        // For older messages, show the date
+        return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    } catch {
+        return '';
+    }
+};
+
+// Function to format shared event messages for chat list preview
+const formatLastMessageForPreview = (
+    messageContent: string | null, 
+    senderId: string | undefined, 
+    currentUserId: string | undefined, 
+    senderName: string | undefined, // Now this comes from the database
+    isGroupChat: boolean = false
+): string => {
+    if (!messageContent) return '';
+    
+    // Check if it's a shared event message
+    if (messageContent.startsWith('SHARED_EVENT:')) {
+        // Always check if current user sent it first
+        if (senderId === currentUserId) {
+            return 'You shared an event';
+        } else {
+            // For non-current-user messages, use the actual sender name from database
+            if (senderName) {
+                return `${senderName} shared an event`;
+            } else {
+                // Fallback if sender name is not available
+                return 'Someone shared an event';
+            }
         }
-    } catch (e) { console.error("Error formatting timestamp:", e); return ''; }
+    }
+    
+    // Return original message content for non-shared-event messages
+    return messageContent;
 };
 
 const ChatsTabs: React.FC<ChatsTabsProps> = ({
@@ -390,7 +428,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                         id={item.partner_user_id}
                         name={`${item.partner_first_name || ''} ${item.partner_last_name || ''}`.trim() || 'User'}
                         image={item.partner_profile_picture}
-                        lastMessage={item.last_message_content || ''}
+                        lastMessage={formatLastMessageForPreview(item.last_message_content, item.last_message_sender_id, session?.user?.id, item.last_message_sender_name, false)}
                         time={formatTimestamp(item.last_message_created_at)}
                         unread={item.unread || 0}
                         isPinned={item.isPinned || false}
@@ -455,14 +493,24 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                         id={item.group_id}
                         name={item.group_name || `Group (${item.member_count || '...'})`}
                         image={item.group_image}
-                        lastMessage={item.last_message_content || 'Group created'}
+                        lastMessage={formatLastMessageForPreview(
+                            item.last_message_content, 
+                            item.last_message_sender_id, 
+                            session?.user?.id, 
+                            item.last_message_sender_name,
+                            true
+                        )}
                         time={formatTimestamp(item.last_message_created_at)}
                         unread={item.unread || 0}
                         isPinned={item.isPinned || false}
-                        membersPreview={item.other_members_preview?.map(m => m.name.split(' ')[0]).join(', ')}
                         type='group'
+                        membersPreview={
+                            item.other_members_preview && item.other_members_preview.length > 0 
+                                ? item.other_members_preview.map(member => member.name).join(', ')
+                                : undefined
+                        }
                         onChatOpen={() => onChatOpen({ type: 'group', data: item })}
-                        // No profile open for groups, or define specific group info screen
+                        // No profile open for groups
                     />
                 )}
                 showsVerticalScrollIndicator={false}

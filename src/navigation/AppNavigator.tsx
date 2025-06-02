@@ -117,7 +117,7 @@ export type MainStackParamList = {
   LinkMusicServicesScreen: { autoLinkSpotify?: boolean } | undefined;
 
   // Organizer Specific Screens (outside tabs)
-  EventDetail: { eventId: string }; // Corrected from EventDetailScreen, eventId to string
+  EventDetail: { eventId: string };   // Corrected from EditEventScreen, eventId to string
   EditEvent: { eventId: string };   // Corrected from EditEventScreen, eventId to string
   ViewBookings: { eventId: string; eventTitle: string }; // <<< ADDED ViewBookings
   OrganizerSettingsScreen: undefined;
@@ -134,7 +134,7 @@ export type MainStackParamList = {
   BookingConfirmation: { eventId?: string, bookingId?: string }; // Added params
   UpcomingEventsListScreen: { userId?: string, organizerId?: string }; // Added optional params
   PastEventsListScreen: { userId?: string, organizerId?: string }; // Added optional params
-  ViewOrganizerProfileScreen: { organizerId: string }; // Added params
+  ViewOrganizerProfileScreen: { organizerUserId: string }; // Fixed param name to match the screen
   ShareEventScreen: {
     eventId: string;
     eventTitle: string;

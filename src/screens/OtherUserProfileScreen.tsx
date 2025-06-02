@@ -1054,6 +1054,9 @@ const OtherUserProfileScreen: React.FC = () => {
                             <Text style={profileStyles.name}>{userName}</Text>
                             {isPremium && (<View style={profileStyles.premiumBadgeName}><Feather name="award" size={10} color="#B8860B" /><Text style={profileStyles.premiumTextName}>Premium</Text></View>)}
                         </View>
+                        {profileData.username && (
+                            <Text style={profileStyles.username}>@{profileData.username}</Text>
+                        )}
                         <View style={profileStyles.locationAgeContainer}>
                             {userAge && <Text style={styles.age}>{userAge} y/o</Text>}
                             {(userCity || userCountry) && userAge && <Text style={styles.locationSeparator}> • </Text>}
@@ -1498,6 +1501,7 @@ const profileStyles = StyleSheet.create({
         width: '100%',
         height: '100%',
     },
+    username: { fontSize: 14, color: "#6B7280", marginTop: 4, marginBottom: 8, },
 });
 
 

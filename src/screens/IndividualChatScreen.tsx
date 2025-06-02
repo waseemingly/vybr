@@ -116,8 +116,8 @@ interface MessageBubbleProps {
 
 // Add DEFAULT_PROFILE_PIC constant
 const DEFAULT_PROFILE_PIC = APP_CONSTANTS.DEFAULT_PROFILE_PIC;
-const DEFAULT_EVENT_IMAGE_CHAT = "https://via.placeholder.com/800x450/D1D5DB/1F2937?text=Event"; // Direct placeholder
-const DEFAULT_ORGANIZER_LOGO_CHAT = "https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo"; // Direct placeholder
+const DEFAULT_EVENT_IMAGE_CHAT = "https://picsum.photos/800/450?random=1"; // Changed to a more reliable placeholder
+const DEFAULT_ORGANIZER_LOGO_CHAT = "https://picsum.photos/150/150?random=2"; // Changed to a more reliable placeholder
 const DEFAULT_ORGANIZER_NAME_CHAT = "Event Organizer";
 
 // Helper to format timestamps
@@ -430,63 +430,111 @@ const IndividualChatScreen: React.FC = () => {
     // --- Callback Functions (useCallback) & Other Helpers ---
 
     const handleEventPressInternal = async (eventId: string) => {
-        if (!eventId) return;
+        if (!eventId) {
+            console.warn("[ChatScreen] handleEventPressInternal called with empty eventId");
+            return;
+        }
         console.log("[ChatScreen] Event preview pressed, Event ID:", eventId);
         setLoadingEventDetails(true);
         setSelectedEventDataForModal(null); 
         try {
+            console.log("[ChatScreen] Fetching event details from database...");
             const { data: eventData, error: eventError } = await supabase
-                .from('events_public_data')
+                .from('events')
                 .select(`
-                    event_id,
-                    event_name,
-                    event_date,
-                    venue_name,
-                    event_poster_url,
-                    MusicLoverProfile:event_organizer_id ( user_id, first_name, last_name, profile_picture ),
-                    event_description,
-                    ticket_link,
-                    genre_tags,
-                    mood_tags,
-                    artist_lineup_names
+                    id,
+                    title,
+                    event_datetime,
+                    location_text,
+                    poster_urls,
+                    organizer_id,
+                    description,
+                    tags_genres,
+                    tags_artists,
+                    tags_songs,
+                    booking_type,
+                    ticket_price,
+                    pass_fee_to_user,
+                    max_tickets,
+                    max_reservations
                 `)
-                .eq('event_id', eventId)
-                .single();
+                .eq('id', eventId)
+                .maybeSingle(); // Changed from .single() to .maybeSingle()
 
-            if (eventError) throw eventError;
-            if (!eventData) throw new Error("Event not found");
+            if (eventError) {
+                console.error("[ChatScreen] Error fetching event:", eventError);
+                throw eventError;
+            }
+            if (!eventData) {
+                console.warn("[ChatScreen] Event not found for ID:", eventId);
+                throw new Error("Event not found");
+            }
 
-            const organizerProfileSource = eventData.MusicLoverProfile as any; 
+            console.log("[ChatScreen] Event data fetched successfully:", {
+                id: eventData.id,
+                title: eventData.title,
+                organizer_id: eventData.organizer_id,
+                booking_type: eventData.booking_type,
+                ticket_price: eventData.ticket_price
+            });
+
+            // Fetch organizer profile from organizer_profiles table (not music_lover_profiles)
+            let organizerProfile = null;
+            if (eventData.organizer_id) {
+                try {
+                    console.log("[ChatScreen] Fetching organizer profile for:", eventData.organizer_id);
+                    const { data: profileData, error: profileError } = await supabase
+                        .from('organizer_profiles')
+                        .select('user_id, company_name, logo')
+                        .eq('user_id', eventData.organizer_id)
+                        .maybeSingle(); // Changed from .single() to .maybeSingle()
+                    
+                    if (profileError) {
+                        console.warn("[ChatScreen] Could not fetch organizer profile:", profileError.message);
+                    } else if (profileData) {
+                        console.log("[ChatScreen] Organizer profile fetched successfully");
+                        organizerProfile = profileData;
+                    } else {
+                        console.warn("[ChatScreen] No organizer profile found for ID:", eventData.organizer_id);
+                    }
+                } catch (profileErr) {
+                    console.warn("[ChatScreen] Exception fetching organizer profile:", profileErr);
+                    // Continue without organizer profile
+                }
+            }
+
             const mappedEvent: MappedEvent = {
-                id: eventData.event_id,
-                title: eventData.event_name || "Event Title",
-                images: eventData.event_poster_url ? [eventData.event_poster_url] : [DEFAULT_EVENT_IMAGE_CHAT],
-                date: formatEventDateTimeForModal(eventData.event_date).date,
-                time: formatEventDateTimeForModal(eventData.event_date).time,
-                venue: eventData.venue_name || "Venue N/A",
-                genres: eventData.genre_tags || [],
-                artists: eventData.artist_lineup_names || [],
-                songs: [], // Not available in this context
-                description: eventData.event_description || "No description.",
-                booking_type: null, // Default
-                ticket_price: null, // Default
-                pass_fee_to_user: false, // Default
-                max_tickets: null, // Default
-                max_reservations: null, // Default
+                id: eventData.id,
+                title: eventData.title || "Event Title",
+                images: eventData.poster_urls && eventData.poster_urls.length > 0 ? eventData.poster_urls : [DEFAULT_EVENT_IMAGE_CHAT],
+                date: formatEventDateTimeForModal(eventData.event_datetime).date,
+                time: formatEventDateTimeForModal(eventData.event_datetime).time,
+                venue: eventData.location_text || "Venue N/A",
+                genres: eventData.tags_genres || [],
+                artists: eventData.tags_artists || [],
+                songs: eventData.tags_songs || [],
+                description: eventData.description || "No description.",
+                booking_type: eventData.booking_type,
+                ticket_price: eventData.ticket_price,
+                pass_fee_to_user: eventData.pass_fee_to_user ?? true,
+                max_tickets: eventData.max_tickets,
+                max_reservations: eventData.max_reservations,
                 organizer: {
-                    userId: organizerProfileSource?.user_id || "N/A",
-                    name: `${organizerProfileSource?.first_name || ''} ${organizerProfileSource?.last_name || ''}`.trim() || DEFAULT_ORGANIZER_NAME_CHAT,
-                    image: organizerProfileSource?.profile_picture || DEFAULT_ORGANIZER_LOGO_CHAT,
+                    userId: organizerProfile?.user_id || eventData.organizer_id || "N/A",
+                    name: organizerProfile?.company_name || DEFAULT_ORGANIZER_NAME_CHAT,
+                    image: organizerProfile?.logo || DEFAULT_ORGANIZER_LOGO_CHAT,
                 },
-                event_datetime_iso: eventData.event_date || new Date().toISOString(),
+                event_datetime_iso: eventData.event_datetime || new Date().toISOString(),
             };
+            console.log("[ChatScreen] Mapped event data successfully, opening modal");
             setSelectedEventDataForModal(mappedEvent);
             setEventModalVisible(true);
         } catch (err: any) {
-            console.error("Error fetching event details:", err);
-            Alert.alert("Error", "Could not load event details.");
+            console.error("[ChatScreen] Error fetching event details:", err);
+            Alert.alert("Error", `Could not load event details: ${err.message}`);
         } finally {
             setLoadingEventDetails(false);
+            console.log("[ChatScreen] handleEventPressInternal completed");
         }
     };
 
@@ -507,10 +555,48 @@ const IndividualChatScreen: React.FC = () => {
                     if (atIndex !== -1) { eventVenue = detailsString.substring(atIndex + atSeparator.length); eventName = detailsString.substring(0, atIndex); }
                     const onIndex = eventName.lastIndexOf(onSeparator);
                     if (onIndex !== -1) { eventDate = eventName.substring(onIndex + onSeparator.length); eventName = eventName.substring(0, onIndex); }
-                    sharedEventInfo = { eventId: eventId, eventTitle: eventName.trim(), eventDate: eventDate.trim(), eventVenue: eventVenue.trim(), eventImage: DEFAULT_EVENT_IMAGE_CHAT, };
-                    displayText = `Shared an event: ${sharedEventInfo.eventTitle}`;
-                } else { console.warn("SHARED_EVENT string has invalid format:", rawContent); displayText = "Shared an event"; sharedEventInfo = { eventId: "unknown", eventTitle: "Event", eventDate: "N/A", eventVenue: "N/A", eventImage: DEFAULT_EVENT_IMAGE_CHAT, }; }
-            } catch (e) { console.error("Failed to parse shared event content:", rawContent, e); displayText = "Shared an event"; sharedEventInfo = { eventId: "unknown", eventTitle: "Event", eventDate: "N/A", eventVenue: "N/A", eventImage: DEFAULT_EVENT_IMAGE_CHAT, };}
+                    
+                    // Check metadata for stored event image first
+                    let eventImage = DEFAULT_EVENT_IMAGE_CHAT;
+                    if (dbMessage.metadata && typeof dbMessage.metadata === 'object' && dbMessage.metadata.shared_event) {
+                        const metadataEvent = dbMessage.metadata.shared_event as any;
+                        if (metadataEvent.eventImage) {
+                            eventImage = metadataEvent.eventImage;
+                        }
+                    }
+                    
+                    sharedEventInfo = { 
+                        eventId: eventId, 
+                        eventTitle: eventName.trim(), 
+                        eventDate: eventDate.trim(), 
+                        eventVenue: eventVenue.trim(), 
+                        eventImage: eventImage,
+                    };
+                    // Show proper sender name for individual chats
+                    const displayName = dbMessage.sender_id === currentUserId ? 'You' : dynamicMatchName;
+                    displayText = `${displayName} shared an event`;
+                } else { 
+                    console.warn("SHARED_EVENT string has invalid format:", rawContent); 
+                    displayText = "Shared an event"; 
+                    sharedEventInfo = { 
+                        eventId: "unknown", 
+                        eventTitle: "Event", 
+                        eventDate: "N/A", 
+                        eventVenue: "N/A", 
+                        eventImage: DEFAULT_EVENT_IMAGE_CHAT,
+                    }; 
+                }
+            } catch (e) { 
+                console.error("Failed to parse shared event content:", rawContent, e); 
+                displayText = "Shared an event"; 
+                sharedEventInfo = { 
+                    eventId: "unknown", 
+                    eventTitle: "Event", 
+                    eventDate: "N/A", 
+                    eventVenue: "N/A", 
+                    eventImage: DEFAULT_EVENT_IMAGE_CHAT,
+                };
+            }
         }
         return {
             _id: dbMessage.id, text: displayText, createdAt: new Date(dbMessage.created_at),
@@ -521,7 +607,7 @@ const IndividualChatScreen: React.FC = () => {
             deliveredAt: dbMessage.delivered_at ? new Date(dbMessage.delivered_at) : null,
             isSeen: dbMessage.is_seen, seenAt: dbMessage.seen_at ? new Date(dbMessage.seen_at) : null,
         };
-    }, []);
+    }, [currentUserId, dynamicMatchName]);
 
     const markChatAsInitiatedInStorage = useCallback(async (userIdToMark: string) => {
         if (!currentUserId) return;
@@ -663,7 +749,7 @@ const IndividualChatScreen: React.FC = () => {
         }
     }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage, checkMutualInitiation]);
 
-    // --- Share Event (using RPC) --- 
+    // --- Share Event (using inline logic instead of RPC) --- 
     const shareEventToUser = useCallback(async (eventDataToShare: typeof initialSharedEventData) => {
         if (!currentUserId || !matchUserId || !eventDataToShare || isUploading) return;
         const { eventId } = eventDataToShare;
@@ -674,7 +760,7 @@ const IndividualChatScreen: React.FC = () => {
         Keyboard.dismiss();
 
         const tempId = `temp_shared_${Date.now()}`;
-        const eventMessageText = `Shared an event: ${eventDataToShare.eventTitle}`;
+        const eventMessageText = `You shared an event`;
 
         let replyingToMessagePreview: ChatMessage['replyToMessagePreview'] = null;
         if (replyingToMessage) {
@@ -706,20 +792,50 @@ const IndividualChatScreen: React.FC = () => {
         setReplyingToMessage(null);
 
         try {
-            const { data: rpcData, error: rpcError } = await supabase.rpc('share_event_to_user', {
-                p_event_id: eventId,
-                p_recipient_id: matchUserId,
-                p_reply_to_message_id: replyToId || null
-            });
+            // Create formatted content for the message (similar to group chat format)
+            const formattedContent = `SHARED_EVENT:${eventId}:${eventDataToShare.eventTitle} on ${eventDataToShare.eventDate} at ${eventDataToShare.eventVenue}`;
+            
+            // Insert message directly into messages table
+            const { data: insertedMessage, error: insertError } = await supabase
+                .from('messages')
+                .insert({
+                    sender_id: currentUserId,
+                    receiver_id: matchUserId,
+                    content: formattedContent,
+                    reply_to_message_id: replyToId || null,
+                    metadata: {
+                        shared_event: {
+                            eventId: eventDataToShare.eventId,
+                            eventTitle: eventDataToShare.eventTitle,
+                            eventDate: eventDataToShare.eventDate,
+                            eventVenue: eventDataToShare.eventVenue,
+                            eventImage: eventDataToShare.eventImage || DEFAULT_EVENT_IMAGE_CHAT,
+                        }
+                    }
+                })
+                .select('id, created_at')
+                .single();
 
-            if (rpcError) throw rpcError;
-            if (!rpcData || !rpcData.success || !rpcData.message_id) {
-                throw new Error('Failed to share event via RPC or received invalid response.');
+            if (insertError) throw insertError;
+            if (!insertedMessage) throw new Error('Failed to insert shared event message.');
+
+            // Log event impression
+            try {
+                await supabase.from('event_impressions').insert({
+                    event_id: eventId,
+                    user_id: currentUserId,
+                    source: 'individual_chat_share',
+                    viewed_at: new Date().toISOString()
+                });
+            } catch (impressionError) {
+                console.warn('Failed to log event impression:', impressionError);
+                // Don't fail the whole operation for impression logging
             }
-            console.log('[IndividualChatScreen] Event shared to user via RPC successfully, message_id:', rpcData.message_id);
+
+            console.log('[IndividualChatScreen] Event shared to user successfully, message_id:', insertedMessage.id);
             markChatAsInitiatedInStorage(matchUserId);
             setMessages(prev => prev.map(msg => 
-                msg._id === tempId ? { ...optimisticMessage, _id: rpcData.message_id } : msg
+                msg._id === tempId ? { ...optimisticMessage, _id: insertedMessage.id, createdAt: new Date(insertedMessage.created_at) } : msg
             ));
 
         } catch (err: any) {
@@ -963,20 +1079,42 @@ const IndividualChatScreen: React.FC = () => {
                     const newMessageDb = payload.new as DbMessage;
 
                     // Check if message is hidden for current user
-                    const { data: hiddenCheck } = await supabase.from('user_hidden_messages').select('message_id').eq('user_id', currentUserId).eq('message_id', newMessageDb.id).maybeSingle();
-                    if (hiddenCheck) return; // Skip if hidden
+                    try {
+                        const { data: hiddenCheck, error: hiddenError } = await supabase
+                            .from('user_hidden_messages')
+                            .select('message_id')
+                            .eq('user_id', currentUserId)
+                            .eq('message_id', newMessageDb.id)
+                            .maybeSingle(); // Changed from implicit single to maybeSingle
+                            
+                        if (hiddenError) {
+                            console.warn("Error checking if message is hidden:", hiddenError.message);
+                            // Continue processing the message despite the error
+                        } else if (hiddenCheck) {
+                            console.log("Message is hidden for current user, skipping");
+                            return; // Skip if hidden
+                        }
+                    } catch (hiddenCheckErr) {
+                        console.warn("Exception checking hidden message status:", hiddenCheckErr);
+                        // Continue processing the message
+                    }
 
                     const receivedMessage = mapDbMessageToChatMessage(newMessageDb);
                     
                     // Add reply preview if it exists
                     if (receivedMessage.replyToMessageId) {
-                        const repliedMsg = messages.find(m => m._id === receivedMessage.replyToMessageId) || await fetchMessageById(receivedMessage.replyToMessageId);
-                        if (repliedMsg) {
-                            receivedMessage.replyToMessagePreview = {
-                                text: repliedMsg.image ? '[Image]' : repliedMsg.text,
-                                senderName: repliedMsg.user._id === currentUserId ? musicLoverProfile?.firstName || 'You' : dynamicMatchName,
-                                image: repliedMsg.image
-                            };
+                        try {
+                            const repliedMsg = messages.find(m => m._id === receivedMessage.replyToMessageId) || await fetchMessageById(receivedMessage.replyToMessageId);
+                            if (repliedMsg) {
+                                receivedMessage.replyToMessagePreview = {
+                                    text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                    senderName: repliedMsg.user._id === currentUserId ? musicLoverProfile?.firstName || 'You' : dynamicMatchName,
+                                    image: repliedMsg.image
+                                };
+                            }
+                        } catch (replyErr) {
+                            console.warn("Error fetching reply preview:", replyErr);
+                            // Continue without reply preview
                         }
                     }
 
@@ -994,10 +1132,18 @@ const IndividualChatScreen: React.FC = () => {
                             return prevMessages;
                         });
                     }
-                    checkMutualInitiation([...messages, receivedMessage]);
+                    try {
+                        checkMutualInitiation([...messages, receivedMessage]);
+                    } catch (mutualErr) {
+                        console.warn("Error checking mutual initiation:", mutualErr);
+                    }
                      // If the message is for the current user, mark as delivered
                     if (receivedMessage.user._id === matchUserId && currentUserId) { // Message from other user to me
-                        markMessageDelivered(receivedMessage._id);
+                        try {
+                            await markMessageDelivered(receivedMessage._id);
+                        } catch (deliveredErr) {
+                            console.warn("Error marking message as delivered:", deliveredErr);
+                        }
                     }
                 }
             )
@@ -1010,20 +1156,41 @@ const IndividualChatScreen: React.FC = () => {
                     const updatedMessageDb = payload.new as DbMessage;
                     
                      // Check if message update is relevant (e.g., not hidden, unless it's a delete for everyone)
-                    const { data: hiddenCheck } = await supabase.from('user_hidden_messages').select('message_id').eq('user_id', currentUserId).eq('message_id', updatedMessageDb.id).maybeSingle();
-                    if (hiddenCheck && !updatedMessageDb.is_deleted) return; 
+                    try {
+                        const { data: hiddenCheck, error: hiddenError } = await supabase
+                            .from('user_hidden_messages')
+                            .select('message_id')
+                            .eq('user_id', currentUserId)
+                            .eq('message_id', updatedMessageDb.id)
+                            .maybeSingle(); // Changed from implicit single to maybeSingle
+                            
+                        if (hiddenError) {
+                            console.warn("Error checking if updated message is hidden:", hiddenError.message);
+                        } else if (hiddenCheck && !updatedMessageDb.is_deleted) {
+                            console.log("Updated message is hidden for current user, skipping unless delete");
+                            return;
+                        }
+                    } catch (hiddenCheckErr) {
+                        console.warn("Exception checking hidden status for updated message:", hiddenCheckErr);
+                        // Continue processing
+                    }
 
                     const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb);
                     
                      // Add reply preview if it exists
                     if (updatedMessageUi.replyToMessageId) {
-                        const repliedMsg = messages.find(m => m._id === updatedMessageUi.replyToMessageId) || await fetchMessageById(updatedMessageUi.replyToMessageId);
-                        if (repliedMsg) {
-                            updatedMessageUi.replyToMessagePreview = {
-                                text: repliedMsg.image ? '[Image]' : repliedMsg.text,
-                                senderName: repliedMsg.user._id === currentUserId ? musicLoverProfile?.firstName || 'You' : dynamicMatchName,
-                                image: repliedMsg.image
-                            };
+                        try {
+                            const repliedMsg = messages.find(m => m._id === updatedMessageUi.replyToMessageId) || await fetchMessageById(updatedMessageUi.replyToMessageId);
+                            if (repliedMsg) {
+                                updatedMessageUi.replyToMessagePreview = {
+                                    text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                    senderName: repliedMsg.user._id === currentUserId ? musicLoverProfile?.firstName || 'You' : dynamicMatchName,
+                                    image: repliedMsg.image
+                                };
+                            }
+                        } catch (replyErr) {
+                            console.warn("Error fetching reply preview for updated message:", replyErr);
+                            // Continue without reply preview
                         }
                     }
 
@@ -1850,6 +2017,19 @@ const IndividualChatScreen: React.FC = () => {
                     </TouchableOpacity>
                 </View>
             </Modal>
+
+            {/* Event Detail Modal */}
+            {selectedEventDataForModal && (
+                <EventDetailModal
+                    event={selectedEventDataForModal}
+                    visible={eventModalVisible}
+                    onClose={() => {
+                        setEventModalVisible(false);
+                        setSelectedEventDataForModal(null);
+                    }}
+                    navigation={navigation as any}
+                />
+            )}
         </SafeAreaView>
     );
 };
@@ -1864,7 +2044,7 @@ const styles = StyleSheet.create({
     errorBanner: { backgroundColor: 'rgba(239, 68, 68, 0.1)', paddingVertical: 8, paddingHorizontal: 15, },
     errorBannerText: { color: '#B91C1C', fontSize: 13, textAlign: 'center', },
     noMessagesText: { color: '#6B7280', fontSize: 14, marginTop: 30 },
-    messageList: { flex: 1, paddingHorizontal: 10, },
+    messageList: { flex: 1, paddingHorizontal: 10, backgroundColor: '#FFFFFF', },
     messageListContent: { paddingVertical: 10, flexGrow: 1, justifyContent: 'flex-end' },
     messageRow: { flexDirection: 'row', marginVertical: 5, },
     messageRowSent: { justifyContent: 'flex-end', },
@@ -1950,13 +2130,19 @@ const styles = StyleSheet.create({
     },
     sectionHeader: {
         alignItems: 'center',
-        marginVertical: 10,
-        backgroundColor: '#FFFFFF',
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        backgroundColor: '#F9FAFB',
+        zIndex: 100,
+        borderBottomWidth: 0.5,
+        borderBottomColor: 'rgba(0,0,0,0.05)',
     },
     sectionHeaderText: {
-        fontSize: 14,
+        fontSize: 11,
         fontWeight: '600',
-        color: '#6B7280',
+        color: '#8B8B8B',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
     },
     imageBubble: {
         borderRadius: 15,
@@ -2405,8 +2591,16 @@ const fetchMessageById = async (messageId: string): Promise<ChatMessage | null> 
             .from('messages')
             .select('*, message_status(is_delivered, delivered_at, is_seen, seen_at)')
             .eq('id', messageId)
-            .single();
-        if (error || !dbMessage) throw error || new Error('Message not found');
+            .maybeSingle(); // Changed from .single() to .maybeSingle()
+            
+        if (error) {
+            console.error("Error fetching message by ID:", error);
+            return null;
+        }
+        if (!dbMessage) {
+            console.warn("Message not found for ID:", messageId);
+            return null;
+        }
         
         // Simplified mapDbMessageToChatMessage for this context
         let sharedEventInfo: ChatMessage['sharedEvent'] = null;
@@ -2423,7 +2617,23 @@ const fetchMessageById = async (messageId: string): Promise<ChatMessage | null> 
                     if (atIndex !== -1) { eventVenue = detailsString.substring(atIndex + atSeparator.length); eventName = detailsString.substring(0, atIndex); }
                     const onIndex = eventName.lastIndexOf(onSeparator);
                     if (onIndex !== -1) { eventDate = eventName.substring(onIndex + onSeparator.length); eventName = eventName.substring(0, onIndex); }
-                    sharedEventInfo = { eventId: eventId, eventTitle: eventName.trim(), eventDate: eventDate.trim(), eventVenue: eventVenue.trim(), eventImage: DEFAULT_EVENT_IMAGE_CHAT, };
+                    
+                    // Check metadata for stored event image first
+                    let eventImage = DEFAULT_EVENT_IMAGE_CHAT;
+                    if (dbMessage.metadata && typeof dbMessage.metadata === 'object' && dbMessage.metadata.shared_event) {
+                        const metadataEvent = dbMessage.metadata.shared_event as any;
+                        if (metadataEvent.eventImage) {
+                            eventImage = metadataEvent.eventImage;
+                        }
+                    }
+                    
+                    sharedEventInfo = { 
+                        eventId: eventId, 
+                        eventTitle: eventName.trim(), 
+                        eventDate: eventDate.trim(), 
+                        eventVenue: eventVenue.trim(), 
+                        eventImage: eventImage,
+                    };
                     displayText = `Shared an event: ${sharedEventInfo.eventTitle}`; 
                 }
             } catch (e) { console.error("Failed to parse shared event content for reply:", rawContent, e); }
