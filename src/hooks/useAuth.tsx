@@ -394,7 +394,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             website,
                             average_rating, 
                             created_at, 
-                            updated_at
+                            updated_at,
+                            stripe_customer_id
                          `)
                         .eq('user_id', userId)
                         .maybeSingle();
@@ -415,6 +416,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                            bio: profileData.bio,
                            website: profileData.website,
                            average_rating: profileData.average_rating,
+                           stripe_customer_id: profileData.stripe_customer_id,
                          };
                          setOrganizerProfile(fullProfile);
                          if (currentSession) currentSession.organizerProfile = fullProfile;
