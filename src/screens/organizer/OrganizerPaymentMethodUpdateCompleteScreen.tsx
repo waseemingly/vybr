@@ -10,7 +10,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { Feather } from '@expo/vector-icons';
 import type { RootStackParamList } from '../../navigation/AppNavigator'; // Adjust path
 
-const STRIPE_PUBLISHABLE_KEY_WEB = pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN; // Same as before
+const STRIPE_PUBLISHABLE_KEY_WEB = "pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN"; // Same as before
 const stripePromise = Platform.OS === 'web' ? loadStripe(STRIPE_PUBLISHABLE_KEY_WEB) : null;
 
 type NavProp = NavigationProp<RootStackParamList>;
@@ -45,7 +45,7 @@ const OrganizerPaymentMethodUpdateCompleteScreen = () => {
             if (refreshUserProfile) await refreshUserProfile(); // Refresh auth state
             setTimeout(() => {
               // Navigate back to manage plan screen or profile
-              navigation.navigate('UserManageSubscriptionScreen' as never); // Or your manage plan screen name
+              navigation.navigate('OrgManagePlanScreen' as never); // Or your manage plan screen name
             }, 2000);
             break;
           // ... other cases similar to OrganizerPaymentSetupCompleteScreen ...
@@ -64,7 +64,7 @@ const OrganizerPaymentMethodUpdateCompleteScreen = () => {
       {/* ... UI similar to OrganizerPaymentSetupCompleteScreen ... */}
       <ActivityIndicator size="large" animating={status === 'loading' || status === 'processing'} />
       <Text style={styles.messageText}>{message}</Text>
-      <TouchableOpacity onPress={() => navigation.navigate('UserManageSubscriptionScreen' as never)}>
+      <TouchableOpacity onPress={() => navigation.navigate('OrgManagePlanScreen' as never)}>
           <Text>Back to Manage Plan</Text>
       </TouchableOpacity>
     </View>
