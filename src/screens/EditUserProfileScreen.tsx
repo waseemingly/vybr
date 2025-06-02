@@ -64,11 +64,12 @@ const bioDetailLabels: Record<keyof MusicLoverBio, string> = {
 
 const EditUserProfileScreen: React.FC = () => {
     const navigation = useNavigation<EditUserProfileScreenNavigationProp>();
-    const { session, loading: authLoading, musicLoverProfile, refreshSessionData, requestMediaLibraryPermissions } = useAuth();
+    const { session, loading: authLoading, musicLoverProfile, refreshSessionData, requestMediaLibraryPermissions, checkUsernameExists } = useAuth();
 
     // Basic info states
     const [firstName, setFirstName] = useState(musicLoverProfile?.firstName ?? '');
     const [lastName, setLastName] = useState(musicLoverProfile?.lastName ?? '');
+    const [username, setUsername] = useState(musicLoverProfile?.username ?? '');
     const [age, setAge] = useState(musicLoverProfile?.age?.toString() ?? '');
     
     // Profile picture states
@@ -174,6 +175,7 @@ const EditUserProfileScreen: React.FC = () => {
         if (musicLoverProfile) {
             setFirstName(musicLoverProfile.firstName ?? '');
             setLastName(musicLoverProfile.lastName ?? '');
+            setUsername(musicLoverProfile.username ?? '');
             setAge(musicLoverProfile.age?.toString() ?? '');
             setProfilePictureUri(musicLoverProfile.profilePicture ?? '');
             
@@ -299,10 +301,39 @@ const EditUserProfileScreen: React.FC = () => {
         setIsSaving(true);
 
         // Simple validation
-        if (!firstName.trim() || !lastName.trim()) {
-            Alert.alert("Missing Info", "First and Last Name are required.");
+        if (!firstName.trim() || !lastName.trim() || !username.trim()) {
+            Alert.alert("Missing Info", "First Name, Last Name, and Username are required.");
             setIsSaving(false);
             return;
+        }
+
+        // Username validation
+        if (username.trim() !== musicLoverProfile?.username) {
+            // Only check if username has changed
+            if (/\s/.test(username.trim())) {
+                Alert.alert("Invalid Username", "Username cannot contain spaces.");
+                setIsSaving(false);
+                return;
+            }
+
+            // Check if username already exists
+            try {
+                const { exists, error } = await checkUsernameExists(username.trim());
+                if (error) {
+                    Alert.alert("Error", "Could not validate username. Please try again.");
+                    setIsSaving(false);
+                    return;
+                }
+                if (exists) {
+                    Alert.alert("Username Taken", "This username is already taken. Please choose another.");
+                    setIsSaving(false);
+                    return;
+                }
+            } catch (error) {
+                Alert.alert("Error", "Could not validate username. Please try again.");
+                setIsSaving(false);
+                return;
+            }
         }
 
         try {
@@ -319,6 +350,7 @@ const EditUserProfileScreen: React.FC = () => {
             const updates = {
                 first_name: firstName.trim(),
                 last_name: lastName.trim(),
+                username: username.trim(),
                 age: ageNumber,
                 // Only save the text values for locations
                 country: country || null,
@@ -556,6 +588,15 @@ const EditUserProfileScreen: React.FC = () => {
                     onChangeText={setLastName}
                     placeholderTextColor="#9CA3AF"
                     autoCapitalize="words"
+                />
+                <TextInput
+                    style={styles.input}
+                    placeholder="Username"
+                    value={username}
+                    onChangeText={setUsername}
+                    placeholderTextColor="#9CA3AF"
+                    autoCapitalize="none"
+                    autoCorrect={false}
                 />
                 <TextInput
                     style={styles.input}

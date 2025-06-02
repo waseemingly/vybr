@@ -17,7 +17,7 @@ import ImageViewer from 'react-native-image-zoom-viewer';
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import type { RootStackParamList } from "@/navigation/AppNavigator"; // Adjust path
+import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator'; // Adjust path
 import { APP_CONSTANTS } from '@/config/constants';    
 import { v4 as uuidv4 } from 'uuid';           // Adjust path
 // --- End Adjust Paths ---
@@ -67,7 +67,7 @@ type GroupChatScreenRouteProp = RouteProp<RootStackParamList & {
         }
     }
 }, 'GroupChatScreen'>;
-type GroupChatScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GroupChatScreen'>;
+type GroupChatScreenNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList, 'GroupChatScreen'>;
 interface DbGroupMessage { 
     id: string; 
     created_at: string; 
@@ -76,6 +76,7 @@ interface DbGroupMessage {
     content: string | null; 
     image_url: string | null; 
     is_system_message: boolean; 
+    metadata?: any; // Add metadata property for shared event data
     original_content?: string | null;
     is_edited?: boolean;
     edited_at?: string | null;
@@ -114,10 +115,10 @@ interface DbGroupChat { id: string; group_name: string; group_image: string | nu
 
 // --- Constants and Cache ---
 const userProfileCache: Record<string, { name?: string; avatar?: string }> = {};
-const DEFAULT_PROFILE_PIC = APP_CONSTANTS?.DEFAULT_PROFILE_PIC || 'https://placehold.co/40x40/E0E0E0/757575?text=U'; // Changed to placehold.co
-const DEFAULT_GROUP_PIC = 'https://placehold.co/40x40/e2e8f0/64748b?text=G';
-const DEFAULT_EVENT_IMAGE_CHAT = "https://placehold.co/800x450/D1D5DB/1F2937?text=Event"; // Changed to placehold.co
-const DEFAULT_ORGANIZER_LOGO_CHAT = "https://placehold.co/150/BFDBFE/1E40AF?text=Logo"; // Changed to placehold.co
+const DEFAULT_PROFILE_PIC = APP_CONSTANTS?.DEFAULT_PROFILE_PIC || 'https://via.placeholder.com/40/CCCCCC/808080?text=User';
+const DEFAULT_GROUP_PIC = 'https://via.placeholder.com/40/CCCCCC/808080?text=Group';
+const DEFAULT_EVENT_IMAGE_CHAT = "https://via.placeholder.com/800x450/E5E7EB/9CA3AF?text=Event+Image";
+const DEFAULT_ORGANIZER_LOGO_CHAT = "https://via.placeholder.com/150/BFDBFE/1E40AF?text=Organizer";
 const DEFAULT_ORGANIZER_NAME_CHAT = "Event Organizer";
 
 // --- GroupMessageBubble Component ---
@@ -187,8 +188,18 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
         return (
             <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
                  <View style={styles.messageContentContainer}>
-                    {!isCurrentUser && senderName && senderName !== 'User' && (
-                        <Text style={styles.senderName}>{senderName}</Text>
+                    {!isCurrentUser && (
+                        <View style={styles.senderInfoContainer}>
+                            <Image 
+                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }} 
+                                style={styles.senderAvatar}
+                                onError={() => console.warn('Failed to load sender avatar, using default')}
+                                defaultSource={{ uri: DEFAULT_PROFILE_PIC }}
+                            />
+                            {senderName && senderName !== 'User' && (
+                                <Text style={styles.senderName}>{senderName}</Text>
+                            )}
+                        </View>
                     )}
                     <View style={[styles.messageBubble, styles.deletedMessageBubble, isCurrentUser ? styles.messageBubbleSentText : styles.messageBubbleReceivedText]}>
                         <Feather name="slash" size={14} color={isCurrentUser ? "rgba(255,255,255,0.7)" : "#9CA3AF"} style={{marginRight: 5}}/>
@@ -211,8 +222,18 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
         return (
             <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
                 <View style={styles.messageContentContainer}>
-                    {!isCurrentUser && senderName && senderName !== 'User' && (
-                        <Text style={styles.senderName}>{senderName}</Text>
+                    {!isCurrentUser && (
+                        <View style={styles.senderInfoContainer}>
+                            <Image 
+                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }} 
+                                style={styles.senderAvatar}
+                                onError={() => console.warn('Failed to load sender avatar, using default')}
+                                defaultSource={{ uri: DEFAULT_PROFILE_PIC }}
+                            />
+                            {senderName && senderName !== 'User' && (
+                                <Text style={styles.senderName}>{senderName}</Text>
+                            )}
+                        </View>
                     )}
                     <View style={[
                         styles.messageBubble, 
@@ -274,7 +295,19 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 activeOpacity={0.8}
             >
                 <View style={styles.messageContentContainer}>
-                    {!isCurrentUser && senderName && senderName !== 'User' && ( <Text style={styles.senderName}>{senderName}</Text> )}
+                    {!isCurrentUser && (
+                        <View style={styles.senderInfoContainer}>
+                            <Image 
+                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }} 
+                                style={styles.senderAvatar}
+                                onError={() => console.warn('Failed to load sender avatar, using default')}
+                                defaultSource={{ uri: DEFAULT_PROFILE_PIC }}
+                            />
+                            {senderName && senderName !== 'User' && (
+                                <Text style={styles.senderName}>{senderName}</Text>
+                            )}
+                        </View>
+                    )}
                     
                     {/* Reply Preview for Image */} 
                     {repliedMessagePreview && (
@@ -331,7 +364,19 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 activeOpacity={0.8}
             >
                 <View style={styles.messageContentContainer}>
-                     {!isCurrentUser && senderName && senderName !== 'User' && ( <Text style={styles.senderName}>{senderName}</Text> )}
+                    {!isCurrentUser && (
+                        <View style={styles.senderInfoContainer}>
+                            <Image 
+                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }} 
+                                style={styles.senderAvatar}
+                                onError={() => console.warn('Failed to load sender avatar, using default')}
+                                defaultSource={{ uri: DEFAULT_PROFILE_PIC }}
+                            />
+                            {senderName && senderName !== 'User' && (
+                                <Text style={styles.senderName}>{senderName}</Text>
+                            )}
+                        </View>
+                    )}
                     
                     {/* Reply Preview for Text */} 
                     {repliedMessagePreview && (
@@ -416,67 +461,111 @@ const GroupChatScreen: React.FC = () => {
 
     // --- Event Press Handler (similar to IndividualChatScreen) ---
     const handleEventPressInternal = async (eventId: string) => {
-        if (!eventId) return;
+        if (!eventId) {
+            console.warn("[GroupChatScreen] handleEventPressInternal called with empty eventId");
+            return;
+        }
         console.log("[GroupChatScreen] Event preview pressed, Event ID:", eventId);
         setLoadingEventDetails(true);
         setSelectedEventDataForModal(null); 
         try {
+            console.log("[GroupChatScreen] Fetching event details from database...");
             const { data: eventData, error: eventError } = await supabase
-                .from('events_public_data') // Ensure this table name is correct
+                .from('events')
                 .select(`
-                    event_id,
-                    event_name,
-                    event_date,
-                    venue_name,
-                    event_poster_url,
-                    MusicLoverProfile:event_organizer_id ( user_id, first_name, last_name, profile_picture ),
-                    event_description,
-                    ticket_link,
-                    genre_tags,
-                    mood_tags,
-                    artist_lineup_names
+                    id,
+                    title,
+                    event_datetime,
+                    location_text,
+                    poster_urls,
+                    organizer_id,
+                    description,
+                    tags_genres,
+                    tags_artists,
+                    tags_songs,
+                    booking_type,
+                    ticket_price,
+                    pass_fee_to_user,
+                    max_tickets,
+                    max_reservations
                 `)
-                .eq('event_id', eventId)
-                .single();
+                .eq('id', eventId)
+                .maybeSingle(); // Changed from .single() to .maybeSingle()
 
-            if (eventError) throw eventError;
-            if (!eventData) throw new Error("Event not found");
+            if (eventError) {
+                console.error("[GroupChatScreen] Error fetching event for group chat:", eventError);
+                throw eventError;
+            }
+            if (!eventData) {
+                console.warn("[GroupChatScreen] Event not found for ID in group chat:", eventId);
+                throw new Error("Event not found");
+            }
+
+            console.log("[GroupChatScreen] Event data fetched successfully:", {
+                id: eventData.id,
+                title: eventData.title,
+                organizer_id: eventData.organizer_id,
+                booking_type: eventData.booking_type,
+                ticket_price: eventData.ticket_price
+            });
             
-            const organizerProfileSource = eventData.MusicLoverProfile as any; // Cast for raw property access
+            // Fetch organizer profile from organizer_profiles table (not music_lover_profiles)
+            let organizerProfile = null;
+            if (eventData.organizer_id) {
+                try {
+                    console.log("[GroupChatScreen] Fetching organizer profile for:", eventData.organizer_id);
+                    const { data: profileData, error: profileError } = await supabase
+                        .from('organizer_profiles')
+                        .select('user_id, company_name, logo')
+                        .eq('user_id', eventData.organizer_id)
+                        .maybeSingle(); // Changed from .single() to .maybeSingle()
+                    
+                    if (profileError) {
+                        console.warn("[GroupChatScreen] Could not fetch organizer profile in group chat:", profileError.message);
+                    } else if (profileData) {
+                        console.log("[GroupChatScreen] Organizer profile fetched successfully");
+                        organizerProfile = profileData;
+                    } else {
+                        console.warn("[GroupChatScreen] No organizer profile found for ID:", eventData.organizer_id);
+                    }
+                } catch (profileErr) {
+                    console.warn("[GroupChatScreen] Exception fetching organizer profile in group chat:", profileErr);
+                    // Continue without organizer profile
+                }
+            }
+            
             const mappedEvent: MappedEvent = {
-                id: eventData.event_id,
-                title: eventData.event_name || "Event Title",
-                date: formatEventDateTimeForModal(eventData.event_date).date, // Correctly map date part
-                time: formatEventDateTimeForModal(eventData.event_date).time, // Add time part
-                venue: eventData.venue_name || "Venue N/A",
-                images: eventData.event_poster_url ? [eventData.event_poster_url] : [DEFAULT_EVENT_IMAGE_CHAT],
+                id: eventData.id,
+                title: eventData.title || "Event Title",
+                date: formatEventDateTimeForModal(eventData.event_datetime).date,
+                time: formatEventDateTimeForModal(eventData.event_datetime).time,
+                venue: eventData.location_text || "Venue N/A",
+                images: eventData.poster_urls && eventData.poster_urls.length > 0 ? eventData.poster_urls : [DEFAULT_EVENT_IMAGE_CHAT],
                 organizer: {
-                    userId: organizerProfileSource?.user_id || "N/A",
-                    name: `${organizerProfileSource?.first_name || ''} ${organizerProfileSource?.last_name || ''}`.trim() || DEFAULT_ORGANIZER_NAME_CHAT,
-                    image: organizerProfileSource?.profile_picture || DEFAULT_ORGANIZER_LOGO_CHAT,
+                    userId: organizerProfile?.user_id || eventData.organizer_id || "N/A",
+                    name: organizerProfile?.company_name || DEFAULT_ORGANIZER_NAME_CHAT,
+                    image: organizerProfile?.logo || DEFAULT_ORGANIZER_LOGO_CHAT,
                 },
-                description: eventData.event_description || "No description available.",
-                // --- Fields that ARE in MappedEvent from EventsScreen --- 
-                event_datetime_iso: eventData.event_date || new Date().toISOString(), // Make sure to pass this
-                // For simplicity, assuming these are not strictly needed for chat preview, 
-                // but if they are, they should be mapped from eventData.genre_tags etc.
-                genres: eventData.genre_tags || [],
-                artists: eventData.artist_lineup_names || [],
-                songs: [], // Assuming songs are not part of events_public_data, adjust if they are
-                booking_type: null, // Add default or map if available in eventData
-                ticket_price: null, // Add default or map if available in eventData
-                pass_fee_to_user: false, // Add default or map if available in eventData
-                max_tickets: null, // Add default or map if available in eventData
-                max_reservations: null, // Add default or map if available in eventData
-                // country and city are optional in MappedEvent, can be added if available in eventData
+                description: eventData.description || "No description available.",
+                event_datetime_iso: eventData.event_datetime || new Date().toISOString(),
+                genres: eventData.tags_genres || [],
+                artists: eventData.tags_artists || [],
+                songs: eventData.tags_songs || [],
+                booking_type: eventData.booking_type,
+                ticket_price: eventData.ticket_price,
+                pass_fee_to_user: eventData.pass_fee_to_user ?? true,
+                max_tickets: eventData.max_tickets,
+                max_reservations: eventData.max_reservations,
             };
+            console.log("[GroupChatScreen] Mapped event data successfully, opening modal");
             setSelectedEventDataForModal(mappedEvent);
             setEventModalVisible(true);
         } catch (err: any) {
-            console.error("Error fetching event details for group chat:", err);
-            Alert.alert("Error", "Could not load event details.");
+            console.error("[GroupChatScreen] Error fetching event details for group chat:", err);
+            Alert.alert("Error", `Could not load event details: ${err.message}`);
         } finally {
             setLoadingEventDetails(false);
+            console.log("[GroupChatScreen] handleEventPressInternal completed");
         }
     };
     // --- End Event Press Handler ---
@@ -517,14 +606,25 @@ const GroupChatScreen: React.FC = () => {
                         eventName = eventName.substring(0, onIndex);
                     }
                     
+                    // Check metadata for stored event image first
+                    let eventImage = DEFAULT_EVENT_IMAGE_CHAT;
+                    if (dbMessage.metadata && typeof dbMessage.metadata === 'object' && (dbMessage.metadata as any).shared_event) {
+                        const metadataEvent = (dbMessage.metadata as any).shared_event;
+                        if (metadataEvent.eventImage) {
+                            eventImage = metadataEvent.eventImage;
+                        }
+                    }
+                    
                     sharedEventInfo = {
                         eventId: eventId,
                         eventTitle: eventName.trim(),
                         eventDate: eventDate.trim(),
                         eventVenue: eventVenue.trim(),
-                        eventImage: DEFAULT_EVENT_IMAGE_CHAT,
+                        eventImage: eventImage,
                     };
-                    displayText = `Shared an event: ${sharedEventInfo.eventTitle}`; 
+                    // Show proper user name in the display text
+                    const displayName = dbMessage.sender_id === currentUserId ? 'You' : senderName;
+                    displayText = `${displayName} shared an event`;
                 } else {
                      console.warn("SHARED_EVENT string has too few parts:", rawContent);
                 }
@@ -551,7 +651,7 @@ const GroupChatScreen: React.FC = () => {
     }, [currentUserId]);
 
     // Fetch Initial Data
-    const fetchInitialData = useCallback(async () => { if (!currentUserId || !groupId) { setLoadError("Auth/Group ID missing."); setLoading(false); return; } setLoading(true); setLoadError(null); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); try { const { data: groupInfoData, error: groupInfoError } = await supabase.rpc('get_group_info', { group_id_input: groupId }); if (groupInfoError) throw groupInfoError; if (!groupInfoData?.group_details || !groupInfoData?.participants) throw new Error("Incomplete group data."); const groupDetails = groupInfoData.group_details; const participantsRaw: { user_id: string, is_admin: boolean }[] = groupInfoData.participants; const currentUserParticipant = participantsRaw.find(p => p.user_id === currentUserId); setIsCurrentUserAdmin(currentUserParticipant?.is_admin ?? false); setCanMembersAddOthers(groupDetails.can_members_add_others ?? false); setCanMembersEditInfo(groupDetails.can_members_edit_info ?? false); setCurrentGroupName(groupDetails.group_name); setCurrentGroupImage(groupDetails.group_image ?? null); const { data: messagesData, error: messagesError } = await supabase.from('group_chat_messages').select('id, created_at, sender_id, group_id, content, image_url, is_system_message, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id').eq('group_id', groupId).order('created_at', { ascending: true }); if (messagesError) throw messagesError; if (!messagesData || messagesData.length === 0) { setMessages([]); } else { const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id); const senderIds = Array.from(new Set(visibleMessages.filter(msg => msg.sender_id).map(msg => msg.sender_id))); const profilesMap = new Map<string, UserProfileInfo>(); if (senderIds.length > 0) { const idsToFetch = senderIds.filter(id => !userProfileCache[id]); if (idsToFetch.length > 0) { const { data: profilesData, error: profilesError } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').in('user_id', idsToFetch); if (profilesError) { console.error("Err fetch profiles:", profilesError); } else if (profilesData) { profilesData.forEach((p: UserProfileInfo) => { profilesMap.set(p.user_id, p); const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; const a = p.profile_picture||undefined; userProfileCache[p.user_id] = { name: n, avatar: a }; }); } } senderIds.forEach(id => { if (userProfileCache[id] && !profilesMap.has(id)) { profilesMap.set(id, { user_id: id, first_name: userProfileCache[id].name?.split(' ')[0]||null, last_name: userProfileCache[id].name?.split(' ')[1]||null, profile_picture: userProfileCache[id].avatar||null }); } }); } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You' }; const mappedMessages = visibleMessages.map(dbMsg => mapDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap)); setMessages(mappedMessages); } } catch (err: any) { console.error("Error fetching initial data:", err); if (err.message?.includes("User is not a member")) { Alert.alert("Access Denied", "Not member.", [{ text: "OK", onPress: () => navigation.goBack() }]); setLoadError("Not a member."); } else { setLoadError(`Load fail: ${err.message || 'Unknown'}`); } setMessages([]); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); } finally { setLoading(false); } }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
+    const fetchInitialData = useCallback(async () => { if (!currentUserId || !groupId) { setLoadError("Auth/Group ID missing."); setLoading(false); return; } setLoading(true); setLoadError(null); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); try { const { data: groupInfoData, error: groupInfoError } = await supabase.rpc('get_group_info', { group_id_input: groupId }); if (groupInfoError) throw groupInfoError; if (!groupInfoData?.group_details || !groupInfoData?.participants) throw new Error("Incomplete group data."); const groupDetails = groupInfoData.group_details; const participantsRaw: { user_id: string, is_admin: boolean }[] = groupInfoData.participants; const currentUserParticipant = participantsRaw.find(p => p.user_id === currentUserId); setIsCurrentUserAdmin(currentUserParticipant?.is_admin ?? false); setCanMembersAddOthers(groupDetails.can_members_add_others ?? false); setCanMembersEditInfo(groupDetails.can_members_edit_info ?? false); setCurrentGroupName(groupDetails.group_name); setCurrentGroupImage(groupDetails.group_image ?? null); const { data: messagesData, error: messagesError } = await supabase.from('group_chat_messages').select('id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id').eq('group_id', groupId).order('created_at', { ascending: true }); if (messagesError) throw messagesError; if (!messagesData || messagesData.length === 0) { setMessages([]); } else { const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id); const senderIds = Array.from(new Set(visibleMessages.filter(msg => msg.sender_id).map(msg => msg.sender_id))); const profilesMap = new Map<string, UserProfileInfo>(); if (senderIds.length > 0) { const idsToFetch = senderIds.filter(id => !userProfileCache[id]); if (idsToFetch.length > 0) { const { data: profilesData, error: profilesError } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').in('user_id', idsToFetch); if (profilesError) { console.error("Err fetch profiles:", profilesError); } else if (profilesData) { profilesData.forEach((p: UserProfileInfo) => { profilesMap.set(p.user_id, p); const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; const a = p.profile_picture||undefined; userProfileCache[p.user_id] = { name: n, avatar: a }; }); } } senderIds.forEach(id => { if (userProfileCache[id] && !profilesMap.has(id)) { profilesMap.set(id, { user_id: id, first_name: userProfileCache[id].name?.split(' ')[0]||null, last_name: userProfileCache[id].name?.split(' ')[1]||null, profile_picture: userProfileCache[id].avatar||null }); } }); } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You' }; const mappedMessages = visibleMessages.map(dbMsg => mapDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap)); setMessages(mappedMessages); } } catch (err: any) { console.error("Error fetching initial data:", err); if (err.message?.includes("User is not a member")) { Alert.alert("Access Denied", "Not member.", [{ text: "OK", onPress: () => navigation.goBack() }]); setLoadError("Not a member."); } else { setLoadError(`Load fail: ${err.message || 'Unknown'}`); } setMessages([]); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); } finally { setLoading(false); } }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
 
     // Send Text Message
     const sendTextMessage = useCallback(async (text: string) => { 
@@ -647,7 +747,7 @@ const GroupChatScreen: React.FC = () => {
         // Optimistic message construction
         const tempId = `temp_shared_${Date.now()}`;
         const currentUserProfile = userProfileCache[currentUserId] || { name: 'You' };
-        const eventMessageText = `Shared an event: ${eventDataToShare.eventTitle}`;
+        const eventMessageText = `You shared an event`;
 
         let replyingToMessagePreview: ChatMessage['replyToMessagePreview'] = null;
         if (replyingToMessage) {
@@ -689,20 +789,53 @@ const GroupChatScreen: React.FC = () => {
         setReplyingToMessage(null);
 
         try {
-            const { data: rpcData, error: rpcError } = await supabase.rpc('share_event_to_group', {
-                p_event_id: eventId,
-                p_group_id: groupId,
-                p_reply_to_message_id: replyToId || null
-            });
-            if (rpcError) throw rpcError;
-            if (!rpcData || !rpcData.success || !rpcData.message_id) {
-                throw new Error('Failed to share event to group via RPC or received invalid response.');
+            // Create formatted content for the message (similar to individual chat format)
+            const formattedContent = `SHARED_EVENT:${eventId}:${eventDataToShare.eventTitle} on ${eventDataToShare.eventDate} at ${eventDataToShare.eventVenue}`;
+            
+            // Insert message directly into group_chat_messages table
+            const { data: insertedMessage, error: insertError } = await supabase
+                .from('group_chat_messages')
+                .insert({
+                    sender_id: currentUserId,
+                    group_id: groupId,
+                    content: formattedContent,
+                    reply_to_message_id: replyToId || null,
+                    is_system_message: false,
+                    metadata: {
+                        shared_event: {
+                            eventId: eventDataToShare.eventId,
+                            eventTitle: eventDataToShare.eventTitle,
+                            eventDate: eventDataToShare.eventDate,
+                            eventVenue: eventDataToShare.eventVenue,
+                            eventImage: eventDataToShare.eventImage || DEFAULT_EVENT_IMAGE_CHAT,
+                        }
+                    }
+                })
+                .select('id, created_at')
+                .single();
+
+            if (insertError) throw insertError;
+            if (!insertedMessage) throw new Error('Failed to insert shared event message to group.');
+
+            // Log event impression
+            try {
+                await supabase.from('event_impressions').insert({
+                    event_id: eventId,
+                    user_id: currentUserId,
+                    source: 'group_chat_share',
+                    viewed_at: new Date().toISOString()
+                });
+            } catch (impressionError) {
+                console.warn('Failed to log event impression:', impressionError);
+                // Don't fail the whole operation for impression logging
             }
-            console.log('[GroupChatScreen] Event shared to group via RPC, message_id:', rpcData.message_id);
+
+            console.log('[GroupChatScreen] Event shared to group successfully, message_id:', insertedMessage.id);
             setMessages(prevMessages => prevMessages.map(msg => 
                 msg._id === tempId ? { 
                     ...optimisticMessage, 
-                    _id: rpcData.message_id
+                    _id: insertedMessage.id,
+                    createdAt: new Date(insertedMessage.created_at)
                 } : msg
             ));
         } catch (err: any) {
@@ -899,33 +1032,45 @@ const GroupChatScreen: React.FC = () => {
     useEffect(() => { if (!groupId || !currentUserId) return; const messageChannel = supabase.channel(`group_chat_messages_${groupId}`).on<DbGroupMessage>( 'postgres_changes',{ event: 'INSERT', schema: 'public', table: 'group_chat_messages', filter: `group_id=eq.${groupId}` }, async (payload) => { const newMessageDb = payload.new as DbGroupMessage; 
         
         // Check if message is hidden for current user
-        const { data: hiddenCheck, error: hiddenError } = await supabase
-            .from('user_hidden_messages')
-            .select('message_id')
-            .eq('user_id', currentUserId)
-            .eq('message_id', newMessageDb.id)
-            .maybeSingle();
+        try {
+            const { data: hiddenCheck, error: hiddenError } = await supabase
+                .from('user_hidden_messages')
+                .select('message_id')
+                .eq('user_id', currentUserId)
+                .eq('message_id', newMessageDb.id)
+                .maybeSingle(); // Ensure using maybeSingle
 
-        if (hiddenError) {
-            console.error("Error checking if RT message is hidden:", hiddenError);
-        }
-        if (hiddenCheck) { // If message is hidden for this user, don't add or update it
-            console.log(`RT message ${newMessageDb.id} is hidden for user, skipping.`);
-            return;
+            if (hiddenError) {
+                console.warn("Error checking if RT group message is hidden:", hiddenError.message);
+                // Continue processing despite error
+            } else if (hiddenCheck) { // If message is hidden for this user, don't add or update it
+                console.log(`RT group message ${newMessageDb.id} is hidden for user, skipping.`);
+                return;
+            }
+        } catch (hiddenCheckErr) {
+            console.warn("Exception checking hidden status for RT group message:", hiddenCheckErr);
+            // Continue processing the message
         }
 
         const rtProfilesMap = new Map<string, UserProfileInfo>(); 
         if (newMessageDb.sender_id && !newMessageDb.is_system_message && !userProfileCache[newMessageDb.sender_id]) { 
             try { 
-                const { data: p } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').eq('user_id', newMessageDb.sender_id).maybeSingle(); 
-                if (p) { 
+                const { data: p, error: profileError } = await supabase
+                    .from('music_lover_profiles')
+                    .select('user_id, first_name, last_name, profile_picture')
+                    .eq('user_id', newMessageDb.sender_id)
+                    .maybeSingle(); // Ensure using maybeSingle
+                    
+                if (profileError) {
+                    console.warn("Error fetching RT profile for group message:", profileError.message);
+                } else if (p) { 
                     rtProfilesMap.set(p.user_id, p); 
                     const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; 
                     const a = p.profile_picture||undefined; 
                     userProfileCache[p.user_id]={name:n,avatar:a}; 
                 } 
             } catch (err) { 
-                console.error(`RT Profile Fetch Err for updated message ${newMessageDb.sender_id}`, err); 
+                console.warn(`RT Profile Fetch Err for group message ${newMessageDb.sender_id}`, err); 
             } 
         }
         const receivedMessage = mapDbMessageToChatMessage(newMessageDb, rtProfilesMap);
@@ -959,14 +1104,31 @@ const GroupChatScreen: React.FC = () => {
                 let finalReceivedMessage = { ...receivedMessage };
                 // Add replyToMessagePreview for the new message from another user
                 if (finalReceivedMessage.replyToMessageId) {
-                    const repliedMsg = messages.find(m => m._id === finalReceivedMessage.replyToMessageId) || (await fetchMessageById(finalReceivedMessage.replyToMessageId));
-                    if (repliedMsg) {
-                        finalReceivedMessage.replyToMessagePreview = {
-                            text: repliedMsg.image ? (repliedMsg.text || '[Image]') : repliedMsg.text,
-                            senderName: repliedMsg.user.name,
-                            image: repliedMsg.image
-                        };
-                    }
+                    // Handle reply preview asynchronously to avoid blocking
+                    (async () => {
+                        try {
+                            const repliedMsg = messages.find(m => m._id === finalReceivedMessage.replyToMessageId) || 
+                                (finalReceivedMessage.replyToMessageId ? await fetchMessageById(finalReceivedMessage.replyToMessageId) : null);
+                            if (repliedMsg) {
+                                const updatedMessage = {
+                                    ...finalReceivedMessage,
+                                    replyToMessagePreview: {
+                                        text: repliedMsg.image ? (repliedMsg.text || '[Image]') : repliedMsg.text,
+                                        senderName: repliedMsg.user.name,
+                                        image: repliedMsg.image
+                                    }
+                                };
+                                // Update the message with reply preview
+                                setMessages(currentMessages => 
+                                    currentMessages.map(msg => 
+                                        msg._id === finalReceivedMessage._id ? updatedMessage : msg
+                                    )
+                                );
+                            }
+                        } catch (replyErr) {
+                            console.warn("Error adding reply preview to RT group message:", replyErr);
+                        }
+                    })();
                 }
                 setMessages(prev => [...prev, finalReceivedMessage]);
             })();
@@ -980,60 +1142,77 @@ const GroupChatScreen: React.FC = () => {
             const oldMessageDb = payload.old as DbGroupMessage;
 
             // Check if message is hidden for current user
-            const { data: hiddenCheck, error: hiddenError } = await supabase
-                .from('user_hidden_messages')
-                .select('message_id')
-                .eq('user_id', currentUserId)
-                .eq('message_id', updatedMessageDb.id)
-                .maybeSingle();
+            try {
+                const { data: hiddenCheck, error: hiddenError } = await supabase
+                    .from('user_hidden_messages')
+                    .select('message_id')
+                    .eq('user_id', currentUserId)
+                    .eq('message_id', updatedMessageDb.id)
+                    .maybeSingle(); // Ensure using maybeSingle
 
-            if (hiddenError) {
-                console.error("Error checking if RT updated message is hidden:", hiddenError);
-            }
-            if (hiddenCheck && !updatedMessageDb.is_deleted) { // If hidden and not a delete event, ignore
-                console.log(`RT updated message ${updatedMessageDb.id} is hidden, skipping unless it's a delete confirmation.`);
-                 // If it was a delete for everyone, we might want to show it as deleted
-                if (updatedMessageDb.is_deleted) {
-                     setMessages(prev => prev.map(msg => 
-                        msg._id === updatedMessageDb.id 
-                        ? { ...msg, 
-                            text: 'This message was deleted', 
-                            isDeleted: true, 
-                            deletedAt: updatedMessageDb.deleted_at ? new Date(updatedMessageDb.deleted_at) : new Date(),
-                            image: null, // Clear image for deleted messages
-                            sharedEvent: null // Clear shared event for deleted messages
-                          }
-                        : msg
-                    ));
+                if (hiddenError) {
+                    console.warn("Error checking if RT updated group message is hidden:", hiddenError.message);
+                    // Continue processing despite error
+                } else if (hiddenCheck && !updatedMessageDb.is_deleted) { // If hidden and not a delete event, ignore
+                    console.log(`RT updated group message ${updatedMessageDb.id} is hidden, skipping unless it's a delete confirmation.`);
+                     // If it was a delete for everyone, we might want to show it as deleted
+                    if (updatedMessageDb.is_deleted) {
+                         setMessages(prev => prev.map(msg => 
+                            msg._id === updatedMessageDb.id 
+                            ? { ...msg, 
+                                text: 'This message was deleted', 
+                                isDeleted: true, 
+                                deletedAt: updatedMessageDb.deleted_at ? new Date(updatedMessageDb.deleted_at) : new Date(),
+                                image: null, // Clear image for deleted messages
+                                sharedEvent: null // Clear shared event for deleted messages
+                              }
+                            : msg
+                        ));
+                    }
+                    return;
                 }
-                return;
+            } catch (hiddenCheckErr) {
+                console.warn("Exception checking hidden status for RT updated group message:", hiddenCheckErr);
+                // Continue processing the message
             }
 
             const rtProfilesMap = new Map<string, UserProfileInfo>();
             if (updatedMessageDb.sender_id && !updatedMessageDb.is_system_message && !userProfileCache[updatedMessageDb.sender_id]) {
                  try { 
-                    const { data: p } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').eq('user_id', updatedMessageDb.sender_id).maybeSingle(); 
-                    if (p) { 
+                    const { data: p, error: profileError } = await supabase
+                        .from('music_lover_profiles')
+                        .select('user_id, first_name, last_name, profile_picture')
+                        .eq('user_id', updatedMessageDb.sender_id)
+                        .maybeSingle(); // Ensure using maybeSingle
+                        
+                    if (profileError) {
+                        console.warn("Error fetching RT profile for updated group message:", profileError.message);
+                    } else if (p) { 
                         rtProfilesMap.set(p.user_id, p); 
                         const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; 
                         const a = p.profile_picture||undefined; 
                         userProfileCache[p.user_id]={name:n,avatar:a}; 
                     } 
                 } catch (err) { 
-                    console.error(`RT Profile Fetch Err for updated message ${updatedMessageDb.sender_id}`, err); 
+                    console.warn(`RT Profile Fetch Err for updated group message ${updatedMessageDb.sender_id}`, err); 
                 } 
             }
             const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb, rtProfilesMap);
 
             // Add replyToMessagePreview for the updated message
             if (updatedMessageUi.replyToMessageId) {
-                const repliedMsg = messages.find(m => m._id === updatedMessageUi.replyToMessageId) || (await fetchMessageById(updatedMessageUi.replyToMessageId));
-                if (repliedMsg) {
-                    updatedMessageUi.replyToMessagePreview = {
-                        text: repliedMsg.image ? '[Image]' : repliedMsg.text,
-                        senderName: repliedMsg.user.name,
-                        image: repliedMsg.image
-                    };
+                try {
+                    const repliedMsg = messages.find(m => m._id === updatedMessageUi.replyToMessageId) || (await fetchMessageById(updatedMessageUi.replyToMessageId));
+                    if (repliedMsg) {
+                        updatedMessageUi.replyToMessagePreview = {
+                            text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                            senderName: repliedMsg.user.name,
+                            image: repliedMsg.image
+                        };
+                    }
+                } catch (replyErr) {
+                    console.warn("Error fetching reply preview for updated group message:", replyErr);
+                    // Continue without reply preview
                 }
             }
 
@@ -1229,24 +1408,44 @@ const GroupChatScreen: React.FC = () => {
         try {
             const { data: dbMessage, error } = await supabase
                 .from('group_chat_messages')
-                .select('id, created_at, sender_id, group_id, content, image_url, is_system_message, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id')
+                .select('id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id')
                 .eq('id', messageId)
-                .single();
-            if (error || !dbMessage) throw error || new Error('Message not found');
+                .maybeSingle(); // Changed from .single() to .maybeSingle()
+                
+            if (error) {
+                console.error("Error fetching group message by ID:", error);
+                return null;
+            }
+            if (!dbMessage) {
+                console.warn("Group message not found for ID:", messageId);
+                return null;
+            }
 
             const profilesMap = new Map<string, UserProfileInfo>();
             if (dbMessage.sender_id && !dbMessage.is_system_message && !userProfileCache[dbMessage.sender_id]) {
-                const { data: p } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').eq('user_id', dbMessage.sender_id).maybeSingle();
-                if (p) {
-                    profilesMap.set(p.user_id, p);
-                    const n = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
-                    const a = p.profile_picture || undefined;
-                    userProfileCache[p.user_id] = { name: n, avatar: a };
+                try {
+                    const { data: p, error: profileError } = await supabase
+                        .from('music_lover_profiles')
+                        .select('user_id, first_name, last_name, profile_picture')
+                        .eq('user_id', dbMessage.sender_id)
+                        .maybeSingle(); // Changed from .maybeSingle() to explicit maybeSingle()
+                        
+                    if (profileError) {
+                        console.warn("Error fetching profile for message reply:", profileError.message);
+                    } else if (p) {
+                        profilesMap.set(p.user_id, p);
+                        const n = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
+                        const a = p.profile_picture || undefined;
+                        userProfileCache[p.user_id] = { name: n, avatar: a };
+                    }
+                } catch (profileErr) {
+                    console.warn("Exception fetching profile for message reply:", profileErr);
+                    // Continue without profile
                 }
             }
             return mapDbMessageToChatMessage(dbMessage as DbGroupMessage, profilesMap);
         } catch (err) {
-            console.error("Failed to fetch message by ID for reply preview:", err);
+            console.error("Failed to fetch group message by ID for reply preview:", err);
             return null;
         }
     };
@@ -1639,11 +1838,21 @@ const styles = StyleSheet.create({
     
     // Section headers
     sectionHeader: {
-        alignSelf: 'center',
-        marginVertical: 10,
-        backgroundColor: '#FFFFFF',
+        alignItems: 'center',
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        backgroundColor: '#F9FAFB',
+        zIndex: 100,
+        borderBottomWidth: 0.5,
+        borderBottomColor: 'rgba(0,0,0,0.05)',
     },
-    sectionHeaderText: { fontSize: 11, fontWeight: '500', color: '#6B7280', backgroundColor: 'rgba(229, 231, 235, 0.7)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, overflow: 'hidden'},
+    sectionHeaderText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#8B8B8B',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
     
     // Input area
     inputToolbar: { flexDirection: 'row', alignItems: 'flex-end', paddingVertical: 8, paddingHorizontal: 10, borderTopWidth: 1, borderTopColor: '#E5E7EB', backgroundColor: '#FFFFFF', paddingBottom: Platform.OS === 'ios' ? 5 : 8, },
@@ -1999,6 +2208,16 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 16,
         fontWeight: '600',
+    },
+    senderInfoContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    senderAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        marginRight: 8,
     },
 });
 

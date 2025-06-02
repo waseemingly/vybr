@@ -20,13 +20,13 @@ import { OrganizerProfile } from '@/hooks/useAuth'; // Import OrganizerProfile t
 // ----------------------------
 
 // --- Navigation and Route Types ---
-// Ensure RootStackParamList defines: ViewOrganizerProfileScreen: { organizerUserId: string };
+// Ensure MainStackParamList defines: ViewOrganizerProfileScreen: { organizerUserId: string };
 type ViewOrganizerProfileRouteParams = { organizerUserId?: string };
-type ViewOrganizerProfileRouteProp = RouteProp<RootStackParamList, 'ViewOrganizerProfileScreen'>;
+type ViewOrganizerProfileRouteProp = RouteProp<MainStackParamList, 'ViewOrganizerProfileScreen'>;
 type ViewOrganizerProfileNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>;
 
 // --- Constants ---
-const DEFAULT_ORGANIZER_LOGO = APP_CONSTANTS?.DEFAULT_ORGANIZER_LOGO || 'https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo';
+const DEFAULT_ORGANIZER_LOGO = 'https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo';
 
 // --- Helper Functions ---
 const formatBusinessType = (type?: string | null): string | null => { if (!type) return null; return type.replace(/_/g, ' ').replace(/-/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' '); };
@@ -93,6 +93,7 @@ const ViewOrganizerProfileScreen: React.FC = () => {
             if (profileError) throw profileError;
             if (!data) throw new Error("Organizer profile not found.");
 
+            console.log(`[ViewOrganizerProfile] Organizer profile data:`, JSON.stringify(data, null, 2));
             setOrganizerProfile(data);
         } catch (err: any) {
             console.error("[ViewOrganizerProfile] Error fetching profile:", err);
@@ -128,28 +129,28 @@ const ViewOrganizerProfileScreen: React.FC = () => {
 
     const fetchStats = useCallback(async () => {
         if (!organizerUserId) return;
-        console.log(`[ViewOrganizerProfile] Fetching stats via RPC for organizer: ${organizerUserId}`);
+        console.log(`[ViewOrganizerProfile] Fetching stats for organizer: ${organizerUserId}`);
         if (!isRefreshing) setStatsLoading(true);
         try {
-            // Use Promise.all to fetch RPC count and direct event count concurrently
-            const [followerRpcRes, eventRes] = await Promise.all([
-                supabase.rpc('get_organizer_follower_count', { p_organizer_id: organizerUserId }),
+            // Use Promise.all to fetch follower count and event count concurrently
+            const [followerRes, eventRes] = await Promise.all([
+                supabase.from('organizer_follows').select('*', { count: 'exact', head: true }).eq('organizer_id', organizerUserId),
                 supabase.from('events').select('*', { count: 'exact', head: true }).eq('organizer_id', organizerUserId)
             ]);
 
-            // Check RPC error
-            if (followerRpcRes.error) {
-                console.error("[ViewOrganizerProfile] RPC Error fetching follower count:", followerRpcRes.error);
-                throw followerRpcRes.error; // Throw to be caught below
+            // Check follower query error
+            if (followerRes.error) {
+                console.error("[ViewOrganizerProfile] Error fetching follower count:", followerRes.error);
+                throw followerRes.error;
             }
-             // Check direct select error
+             // Check event query error
             if (eventRes.error) {
                 console.warn("[ViewOrganizerProfile] Error fetching event count:", eventRes.error);
                 // Decide if you want to proceed without event count or throw
             }
 
             // Set stats using the results, ensuring default to 0
-            const followerCount = typeof followerRpcRes.data === 'number' ? followerRpcRes.data : 0;
+            const followerCount = followerRes.count ?? 0;
             const eventCount = eventRes.count ?? 0;
             
             setStats({
@@ -282,9 +283,9 @@ const ViewOrganizerProfileScreen: React.FC = () => {
         const screenName = type === 'upcoming' ? 'UpcomingEventsListScreen' : 'PastEventsListScreen';
         console.log(`[ViewOrganizerProfile] Navigating to ${screenName} for organizer ${organizerUserId}`);
 
-        navigation.navigate(screenName, { // Changed from push to navigate
-             organizerUserId: organizerUserId,
-             organizerName: organizerProfile?.companyName // Pass name for header
+        navigation.navigate(screenName as any, { // Cast to any to bypass type checking
+             organizerId: organizerUserId,
+             organizerName: organizerProfile?.company_name // Pass name for header
         });
     };
 
@@ -325,10 +326,10 @@ const ViewOrganizerProfileScreen: React.FC = () => {
     useEffect(() => {
         // Set header title dynamically
         navigation.setOptions({ 
-            title: organizerProfile?.companyName || 'Organizer Profile', 
+            title: organizerProfile?.company_name || 'Organizer Profile', 
             headerBackVisible: true,
         });
-    }, [navigation, organizerProfile?.companyName]);
+    }, [navigation, organizerProfile?.company_name]);
 
 
     if (profileLoading && !isRefreshing) {
@@ -358,7 +359,7 @@ const ViewOrganizerProfileScreen: React.FC = () => {
                     <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={styles.coverPhoto} />
                     <View style={styles.avatarContainer}><Image source={{ uri: logoUrl }} style={styles.avatar} /></View>
                     <View style={styles.profileInfo}>
-                        <Text style={styles.name}>{organizerProfile.companyName ?? "Organizer"}</Text>
+                        <Text style={styles.name}>{organizerProfile.company_name ?? "Organizer"}</Text>
                         {businessTypeFormatted && (<Text style={styles.businessType}>{businessTypeFormatted}</Text>)}
                         {/* Stats Row */}
                         <View style={styles.statsContainer}>
@@ -399,7 +400,7 @@ const ViewOrganizerProfileScreen: React.FC = () => {
                 )}
 
                 {/* Contact Information Section - Using fields from SQL schema */}
-                {(organizerProfile.email || organizerProfile.phone_number || organizerProfile.website) && (
+                {(organizerProfile.email || organizerProfile.phoneNumber || organizerProfile.website) && (
                     <View style={styles.section}>
                         <Text style={styles.sectionTitle}>Contact Information</Text>
                         {organizerProfile.email && (
@@ -408,10 +409,10 @@ const ViewOrganizerProfileScreen: React.FC = () => {
                                 <Text style={styles.contactText} numberOfLines={1}>{organizerProfile.email}</Text>
                             </TouchableOpacity>
                         )}
-                        {organizerProfile.phone_number && (
-                            <TouchableOpacity style={styles.contactRow} onPress={() => tryOpenLink(`tel:${organizerProfile.phone_number}`)}>
+                        {organizerProfile.phoneNumber && (
+                            <TouchableOpacity style={styles.contactRow} onPress={() => tryOpenLink(`tel:${organizerProfile.phoneNumber}`)}>
                                 <Feather name="phone" size={16} color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} />
-                                <Text style={styles.contactText} numberOfLines={1}>{organizerProfile.phone_number}</Text>
+                                <Text style={styles.contactText} numberOfLines={1}>{organizerProfile.phoneNumber}</Text>
                             </TouchableOpacity>
                         )}
                         {organizerProfile.website && (
@@ -459,7 +460,7 @@ const ViewOrganizerProfileScreen: React.FC = () => {
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <Text style={styles.modalTitle}>Report Organizer</Text>
-                        <Text style={styles.modalSubtitle}>Please provide a reason for reporting "{organizerProfile.companyName}".</Text>
+                        <Text style={styles.modalSubtitle}>Please provide a reason for reporting "{organizerProfile.company_name}".</Text>
                         <TextInput
                             style={styles.reportInput}
                             placeholder="Reason for reporting (e.g., inappropriate content, scam, etc.)"

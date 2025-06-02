@@ -188,9 +188,8 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
     // --- Navigate to Organizer Profile ---
     const handleOrganizerPress = () => {
         if (event?.organizer?.userId) {
-            // Use navigation type assertion if structure mismatch is known
-            navigation.push('ViewOrganizerProfileScreen' as any, { organizerUserId: event.organizer.userId });
-            onClose(); // Close the modal after navigating
+            onClose(); // Close the modal first
+            navigation.navigate('ViewOrganizerProfileScreen', { organizerUserId: event.organizer.userId });
         }
     };
     // ----------------------------------
