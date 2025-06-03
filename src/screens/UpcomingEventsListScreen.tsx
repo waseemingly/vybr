@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
     View, Text, StyleSheet, FlatList, TouchableOpacity,
     Image, ActivityIndicator, RefreshControl, ScrollView, Alert, Dimensions,
-    Share, Modal
+    Share, Modal, Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -24,8 +24,8 @@ import ImageSwiper from '@/components/ImageSwiper';
 // Define Navigation and Route Types
 // type UpcomingEventsListRouteProp = RouteProp<MainStackParamList, 'UpcomingEventsListScreen'>;
 
-// Corrected Route Prop Type to include organizerUserId and organizerName
-type UpcomingEventsListRouteProp = RouteProp<MainStackParamList & { UpcomingEventsListScreen: { organizerUserId: string; organizerName?: string } }, 'UpcomingEventsListScreen'>;
+// Corrected Route Prop Type to include organizerId and organizerName
+type UpcomingEventsListRouteProp = RouteProp<MainStackParamList & { UpcomingEventsListScreen: { organizerId: string; organizerName?: string } }, 'UpcomingEventsListScreen'>;
 
 type UpcomingEventsListNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>;
 
@@ -34,9 +34,19 @@ const DEFAULT_EVENT_IMAGE = "https://via.placeholder.com/800x450/D1D5DB/1F2937?t
 const DEFAULT_ORGANIZER_LOGO = "https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo"; // Using a fallback
 const DEFAULT_ORGANIZER_NAME = "Event Organizer";
 
+// Add web constants after imports
+const CARDS_PER_ROW_WEB = 4;
+const CARD_MARGIN_WEB = 16;
+
 // --- NEW: Organizer-specific Event Item View ---
 const OrganizerEventItemView: React.FC<{ item: MappedEvent, navigation: UpcomingEventsListNavigationProp }> = ({ item, navigation }) => {
     const [shareModalVisible, setShareModalVisible] = useState(false);
+    
+    // Calculate card dimensions like OrganizerPostsScreen
+    const cardWidth = Platform.OS === 'web'
+        ? (Dimensions.get('window').width - organizerCardStyles.postsList.paddingHorizontal! * 2 - CARD_MARGIN_WEB * (CARDS_PER_ROW_WEB - 1)) / CARDS_PER_ROW_WEB
+        : Dimensions.get('window').width - organizerCardStyles.postsList.paddingHorizontal! * 2;
+    const imageDimension = cardWidth; // Square 1:1 aspect ratio
     
     const handleEditPress = (eventId: string) => {
         navigation.navigate("EditEvent", { eventId });
@@ -81,21 +91,18 @@ const OrganizerEventItemView: React.FC<{ item: MappedEvent, navigation: Upcoming
 
     return (
         <TouchableOpacity
-            style={organizerCardStyles.eventCard}
+            style={[organizerCardStyles.postCard, Platform.OS === 'web' && organizerCardStyles.postCardWeb, Platform.OS === 'web' ? {width: cardWidth} : {}]}
             onPress={() => handleAnalyticsPress(item.id)} // Pressing card goes to analytics
         >
             <ImageSwiper
                 images={item.images}
                 defaultImage={DEFAULT_EVENT_IMAGE}
-                containerStyle={organizerCardStyles.eventImageContainer}
-                imageStyle={organizerCardStyles.eventImageStyle}
-                height={organizerCardStyles.eventImageStyle.height}
+                containerStyle={[organizerCardStyles.postImageContainer, {width: imageDimension, height: imageDimension}]}
+                imageStyle={[organizerCardStyles.postImageStyle, {width: imageDimension, height: imageDimension}]}
+                height={imageDimension}
              />
-            <View style={organizerCardStyles.eventContent}>
-                <View style={organizerCardStyles.eventHeader}>
-                    <Text style={organizerCardStyles.eventTitle} numberOfLines={2}>{item.title}</Text>
-                    {/* Maybe add status badge if needed */}
-                </View>
+            <View style={organizerCardStyles.cardContent}>
+                <Text style={organizerCardStyles.postTitle} numberOfLines={2}>{item.title}</Text>
                 <View style={organizerCardStyles.eventInfoRow}>
                     <Feather name="calendar" size={14} color="#6B7280" />
                     <Text style={organizerCardStyles.eventInfoText}>{item.date} • {item.time}</Text>
@@ -104,17 +111,16 @@ const OrganizerEventItemView: React.FC<{ item: MappedEvent, navigation: Upcoming
                     <Feather name="map-pin" size={14} color="#6B7280" />
                     <Text style={organizerCardStyles.eventInfoText} numberOfLines={1}>{item.venue}</Text>
                 </View>
-                 {/* Add booking info if desired (e.g., tickets sold/reservations) */}
                 <View style={organizerCardStyles.cardActions}>
-                    <TouchableOpacity style={organizerCardStyles.actionButton} onPress={() => handleEditPress(item.id)}>
+                    <TouchableOpacity style={organizerCardStyles.actionButton} onPress={(e) => { e.stopPropagation(); handleEditPress(item.id); }}>
                         <Feather name="edit-2" size={14} color={APP_CONSTANTS.COLORS.PRIMARY} />
                         <Text style={organizerCardStyles.actionButtonText}>Edit</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={organizerCardStyles.actionButton} onPress={() => handleAnalyticsPress(item.id)}>
+                    <TouchableOpacity style={organizerCardStyles.actionButton} onPress={(e) => { e.stopPropagation(); handleAnalyticsPress(item.id); }}>
                         <Feather name="bar-chart-2" size={14} color={APP_CONSTANTS.COLORS.PRIMARY} />
                         <Text style={organizerCardStyles.actionButtonText}>Analytics</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={organizerCardStyles.actionButton} onPress={() => handleSharePress(item)}>
+                    <TouchableOpacity style={organizerCardStyles.actionButton} onPress={(e) => { e.stopPropagation(); handleSharePress(item); }}>
                         <Feather name="share-2" size={14} color={APP_CONSTANTS.COLORS.PRIMARY} />
                         <Text style={organizerCardStyles.actionButtonText}>Share</Text>
                     </TouchableOpacity>
@@ -170,10 +176,10 @@ const UpcomingEventsListScreen: React.FC = () => {
     const navigation = useNavigation<UpcomingEventsListNavigationProp>();
     const route = useRoute<UpcomingEventsListRouteProp>();
     const { session } = useAuth();
-    const { organizerUserId, organizerName } = route.params;
+    const { organizerId, organizerName } = route.params;
 
     // Check if the current logged-in user is the organizer being viewed (define early)
-    const isOrganizerViewingOwnEvents = useMemo(() => session?.user?.id === organizerUserId, [session, organizerUserId]);
+    const isOrganizerViewingOwnEvents = useMemo(() => session?.user?.id === organizerId, [session, organizerId]);
 
     const [events, setEvents] = useState<MappedEvent[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -183,18 +189,18 @@ const UpcomingEventsListScreen: React.FC = () => {
     // Organizer info is passed, but we could re-fetch if needed
     // Memoize organizerInfoFromParams to stabilize its reference
     const organizerInfoFromParams = useMemo(() => ({
-        userId: organizerUserId,
+        userId: organizerId,
         name: organizerName ?? DEFAULT_ORGANIZER_NAME,
         image: null // We don't pass image via params, fetch if needed or rely on EventCard default
-    }), [organizerUserId, organizerName]);
+    }), [organizerId, organizerName]);
 
     const fetchUpcomingEvents = useCallback(async (refreshing = false) => {
-        if (!organizerUserId) {
+        if (!organizerId) {
             setError("Organizer ID missing."); setIsLoading(false); setIsRefreshing(false); return;
         }
         if (!refreshing) setIsLoading(true); else setIsRefreshing(true);
         setError(null);
-        console.log(`[UpcomingEventsListScreen] Fetching upcoming events for organizer: ${organizerUserId}...`);
+        console.log(`[UpcomingEventsListScreen] Fetching upcoming events for organizer: ${organizerId}...`);
 
         try {
             const now = new Date().toISOString();
@@ -206,7 +212,7 @@ const UpcomingEventsListScreen: React.FC = () => {
                     event_type, booking_type, ticket_price, pass_fee_to_user,
                     max_tickets, max_reservations
                 `)
-                .eq('organizer_id', organizerUserId)
+                .eq('organizer_id', organizerId)
                 .gt('event_datetime', now)
                 .order("event_datetime", { ascending: true });
 
@@ -250,7 +256,7 @@ const UpcomingEventsListScreen: React.FC = () => {
             setIsLoading(false);
             setIsRefreshing(false);
         }
-    }, [organizerUserId, organizerInfoFromParams]);
+    }, [organizerId, organizerInfoFromParams]);
 
     useFocusEffect(useCallback(() => { fetchUpcomingEvents(); }, [fetchUpcomingEvents]));
 
@@ -283,8 +289,7 @@ const UpcomingEventsListScreen: React.FC = () => {
             return (
                 <EventCard
                     event={item}
-                    onPress={() => handleEventPress(item)} // Use the correct handler
-                    isViewable={true} // Or set based on flatlist viewability if needed
+                    onPress={() => handleEventPress(item)}
                 />
             );
         }
@@ -312,8 +317,8 @@ const UpcomingEventsListScreen: React.FC = () => {
                 renderItem={renderEventItem}
                 keyExtractor={(item) => item.id}
                 style={styles.list}
-                contentContainerStyle={styles.listContent}
-                ItemSeparatorComponent={() => <View style={styles.separator} />}
+                contentContainerStyle={organizerCardStyles.postsList}
+                ItemSeparatorComponent={null} // Remove separator for grid layout
                 refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} tintColor={APP_CONSTANTS.COLORS.PRIMARY} />}
             />
         );
@@ -391,30 +396,52 @@ const styles = StyleSheet.create({
     }
 });
 
-// --- NEW: Organizer Card Styles (Similar to OrganizerPostsScreen) ---
+// --- NEW: Updated Organizer Card Styles (Based on OrganizerPostsScreen) ---
 const organizerCardStyles = StyleSheet.create({
-     eventCard: { backgroundColor: "white", borderRadius: 12, overflow: "hidden", marginBottom: 16, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3, elevation: 2, borderWidth: 1, borderColor: '#E5E7EB'},
-     eventImage: { width: "100%", aspectRatio: 16 / 9, backgroundColor: '#F3F4F6', borderBottomWidth: 1, borderColor: '#E5E7EB' },
-     eventImageStyle: {
-        height: (Dimensions.get('window').width - 32) * (9 / 16),
-     },
-     eventImageContainer: {
+    postsList: {
+        paddingHorizontal: Platform.OS === 'web' ? 0 : 16, // Web horizontal padding handled by card margin
+        paddingTop: 16,
+        paddingBottom: 80,
+        flexGrow: 1,
+        ...(Platform.OS === 'web' ? {
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+        } : {})
+    },
+    postCard: {
+        backgroundColor: "white",
+        borderRadius: 12,
+        overflow: "hidden",
+        marginBottom: 20,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 4,
+        elevation: 3,
+        ...(Platform.OS === 'web' ? {} : { width: '100%' })
+    },
+    postCardWeb: {
+        marginHorizontal: CARD_MARGIN_WEB / 2, // For spacing between cards in a row
+        marginBottom: CARD_MARGIN_WEB, // For spacing between rows
+    },
+    postImageContainer: {
         width: "100%",
-        aspectRatio: 16 / 9,
         borderTopLeftRadius: 12,
         borderTopRightRadius: 12,
-        backgroundColor: '#F3F4F6',
-        borderBottomWidth: 1,
-        borderColor: '#E5E7EB',
-     },
-     eventContent: { padding: 16, },
-     eventHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 },
-     eventTitle: { fontSize: 17, fontWeight: "600", color: "#1F2937", flexShrink: 1, marginRight: 8 },
-     eventInfoRow: { flexDirection: "row", alignItems: "center", marginBottom: 6, },
-     eventInfoText: { fontSize: 13, color: "#6B7280", marginLeft: 8, },
-     cardActions: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6', },
-     actionButton: { flexDirection: "row", alignItems: "center", paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: 'rgba(59, 130, 246, 0.1)' },
-     actionButtonText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontWeight: "500", fontSize: 13, marginLeft: 5, },
+        backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT ||'#F3F4F6',
+        overflow: 'hidden',
+    },
+    postImageStyle: {
+        backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT ||'#F3F4F6',
+    },
+    cardContent: { padding: 16 },
+    postTitle: { fontSize: 18, fontWeight: "700", color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, marginBottom: 8 },
+    eventInfoRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+    eventInfoText: { fontSize: 14, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginLeft: 8, flexShrink: 1 },
+    cardActions: { flexDirection: "row", justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: APP_CONSTANTS.COLORS.BORDER_LIGHT ||'#F3F4F6', paddingTop: 12, marginTop: 12 },
+    actionButton: { flexDirection: "row", alignItems: "center", paddingVertical: 4, paddingHorizontal: 8 },
+    actionButtonText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontWeight: "500", fontSize: 14, marginLeft: 6 },
 });
 // ---------------------------------------------------------
 

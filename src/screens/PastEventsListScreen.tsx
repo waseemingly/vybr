@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     View, Text, StyleSheet, FlatList, TouchableOpacity,
-    Image, ActivityIndicator, RefreshControl, ScrollView, Alert, Dimensions
+    Image, ActivityIndicator, RefreshControl, ScrollView, Alert, Dimensions,
+    Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -21,16 +22,26 @@ import {
 import ImageSwiper from '@/components/ImageSwiper';
 
 // Define Navigation and Route Types
-type PastEventsListRouteProp = RouteProp<MainStackParamList, 'PastEventsListScreen'>;
+type PastEventsListRouteProp = RouteProp<MainStackParamList & { PastEventsListScreen: { organizerId: string; organizerName?: string } }, 'PastEventsListScreen'>;
 type PastEventsListNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList>;
 
 const DEFAULT_EVENT_IMAGE = "https://via.placeholder.com/800x450/D1D5DB/1F2937?text=No+Image";
-const DEFAULT_ORGANIZER_LOGO = APP_CONSTANTS.DEFAULT_ORGANIZER_LOGO;
+const DEFAULT_ORGANIZER_LOGO = "https://via.placeholder.com/150/BFDBFE/1E40AF?text=Logo";
 const DEFAULT_ORGANIZER_NAME = "Event Organizer";
 
+// Add web constants after imports
+const CARDS_PER_ROW_WEB = 4;
+const CARD_MARGIN_WEB = 16;
+
 // --- NEW: Organizer-specific Event Item View ---
-// Note: identical to the one in UpcomingEventsListScreen, candidate for extraction
 const OrganizerEventItemView: React.FC<{ item: MappedEvent, navigation: PastEventsListNavigationProp }> = ({ item, navigation }) => {
+    
+    // Calculate card dimensions like OrganizerPostsScreen
+    const cardWidth = Platform.OS === 'web'
+        ? (Dimensions.get('window').width - organizerCardStyles.postsList.paddingHorizontal! * 2 - CARD_MARGIN_WEB * (CARDS_PER_ROW_WEB - 1)) / CARDS_PER_ROW_WEB
+        : Dimensions.get('window').width - organizerCardStyles.postsList.paddingHorizontal! * 2;
+    const imageDimension = cardWidth; // Square 1:1 aspect ratio
+    
     const handleEditPress = (eventId: string) => {
         // Past events typically aren't editable, but let's keep the button disabled or show info
         Alert.alert("Edit Past Event", "Past events cannot be edited.");
@@ -46,19 +57,19 @@ const OrganizerEventItemView: React.FC<{ item: MappedEvent, navigation: PastEven
 
     return (
         <TouchableOpacity
-            style={organizerCardStyles.eventCard}
+            style={[organizerCardStyles.postCard, Platform.OS === 'web' && organizerCardStyles.postCardWeb, Platform.OS === 'web' ? {width: cardWidth} : {}]}
             onPress={() => handleAnalyticsPress(item.id)} // Pressing card goes to analytics
         >
             <ImageSwiper
                 images={item.images}
                 defaultImage={DEFAULT_EVENT_IMAGE}
-                containerStyle={organizerCardStyles.eventImageContainer}
-                imageStyle={organizerCardStyles.eventImageStyle}
-                height={organizerCardStyles.eventImageStyle.height}
+                containerStyle={[organizerCardStyles.postImageContainer, {width: imageDimension, height: imageDimension}]}
+                imageStyle={[organizerCardStyles.postImageStyle, {width: imageDimension, height: imageDimension}]}
+                height={imageDimension}
             />
-            <View style={organizerCardStyles.eventContent}>
+            <View style={organizerCardStyles.cardContent}>
                 <View style={organizerCardStyles.eventHeader}>
-                    <Text style={organizerCardStyles.eventTitle} numberOfLines={2}>{item.title}</Text>
+                    <Text style={organizerCardStyles.postTitle} numberOfLines={2}>{item.title}</Text>
                     {/* Add status badge (e.g., "Completed") */}
                      <View style={[organizerCardStyles.statusBadge, { backgroundColor:"#E0F2F1" }]}>
                         <Text style={[organizerCardStyles.statusText, { color:"#10B981" }]}>Completed</Text>
@@ -72,17 +83,16 @@ const OrganizerEventItemView: React.FC<{ item: MappedEvent, navigation: PastEven
                     <Feather name="map-pin" size={14} color="#6B7280" />
                     <Text style={organizerCardStyles.eventInfoText} numberOfLines={1}>{item.venue}</Text>
                 </View>
-                 {/* Add booking info if desired (e.g., final attendee count) */}
                 <View style={organizerCardStyles.cardActions}>
-                    <TouchableOpacity style={[organizerCardStyles.actionButton, { backgroundColor: '#F3F4F6' }]} onPress={() => handleEditPress(item.id)} disabled={true}>
+                    <TouchableOpacity style={[organizerCardStyles.actionButton, { backgroundColor: '#F3F4F6' }]} onPress={(e) => { e.stopPropagation(); handleEditPress(item.id); }} disabled={true}>
                         <Feather name="edit-2" size={14} color={APP_CONSTANTS.COLORS.DISABLED} />
                         <Text style={[organizerCardStyles.actionButtonText, { color: APP_CONSTANTS.COLORS.DISABLED }]}>Edit</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={organizerCardStyles.actionButton} onPress={() => handleAnalyticsPress(item.id)}>
+                    <TouchableOpacity style={organizerCardStyles.actionButton} onPress={(e) => { e.stopPropagation(); handleAnalyticsPress(item.id); }}>
                         <Feather name="bar-chart-2" size={14} color={APP_CONSTANTS.COLORS.PRIMARY} />
                         <Text style={organizerCardStyles.actionButtonText}>Analytics</Text>
                     </TouchableOpacity>
-                     <TouchableOpacity style={organizerCardStyles.actionButton} onPress={() => handleSharePress(item.id)}>
+                     <TouchableOpacity style={organizerCardStyles.actionButton} onPress={(e) => { e.stopPropagation(); handleSharePress(item.id); }}>
                         <Feather name="share-2" size={14} color={APP_CONSTANTS.COLORS.PRIMARY} />
                         <Text style={organizerCardStyles.actionButtonText}>Share</Text>
                     </TouchableOpacity>
@@ -97,10 +107,10 @@ const PastEventsListScreen: React.FC = () => {
     const navigation = useNavigation<PastEventsListNavigationProp>();
     const route = useRoute<PastEventsListRouteProp>();
     const { session } = useAuth();
-    const { organizerUserId, organizerName } = route.params;
+    const { organizerId, organizerName } = route.params;
 
     // Check if the current logged-in user is the organizer being viewed (define early)
-    const isOrganizerViewingOwnEvents = useMemo(() => session?.user?.id === organizerUserId, [session, organizerUserId]);
+    const isOrganizerViewingOwnEvents = useMemo(() => session?.user?.id === organizerId, [session, organizerId]);
 
     const [events, setEvents] = useState<MappedEvent[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -110,18 +120,18 @@ const PastEventsListScreen: React.FC = () => {
     // Organizer info is passed
     // Memoize organizerInfoFromParams to stabilize its reference
     const organizerInfoFromParams = useMemo(() => ({
-        userId: organizerUserId,
+        userId: organizerId,
         name: organizerName ?? DEFAULT_ORGANIZER_NAME,
         image: null
-    }), [organizerUserId, organizerName]);
+    }), [organizerId, organizerName]);
 
     const fetchPastEvents = useCallback(async (refreshing = false) => {
-        if (!organizerUserId) {
+        if (!organizerId) {
             setError("Organizer ID missing."); setIsLoading(false); setIsRefreshing(false); return;
         }
         if (!refreshing) setIsLoading(true); else setIsRefreshing(true);
         setError(null);
-        console.log(`[PastEventsListScreen] Fetching past events for organizer: ${organizerUserId}...`);
+        console.log(`[PastEventsListScreen] Fetching past events for organizer: ${organizerId}...`);
 
         try {
             const now = new Date().toISOString();
@@ -133,7 +143,7 @@ const PastEventsListScreen: React.FC = () => {
                     event_type, booking_type, ticket_price, pass_fee_to_user,
                     max_tickets, max_reservations
                 `)
-                .eq('organizer_id', organizerUserId)
+                .eq('organizer_id', organizerId)
                 .lte('event_datetime', now) // Filter for past or ongoing events
                 .order("event_datetime", { ascending: false }); // Show most recent first
 
@@ -162,6 +172,7 @@ const PastEventsListScreen: React.FC = () => {
                     max_reservations: event.max_reservations,
                     organizer: organizerInfoFromParams,
                     isViewable: false,
+                    event_datetime_iso: event.event_datetime
                 };
             });
 
@@ -176,7 +187,7 @@ const PastEventsListScreen: React.FC = () => {
             setIsLoading(false);
             setIsRefreshing(false);
         }
-    }, [organizerUserId, organizerInfoFromParams]);
+    }, [organizerId, organizerInfoFromParams]);
 
     useFocusEffect(useCallback(() => { fetchPastEvents(); }, [fetchPastEvents]));
 
@@ -209,8 +220,7 @@ const PastEventsListScreen: React.FC = () => {
             return (
                 <EventCard
                     event={item}
-                    onPress={() => handleEventPress(item)} // Use the correct handler
-                    isViewable={true} // isViewable doesn't really apply here
+                    onPress={() => handleEventPress(item)}
                 />
             );
         }
@@ -238,8 +248,8 @@ const PastEventsListScreen: React.FC = () => {
                 renderItem={renderEventItem}
                 keyExtractor={(item) => item.id}
                 style={styles.list}
-                contentContainerStyle={styles.listContent}
-                ItemSeparatorComponent={() => <View style={styles.separator} />}
+                contentContainerStyle={organizerCardStyles.postsList}
+                ItemSeparatorComponent={null} // Remove separator for grid layout
                 refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} tintColor={APP_CONSTANTS.COLORS.PRIMARY} />}
             />
         );
@@ -275,32 +285,55 @@ const styles = StyleSheet.create({
     // Removed placeholder style
 });
 
-// --- NEW: Organizer Card Styles (Identical to Upcoming screen, maybe extract?) ---
+// --- NEW: Updated Organizer Card Styles (Based on OrganizerPostsScreen) ---
 const organizerCardStyles = StyleSheet.create({
-     eventCard: { backgroundColor: "white", borderRadius: 12, overflow: "hidden", marginBottom: 16, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3, elevation: 2, borderWidth: 1, borderColor: '#E5E7EB'},
-     eventImage: { width: "100%", aspectRatio: 16 / 9, backgroundColor: '#F3F4F6', borderBottomWidth: 1, borderColor: '#E5E7EB' },
-     eventImageStyle: {
-        height: (Dimensions.get('window').width - 32) * (9 / 16),
+     postsList: {
+         paddingHorizontal: Platform.OS === 'web' ? 0 : 16, // Web horizontal padding handled by card margin
+         paddingTop: 16,
+         paddingBottom: 80,
+         flexGrow: 1,
+         ...(Platform.OS === 'web' ? {
+             flexDirection: 'row',
+             flexWrap: 'wrap',
+             justifyContent: 'center',
+         } : {})
      },
-     eventImageContainer: {
-        width: "100%",
-        aspectRatio: 16 / 9,
-        borderTopLeftRadius: 12,
-        borderTopRightRadius: 12,
-        backgroundColor: '#F3F4F6',
-        borderBottomWidth: 1,
-        borderColor: '#E5E7EB',
+     postCard: {
+         backgroundColor: "white",
+         borderRadius: 12,
+         overflow: "hidden",
+         marginBottom: 20,
+         shadowColor: "#000",
+         shadowOffset: { width: 0, height: 2 },
+         shadowOpacity: 0.08,
+         shadowRadius: 4,
+         elevation: 3,
+         ...(Platform.OS === 'web' ? {} : { width: '100%' })
      },
-     eventContent: { padding: 16, },
+     postCardWeb: {
+         marginHorizontal: CARD_MARGIN_WEB / 2, // For spacing between cards in a row
+         marginBottom: CARD_MARGIN_WEB, // For spacing between rows
+     },
+     postImageContainer: {
+         width: "100%",
+         borderTopLeftRadius: 12,
+         borderTopRightRadius: 12,
+         backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT ||'#F3F4F6',
+         overflow: 'hidden',
+     },
+     postImageStyle: {
+         backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT ||'#F3F4F6',
+     },
+     cardContent: { padding: 16 },
      eventHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 },
-     eventTitle: { fontSize: 17, fontWeight: "600", color: "#1F2937", flexShrink: 1, marginRight: 8 },
+     postTitle: { fontSize: 18, fontWeight: "700", color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, flexShrink: 1, marginRight: 8 },
      statusBadge: { paddingVertical: 3, paddingHorizontal: 8, borderRadius: 12, marginLeft: 8, },
      statusText: { fontSize: 11, fontWeight: "600" },
-     eventInfoRow: { flexDirection: "row", alignItems: "center", marginBottom: 6, },
-     eventInfoText: { fontSize: 13, color: "#6B7280", marginLeft: 8, },
-     cardActions: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6', },
-     actionButton: { flexDirection: "row", alignItems: "center", paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: 'rgba(59, 130, 246, 0.1)' },
-     actionButtonText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontWeight: "500", fontSize: 13, marginLeft: 5, },
+     eventInfoRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+     eventInfoText: { fontSize: 14, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginLeft: 8, flexShrink: 1 },
+     cardActions: { flexDirection: "row", justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: APP_CONSTANTS.COLORS.BORDER_LIGHT ||'#F3F4F6', paddingTop: 12, marginTop: 12 },
+     actionButton: { flexDirection: "row", alignItems: "center", paddingVertical: 4, paddingHorizontal: 8 },
+     actionButtonText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontWeight: "500", fontSize: 14, marginLeft: 6 },
 });
 // ---------------------------------------------------------
 
