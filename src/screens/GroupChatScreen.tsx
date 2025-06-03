@@ -93,21 +93,28 @@ const isEventOver = (eventDateString: string): boolean => {
 const isSharedEventOver = (sharedEvent: ChatMessage['sharedEvent']): boolean => {
     if (!sharedEvent) return false;
     
-    // Use eventDateTime if available (more accurate)
+    // Use eventDateTime if available (more accurate) - this should be the primary method
     if (sharedEvent.eventDateTime) {
         try {
             const eventDate = new Date(sharedEvent.eventDateTime);
             const now = new Date();
-            const isOver = eventDate < now;
-            console.log('[DEBUG] Using eventDateTime:', sharedEvent.eventDateTime, 'Is over:', isOver);
-            return isOver;
+            
+            // Validate the parsed date
+            if (isNaN(eventDate.getTime())) {
+                console.warn('Invalid eventDateTime:', sharedEvent.eventDateTime);
+            } else {
+                const isOver = eventDate < now;
+                console.log('[DEBUG] Using eventDateTime:', sharedEvent.eventDateTime, 'Is over:', isOver);
+                return isOver;
+            }
         } catch (e) {
             console.warn('Error parsing eventDateTime:', sharedEvent.eventDateTime, e);
         }
     }
     
-    // Fallback to eventDate string parsing
+    // Fallback to eventDate string parsing (less reliable due to formatting issues)
     if (sharedEvent.eventDate) {
+        console.log('[DEBUG] Falling back to eventDate string parsing for:', sharedEvent.eventDate);
         return isEventOver(sharedEvent.eventDate);
     }
     
@@ -137,6 +144,7 @@ type GroupChatScreenRouteProp = RouteProp<RootStackParamList & {
             eventDate: string;
             eventVenue: string;
             eventImage: string;
+            eventDateTime?: string; // Add the ISO datetime field
             isSharing: boolean;
         }
     }
@@ -226,14 +234,15 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     useEffect(() => {
         if (message.sharedEvent?.eventId && !hasLoggedImpression) {
             // Check if event is over - don't log impressions for past events
-            if (isSharedEventOver(message.sharedEvent)) {
+            const eventIsOver = isSharedEventOver(message.sharedEvent);
+            if (eventIsOver) {
                 console.log(`[IMPRESSION] Skipping impression for past event: ${message.sharedEvent.eventId}`);
                 return;
             }
             
             const logEventImpression = async () => {
                 try {
-                    console.log(`[IMPRESSION] Logging impression for shared event: ${message.sharedEvent?.eventId} from group chat`);
+                    console.log(`[IMPRESSION] Logging impression for future event: ${message.sharedEvent?.eventId} from group chat`);
                     const { error } = await supabase.from('event_impressions').insert({
                         event_id: message.sharedEvent?.eventId,
                         user_id: currentUserId || null,
@@ -244,7 +253,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                     if (error) {
                         console.warn(`[IMPRESSION] Failed for shared event ${message.sharedEvent?.eventId}:`, error.message);
                     } else {
-                        console.log(`[IMPRESSION] Successfully logged for shared event ${message.sharedEvent?.eventId} by user ${currentUserId || 'anonymous'}`);
+                        console.log(`[IMPRESSION] Successfully logged for future event ${message.sharedEvent?.eventId} by user ${currentUserId || 'anonymous'}`);
                         setHasLoggedImpression(true);
                     }
                 } catch (err) {
@@ -252,7 +261,12 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 }
             };
             
-            logEventImpression();
+            // Add a small delay to ensure the message is actually visible to the user
+            const timeoutId = setTimeout(() => {
+                logEventImpression();
+            }, 100);
+            
+            return () => clearTimeout(timeoutId);
         }
     }, [message.sharedEvent?.eventId, currentUserId, hasLoggedImpression]);
 
@@ -797,6 +811,73 @@ const GroupChatScreen: React.FC = () => {
         }; 
     }, [currentUserId]);
 
+    // Function to enhance shared events with missing eventDateTime (for older messages)
+    const enhanceSharedEventsWithDateTime = useCallback(async (messages: ChatMessage[]): Promise<ChatMessage[]> => {
+        const messagesToEnhance = messages.filter(msg => 
+            msg.sharedEvent && 
+            !msg.sharedEvent.eventDateTime && 
+            msg.sharedEvent.eventId && 
+            msg.sharedEvent.eventId !== 'unknown'
+        );
+
+        if (messagesToEnhance.length === 0) {
+            return messages;
+        }
+
+        console.log(`[DEBUG] Enhancing ${messagesToEnhance.length} shared event messages with missing eventDateTime`);
+
+        // Fetch event data for all messages that need enhancement
+        const eventIds = messagesToEnhance.map(msg => msg.sharedEvent!.eventId);
+        const uniqueEventIds = [...new Set(eventIds)];
+
+        try {
+            const { data: eventsData, error: eventsError } = await supabase
+                .from('events')
+                .select('id, event_datetime, poster_urls')
+                .in('id', uniqueEventIds);
+
+            if (eventsError) {
+                console.warn('[DEBUG] Error fetching event data for enhancement:', eventsError.message);
+                return messages;
+            }
+
+            if (!eventsData || eventsData.length === 0) {
+                console.warn('[DEBUG] No event data found for enhancement');
+                return messages;
+            }
+
+            // Create a map of event data
+            const eventDataMap = new Map(eventsData.map(event => [event.id, event]));
+
+            // Enhance messages with fetched event data
+            const enhancedMessages = messages.map(msg => {
+                if (msg.sharedEvent && !msg.sharedEvent.eventDateTime && msg.sharedEvent.eventId !== 'unknown') {
+                    const eventData = eventDataMap.get(msg.sharedEvent.eventId);
+                    if (eventData) {
+                        console.log(`[DEBUG] Enhanced message ${msg._id} with eventDateTime: ${eventData.event_datetime}`);
+                        return {
+                            ...msg,
+                            sharedEvent: {
+                                ...msg.sharedEvent,
+                                eventDateTime: eventData.event_datetime,
+                                // Also update image if needed
+                                eventImage: (eventData.poster_urls && eventData.poster_urls.length > 0) 
+                                    ? eventData.poster_urls[0] 
+                                    : msg.sharedEvent.eventImage
+                            }
+                        };
+                    }
+                }
+                return msg;
+            });
+
+            return enhancedMessages;
+        } catch (error) {
+            console.warn('[DEBUG] Exception during event enhancement:', error);
+            return messages;
+        }
+    }, []);
+
     // Fetch Initial Data
     const fetchInitialData = useCallback(async () => { if (!currentUserId || !groupId) { setLoadError("Auth/Group ID missing."); setLoading(false); return; } setLoading(true); setLoadError(null); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); try { const { data: groupInfoData, error: groupInfoError } = await supabase.rpc('get_group_info', { group_id_input: groupId }); if (groupInfoError) throw groupInfoError; if (!groupInfoData?.group_details || !groupInfoData?.participants) throw new Error("Incomplete group data."); const groupDetails = groupInfoData.group_details; const participantsRaw: { user_id: string, is_admin: boolean }[] = groupInfoData.participants; const currentUserParticipant = participantsRaw.find(p => p.user_id === currentUserId); setIsCurrentUserAdmin(currentUserParticipant?.is_admin ?? false); setCanMembersAddOthers(groupDetails.can_members_add_others ?? false); setCanMembersEditInfo(groupDetails.can_members_edit_info ?? false); setCurrentGroupName(groupDetails.group_name); setCurrentGroupImage(groupDetails.group_image ?? null); const { data: messagesData, error: messagesError } = await supabase.from('group_chat_messages').select('id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id').eq('group_id', groupId).order('created_at', { ascending: true }); if (messagesError) throw messagesError; if (!messagesData || messagesData.length === 0) { setMessages([]); } else { const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id); const senderIds = Array.from(new Set(visibleMessages.filter(msg => msg.sender_id).map(msg => msg.sender_id))); const profilesMap = new Map<string, UserProfileInfo>(); if (senderIds.length > 0) { const idsToFetch = senderIds.filter(id => !userProfileCache[id]); if (idsToFetch.length > 0) { const { data: profilesData, error: profilesError } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').in('user_id', idsToFetch); if (profilesError) { console.error("Err fetch profiles:", profilesError); } else if (profilesData) { profilesData.forEach((p: UserProfileInfo) => { profilesMap.set(p.user_id, p); const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; const a = p.profile_picture||undefined; userProfileCache[p.user_id] = { name: n, avatar: a }; }); } } senderIds.forEach(id => { if (userProfileCache[id] && !profilesMap.has(id)) { profilesMap.set(id, { user_id: id, first_name: userProfileCache[id].name?.split(' ')[0]||null, last_name: userProfileCache[id].name?.split(' ')[1]||null, profile_picture: userProfileCache[id].avatar||null }); } }); } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You' }; const mappedMessages = visibleMessages.map(dbMsg => mapDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap)); setMessages(mappedMessages); } } catch (err: any) { console.error("Error fetching initial data:", err); if (err.message?.includes("User is not a member")) { Alert.alert("Access Denied", "Not member.", [{ text: "OK", onPress: () => navigation.goBack() }]); setLoadError("Not a member."); } else { setLoadError(`Load fail: ${err.message || 'Unknown'}`); } setMessages([]); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); } finally { setLoading(false); } }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
 
@@ -922,7 +1003,7 @@ const GroupChatScreen: React.FC = () => {
                 eventDate: eventDataToShare.eventDate,
                 eventVenue: eventDataToShare.eventVenue,
                 eventImage: eventDataToShare.eventImage || DEFAULT_EVENT_IMAGE_CHAT,
-                eventDateTime: eventDataToShare.eventDateTime || null,
+                eventDateTime: eventDataToShare.eventDateTime || null, // Include the ISO datetime if available
             },
             replyToMessageId: replyingToMessage?._id || null,
             replyToMessagePreview: replyingToMessagePreview,
@@ -997,7 +1078,14 @@ const GroupChatScreen: React.FC = () => {
                 msg._id === tempId ? { 
                     ...optimisticMessage, 
                     _id: insertedMessage.id,
-                    createdAt: new Date(insertedMessage.created_at)
+                    createdAt: new Date(insertedMessage.created_at),
+                    sharedEvent: optimisticMessage.sharedEvent ? {
+                        ...optimisticMessage.sharedEvent,
+                        eventDateTime: eventData?.event_datetime || optimisticMessage.sharedEvent.eventDateTime,
+                        eventImage: (eventData?.poster_urls && eventData.poster_urls.length > 0) 
+                            ? eventData.poster_urls[0] 
+                            : optimisticMessage.sharedEvent.eventImage
+                    } : null
                 } : msg
             ));
         } catch (err: any) {
