@@ -44,6 +44,7 @@ type IndividualChatScreenRouteProp = RouteProp<RootStackParamList & {
       eventDate: string;
       eventVenue: string;
       eventImage: string;
+      eventDateTime?: string; // Add the ISO datetime field
       isSharing: boolean;
     }
   }
@@ -183,21 +184,28 @@ const isEventOver = (eventDateString: string): boolean => {
 const isSharedEventOver = (sharedEvent: ChatMessage['sharedEvent']): boolean => {
     if (!sharedEvent) return false;
     
-    // Use eventDateTime if available (more accurate)
+    // Use eventDateTime if available (more accurate) - this should be the primary method
     if (sharedEvent.eventDateTime) {
         try {
             const eventDate = new Date(sharedEvent.eventDateTime);
             const now = new Date();
-            const isOver = eventDate < now;
-            console.log('[DEBUG] Using eventDateTime:', sharedEvent.eventDateTime, 'Is over:', isOver);
-            return isOver;
+            
+            // Validate the parsed date
+            if (isNaN(eventDate.getTime())) {
+                console.warn('Invalid eventDateTime:', sharedEvent.eventDateTime);
+            } else {
+                const isOver = eventDate < now;
+                console.log('[DEBUG] Using eventDateTime:', sharedEvent.eventDateTime, 'Is over:', isOver);
+                return isOver;
+            }
         } catch (e) {
             console.warn('Error parsing eventDateTime:', sharedEvent.eventDateTime, e);
         }
     }
     
-    // Fallback to eventDate string parsing
+    // Fallback to eventDate string parsing (less reliable due to formatting issues)
     if (sharedEvent.eventDate) {
+        console.log('[DEBUG] Falling back to eventDate string parsing for:', sharedEvent.eventDate);
         return isEventOver(sharedEvent.eventDate);
     }
     
@@ -234,25 +242,26 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
     useEffect(() => {
         if (message.sharedEvent?.eventId && !hasLoggedImpression) {
             // Check if event is over - don't log impressions for past events
-            if (isSharedEventOver(message.sharedEvent)) {
+            const eventIsOver = isSharedEventOver(message.sharedEvent);
+            if (eventIsOver) {
                 console.log(`[IMPRESSION] Skipping impression for past event: ${message.sharedEvent.eventId}`);
                 return;
             }
             
             const logEventImpression = async () => {
                 try {
-                    console.log(`[IMPRESSION] Logging impression for shared event: ${message.sharedEvent?.eventId} from individual chat`);
+                    console.log(`[IMPRESSION] Logging impression for future event: ${message.sharedEvent?.eventId} from individual chat`);
                     const { error } = await supabase.from('event_impressions').insert({
                         event_id: message.sharedEvent?.eventId,
                         user_id: currentUserId || null,
-                        source: 'chat',
+                        source: 'individual_chat',
                         viewed_at: new Date().toISOString()
                     });
                     
                     if (error) {
                         console.warn(`[IMPRESSION] Failed for shared event ${message.sharedEvent?.eventId}:`, error.message);
                     } else {
-                        console.log(`[IMPRESSION] Successfully logged for shared event ${message.sharedEvent?.eventId} by user ${currentUserId || 'anonymous'}`);
+                        console.log(`[IMPRESSION] Successfully logged for future event ${message.sharedEvent?.eventId} by user ${currentUserId || 'anonymous'}`);
                         setHasLoggedImpression(true);
                     }
                 } catch (err) {
@@ -260,7 +269,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                 }
             };
             
-            logEventImpression();
+            // Add a small delay to ensure the message is actually visible to the user
+            const timeoutId = setTimeout(() => {
+                logEventImpression();
+            }, 100);
+            
+            return () => clearTimeout(timeoutId);
         }
     }, [message.sharedEvent?.eventId, currentUserId, hasLoggedImpression]);
 
@@ -696,7 +710,7 @@ const IndividualChatScreen: React.FC = () => {
                     const onIndex = eventName.lastIndexOf(onSeparator);
                     if (onIndex !== -1) { eventDate = eventName.substring(onIndex + onSeparator.length); eventName = eventName.substring(0, onIndex); }
                     
-                    // Check metadata for stored event image first
+                    // Check metadata for stored event image and datetime first
                     let eventImage = DEFAULT_EVENT_IMAGE_CHAT;
                     let eventDateTime: string | null = null;
                     if (dbMessage.metadata && typeof dbMessage.metadata === 'object' && dbMessage.metadata.shared_event) {
@@ -753,6 +767,73 @@ const IndividualChatScreen: React.FC = () => {
             isSeen: dbMessage.is_seen, seenAt: dbMessage.seen_at ? new Date(dbMessage.seen_at) : null,
         };
     }, [currentUserId, dynamicMatchName]);
+
+    // Function to enhance shared events with missing eventDateTime (for older messages)
+    const enhanceSharedEventsWithDateTime = useCallback(async (messages: ChatMessage[]): Promise<ChatMessage[]> => {
+        const messagesToEnhance = messages.filter(msg => 
+            msg.sharedEvent && 
+            !msg.sharedEvent.eventDateTime && 
+            msg.sharedEvent.eventId && 
+            msg.sharedEvent.eventId !== 'unknown'
+        );
+
+        if (messagesToEnhance.length === 0) {
+            return messages;
+        }
+
+        console.log(`[DEBUG] Enhancing ${messagesToEnhance.length} shared event messages with missing eventDateTime`);
+
+        // Fetch event data for all messages that need enhancement
+        const eventIds = messagesToEnhance.map(msg => msg.sharedEvent!.eventId);
+        const uniqueEventIds = [...new Set(eventIds)];
+
+        try {
+            const { data: eventsData, error: eventsError } = await supabase
+                .from('events')
+                .select('id, event_datetime, poster_urls')
+                .in('id', uniqueEventIds);
+
+            if (eventsError) {
+                console.warn('[DEBUG] Error fetching event data for enhancement:', eventsError.message);
+                return messages;
+            }
+
+            if (!eventsData || eventsData.length === 0) {
+                console.warn('[DEBUG] No event data found for enhancement');
+                return messages;
+            }
+
+            // Create a map of event data
+            const eventDataMap = new Map(eventsData.map(event => [event.id, event]));
+
+            // Enhance messages with fetched event data
+            const enhancedMessages = messages.map(msg => {
+                if (msg.sharedEvent && !msg.sharedEvent.eventDateTime && msg.sharedEvent.eventId !== 'unknown') {
+                    const eventData = eventDataMap.get(msg.sharedEvent.eventId);
+                    if (eventData) {
+                        console.log(`[DEBUG] Enhanced message ${msg._id} with eventDateTime: ${eventData.event_datetime}`);
+                        return {
+                            ...msg,
+                            sharedEvent: {
+                                ...msg.sharedEvent,
+                                eventDateTime: eventData.event_datetime,
+                                // Also update image if needed
+                                eventImage: (eventData.poster_urls && eventData.poster_urls.length > 0) 
+                                    ? eventData.poster_urls[0] 
+                                    : msg.sharedEvent.eventImage
+                            }
+                        };
+                    }
+                }
+                return msg;
+            });
+
+            return enhancedMessages;
+        } catch (error) {
+            console.warn('[DEBUG] Exception during event enhancement:', error);
+            return messages;
+        }
+    }, []);
 
     const markChatAsInitiatedInStorage = useCallback(async (userIdToMark: string) => {
         if (!currentUserId) return;
@@ -863,7 +944,7 @@ const IndividualChatScreen: React.FC = () => {
 
             if (data) {
                 const visibleMessages = data.filter((msg: DbMessage) => !hiddenMessageIds.has(msg.id));
-                const fetchedChatMessages = visibleMessages.map((dbMsg: any) => { // dbMsg can be any because of the join
+                const fetchedChatMessages = visibleMessages.map((dbMsg: any) => {
                     const chatMsg = mapDbMessageToChatMessage(dbMsg as DbMessage);
                     // @ts-ignore
                     const status = dbMsg.message_status && Array.isArray(dbMsg.message_status) ? dbMsg.message_status[0] : dbMsg.message_status;
@@ -876,9 +957,12 @@ const IndividualChatScreen: React.FC = () => {
                     return chatMsg;
                 });
 
-                setMessages(fetchedChatMessages);
-                checkMutualInitiation(fetchedChatMessages);
-                console.log(`[ChatScreen] Fetched ${fetchedChatMessages.length} messages.`);
+                // Enhance shared events with missing eventDateTime (for older messages)
+                const enhancedMessages = await enhanceSharedEventsWithDateTime(fetchedChatMessages);
+
+                setMessages(enhancedMessages);
+                checkMutualInitiation(enhancedMessages);
+                console.log(`[ChatScreen] Fetched ${enhancedMessages.length} messages.`);
             } else {
                 setMessages([]);
                 setIsChatMutuallyInitiated(false);
@@ -892,7 +976,7 @@ const IndividualChatScreen: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage, checkMutualInitiation]);
+    }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage, checkMutualInitiation, enhanceSharedEventsWithDateTime]);
 
     // --- Share Event (using inline logic instead of RPC) --- 
     const shareEventToUser = useCallback(async (eventDataToShare: typeof initialSharedEventData) => {
@@ -928,6 +1012,7 @@ const IndividualChatScreen: React.FC = () => {
                 eventDate: eventDataToShare.eventDate,
                 eventVenue: eventDataToShare.eventVenue,
                 eventImage: eventDataToShare.eventImage || DEFAULT_EVENT_IMAGE_CHAT,
+                eventDateTime: eventDataToShare.eventDateTime || null, // Include the ISO datetime if available
             },
             replyToMessageId: replyingToMessage?._id || null,
             replyToMessagePreview: replyingToMessagePreview
@@ -994,7 +1079,18 @@ const IndividualChatScreen: React.FC = () => {
             console.log('[IndividualChatScreen] Event shared to user successfully, message_id:', insertedMessage.id);
             markChatAsInitiatedInStorage(matchUserId);
             setMessages(prev => prev.map(msg => 
-                msg._id === tempId ? { ...optimisticMessage, _id: insertedMessage.id, createdAt: new Date(insertedMessage.created_at) } : msg
+                msg._id === tempId ? { 
+                    ...optimisticMessage, 
+                    _id: insertedMessage.id, 
+                    createdAt: new Date(insertedMessage.created_at),
+                    sharedEvent: optimisticMessage.sharedEvent ? {
+                        ...optimisticMessage.sharedEvent,
+                        eventDateTime: eventData?.event_datetime || optimisticMessage.sharedEvent.eventDateTime,
+                        eventImage: (eventData?.poster_urls && eventData.poster_urls.length > 0) 
+                            ? eventData.poster_urls[0] 
+                            : optimisticMessage.sharedEvent.eventImage
+                    } : null
+                } : msg
             ));
 
         } catch (err: any) {
