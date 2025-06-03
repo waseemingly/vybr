@@ -43,7 +43,7 @@ import OrganizerProfileScreen from "@/screens/organizer/OrganizerProfileScreen";
 import EventDetailScreen from "@/screens/organizer/EventDetailScreen";
 import OrganizerSettingsScreen from "@/screens/organizer/OrganizerSettingsScreen";
 import EditOrganizerProfileScreen from '@/screens/organizer/EditOrganizerProfileScreen';
-import OrgManagePlanScreen from '@/screens/organizer/OrgManagePlanScreen';
+import ManagePlanScreen from '@/screens/organizer/ManagePlanScreen';
 import OrgBillingHistoryScreen from '@/screens/organizer/OrgBillingHistoryScreen';
 import UserListScreen from '@/screens/UserListScreen';
 import UpcomingEventsListScreen from '@/screens/UpcomingEventsListScreen';
@@ -106,6 +106,7 @@ export type MainStackParamList = {
   UserSettingsScreen: undefined;
   EditUserProfileScreen: undefined; // Simplified from EditProfileScreen with userType
   UserManageSubscriptionScreen: undefined;
+  ManagePlan: undefined;
   UserMutedListScreen: undefined;
   UserBlockedListScreen: undefined;
   FriendsListScreen: undefined;
@@ -122,7 +123,7 @@ export type MainStackParamList = {
   ViewBookings: { eventId: string; eventTitle: string }; // <<< ADDED ViewBookings
   OrganizerSettingsScreen: undefined;
   EditOrganizerProfileScreen: undefined; // Simplified
-  OrgManagePlanScreen: undefined;
+  ManagePlanScreen: undefined;
   OrgBillingHistoryScreen: undefined;
   UserListScreen: undefined; // For organizers viewing followers/attendees
   PromoteEvent: { eventId: string }; // Added based on EventDetailScreen's OrganizerStackParamList
@@ -274,7 +275,7 @@ const MainAppStack = () => {
                  <MainStack.Screen name="ViewBookings" component={ViewBookingsScreen} options={{ title: 'Event Bookings' }}/>
                  <MainStack.Screen name="OrganizerSettingsScreen" component={OrganizerSettingsScreen} options={{ title: 'Settings' }}/>
                  <MainStack.Screen name="EditOrganizerProfileScreen" component={EditOrganizerProfileScreen} options={{ title: 'Edit Profile' }}/>
-                 <MainStack.Screen name="OrgManagePlanScreen" component={OrgManagePlanScreen} options={{ title: 'Manage Plan' }}/>
+                 <MainStack.Screen name="ManagePlanScreen" component={ManagePlanScreen} options={{ title: 'Manage Plan' }}/>
                  <MainStack.Screen name="OrgBillingHistoryScreen" component={OrgBillingHistoryScreen} options={{ title: 'Billing History' }}/>
                  <MainStack.Screen name="UserListScreen" component={UserListScreen} options={{ title: 'Followers' }}/>
                  <MainStack.Screen name="OverallAnalyticsScreen" component={OverallAnalyticsScreen} options={{ title: 'Overall Analytics' }}/>
@@ -286,6 +287,7 @@ const MainAppStack = () => {
                  <MainStack.Screen name="UserSettingsScreen" component={UserSettingsScreen} options={{ title: 'Settings' }} />
                  <MainStack.Screen name="EditUserProfileScreen" component={EditUserProfileScreen} options={{ title: 'Edit Profile' }} />
                  <MainStack.Screen name="UserManageSubscriptionScreen" component={UserManageSubscriptionScreen} options={{ title: 'Subscription' }} />
+                 <MainStack.Screen name="ManagePlan" component={ManagePlanScreen} options={{ title: 'Manage Plan' }} />
                  <MainStack.Screen name="UserMutedListScreen" component={UserMutedListScreen} options={{ title: 'Muted Users' }} />
                  <MainStack.Screen name="UserBlockedListScreen" component={UserBlockedListScreen} options={{ title: 'Blocked Users' }} />
                  <MainStack.Screen name="FriendsListScreen" component={FriendsListScreen} options={{ title: 'Friends' }} />

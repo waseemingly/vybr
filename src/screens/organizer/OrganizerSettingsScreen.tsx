@@ -25,7 +25,7 @@ import { supabase } from '../../lib/supabase';
 type OrganizerSettingsStackParamList = {
     OrganizerSettingsHome: undefined;
     EditOrganizerProfileScreen: undefined; // Use actual screen name
-    OrgManagePlanScreen: undefined;      // Use actual screen name
+    ManagePlanScreen: undefined;      // Use actual screen name
     OrgBillingHistoryScreen: undefined;   // Use actual screen name
     // ... other organizer settings sub-screens
 };
@@ -241,7 +241,7 @@ const OrganizerSettingsScreen: React.FC = () => {
 
     // --- Navigation Handlers ---
     const navigateToEditProfile = () => navigation.navigate('EditOrganizerProfileScreen');
-    const navigateToManagePlan = () => navigation.navigate('OrgManagePlanScreen');
+    const navigateToManagePlan = () => navigation.navigate('ManagePlanScreen');
     const navigateToBillingHistory = () => navigation.navigate('OrgBillingHistoryScreen');
     // -------------------------
 

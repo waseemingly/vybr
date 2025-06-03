@@ -24,6 +24,8 @@ export interface MusicLoverProfile extends Omit<DbMusicLoverProfile, 'selected_s
     favorite_artists?: string | null;
     favorite_albums?: string | null;
     favorite_songs?: string | null;
+    // Add stripe_customer_id for payment methods
+    stripe_customer_id?: string | null;
 }
 
 // Data needed to create the profile (matches signup flow)
@@ -371,6 +373,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                            favorite_artists: profileData.favorite_artists ?? null,
                            favorite_albums: profileData.favorite_albums ?? null,
                            favorite_songs: profileData.favorite_songs ?? null,
+                           // Add stripe_customer_id mapping for payment methods
+                           stripe_customer_id: profileData.stripe_customer_id,
                         };
                         console.log("[AuthProvider] Setting musicLoverProfile state:", fullProfile);
                         setMusicLoverProfile(fullProfile);

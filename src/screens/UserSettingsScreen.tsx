@@ -27,6 +27,7 @@ type UserSettingsStackParamList = {
     EditUserProfile: undefined; // Example
     EditMusicPrefs: undefined; // Example
     UserManageSubscription: undefined; // Example
+    ManagePlan: undefined;
     UserBlockedList: undefined; // Example
     UserMutedList: undefined; // Example
     LinkMusicServicesScreen: undefined; // <-- Add new screen route
@@ -353,6 +354,7 @@ const UserSettingsScreen: React.FC = () => {
     // --- Navigation Handlers ---
     const navigateToEditProfile = () => navigation.navigate('EditUserProfileScreen' as never); // Cast as never temporarily if types conflict
     const navigateToManageSubscription = () => navigation.navigate('UserManageSubscriptionScreen' as never);
+    const navigateToManagePlan = () => navigation.navigate('ManagePlan' as never);
     const navigateToMutedList = () => navigation.navigate('UserMutedListScreen' as never);
     const navigateToBlockedList = () => navigation.navigate('UserBlockedListScreen' as never);
     const navigateToUpgrade = () => navigation.navigate('UpgradeScreen' as never);
@@ -405,10 +407,25 @@ const UserSettingsScreen: React.FC = () => {
                     <SettingsItem label="App Updates & News" icon="info" toggleValue={notifications.notify_app_updates ?? true} onToggleChange={(v) => handleToggle('notify_app_updates', v)} isUpdating={updatingSetting === 'notify_app_updates'} disabled={notifications.notify_app_updates === null}/>
                 </SettingsSection>
 
+                <SettingsSection title="Payment & Billing">
+                    <SettingsItem 
+                        label="Manage Payment Details" 
+                        icon="credit-card" 
+                        onPress={navigateToManagePlan} 
+                        value={isPremiumUser ? "Premium account" : "Optional for free users"}
+                    />
+                    <SettingsItem 
+                        label="Billing History" 
+                        icon="file-text" 
+                        onPress={navigateToBillingHistory} 
+                        value={isPremiumUser ? "View history" : "Not available"}
+                        disabled={!isPremiumUser}
+                    />
+                </SettingsSection>
+
                 {isPremiumUser ? (
                      <SettingsSection title="Premium Subscription" isPremiumFeature isPremiumUser={isPremiumUser}>
-                        <SettingsItem label="Manage Plan" icon="credit-card" onPress={navigateToManageSubscription} />
-                        <SettingsItem label="Billing History" icon="file-text" onPress={navigateToBillingHistory} />
+                        <SettingsItem label="Cancel Subscription" icon="x-circle" onPress={navigateToManageSubscription} />
                      </SettingsSection>
                  ) : (
                      <SettingsSection title="Upgrade to Premium">
