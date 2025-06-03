@@ -199,43 +199,96 @@ const OrganizerSettingsScreen: React.FC = () => {
     const handleDeleteAccount = () => {
         if (!userId) return;
 
-        Alert.alert(
-            "Delete Account",
-            "Are you absolutely sure? This action cannot be undone. All your organizer data (profile, events, etc.) will be permanently deleted.",
-            [
-                {
-                    text: "Cancel",
-                    style: "cancel"
-                },
-                {
-                    text: "Delete My Account",
-                    style: "destructive",
-                    onPress: async () => {
-                        setIsDeleting(true);
-                        try {
-                            console.log("Invoking Supabase function 'delete-user-account'...");
-                            // *** YOU NEED TO CREATE THIS EDGE FUNCTION IN SUPABASE ***
-                            const { error: functionError } = await supabase.functions.invoke('delete-user-account');
-
-                            if (functionError) {
-                                throw functionError;
-                            }
-
-                            console.log("'delete-user-account' function successful. Logging out...");
-                            await logout();
-
-                        } catch (error: any) {
-                            console.error("Error deleting account:", error);
-                            Alert.alert(
-                                "Deletion Failed", 
-                                `Could not delete your account: ${error.message || 'Please try again later or contact support.'}`
-                            );
-                             setIsDeleting(false); 
-                        }
-                    }
+        const confirmDelete = async () => {
+            setIsDeleting(true);
+            try {
+                console.log("[OrganizerSettingsScreen] Starting account deletion process...", {
+                    platform: Platform.OS,
+                    userId,
+                    isWeb: Platform.OS === 'web'
+                });
+                
+                // 1. Delete the user's auth account using Edge function (must be done while still authenticated)
+                console.log("Invoking Supabase Edge function 'delete-user-account'...");
+                const { data, error: functionError } = await supabase.functions.invoke('delete-user-account');
+                
+                console.log("[OrganizerSettingsScreen] Edge function delete-user-account response:", {
+                    data,
+                    error: functionError,
+                    platform: Platform.OS,
+                    userId
+                });
+                
+                if (functionError) {
+                    console.error("[OrganizerSettingsScreen] Error calling delete function:", {
+                        error: functionError,
+                        platform: Platform.OS,
+                        userId
+                    });
+                    throw new Error(`Failed to delete account: ${functionError.message}`);
                 }
-            ]
-        );
+
+                // Check if the Edge function returned an error in the data
+                if (data && typeof data === 'object' && data.error) {
+                    console.error("[OrganizerSettingsScreen] Edge function returned error:", data);
+                    throw new Error(`Account deletion failed: ${data.error || data.message || 'Unknown error from deletion function'}`);
+                }
+
+                console.log("[OrganizerSettingsScreen] Account deletion successful", {
+                    platform: Platform.OS,
+                    userId,
+                    functionResponse: data
+                });
+
+                // 2. Sign out after successful deletion
+                const { error: signOutError } = await supabase.auth.signOut();
+                if (signOutError) {
+                    console.error("[OrganizerSettingsScreen] Error signing out after deletion:", signOutError);
+                    // Don't throw here, as the account is already deleted
+                }
+
+                // 3. Force logout to clear local state
+                await logout();
+
+            } catch (error: any) {
+                console.error("[OrganizerSettingsScreen] Error in account deletion process:", {
+                    error,
+                    platform: Platform.OS,
+                    userId
+                });
+                if (Platform.OS === 'web') {
+                    window.alert(`Could not delete your account: ${error.message || 'Please try again later or contact support.'}`);
+                } else {
+                    Alert.alert(
+                        "Deletion Failed", 
+                        `Could not delete your account: ${error.message || 'Please try again later or contact support.'}`
+                    );
+                }
+                setIsDeleting(false);
+            }
+        };
+
+        if (Platform.OS === 'web') {
+            if (window.confirm("Are you absolutely sure? This action cannot be undone. All your organizer data (profile, events, etc.) will be permanently deleted.")) {
+                confirmDelete();
+            }
+        } else {
+            Alert.alert(
+                "Delete Account",
+                "Are you absolutely sure? This action cannot be undone. All your organizer data (profile, events, etc.) will be permanently deleted.",
+                [
+                    {
+                        text: "Cancel",
+                        style: "cancel"
+                    },
+                    {
+                        text: "Delete My Account",
+                        style: "destructive",
+                        onPress: confirmDelete
+                    }
+                ]
+            );
+        }
     };
     // ---------------------------
 
@@ -271,8 +324,8 @@ const OrganizerSettingsScreen: React.FC = () => {
 
                 <SettingsSection title="Payment & Billing">
                     {/* Display N/A if profile info isn't available */}
-                    <SettingsItem label="Change Payment Details" icon="credit-card" onPress={navigateToManagePlan} value={organizerProfile?.planType ? `Current: ${organizerProfile.planType}` : "Not available"} disabled={!organizerProfile} />
-                    <SettingsItem label="Billing History" icon="file-text" onPress={navigateToBillingHistory} value={organizerProfile?.hasBillingHistory ? "View history" : "Not available"} disabled={!organizerProfile?.hasBillingHistory} />
+                    <SettingsItem label="Change Payment Details" icon="credit-card" onPress={navigateToManagePlan} value={organizerProfile ? "Available" : "Not available"} disabled={!organizerProfile} />
+                    <SettingsItem label="Billing History" icon="file-text" onPress={navigateToBillingHistory} value={organizerProfile ? "View history" : "Not available"} disabled={!organizerProfile} />
                 </SettingsSection>
 
                 <SettingsSection title="Account Management">
