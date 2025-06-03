@@ -45,7 +45,7 @@ const OrganizerPaymentMethodUpdateCompleteScreen = () => {
             if (refreshUserProfile) await refreshUserProfile(); // Refresh auth state
             setTimeout(() => {
               // Navigate back to manage plan screen or profile
-              navigation.navigate('OrgManagePlanScreen' as never); // Or your manage plan screen name
+              navigation.navigate('ManagePlanScreen' as never); // Or your manage plan screen name
             }, 2000);
             break;
           // ... other cases similar to OrganizerPaymentSetupCompleteScreen ...
@@ -64,7 +64,7 @@ const OrganizerPaymentMethodUpdateCompleteScreen = () => {
       {/* ... UI similar to OrganizerPaymentSetupCompleteScreen ... */}
       <ActivityIndicator size="large" animating={status === 'loading' || status === 'processing'} />
       <Text style={styles.messageText}>{message}</Text>
-      <TouchableOpacity onPress={() => navigation.navigate('OrgManagePlanScreen' as never)}>
+      <TouchableOpacity onPress={() => navigation.navigate('ManagePlanScreen' as never)}>
           <Text>Back to Manage Plan</Text>
       </TouchableOpacity>
     </View>

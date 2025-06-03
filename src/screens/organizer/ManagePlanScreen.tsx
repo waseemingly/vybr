@@ -119,10 +119,10 @@ const StripeSetupFormWebManage = ({ clientSecret, onSetupSuccess, onSetupError, 
     );
 };
 
-const OrgManagePlanScreen: React.FC = () => {
+const ManagePlanScreen: React.FC = () => {
     const navigation = useNavigation<OrgManagePlanNavigationProp>();
-    // IMPORTANT: Destructure organizerProfile directly here. It will re-render component if it changes.
-    const { session, organizerProfile, loading: authLoading, refreshUserProfile } = useAuth();
+    // IMPORTANT: Destructure both profiles to handle both user types
+    const { session, organizerProfile, musicLoverProfile, loading: authLoading, refreshUserProfile } = useAuth();
     const { initPaymentSheet, presentPaymentSheet } = useNativeStripe();
 
     const [isLoadingData, setIsLoadingData] = useState(true);
@@ -139,15 +139,39 @@ const OrgManagePlanScreen: React.FC = () => {
     const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
     const [pendingDeletePaymentMethod, setPendingDeletePaymentMethod] = useState<{id: string, card: any} | null>(null);
 
-    const organizerId = session?.user?.id;
-    const organizerEmail = session?.user?.email; // Prefer session email as it's more direct
+    const userId = session?.user?.id;
+    const userEmail = session?.user?.email; // Prefer session email as it's more direct
+    
+    // Determine user type and premium status
+    const userType = session?.userType;
+    const isOrganizer = userType === 'organizer';
+    const isMusicLover = userType === 'music_lover';
+    const isPremiumUser = musicLoverProfile?.isPremium ?? false;
+    
+    // Get the appropriate profile based on user type
+    const currentProfile = isOrganizer ? organizerProfile : musicLoverProfile;
+    const currentStripeCustomerId = isOrganizer 
+        ? (organizerProfile as any)?.stripe_customer_id 
+        : (musicLoverProfile as any)?.stripe_customer_id;
+    
+    // Add debug logging
+    console.log('[ManagePlan] DEBUG - User Type:', userType);
+    console.log('[ManagePlan] DEBUG - Is Organizer:', isOrganizer);
+    console.log('[ManagePlan] DEBUG - Current Profile:', JSON.stringify(currentProfile, null, 2));
+    console.log('[ManagePlan] DEBUG - Current Stripe Customer ID:', currentStripeCustomerId);
+    console.log('[ManagePlan] DEBUG - Organizer Profile:', JSON.stringify(organizerProfile, null, 2));
+    console.log('[ManagePlan] DEBUG - Music Lover Profile:', JSON.stringify(musicLoverProfile, null, 2));
+    
+    // Payment method is required for organizers and premium users only
+    const isPaymentMethodRequired = isOrganizer || (isMusicLover && isPremiumUser);
 
     // Handle back button press and navigation prevention
     const handleBackPress = useCallback(() => {
-        if (!hasPaymentMethod && !isLoadingData) {
+        if (isPaymentMethodRequired && !hasPaymentMethod && !isLoadingData) {
+            const userTypeText = isOrganizer ? 'organizers' : 'premium users';
             Alert.alert(
                 "Payment Method Required",
-                "You must add at least one payment method before continuing. This is required for platform services.",
+                `A payment method is required for ${userTypeText}. Please add one before continuing.`,
                 [
                     {
                         text: "Add Payment Method",
@@ -162,7 +186,32 @@ const OrgManagePlanScreen: React.FC = () => {
             return true; // Prevent default back action
         }
         return false; // Allow default back action
-    }, [hasPaymentMethod, isLoadingData, setupIntentParams]);
+    }, [isPaymentMethodRequired, hasPaymentMethod, isLoadingData, setupIntentParams, isOrganizer]);
+
+    // Navigation helper for back button - try multiple approaches
+    const navigateBack = useCallback(() => {
+        try {
+            // First try to go back in the stack
+            if (navigation.canGoBack()) {
+                navigation.goBack();
+            } else {
+                // If we can't go back, navigate to the appropriate settings screen
+                if (isOrganizer) {
+                    navigation.navigate('OrganizerSettingsScreen' as never);
+                } else {
+                    navigation.navigate('UserSettingsScreen' as never);
+                }
+            }
+        } catch (error) {
+            console.error('Navigation error:', error);
+            // Fallback: try to navigate to root tab
+            if (isOrganizer) {
+                navigation.navigate('OrganizerTabs' as never);
+            } else {
+                navigation.navigate('UserTabs' as never);
+            }
+        }
+    }, [navigation, isOrganizer]);
 
     // Override hardware back button on Android
     useFocusEffect(
@@ -188,10 +237,10 @@ const OrgManagePlanScreen: React.FC = () => {
     }, [navigation, handleBackPress]);
 
     const loadData = useCallback(async (isRefreshAfterCardUpdate = false) => {
-        console.log(`[OrgManagePlan] loadData CALLED. isRefreshAfterCardUpdate: ${isRefreshAfterCardUpdate}`);
-        console.log('[OrgManagePlan] organizerProfile at start of loadData:', JSON.stringify(organizerProfile, null, 2));
+        console.log(`[ManagePlan] loadData CALLED. isRefreshAfterCardUpdate: ${isRefreshAfterCardUpdate}`);
+        console.log('[ManagePlan] organizerProfile at start of loadData:', JSON.stringify(organizerProfile, null, 2));
 
-        if (!organizerId || !organizerEmail) {
+        if (!userId || !userEmail) {
             setError("Organizer details missing. Please ensure you are logged in.");
             setIsLoadingData(false);
             return;
@@ -207,17 +256,21 @@ const OrgManagePlanScreen: React.FC = () => {
 
         try {
             // Use the organizerProfile from the hook, which should be the latest if refreshUserProfile worked
-            const profileToUse = organizerProfile; // This comes from the component's scope via useAuth()
-            const currentStripeCustomerId = profileToUse?.stripe_customer_id;
+            const profileToUse = currentProfile; // This comes from the component's scope via useAuth()
 
-            console.log(`[OrgManagePlan] Using stripe_customer_id: ${currentStripeCustomerId} from profile for fetching PM details.`);
+            console.log(`[ManagePlan] Using stripe_customer_id: ${currentStripeCustomerId} from profile for fetching PM details.`);
 
             if (currentStripeCustomerId) {
-                console.log('[OrgManagePlan] Attempting to fetch current PM details for customer:', currentStripeCustomerId);
-                const { data: pmData, error: pmError } = await supabase.functions.invoke('get-organizer-payment-method-details', {
+                console.log('[ManagePlan] Attempting to fetch current PM details for customer:', currentStripeCustomerId);
+                console.log('[ManagePlan] DEBUG - User Type in loadData:', userType);
+                console.log('[ManagePlan] DEBUG - Is Organizer in loadData:', isOrganizer);
+                
+                // Use appropriate function based on user type
+                const pmFunctionName = isOrganizer ? 'get-organizer-payment-method-details' : 'get-organizer-payment-method-details'; // Using same function for both for now
+                const { data: pmData, error: pmError } = await supabase.functions.invoke(pmFunctionName, {
                     body: JSON.stringify({ customerId: currentStripeCustomerId })
                 });
-                console.log('[OrgManagePlan] Response from get-organizer-payment-method-details: pmData=', JSON.stringify(pmData), 'pmError=', pmError);
+                console.log(`[ManagePlan] Response from ${pmFunctionName}: pmData=`, JSON.stringify(pmData), 'pmError=', pmError);
                 if (pmError) console.warn("Could not fetch current PM details:", pmError.message);
                 if (pmData?.paymentMethod) {
                     setCurrentPaymentMethod(pmData.paymentMethod);
@@ -228,40 +281,59 @@ const OrgManagePlanScreen: React.FC = () => {
                 }
 
                 // Also fetch ALL payment methods for the list
-                console.log('[OrgManagePlan] Fetching ALL payment methods for customer:', currentStripeCustomerId);
+                console.log('[ManagePlan] Fetching ALL payment methods for customer:', currentStripeCustomerId);
+                console.log('[ManagePlan] DEBUG - About to call list payment methods function');
                 try {
-                    const { data: allPmData, error: allPmError } = await supabase.functions.invoke('list-organizer-payment-methods', {
-                        body: JSON.stringify({ customerId: currentStripeCustomerId })
+                    const listPmFunctionName = isOrganizer ? 'list-organizer-payment-methods' : 'list-organizer-payment-methods'; // Using same function for both for now
+                    console.log('[ManagePlan] DEBUG - Function name:', listPmFunctionName);
+                    console.log('[ManagePlan] DEBUG - Customer ID being passed:', currentStripeCustomerId);
+                    
+                    const { data, error } = await supabase.functions.invoke(listPmFunctionName, {
+                        body: JSON.stringify({
+                            customerId: currentStripeCustomerId
+                        })
                     });
-                    if (allPmError) {
-                        console.warn("Could not fetch all payment methods:", allPmError.message);
-                        setAllPaymentMethods([]);
-                    } else if (allPmData?.paymentMethods) {
-                        console.log('[OrgManagePlan] All payment methods fetched:', allPmData.paymentMethods);
-                        setAllPaymentMethods(allPmData.paymentMethods);
-                        if (allPmData.paymentMethods.length > 0) {
+
+                    console.log(`[ManagePlan] ${listPmFunctionName} RESPONSE:`);
+                    console.log('[ManagePlan] Data:', JSON.stringify(data, null, 2));
+                    console.log('[ManagePlan] Error:', JSON.stringify(error, null, 2));
+
+                    if (error) {
+                        console.error('[ManagePlan] Error from Supabase function invocation:', error);
+                        throw error; // This will be caught by the catch block below
+                    }
+
+                    if (data?.paymentMethods && data.paymentMethods.length > 0) {
+                        console.log('[ManagePlan] Payment methods found:', data.paymentMethods);
+                        setAllPaymentMethods(data.paymentMethods);
+                        if (data.paymentMethods.length > 0) {
                             setHasPaymentMethod(true);
                         }
                     } else {
+                        console.log('[ManagePlan] DEBUG - No payment methods in response or empty array');
+                        console.log('[ManagePlan] DEBUG - data.paymentMethods:', data?.paymentMethods);
                         setAllPaymentMethods([]);
                     }
-                } catch (allPmError) {
-                    console.warn("Error fetching all payment methods:", allPmError);
+                } catch (e: any) {
+                    console.error('[ManagePlan] Catch block error in loadData:', e);
+                    console.warn("Error fetching all payment methods:", e);
                     setAllPaymentMethods([]);
                 }
             } else {
-                console.log('[OrgManagePlan] No Stripe Customer ID on profile. Skipping PM details fetch.');
+                console.log('[ManagePlan] No Stripe Customer ID on profile. Skipping PM details fetch.');
                 setCurrentPaymentMethod(null);
                 setAllPaymentMethods([]);
                 setHasPaymentMethod(false);
             }
 
-            console.log('[OrgManagePlan] Fetching/Creating SetupIntent params...');
+            console.log('[ManagePlan] Fetching/Creating SetupIntent params...');
+            // Use the organizer function but pass user type so it can handle both
             const { data: siData, error: siError } = await supabase.functions.invoke('create-organizer-setup-intent', {
                 body: JSON.stringify({
-                    userId: organizerId,
-                    email: organizerEmail,
-                    companyName: profileToUse?.companyName || '', // Fixed property name
+                    userId: userId,
+                    email: userEmail,
+                    userType: userType, // Pass user type so function can handle both
+                    companyName: isOrganizer ? (profileToUse as any)?.companyName || '' : (profileToUse as any)?.displayName || '',
                 }),
             });
             console.log('[OrgManagePlan] "create-organizer-setup-intent" RAW RESPONSE: data=', JSON.stringify(siData), 'siError=', siError);
@@ -285,11 +357,11 @@ const OrgManagePlanScreen: React.FC = () => {
         }
     // Dependencies: When these change, `loadData` function is re-created.
     // `organizerProfile` object reference from `useAuth` is key.
-    }, [organizerId, organizerEmail, organizerProfile, refreshUserProfile]);
+    }, [userId, userEmail, currentProfile, refreshUserProfile]);
 
     useFocusEffect(
         useCallback(() => {
-            if (organizerId && organizerEmail) {
+            if (userId && userEmail) {
                 console.log("[OrgManagePlan] Screen focused. Calling loadData.");
                 loadData();
             } else if (!authLoading) {
@@ -297,7 +369,7 @@ const OrgManagePlanScreen: React.FC = () => {
                 setIsLoadingData(false);
             }
         // `loadData` is a dependency here. If `loadData` is re-created (due to its own deps changing), this effect re-runs.
-        }, [loadData, organizerId, organizerEmail, authLoading])
+        }, [loadData, userId, userEmail, authLoading])
     );
 
     const handleCardSavedSuccessfully = async () => {
@@ -360,12 +432,12 @@ const OrgManagePlanScreen: React.FC = () => {
     const handleManageAllCards = async (mode: 'default' | 'delete' = 'default') => {
         console.log('[OrgManagePlan] handleManageAllCards called with mode:', mode);
 
-        if (!organizerProfile?.stripe_customer_id) {
-            console.error('[OrgManagePlan] Missing Stripe Customer ID in organizerProfile. Current profile:', organizerProfile);
+        if (!currentStripeCustomerId) {
+            console.error('[OrgManagePlan] Missing Stripe Customer ID in profile. Current profile:', currentProfile);
             Alert.alert("Error", "Your billing account ID is missing. Please try refreshing or contacting support.");
             return;
         }
-        console.log(`[OrgManagePlan] Stripe Customer ID: ${organizerProfile.stripe_customer_id}`);
+        console.log(`[OrgManagePlan] Stripe Customer ID: ${currentStripeCustomerId}`);
 
         setShowUpdateOptions(false);
         setIsLoadingData(true);
@@ -375,7 +447,7 @@ const OrgManagePlanScreen: React.FC = () => {
             console.log('[OrgManagePlan] Invoking supabase.functions.invoke(\'list-organizer-payment-methods\')...');
             const { data, error } = await supabase.functions.invoke('list-organizer-payment-methods', {
                 body: JSON.stringify({
-                    customerId: organizerProfile.stripe_customer_id
+                    customerId: currentStripeCustomerId
                 })
             });
 
@@ -418,7 +490,7 @@ const OrgManagePlanScreen: React.FC = () => {
         try {
             const { error } = await supabase.functions.invoke('set-default-payment-method', {
                 body: JSON.stringify({
-                    customerId: organizerProfile?.stripe_customer_id,
+                    customerId: currentStripeCustomerId,
                     paymentMethodId
                 })
             });
@@ -452,7 +524,7 @@ const OrgManagePlanScreen: React.FC = () => {
         const { id: paymentMethodId, card } = pendingDeletePaymentMethod;
         
         console.log('[OrgManagePlan] User confirmed removal. Starting deletion process...');
-        console.log('[OrgManagePlan] Target PM ID:', paymentMethodId, 'Customer ID:', organizerProfile?.stripe_customer_id);
+        console.log('[OrgManagePlan] Target PM ID:', paymentMethodId, 'Customer ID:', currentStripeCustomerId);
         
         setShowDeleteConfirmation(false);
         setPendingDeletePaymentMethod(null);
@@ -460,7 +532,7 @@ const OrgManagePlanScreen: React.FC = () => {
         setShowPaymentMethodsModal(false); // Close modal immediately
 
         try {
-            const customerStripeId = organizerProfile?.stripe_customer_id;
+            const customerStripeId = currentStripeCustomerId;
             if (!customerStripeId) {
                 throw new Error("Stripe Customer ID is missing. Cannot proceed.");
             }
@@ -547,10 +619,10 @@ const OrgManagePlanScreen: React.FC = () => {
     };
 
     // --- RENDER LOGIC ---
-    if (authLoading && !organizerProfile) { // Show auth loading only if profile isn't available yet
+    if (authLoading && !currentProfile) { // Show auth loading only if profile isn't available yet
         return <SafeAreaView style={styles.centeredMessage}><ActivityIndicator size="large" /><Text style={styles.loadingTextUi}>Loading user data...</Text></SafeAreaView>;
     }
-    if (!organizerId && !authLoading) { // If auth is done, but still no organizerId (e.g. not logged in)
+    if (!userId && !authLoading) { // If auth is done, but still no userId (e.g. not logged in)
          return <SafeAreaView style={styles.centeredMessage}><Text style={styles.infoText}>Please log in to manage your payment method.</Text></SafeAreaView>;
     }
     // Initial data load for the screen itself
@@ -566,7 +638,7 @@ const OrgManagePlanScreen: React.FC = () => {
                 <TouchableOpacity 
                     onPress={() => {
                         if (!handleBackPress()) {
-                            navigation.goBack();
+                            navigateBack();
                         }
                     }} 
                     style={styles.backButton}
@@ -578,12 +650,25 @@ const OrgManagePlanScreen: React.FC = () => {
             </View>
 
             <ScrollView contentContainerStyle={styles.scrollContent}>
-                {/* Payment Method Required Notice */}
-                {!hasPaymentMethod && !isLoadingData && !error && (
+                {/* Payment Method Required Notice - Only for organizers and premium users */}
+                {isPaymentMethodRequired && !hasPaymentMethod && !isLoadingData && !error && (
                     <View style={styles.requirementNotice}>
                         <Feather name="alert-circle" size={20} color="#F59E0B" />
                         <Text style={styles.requirementText}>
-                            A payment method is required for platform services. Please add one to continue.
+                            {isOrganizer 
+                                ? "A payment method is required for organizers to use platform services. Please add one to continue."
+                                : "A payment method is required for premium users. Please add one to continue."
+                            }
+                        </Text>
+                    </View>
+                )}
+
+                {/* Info notice for free users */}
+                {isMusicLover && !isPremiumUser && !hasPaymentMethod && !isLoadingData && !error && (
+                    <View style={styles.infoNotice}>
+                        <Feather name="info" size={20} color="#3B82F6" />
+                        <Text style={styles.infoNoticeText}>
+                            Payment methods are optional for free users. Add one if you plan to upgrade to premium or make purchases.
                         </Text>
                     </View>
                 )}
@@ -638,13 +723,13 @@ const OrgManagePlanScreen: React.FC = () => {
                     </View>
                 )}
 
-                {!error && !currentPaymentMethod && !showAddUpdateForm && (
+                {!error && allPaymentMethods.length === 0 && !showAddUpdateForm && (
                     <View style={styles.card}>
-                        <Text style={styles.sectionTitle}>No Payment Method Saved</Text>
-                        <Text style={styles.infoText}>Add a payment method for platform services.</Text>
+                        <Text style={styles.sectionTitle}>Add Your First Payment Method</Text>
+                        <Text style={styles.infoText}>Get started by adding a payment method.</Text>
                         {setupIntentParams?.clientSecret ? (
                             <TouchableOpacity style={[styles.button, { marginTop: 15 }]} onPress={handleShowUpdateOptions}>
-                                <Text style={styles.buttonText}>Add First Payment Method</Text>
+                                <Text style={styles.buttonText}>Add Payment Method</Text>
                             </TouchableOpacity>
                         ) : !error ? ( // If SI params not ready and no major error yet, show preparing form
                             <View style={styles.centeredMessage}><ActivityIndicator /><Text style={styles.loadingTextUi}>Preparing form...</Text></View>
@@ -713,18 +798,22 @@ const OrgManagePlanScreen: React.FC = () => {
                         </TouchableOpacity>
 
                         <TouchableOpacity 
-                            style={[styles.modalButton, styles.modalButtonDanger, (allPaymentMethods.length <= 1) && styles.buttonDisabled]} 
+                            style={[styles.modalButton, styles.modalButtonDanger, (isPaymentMethodRequired && allPaymentMethods.length <= 1) && styles.buttonDisabled]} 
                             onPress={() => {
-                                if (allPaymentMethods.length > 1) {
+                                if (isPaymentMethodRequired && allPaymentMethods.length <= 1) {
+                                    const userTypeText = isOrganizer ? 'organizers' : 'premium users';
+                                    Alert.alert("Cannot Delete", `${userTypeText} must have at least one payment method.`);
+                                } else if (allPaymentMethods.length > 1) {
                                     handleManageAllCards('delete');
                                 } else {
-                                    Alert.alert("Cannot Delete", "You must have at least one payment method.");
+                                    // Free users can delete all payment methods
+                                    handleManageAllCards('delete');
                                 }
                             }}
-                            disabled={allPaymentMethods.length <= 1}
+                            disabled={isPaymentMethodRequired && allPaymentMethods.length <= 1}
                         >
-                            <Feather name="trash-2" size={20} color={allPaymentMethods.length <= 1 ? '#9CA3AF' : '#DC2626'} />
-                            <Text style={[styles.modalButtonText, { color: allPaymentMethods.length <= 1 ? '#9CA3AF' : '#DC2626' }]}>Delete a Card</Text>
+                            <Feather name="trash-2" size={20} color={(isPaymentMethodRequired && allPaymentMethods.length <= 1) ? '#9CA3AF' : '#DC2626'} />
+                            <Text style={[styles.modalButtonText, { color: (isPaymentMethodRequired && allPaymentMethods.length <= 1) ? '#9CA3AF' : '#DC2626' }]}>Delete a Card</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity 
@@ -763,11 +852,12 @@ const OrgManagePlanScreen: React.FC = () => {
                                     style={[
                                         styles.modalButton, 
                                         index > 0 && { marginTop: 8 },
-                                        (paymentMethodsModalMode === 'delete' && allPaymentMethods.length <= 1) && styles.buttonDisabled
+                                        (paymentMethodsModalMode === 'delete' && isPaymentMethodRequired && allPaymentMethods.length <= 1) && styles.buttonDisabled
                                     ]}
                                     onPress={() => {
-                                        if (paymentMethodsModalMode === 'delete' && allPaymentMethods.length <= 1) {
-                                            Alert.alert("Cannot Delete", "You must have at least one payment method. Please add another card before deleting this one.");
+                                        if (paymentMethodsModalMode === 'delete' && isPaymentMethodRequired && allPaymentMethods.length <= 1) {
+                                            const userTypeText = isOrganizer ? 'organizers' : 'premium users';
+                                            Alert.alert("Cannot Delete", `${userTypeText} must have at least one payment method. Please add another card before deleting this one.`);
                                             return;
                                         }
                                         console.log('[OrgManagePlan] MODAL BUTTON CLICKED! Mode:', paymentMethodsModalMode, 'PM ID:', pm.id);
@@ -796,7 +886,7 @@ const OrgManagePlanScreen: React.FC = () => {
                                         </Text>
                                     </View>
                                     {paymentMethodsModalMode === 'delete' && (
-                                        <Feather name="trash-2" size={16} color={(allPaymentMethods.length <= 1) ? '#9CA3AF' : '#DC2626'} />
+                                        <Feather name="trash-2" size={16} color={(isPaymentMethodRequired && allPaymentMethods.length <= 1) ? '#9CA3AF' : '#DC2626'} />
                                     )}
                                     {paymentMethodsModalMode === 'default' && pm.isDefault && (
                                         <Feather name="check" size={16} color="#059669" />
@@ -906,6 +996,25 @@ const styles = StyleSheet.create({
         fontWeight: '500',
     },
 
+    // Info notice styles
+    infoNotice: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#EFF6FF',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 20,
+        borderWidth: 1,
+        borderColor: '#BFDBFE',
+    },
+    infoNoticeText: {
+        fontSize: 14,
+        color: '#1E40AF',
+        marginLeft: 12,
+        flex: 1,
+        fontWeight: '500',
+    },
+
     // Modal styles
     modalOverlay: {
         flex: 1,
@@ -998,4 +1107,4 @@ const styles = StyleSheet.create({
     },
 });
 
-export default OrgManagePlanScreen;
+export default ManagePlanScreen;
