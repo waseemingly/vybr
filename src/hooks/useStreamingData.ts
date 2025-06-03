@@ -129,6 +129,7 @@ export const calculateTopTracksFromRecent = (recentTracks: TopTrack[]): TopTrack
 // Hook for streaming data operations
 export const useStreamingData = (userId?: string | null, authProps?: {
   isSpotifyLoggedIn: boolean; 
+  spotifyAccessToken?: string | null;
 }) => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -279,58 +280,37 @@ export const useStreamingData = (userId?: string | null, authProps?: {
 
   // Check if a service is connected
   const isServiceConnected = async (service: string): Promise<boolean> => {
-    if (!authProps) return false;
+    console.log(`[useStreamingData] Checking if ${service} is connected...`);
+    console.log(`[useStreamingData] authProps:`, authProps);
+    
+    if (!authProps) {
+      console.log(`[useStreamingData] authProps is null/undefined - service not connected`);
+      return false;
+    }
     
     try {
       if (service === 'spotify') {
-        // Check if Spotify is connected by looking at the auth flag
-        return authProps.isSpotifyLoggedIn;
+        const isConnected = authProps.isSpotifyLoggedIn;
+        const hasAccessToken = !!authProps.spotifyAccessToken;
+        console.log(`[useStreamingData] Spotify connection status: ${isConnected}`);
+        console.log(`[useStreamingData] Spotify access token present: ${hasAccessToken}`);
+        
+        // Also check if we have existing Spotify data as a secondary indicator
+        const hasSpotifyData = serviceId === 'spotify' && hasData;
+        console.log(`[useStreamingData] Has existing Spotify data: ${hasSpotifyData} (serviceId: ${serviceId}, hasData: ${hasData})`);
+        
+        // Return true if we have auth state OR access token OR existing data
+        const finalResult = isConnected || hasAccessToken || hasSpotifyData;
+        console.log(`[useStreamingData] Final connection result for ${service}: ${finalResult} (auth: ${isConnected}, token: ${hasAccessToken}, data: ${hasSpotifyData})`);
+        
+        return finalResult;
       }
       
+      console.log(`[useStreamingData] Unknown service: ${service}`);
       return false;
     } catch (error) {
       console.error(`[useStreamingData] Error checking service connection for ${service}:`, error);
       return false;
-    }
-  };
-
-  // Force fetch data from a specific service - updated to support YouTube Music
-  const forceFetchServiceData = async (
-    service: 'spotify', // Only spotify now
-    isPremium: boolean
-  ): Promise<boolean> => {
-    if (!userId) return false;
-    
-    try {
-      setLoading(true);
-      
-      if (service === 'spotify' && authProps?.isSpotifyLoggedIn) {
-        // We're only handling Spotify API, not modifying Spotify code as requested
-        // Use the existing pattern for Spotify
-        const spotifyModule = await import('./useSpotifyAuth'); // This might cause a circular dependency if useSpotifyAuth imports useStreamingData. Check this.
-                                                                // It's generally better if useSpotifyAuth calls a method from useStreamingData or updates context/state.
-                                                                // For now, proceeding with caution.
-        const spotifyAuthHook = spotifyModule.useSpotifyAuth(); // This creates a new instance of useSpotifyAuth, which might not be intended if state is involved.
-                                                                 // The forceFetchAndSaveSpotifyData should ideally be part of useSpotifyAuth and directly called.
-                                                                 // Or this hook should expose a method that useSpotifyAuth can call.
-                                                                 // The current pattern in ProfileScreen.tsx for forceFetch is to call `forceFetchServiceData` from `useStreamingData`.
-                                                                 // Let's assume `forceFetchAndSaveSpotifyData` is meant to be called from `useSpotifyAuth` context itself.
-                                                                 // This part needs careful review of how `forceFetchAndSaveSpotifyData` is structured in `useSpotifyAuth`.
-
-        // The User's request implies that the `forceFetchAndSaveSpotifyData` in `useSpotifyAuth`
-        // will be updated to include mood fetching. So this call should remain.
-        if (spotifyAuthHook.forceFetchAndSaveSpotifyData) {
-          return await spotifyAuthHook.forceFetchAndSaveSpotifyData(userId, isPremium);
-        }
-        return false;
-      }
-      
-      return false;
-    } catch (err) {
-      console.error(`[useStreamingData] Error fetching service data for ${service}:`, err);
-      return false;
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -341,7 +321,21 @@ export const useStreamingData = (userId?: string | null, authProps?: {
     try {
       setLoading(true);
       setError(null); // Clear previous errors at the start
-      console.log(`[useStreamingData] Attempting to fetch latest streaming data for user: ${userId}`);
+      
+      if (forceRefresh) {
+        console.log(`[useStreamingData] Force refreshing streaming data for user: ${userId}`);
+        // Clear existing state to ensure fresh data is displayed
+        setHasData(false);
+        setStreamingData(null);
+        setServiceId(null);
+        setTopArtists([]);
+        setTopTracks([]);
+        setTopGenres([]);
+        setTopAlbums([]);
+        setTopMoods([]);
+      } else {
+        console.log(`[useStreamingData] Attempting to fetch latest streaming data for user: ${userId}`);
+      }
 
       // Get the most recent snapshot for this user from user_streaming_data
       const { data: dbData, error: dbError, status } = await supabase
@@ -408,7 +402,7 @@ export const useStreamingData = (userId?: string | null, authProps?: {
                            ) || false;
         setHasData(hasAnyData);
         
-        console.log(`[useStreamingData] Successfully processed data for user ${userId} from service ${dbData.service_id}. Has Data: ${hasAnyData}. Artists: ${streamingDataResult.top_artists.length}, Tracks: ${streamingDataResult.top_tracks.length}, Moods: ${streamingDataResult.top_moods?.length || 0}, Snapshot: ${streamingDataResult.snapshot_date}`);
+        console.log(`[useStreamingData] Successfully processed data for user ${userId} from service ${dbData.service_id}. Has Data: ${hasAnyData}. Artists: ${streamingDataResult.top_artists.length}, Tracks: ${streamingDataResult.top_tracks.length}, Moods: ${streamingDataResult.top_moods?.length || 0}, Snapshot: ${streamingDataResult.snapshot_date}${forceRefresh ? ' (FORCE REFRESH)' : ''}`);
       } else {
         // No data record found for this user
         console.log(`[useStreamingData] No streaming data record found for user ${userId} in user_streaming_data table.`);
@@ -476,7 +470,6 @@ export const useStreamingData = (userId?: string | null, authProps?: {
     getUserStreamingData,
     isServiceConnected,
     fetchStreamingData,
-    forceFetchServiceData,
     checkPremiumStatus
   };
 }; 

@@ -118,7 +118,6 @@ export const useSpotifyAuth = () => {
     web: REGISTERED_WEB_REDIRECT_URI, // Always use the registered URI for web
     default: AuthSession.makeRedirectUri({
       native: `${AUTH_CALLBACK_SCHEME}://spotify-auth-callback`,
-      useProxy: false,
     }),
   });
 
@@ -813,7 +812,7 @@ export const useSpotifyAuth = () => {
         });
       
       if (saveError) throw saveError;
-      console.log('Successfully saved Spotify data');
+      console.log(`Successfully saved fresh Spotify data for user ${session.user.id}. Artists: ${limitedArtists.length}, Tracks: ${limitedTracks.length}, Genres: ${limitedGenres.length}, Moods: ${topMoodsData.length}`);
       
       return true;
     } catch (err: any) {
@@ -831,13 +830,72 @@ export const useSpotifyAuth = () => {
     userId: string,
     isPremium: boolean = false
   ): Promise<boolean> => {
-    if (!accessToken) {
-      return false;
-    }
-    
     setIsLoading(true);
     setError(null);
     setIsUpdatingListeningData(true);
+    
+    console.log(`[useSpotifyAuth] forceFetchAndSaveSpotifyData called for user ${userId}, isPremium: ${isPremium}`);
+    console.log(`[useSpotifyAuth] Current access token status: ${accessToken ? 'PRESENT' : 'MISSING'}`);
+    
+    // If no access token, try to load stored tokens first
+    if (!accessToken) {
+      console.log('[useSpotifyAuth] No access token available, attempting to load stored tokens...');
+      
+      try {
+        const storedAccessToken = await AsyncStorage.getItem(SPOTIFY_ACCESS_TOKEN_KEY);
+        const storedRefreshToken = await AsyncStorage.getItem(SPOTIFY_REFRESH_TOKEN_KEY);
+        const storedExpiryTime = await AsyncStorage.getItem(SPOTIFY_TOKEN_EXPIRY_KEY);
+        
+        if (storedAccessToken && storedRefreshToken && storedExpiryTime) {
+          const expiryTime = parseInt(storedExpiryTime, 10);
+          const now = Date.now();
+          
+          if (now >= expiryTime) {
+            // Token expired, try to refresh it
+            console.log('[useSpotifyAuth] Stored token expired, attempting refresh...');
+            try {
+              await refreshAccessToken(storedRefreshToken);
+              console.log('[useSpotifyAuth] Token refresh successful, proceeding with data fetch...');
+            } catch (refreshError) {
+              console.error('[useSpotifyAuth] Token refresh failed:', refreshError);
+              setError('Spotify session expired. Please reconnect your account.');
+              return false;
+            }
+          } else {
+            // Token is still valid, set it
+            console.log('[useSpotifyAuth] Found valid stored token, setting it...');
+            setAccessToken(storedAccessToken);
+            setRefreshToken(storedRefreshToken);
+            setExpiresAt(expiryTime);
+            setIsLoggedIn(true);
+          }
+        } else {
+          console.error('[useSpotifyAuth] No stored tokens found. User needs to reconnect Spotify.');
+          setError('Your Spotify session has expired. Please reconnect your account to refresh your music data.');
+          setIsLoading(false);
+          setIsUpdatingListeningData(false);
+          return false;
+        }
+      } catch (storageError) {
+        console.error('[useSpotifyAuth] Error accessing stored tokens:', storageError);
+        setError('Error accessing Spotify authentication. Please try reconnecting.');
+        setIsLoading(false);
+        setIsUpdatingListeningData(false);
+        return false;
+      }
+    }
+    
+    // Now check if we have an access token (either original or refreshed)
+    const currentAccessToken = accessToken || await AsyncStorage.getItem(SPOTIFY_ACCESS_TOKEN_KEY);
+    if (!currentAccessToken) {
+      console.error('[useSpotifyAuth] Still no access token after attempting to load/refresh. Aborting.');
+      setError('Unable to authenticate with Spotify. Please reconnect your account.');
+      setIsLoading(false);
+      setIsUpdatingListeningData(false);
+      return false;
+    }
+    
+    console.log('[useSpotifyAuth] Access token confirmed, proceeding with Spotify data fetch...');
     let topMoodsData: TopMood[] = [];
     
     try {
@@ -983,7 +1041,7 @@ export const useSpotifyAuth = () => {
         });
       
       if (saveError) throw saveError;
-      console.log('Successfully saved Spotify data for user:', userId);
+      console.log(`Successfully saved fresh Spotify data for user ${userId}. Artists: ${limitedArtists.length}, Tracks: ${limitedTracks.length}, Genres: ${limitedGenres.length}, Moods: ${topMoodsData.length}`);
       
       return true;
     } catch (err: any) {
