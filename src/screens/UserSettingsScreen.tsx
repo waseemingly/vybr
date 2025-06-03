@@ -282,21 +282,36 @@ const UserSettingsScreen: React.FC = () => {
                     isWeb: Platform.OS === 'web'
                 });
                 
-                // 1. Delete the user's auth account using RPC (must be done while still authenticated)
-                const { data, error: deleteError } = await supabase.rpc('delete_user_account');
+                // 1. Delete the user's auth account using Edge function (must be done while still authenticated)
+                console.log("Invoking Supabase Edge function 'delete-user-account'...");
+                const { data, error: functionError } = await supabase.functions.invoke('delete-user-account');
                 
-                if (deleteError) {
-                    console.error("[UserSettingsScreen] Error deleting auth account:", {
-                        error: deleteError,
+                console.log("[UserSettingsScreen] Edge function delete-user-account response:", {
+                    data,
+                    error: functionError,
+                    platform: Platform.OS,
+                    userId
+                });
+                
+                if (functionError) {
+                    console.error("[UserSettingsScreen] Error calling delete function:", {
+                        error: functionError,
                         platform: Platform.OS,
                         userId
                     });
-                    throw new Error(`Failed to delete account: ${deleteError.message}`);
+                    throw new Error(`Failed to delete account: ${functionError.message}`);
+                }
+
+                // Check if the Edge function returned an error in the data
+                if (data && typeof data === 'object' && data.error) {
+                    console.error("[UserSettingsScreen] Edge function returned error:", data);
+                    throw new Error(`Account deletion failed: ${data.error || data.message || 'Unknown error from deletion function'}`);
                 }
 
                 console.log("[UserSettingsScreen] Account deletion successful", {
                     platform: Platform.OS,
-                    userId
+                    userId,
+                    functionResponse: data
                 });
 
                 // 2. Sign out after successful deletion
