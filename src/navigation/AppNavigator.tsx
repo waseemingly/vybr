@@ -1,5 +1,5 @@
 // navigation/AppNavigator.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet, Platform } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -10,6 +10,7 @@ import { APP_CONSTANTS } from "@/config/constants";
 import { NavigationContainer, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { useNavigation, NavigationProp } from '@react-navigation/native';
 
 // --- Import ALL your screens ---
 import MatchesScreen from "@/screens/MatchesScreen";
@@ -81,6 +82,9 @@ import LinkMusicServicesScreen from '@/screens/LinkMusicServicesScreen'; // <-- 
 // Overall Analytics Screen
 import OverallAnalyticsScreen from '@/screens/organizer/OverallAnalyticsScreen';
 
+// Required Payment Screen
+import RequiredPaymentScreen from '@/screens/payment/RequiredPaymentScreen';
+
 // --- Define Param Lists ---
 
 export type AuthStackParamList = {
@@ -150,6 +154,9 @@ export type MainStackParamList = {
   NotificationsScreen: undefined; // Already present
 
   NotFoundMain: undefined; // Fallback for MainStack
+
+  // New for Required Payment Screen
+  RequiredPaymentScreen: undefined;
 };
 
 export type UserTabParamList = {
@@ -236,6 +243,9 @@ export type RootStackParamList = {
   // Include signup flows here for direct navigation if needed during incomplete profile state
   MusicLoverSignUpFlow: undefined;
   OrganizerSignUpFlow: undefined;
+
+  // New for Required Payment Screen
+  RequiredPaymentScreen: undefined;
 };
 
 // --- Create Navigators ---
@@ -262,58 +272,95 @@ const AuthScreens = () => (
 const UserTabs = () => ( <UserTabNav.Navigator screenOptions={({ route }) => ({ tabBarIcon: ({ focused, color, size }) => { let iconName: keyof typeof Feather.glyphMap = "help-circle"; if (route.name === "Matches") iconName = "heart"; else if (route.name === "Chats") iconName = "message-square"; else if (route.name === "Search") iconName = "search"; else if (route.name === "Events") iconName = "calendar"; else if (route.name === "Profile") iconName = "user"; return <Feather name={iconName} size={size} color={color} />; }, tabBarActiveTintColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', tabBarInactiveTintColor: APP_CONSTANTS?.COLORS?.DISABLED || '#9CA3AF', tabBarStyle: styles.tabBarStyle, headerShown: false, tabBarShowLabel: true, })}><UserTabNav.Screen name="Matches" component={MatchesScreen} /><UserTabNav.Screen name="Chats" component={ChatsScreen} /><UserTabNav.Screen name="Search" component={SearchScreen} /><UserTabNav.Screen name="Events" component={EventsScreen} /><UserTabNav.Screen name="Profile" component={ProfileScreen} /></UserTabNav.Navigator> );
 const OrganizerTabs = () => ( <OrganizerTabNav.Navigator screenOptions={({ route }) => ({ tabBarIcon: ({ focused, color, size }) => { let iconName: keyof typeof Feather.glyphMap = "help-circle"; if (route.name === "Posts") iconName = "layout"; else if (route.name === "Create") iconName = "plus-circle"; else if (route.name === "OrganizerProfile") iconName = "briefcase"; return <Feather name={iconName} size={size} color={color} />; }, tabBarActiveTintColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', tabBarInactiveTintColor: APP_CONSTANTS?.COLORS?.DISABLED || '#9CA3AF', tabBarStyle: styles.tabBarStyle, headerShown: false, tabBarShowLabel: true, })}><OrganizerTabNav.Screen name="Posts" component={OrganizerPostsScreen} options={{ title: "Events" }} /><OrganizerTabNav.Screen name="Create" component={CreateEventScreen} options={{ title: "Create" }} /><OrganizerTabNav.Screen name="OrganizerProfile" component={OrganizerProfileScreen} options={{ title: "Profile" }} /></OrganizerTabNav.Navigator> );
 
-// --- Main App Stack Component ---
+// --- Payment Guard Component for Additional Safety ---
+const PaymentGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { session, musicLoverProfile, organizerProfile } = useAuth();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  
+  const isOrganizer = session?.userType === 'organizer';
+  const isPremiumUser = musicLoverProfile?.isPremium ?? false;
+  const isPaymentMethodRequired = isOrganizer || (session?.userType === 'music_lover' && isPremiumUser);
+  
+  const currentStripeCustomerId = isOrganizer 
+    ? (organizerProfile as any)?.stripe_customer_id 
+    : (musicLoverProfile as any)?.stripe_customer_id;
+    
+  const hasValidPaymentMethod = Boolean(currentStripeCustomerId && currentStripeCustomerId.trim() !== '');
+  const needsPaymentMethod = isPaymentMethodRequired && !hasValidPaymentMethod;
+  
+  useEffect(() => {
+    if (needsPaymentMethod) {
+      console.log("[PaymentGuard] Payment method required, redirecting to RequiredPaymentScreen");
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'RequiredPaymentScreen' }],
+      });
+    }
+  }, [needsPaymentMethod, navigation]);
+  
+  if (needsPaymentMethod) {
+    // Show loading while redirecting
+    return <LoadingScreen />;
+  }
+  
+  return <>{children}</>;
+};
+
+// --- Main App Stack Component with Payment Guard ---
 const MainAppStack = () => {
   const { isOrganizerMode } = useOrganizerMode();
   return (
-    <MainStack.Navigator screenOptions={{ headerShown: true }} >
-        {isOrganizerMode ? (
-             <>
-                 <MainStack.Screen name="OrganizerTabs" component={OrganizerTabs} options={{ headerShown: false }} />
-                 <MainStack.Screen name="EventDetail" component={EventDetailScreen} options={{ title: 'Event Details' }}/>
-                 <MainStack.Screen name="EditEvent" component={EditEventScreen} options={{ title: 'Edit Event' }}/>
-                 <MainStack.Screen name="ViewBookings" component={ViewBookingsScreen} options={{ title: 'Event Bookings' }}/>
-                 <MainStack.Screen name="OrganizerSettingsScreen" component={OrganizerSettingsScreen} options={{ title: 'Settings' }}/>
-                 <MainStack.Screen name="EditOrganizerProfileScreen" component={EditOrganizerProfileScreen} options={{ title: 'Edit Profile' }}/>
-                 <MainStack.Screen name="ManagePlanScreen" component={ManagePlanScreen} options={{ title: 'Manage Plan' }}/>
-                 <MainStack.Screen name="OrgBillingHistoryScreen" component={OrgBillingHistoryScreen} options={{ title: 'Billing History' }}/>
-                 <MainStack.Screen name="UserListScreen" component={UserListScreen} options={{ title: 'Followers' }}/>
-                 <MainStack.Screen name="OverallAnalyticsScreen" component={OverallAnalyticsScreen} options={{ title: 'Overall Analytics' }}/>
-                 <MainStack.Screen name="ShareEventScreen" component={ShareEventScreen} options={{ title: 'Share Event' }}/>
-             </>
-        ) : (
-             <>
-                 <MainStack.Screen name="UserTabs" component={UserTabs} options={{ headerShown: false }}/>
-                 <MainStack.Screen name="UserSettingsScreen" component={UserSettingsScreen} options={{ title: 'Settings' }} />
-                 <MainStack.Screen name="EditUserProfileScreen" component={EditUserProfileScreen} options={{ title: 'Edit Profile' }} />
-                 <MainStack.Screen name="UserManageSubscriptionScreen" component={UserManageSubscriptionScreen} options={{ title: 'Subscription' }} />
-                 <MainStack.Screen name="ManagePlan" component={ManagePlanScreen} options={{ title: 'Manage Plan' }} />
-                 <MainStack.Screen name="UserMutedListScreen" component={UserMutedListScreen} options={{ title: 'Muted Users' }} />
-                 <MainStack.Screen name="UserBlockedListScreen" component={UserBlockedListScreen} options={{ title: 'Blocked Users' }} />
-                 <MainStack.Screen name="FriendsListScreen" component={FriendsListScreen} options={{ title: 'Friends' }} />
-                 <MainStack.Screen name="OrganizerListScreen" component={OrganizerListScreen} options={{ title: 'Following' }}/>
-                 <MainStack.Screen name="UpgradeScreen" component={UpgradeScreen} options={{ title: 'Go Premium' }} />
-                 <MainStack.Screen name="AttendedEventsScreen" component={AttendedEventsScreen} options={{ title: 'Attended Events' }} />
-                 <MainStack.Screen name="UserBillingHistoryScreen" component={UserBillingHistoryScreen} options={{ title: 'Billing History' }} />
-                 <MainStack.Screen name="UpdateMusicFavoritesScreen" component={UpdateMusicFavoritesScreen} options={{ title: 'Music Favorites' }} />
-                 <MainStack.Screen name="LinkMusicServicesScreen" component={LinkMusicServicesScreen} options={{ title: 'Link Music Services' }} />
-                 <MainStack.Screen name="PremiumSignupScreen" component={PremiumSignupScreen} options={{ title: 'Payment' }} />
-                 <MainStack.Screen name="PaymentConfirmationScreen" component={PaymentConfirmationScreen} options={{ title: 'Payment Confirmation' }} />
-                 <MainStack.Screen name="PaymentSuccessScreen" component={PaymentSuccessScreen} />
-                 <MainStack.Screen name="ShareEventScreen" component={ShareEventScreen} options={{ title: 'Share Event' }}/>
-             </>
-        )}
-        {/* Screens accessible by both modes */}
-        <MainStack.Screen name="CreateEventScreen" component={CreateEventScreen} options={{title: "Create Event"}} />
-        <MainStack.Screen name="OtherUserProfileScreen" component={OtherUserProfileScreen} options={{title: "Profile"}} />
-        <MainStack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} options={{ title: 'Booking Confirmed' }} />
-        <MainStack.Screen name="UpcomingEventsListScreen" component={UpcomingEventsListScreen} />
-        <MainStack.Screen name="PastEventsListScreen" component={PastEventsListScreen} />
-        {/* *** ViewOrganizerProfileScreen now registered in Main Stack *** */}
-        <MainStack.Screen name="ViewOrganizerProfileScreen" component={ViewOrganizerProfileScreen} />
-        {/* *** END Move *** */}
-        <MainStack.Screen name="NotFoundMain" component={NotFoundScreen} options={{ title: 'Oops!' }} />
-    </MainStack.Navigator>
+    <PaymentGuard>
+      <MainStack.Navigator screenOptions={{ headerShown: true }} >
+          {isOrganizerMode ? (
+               <>
+                   <MainStack.Screen name="OrganizerTabs" component={OrganizerTabs} options={{ headerShown: false }} />
+                   <MainStack.Screen name="EventDetail" component={EventDetailScreen} options={{ title: 'Event Details' }}/>
+                   <MainStack.Screen name="EditEvent" component={EditEventScreen} options={{ title: 'Edit Event' }}/>
+                   <MainStack.Screen name="ViewBookings" component={ViewBookingsScreen} options={{ title: 'Event Bookings' }}/>
+                   <MainStack.Screen name="OrganizerSettingsScreen" component={OrganizerSettingsScreen} options={{ title: 'Settings' }}/>
+                   <MainStack.Screen name="EditOrganizerProfileScreen" component={EditOrganizerProfileScreen} options={{ title: 'Edit Profile' }}/>
+                   <MainStack.Screen name="ManagePlanScreen" component={ManagePlanScreen} options={{ title: 'Manage Plan' }}/>
+                   <MainStack.Screen name="OrgBillingHistoryScreen" component={OrgBillingHistoryScreen} options={{ title: 'Billing History' }}/>
+                   <MainStack.Screen name="UserListScreen" component={UserListScreen} options={{ title: 'Followers' }}/>
+                   <MainStack.Screen name="OverallAnalyticsScreen" component={OverallAnalyticsScreen} options={{ title: 'Overall Analytics' }}/>
+                   <MainStack.Screen name="ShareEventScreen" component={ShareEventScreen} options={{ title: 'Share Event' }}/>
+               </>
+          ) : (
+               <>
+                   <MainStack.Screen name="UserTabs" component={UserTabs} options={{ headerShown: false }}/>
+                   <MainStack.Screen name="UserSettingsScreen" component={UserSettingsScreen} options={{ title: 'Settings' }} />
+                   <MainStack.Screen name="EditUserProfileScreen" component={EditUserProfileScreen} options={{ title: 'Edit Profile' }} />
+                   <MainStack.Screen name="UserManageSubscriptionScreen" component={UserManageSubscriptionScreen} options={{ title: 'Subscription' }} />
+                   <MainStack.Screen name="ManagePlan" component={ManagePlanScreen} options={{ title: 'Manage Plan' }} />
+                   <MainStack.Screen name="UserMutedListScreen" component={UserMutedListScreen} options={{ title: 'Muted Users' }} />
+                   <MainStack.Screen name="UserBlockedListScreen" component={UserBlockedListScreen} options={{ title: 'Blocked Users' }} />
+                   <MainStack.Screen name="FriendsListScreen" component={FriendsListScreen} options={{ title: 'Friends' }} />
+                   <MainStack.Screen name="OrganizerListScreen" component={OrganizerListScreen} options={{ title: 'Following' }}/>
+                   <MainStack.Screen name="UpgradeScreen" component={UpgradeScreen} options={{ title: 'Go Premium' }} />
+                   <MainStack.Screen name="AttendedEventsScreen" component={AttendedEventsScreen} options={{ title: 'Attended Events' }} />
+                   <MainStack.Screen name="UserBillingHistoryScreen" component={UserBillingHistoryScreen} options={{ title: 'Billing History' }} />
+                   <MainStack.Screen name="UpdateMusicFavoritesScreen" component={UpdateMusicFavoritesScreen} options={{ title: 'Music Favorites' }} />
+                   <MainStack.Screen name="LinkMusicServicesScreen" component={LinkMusicServicesScreen} options={{ title: 'Link Music Services' }} />
+                   <MainStack.Screen name="PremiumSignupScreen" component={PremiumSignupScreen} options={{ title: 'Payment' }} />
+                   <MainStack.Screen name="PaymentConfirmationScreen" component={PaymentConfirmationScreen} options={{ title: 'Payment Confirmation' }} />
+                   <MainStack.Screen name="PaymentSuccessScreen" component={PaymentSuccessScreen} />
+                   <MainStack.Screen name="ShareEventScreen" component={ShareEventScreen} options={{ title: 'Share Event' }}/>
+               </>
+          )}
+          {/* Screens accessible by both modes */}
+          <MainStack.Screen name="RequiredPaymentScreen" component={RequiredPaymentScreen} options={{ title: "Payment Required", headerShown: false }} />
+          <MainStack.Screen name="CreateEventScreen" component={CreateEventScreen} options={{title: "Create Event"}} />
+          <MainStack.Screen name="OtherUserProfileScreen" component={OtherUserProfileScreen} options={{title: "Profile"}} />
+          <MainStack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} options={{ title: 'Booking Confirmed' }} />
+          <MainStack.Screen name="UpcomingEventsListScreen" component={UpcomingEventsListScreen} />
+          <MainStack.Screen name="PastEventsListScreen" component={PastEventsListScreen} />
+          {/* *** ViewOrganizerProfileScreen now registered in Main Stack *** */}
+          <MainStack.Screen name="ViewOrganizerProfileScreen" component={ViewOrganizerProfileScreen} />
+          {/* *** END Move *** */}
+          <MainStack.Screen name="NotFoundMain" component={NotFoundScreen} options={{ title: 'Oops!' }} />
+      </MainStack.Navigator>
+    </PaymentGuard>
   );
 }
 
@@ -322,9 +369,36 @@ const AppNavigator = () => {
   const { session, loading, musicLoverProfile, organizerProfile } = useAuth();
   const isProfileComplete = session && ( (session.userType === 'music_lover' && musicLoverProfile) || (session.userType === 'organizer' && organizerProfile) );
 
-  console.log("[AppNavigator] State:", loading ? "Loading" : session ? `Auth (${session.userType})` : "No Auth", `Profile Complete: ${isProfileComplete ?? 'N/A'}`);
+  // Enhanced payment method requirement check
+  const isOrganizer = session?.userType === 'organizer';
+  const isPremiumUser = musicLoverProfile?.isPremium ?? false;
+  const isPaymentMethodRequired = isOrganizer || (session?.userType === 'music_lover' && isPremiumUser);
+  
+  // Enhanced Stripe customer ID check - check both possible fields for safety
+  const currentStripeCustomerId = isOrganizer 
+    ? (organizerProfile as any)?.stripe_customer_id 
+    : (musicLoverProfile as any)?.stripe_customer_id;
+    
+  // More explicit payment method check
+  const hasValidPaymentMethod = Boolean(currentStripeCustomerId && currentStripeCustomerId.trim() !== '');
+  const needsPaymentMethod = isPaymentMethodRequired && isProfileComplete && !hasValidPaymentMethod;
 
-  if (loading) { return <LoadingScreen />; }
+  // Enhanced debugging
+  console.log("[AppNavigator] =========================");
+  console.log("[AppNavigator] Auth State:", loading ? "Loading" : session ? `Authenticated (${session.userType})` : "No Authentication");
+  console.log("[AppNavigator] Profile Complete:", isProfileComplete);
+  console.log("[AppNavigator] Is Organizer:", isOrganizer);
+  console.log("[AppNavigator] Is Premium User:", isPremiumUser);
+  console.log("[AppNavigator] Payment Required:", isPaymentMethodRequired);
+  console.log("[AppNavigator] Stripe Customer ID:", currentStripeCustomerId ? `${currentStripeCustomerId.substring(0, 10)}...` : 'None');
+  console.log("[AppNavigator] Has Valid Payment Method:", hasValidPaymentMethod);
+  console.log("[AppNavigator] NEEDS PAYMENT METHOD:", needsPaymentMethod);
+  console.log("[AppNavigator] =========================");
+
+  if (loading) { 
+    console.log("[AppNavigator] Showing loading screen...");
+    return <LoadingScreen />; 
+  }
 
   return (
       <RootStack.Navigator screenOptions={{ headerShown: false }} >
@@ -338,8 +412,19 @@ const AppNavigator = () => {
             component={session.userType === 'music_lover' ? MusicLoverSignUpFlow : OrganizerSignUpFlow}
             options={{ gestureEnabled: false }}
           />
+        ) : needsPaymentMethod ? (
+          // 3. Logged In, Profile Complete, but Payment Method Required
+          // This is the critical check that ensures payment screen is always shown when needed
+          <RootStack.Screen 
+            name="RequiredPaymentScreen" 
+            component={RequiredPaymentScreen}
+            options={{ 
+              gestureEnabled: false, // Prevent swipe back
+              headerShown: false // Keep header hidden for full control
+            }}
+          />
         ) : (
-          // 3. Logged In AND Profile Complete
+          // 4. Logged In, Profile Complete, and Payment Method OK (or not required)
           <>
             {/* Main App entry point (renders MainAppStack) */}
             <RootStack.Screen name="MainApp" component={MainAppStack} />

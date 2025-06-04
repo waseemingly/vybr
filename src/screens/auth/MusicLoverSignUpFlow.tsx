@@ -709,7 +709,7 @@ const MusicLoverSignUpFlow = () => {
                 }
             }
 
-            // Success - navigate to home/dashboard
+            // Success - navigate to home/dashboard (free users don't need payment method)
             console.log('[MusicLoverSignUpFlow] Free signup completed successfully, navigating to home.');
             navigation.reset({
                 index: 0,
@@ -726,61 +726,9 @@ const MusicLoverSignUpFlow = () => {
         }
     };
 
-    // Completes signup for PREMIUM tier - SIMPLIFIED NAVIGATION
-    // const handlePremiumSignupCompletion = async () => {
-    //     try {
-    //         setIsLoading(true);
-    //         setError('');
-
-    //         // Create user account and profile
-    //         const userId = await handleAccountAndProfileCreation();
-    //         if (!userId) {
-    //             throw new Error("Failed to create account and profile");
-    //         }
-
-    //         // Set premium status to true
-    //         const premiumResult = await updatePremiumStatus(userId, true);
-    //         if ('error' in premiumResult && premiumResult.error) {
-    //             console.error('[MusicLoverSignUpFlow] Error updating premium status:', premiumResult.error);
-    //             // Don't throw here, as the account is already created
-    //         }
-
-    //         // Only try to fetch streaming data if a service is selected and connected
-    //         if (formData.selectedStreamingService !== 'None') {
-    //             if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
-    //                 try {
-    //                     await forceFetchAndSaveSpotifyData(userId, true);
-    //                 } catch (spotifyError) {
-    //                     console.error('[MusicLoverSignUpFlow] Error fetching Spotify data:', spotifyError);
-    //                 }
-    //             }
-                
-    //             if (formData.selectedStreamingService === 'youtubemusic' && isSpotifyLoggedIn) {
-    //                 try {
-    //                     await forceFetchAndSaveSpotifyData(userId, true);
-    //                 } catch (spotifyError) {
-    //                     console.error('[MusicLoverSignUpFlow] Error fetching Spotify data:', spotifyError);
-    //                 }
-    //             }
-    //         }
-
-    //         // Navigate to PremiumSignupScreen for payment
-    //         console.log('[MusicLoverSignUpFlow] Navigating to PremiumSignupScreen for payment');
-    //         navigation.navigate('PremiumSignupScreen', {
-    //             userEmail: formData.email,
-    //             userId: userId
-    //         });
-
-    //     } catch (error: any) {
-    //         console.error('[MusicLoverSignUpFlow] Error in premium signup completion:', error);
-    //         setError(error.message || 'An error occurred during signup');
-    //         Alert.alert('Signup Error', error.message || 'An error occurred during signup');
-    //     } finally {
-    //         setIsLoading(false);
-    //     }
-    // };
+    // Completes signup for PREMIUM tier - REDIRECT TO PAYMENT SCREEN
     const handlePremiumSignupCompletion = async () => {
-        console.log('[handlePremiumSignupCompletion] Function START'); // 1. Log function entry
+        console.log('[handlePremiumSignupCompletion] Function START');
         try {
             setIsLoading(true);
             setError('');
@@ -789,10 +737,10 @@ const MusicLoverSignUpFlow = () => {
             // --- Section 1: Account and Profile Creation ---
             console.log('[handlePremiumSignupCompletion] Attempting handleAccountAndProfileCreation...');
             const userId = await handleAccountAndProfileCreation();
-            console.log('[handlePremiumSignupCompletion] handleAccountAndProfileCreation returned userId:', userId); // 2. Log userId
+            console.log('[handlePremiumSignupCompletion] handleAccountAndProfileCreation returned userId:', userId);
     
             if (!userId) {
-                console.error('[handlePremiumSignupCompletion] userId is null or undefined. THROWING ERROR.'); // 3. Log before explicit throw
+                console.error('[handlePremiumSignupCompletion] userId is null or undefined. THROWING ERROR.');
                 throw new Error("Failed to create account and profile");
             }
             console.log('[handlePremiumSignupCompletion] userId is valid:', userId);
@@ -800,7 +748,7 @@ const MusicLoverSignUpFlow = () => {
             // --- Section 2: Update Premium Status ---
             console.log('[handlePremiumSignupCompletion] Attempting updatePremiumStatus for userId:', userId);
             const premiumResult = await updatePremiumStatus(userId, true);
-            console.log('[handlePremiumSignupCompletion] updatePremiumStatus returned:', premiumResult); // 4. Log premiumResult
+            console.log('[handlePremiumSignupCompletion] updatePremiumStatus returned:', premiumResult);
             if ('error' in premiumResult && premiumResult.error) {
                 console.error('[handlePremiumSignupCompletion] Error in premiumResult:', premiumResult.error);
                 // Not throwing, but logging the error
@@ -815,31 +763,34 @@ const MusicLoverSignUpFlow = () => {
                         await forceFetchAndSaveSpotifyData(userId, true);
                         console.log('[handlePremiumSignupCompletion] forceFetchAndSaveSpotifyData for Spotify COMPLETED.');
                     } catch (spotifyError) {
-                        console.error('[handlePremiumSignupCompletion] Error fetching Spotify data:', spotifyError); // 5. Log specific error
+                        console.error('[handlePremiumSignupCompletion] Error fetching Spotify data:', spotifyError);
                     }
                 }
                 // Add similar logging for 'youtubemusic' if needed
             }
             console.log('[handlePremiumSignupCompletion] Streaming service data fetch section COMPLETED.');
     
-            // --- Section 4: Navigation ---
-            console.log('[handlePremiumSignupCompletion] PREPARING TO NAVIGATE to PremiumSignupScreen. UserEmail:', formData.email, 'UserId:', userId); // 6. Log right before navigation
-            navigation.navigate('PremiumSignupScreen', {
-                userEmail: formData.email,
-                userId: userId
+            // --- Section 4: Navigation - Redirect to RequiredPaymentScreen ---
+            console.log('[handlePremiumSignupCompletion] Premium signup completed successfully. The app will automatically redirect to payment setup.');
+            // The AppNavigator will automatically detect that this is a premium user without a payment method
+            // and redirect to RequiredPaymentScreen. No manual navigation needed here.
+            
+            // Force a re-render by resetting to MainApp, which will trigger the payment check
+            navigation.reset({
+                index: 0,
+                routes: [{ name: 'MainApp' }],
             });
-            console.log('[handlePremiumSignupCompletion] NAVIGATION CALLED.'); // 7. Log right after navigation (might not show if navigation unmounts screen immediately)
     
         } catch (error: any) {
             // --- Section 5: Catch Block ---
-            console.error('[handlePremiumSignupCompletion] >>> CATCH BLOCK EXECUTED <<<'); // 8. Log if catch block is hit
+            console.error('[handlePremiumSignupCompletion] >>> CATCH BLOCK EXECUTED <<<');
             console.error('[handlePremiumSignupCompletion] Error message:', error.message);
             console.error('[handlePremiumSignupCompletion] Full error object:', error);
             setError(error.message || 'An error occurred during signup');
             Alert.alert('Signup Error', error.message || 'An error occurred during signup');
         } finally {
             // --- Section 6: Finally Block ---
-            console.log('[handlePremiumSignupCompletion] FINALLY BLOCK EXECUTED. Setting isLoading to false.'); // 9. Log finally block
+            console.log('[handlePremiumSignupCompletion] FINALLY BLOCK EXECUTED. Setting isLoading to false.');
             setIsLoading(false);
         }
     };
