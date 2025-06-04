@@ -1,5 +1,5 @@
 // navigation/AppNavigator.tsx
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet, Platform } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -11,6 +11,7 @@ import { NavigationContainer, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation, NavigationProp } from '@react-navigation/native';
+import { supabase } from '@/lib/supabase';
 
 // --- Import ALL your screens ---
 import MatchesScreen from "@/screens/MatchesScreen";
@@ -84,6 +85,11 @@ import OverallAnalyticsScreen from '@/screens/organizer/OverallAnalyticsScreen';
 
 // Required Payment Screen
 import RequiredPaymentScreen from '@/screens/payment/RequiredPaymentScreen';
+
+// NEW: PaymentRequiredStack - Acts as a mandatory gateway
+export type PaymentRequiredStackParamList = {
+  RequiredPaymentScreen: undefined;
+};
 
 // --- Define Param Lists ---
 
@@ -173,9 +179,10 @@ export type OrganizerTabParamList = {
     OrganizerProfile: undefined;
 };
 
-// Combined Root Param List (Includes Auth, Main, and standalone screens)
+// Combined Root Param List (Includes Auth, PaymentRequired, Main, and standalone screens)
 export type RootStackParamList = {
   Auth: undefined; // Represents the AuthScreens navigator
+  PaymentRequired: undefined; // NEW: Represents the PaymentRequiredStack navigator
   MainApp: { screen?: keyof MainStackParamList, params?: { screen?: keyof UserTabParamList | keyof OrganizerTabParamList, params?: any } }; // Represents the MainAppStack navigator
   IndividualChatScreen: {
     matchUserId: string;
@@ -243,14 +250,12 @@ export type RootStackParamList = {
   // Include signup flows here for direct navigation if needed during incomplete profile state
   MusicLoverSignUpFlow: undefined;
   OrganizerSignUpFlow: undefined;
-
-  // New for Required Payment Screen
-  RequiredPaymentScreen: undefined;
 };
 
 // --- Create Navigators ---
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const AuthStackNav = createNativeStackNavigator(); // No param list needed if simple
+const PaymentRequiredStackNav = createNativeStackNavigator<PaymentRequiredStackParamList>(); // NEW
 const MainStack = createNativeStackNavigator<MainStackParamList>();
 const UserTabNav = createBottomTabNavigator<UserTabParamList>();
 const OrganizerTabNav = createBottomTabNavigator<OrganizerTabParamList>();
@@ -269,48 +274,144 @@ const AuthScreens = () => (
     <AuthStackNav.Screen name="PaymentConfirmationScreen" component={PaymentConfirmationScreen} />
   </AuthStackNav.Navigator> 
 );
+
+// NEW: PaymentRequiredStack - Acts as a mandatory gateway
+const PaymentRequiredStack = () => (
+  <PaymentRequiredStackNav.Navigator 
+    screenOptions={{ 
+      headerShown: false,
+      gestureEnabled: false, // Prevent any gesture navigation
+    }}
+  >
+    <PaymentRequiredStackNav.Screen 
+      name="RequiredPaymentScreen" 
+      component={RequiredPaymentScreen}
+      options={{
+        gestureEnabled: false, // Double ensure no gesture navigation
+        headerShown: false,
+      }}
+    />
+  </PaymentRequiredStackNav.Navigator>
+);
+
 const UserTabs = () => ( <UserTabNav.Navigator screenOptions={({ route }) => ({ tabBarIcon: ({ focused, color, size }) => { let iconName: keyof typeof Feather.glyphMap = "help-circle"; if (route.name === "Matches") iconName = "heart"; else if (route.name === "Chats") iconName = "message-square"; else if (route.name === "Search") iconName = "search"; else if (route.name === "Events") iconName = "calendar"; else if (route.name === "Profile") iconName = "user"; return <Feather name={iconName} size={size} color={color} />; }, tabBarActiveTintColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', tabBarInactiveTintColor: APP_CONSTANTS?.COLORS?.DISABLED || '#9CA3AF', tabBarStyle: styles.tabBarStyle, headerShown: false, tabBarShowLabel: true, })}><UserTabNav.Screen name="Matches" component={MatchesScreen} /><UserTabNav.Screen name="Chats" component={ChatsScreen} /><UserTabNav.Screen name="Search" component={SearchScreen} /><UserTabNav.Screen name="Events" component={EventsScreen} /><UserTabNav.Screen name="Profile" component={ProfileScreen} /></UserTabNav.Navigator> );
 const OrganizerTabs = () => ( <OrganizerTabNav.Navigator screenOptions={({ route }) => ({ tabBarIcon: ({ focused, color, size }) => { let iconName: keyof typeof Feather.glyphMap = "help-circle"; if (route.name === "Posts") iconName = "layout"; else if (route.name === "Create") iconName = "plus-circle"; else if (route.name === "OrganizerProfile") iconName = "briefcase"; return <Feather name={iconName} size={size} color={color} />; }, tabBarActiveTintColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', tabBarInactiveTintColor: APP_CONSTANTS?.COLORS?.DISABLED || '#9CA3AF', tabBarStyle: styles.tabBarStyle, headerShown: false, tabBarShowLabel: true, })}><OrganizerTabNav.Screen name="Posts" component={OrganizerPostsScreen} options={{ title: "Events" }} /><OrganizerTabNav.Screen name="Create" component={CreateEventScreen} options={{ title: "Create" }} /><OrganizerTabNav.Screen name="OrganizerProfile" component={OrganizerProfileScreen} options={{ title: "Profile" }} /></OrganizerTabNav.Navigator> );
 
-// --- Payment Guard Component for Additional Safety ---
-const PaymentGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { session, musicLoverProfile, organizerProfile } = useAuth();
-  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+// --- Enhanced Payment Requirement Logic with Real Payment Method Validation ---
+const usePaymentRequirementCheck = () => {
+  const { session, loading, musicLoverProfile, organizerProfile } = useAuth();
+  const [hasActualPaymentMethods, setHasActualPaymentMethods] = useState<boolean | null>(null);
+  const [paymentCheckLoading, setPaymentCheckLoading] = useState(false);
   
-  const isOrganizer = session?.userType === 'organizer';
+  // Basic user info
+  const userId = session?.user?.id;
+  const userType = session?.userType;
+  const isOrganizer = userType === 'organizer';
   const isPremiumUser = musicLoverProfile?.isPremium ?? false;
-  const isPaymentMethodRequired = isOrganizer || (session?.userType === 'music_lover' && isPremiumUser);
   
+  // Profile completion check
+  const isProfileComplete = session && ( 
+    (session.userType === 'music_lover' && musicLoverProfile) || 
+    (session.userType === 'organizer' && organizerProfile) 
+  );
+  
+  // Payment requirement logic
+  const isPaymentMethodRequired = isOrganizer || (userType === 'music_lover' && isPremiumUser);
+  
+  // Enhanced Stripe customer ID check - check both possible fields for safety
   const currentStripeCustomerId = isOrganizer 
     ? (organizerProfile as any)?.stripe_customer_id 
     : (musicLoverProfile as any)?.stripe_customer_id;
     
-  const hasValidPaymentMethod = Boolean(currentStripeCustomerId && currentStripeCustomerId.trim() !== '');
-  const needsPaymentMethod = isPaymentMethodRequired && !hasValidPaymentMethod;
-  
+  // ENHANCED: Check for actual payment methods when customer ID exists
   useEffect(() => {
-    if (needsPaymentMethod) {
-      console.log("[PaymentGuard] Payment method required, redirecting to RequiredPaymentScreen");
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'RequiredPaymentScreen' }],
-      });
-    }
-  }, [needsPaymentMethod, navigation]);
+    const checkActualPaymentMethods = async () => {
+      if (!currentStripeCustomerId || !isPaymentMethodRequired || !isProfileComplete) {
+        setHasActualPaymentMethods(null);
+        return;
+      }
+
+      console.log("[AppNavigator] Checking actual payment methods for customer:", currentStripeCustomerId);
+      setPaymentCheckLoading(true);
+      
+      try {
+        const { data, error } = await supabase.functions.invoke('list-organizer-payment-methods', {
+          body: JSON.stringify({
+            customerId: currentStripeCustomerId
+          })
+        });
+
+        if (error) {
+          console.error("[AppNavigator] Error checking payment methods:", error);
+          setHasActualPaymentMethods(false);
+          return;
+        }
+
+        const hasPaymentMethods = data?.paymentMethods && data.paymentMethods.length > 0;
+        console.log("[AppNavigator] Payment methods check result:", {
+          count: data?.paymentMethods?.length || 0,
+          hasPaymentMethods
+        });
+        
+        setHasActualPaymentMethods(hasPaymentMethods);
+      } catch (error) {
+        console.error("[AppNavigator] Exception checking payment methods:", error);
+        setHasActualPaymentMethods(false);
+      } finally {
+        setPaymentCheckLoading(false);
+      }
+    };
+
+    checkActualPaymentMethods();
+  }, [currentStripeCustomerId, isPaymentMethodRequired, isProfileComplete]);
+    
+  // CORRECTED: Valid payment method means both customer ID exists AND actual payment methods exist
+  const hasValidPaymentMethod = Boolean(
+    currentStripeCustomerId && 
+    currentStripeCustomerId.trim() !== '' && 
+    hasActualPaymentMethods === true
+  );
   
-  if (needsPaymentMethod) {
-    // Show loading while redirecting
-    return <LoadingScreen />;
-  }
+  // CRITICAL: Payment is required if user needs it AND doesn't have ACTUAL payment methods
+  const requiresPaymentScreen = isPaymentMethodRequired && isProfileComplete && !hasValidPaymentMethod;
   
-  return <>{children}</>;
+  // Include payment method check loading in overall loading state
+  const overallLoading = loading || (isPaymentMethodRequired && isProfileComplete && paymentCheckLoading);
+
+  // Enhanced debugging with timestamp for monitoring changes
+  console.log("[AppNavigator] ========================= " + new Date().toISOString());
+  console.log("[AppNavigator] Auth State:", loading ? "Loading" : session ? `Authenticated (${session.userType})` : "No Authentication");
+  console.log("[AppNavigator] User ID:", userId);
+  console.log("[AppNavigator] Profile Complete:", isProfileComplete);
+  console.log("[AppNavigator] Is Organizer:", isOrganizer);
+  console.log("[AppNavigator] Is Premium User:", isPremiumUser);
+  console.log("[AppNavigator] Payment Required:", isPaymentMethodRequired);
+  console.log("[AppNavigator] Stripe Customer ID:", currentStripeCustomerId ? `${currentStripeCustomerId.substring(0, 10)}...` : 'None');
+  console.log("[AppNavigator] Payment Check Loading:", paymentCheckLoading);
+  console.log("[AppNavigator] Has Actual Payment Methods:", hasActualPaymentMethods);
+  console.log("[AppNavigator] Has Valid Payment Method:", hasValidPaymentMethod);
+  console.log("[AppNavigator] 🚨 REQUIRES PAYMENT SCREEN:", requiresPaymentScreen);
+  console.log("[AppNavigator] =========================");
+
+  return {
+    loading: overallLoading,
+    session,
+    isProfileComplete,
+    requiresPaymentScreen,
+    userType,
+    isOrganizer,
+    isPremiumUser,
+    isPaymentMethodRequired,
+    hasValidPaymentMethod,
+    currentStripeCustomerId,
+    hasActualPaymentMethods,
+  };
 };
 
-// --- Main App Stack Component with Payment Guard ---
+// --- Main App Stack Component (NO PaymentGuard here anymore) ---
 const MainAppStack = () => {
   const { isOrganizerMode } = useOrganizerMode();
   return (
-    <PaymentGuard>
       <MainStack.Navigator screenOptions={{ headerShown: true }} >
           {isOrganizerMode ? (
                <>
@@ -349,7 +450,6 @@ const MainAppStack = () => {
                </>
           )}
           {/* Screens accessible by both modes */}
-          <MainStack.Screen name="RequiredPaymentScreen" component={RequiredPaymentScreen} options={{ title: "Payment Required", headerShown: false }} />
           <MainStack.Screen name="CreateEventScreen" component={CreateEventScreen} options={{title: "Create Event"}} />
           <MainStack.Screen name="OtherUserProfileScreen" component={OtherUserProfileScreen} options={{title: "Profile"}} />
           <MainStack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} options={{ title: 'Booking Confirmed' }} />
@@ -360,40 +460,25 @@ const MainAppStack = () => {
           {/* *** END Move *** */}
           <MainStack.Screen name="NotFoundMain" component={NotFoundScreen} options={{ title: 'Oops!' }} />
       </MainStack.Navigator>
-    </PaymentGuard>
   );
 }
 
-// --- Root Navigator Logic ---
+// --- Root Navigator Logic with Enhanced Payment Protection ---
 const AppNavigator = () => {
-  const { session, loading, musicLoverProfile, organizerProfile } = useAuth();
-  const isProfileComplete = session && ( (session.userType === 'music_lover' && musicLoverProfile) || (session.userType === 'organizer' && organizerProfile) );
+  const {
+    loading,
+    session,
+    isProfileComplete,
+    requiresPaymentScreen,
+    userType,
+    currentStripeCustomerId,
+  } = usePaymentRequirementCheck();
 
-  // Enhanced payment method requirement check
-  const isOrganizer = session?.userType === 'organizer';
-  const isPremiumUser = musicLoverProfile?.isPremium ?? false;
-  const isPaymentMethodRequired = isOrganizer || (session?.userType === 'music_lover' && isPremiumUser);
-  
-  // Enhanced Stripe customer ID check - check both possible fields for safety
-  const currentStripeCustomerId = isOrganizer 
-    ? (organizerProfile as any)?.stripe_customer_id 
-    : (musicLoverProfile as any)?.stripe_customer_id;
-    
-  // More explicit payment method check
-  const hasValidPaymentMethod = Boolean(currentStripeCustomerId && currentStripeCustomerId.trim() !== '');
-  const needsPaymentMethod = isPaymentMethodRequired && isProfileComplete && !hasValidPaymentMethod;
-
-  // Enhanced debugging
-  console.log("[AppNavigator] =========================");
-  console.log("[AppNavigator] Auth State:", loading ? "Loading" : session ? `Authenticated (${session.userType})` : "No Authentication");
-  console.log("[AppNavigator] Profile Complete:", isProfileComplete);
-  console.log("[AppNavigator] Is Organizer:", isOrganizer);
-  console.log("[AppNavigator] Is Premium User:", isPremiumUser);
-  console.log("[AppNavigator] Payment Required:", isPaymentMethodRequired);
-  console.log("[AppNavigator] Stripe Customer ID:", currentStripeCustomerId ? `${currentStripeCustomerId.substring(0, 10)}...` : 'None');
-  console.log("[AppNavigator] Has Valid Payment Method:", hasValidPaymentMethod);
-  console.log("[AppNavigator] NEEDS PAYMENT METHOD:", needsPaymentMethod);
-  console.log("[AppNavigator] =========================");
+  // Monitor payment method changes and force re-evaluation
+  useEffect(() => {
+    console.log("[AppNavigator] Payment method change detected, stripe_customer_id:", currentStripeCustomerId ? `${currentStripeCustomerId.substring(0, 10)}...` : 'None');
+    // This effect will trigger re-renders when payment method changes
+  }, [currentStripeCustomerId]);
 
   if (loading) { 
     console.log("[AppNavigator] Showing loading screen...");
@@ -403,28 +488,27 @@ const AppNavigator = () => {
   return (
       <RootStack.Navigator screenOptions={{ headerShown: false }} >
         {!session ? (
-          // 1. Not Logged In
+          // 1. Not Logged In - Show Auth
           <RootStack.Screen name="Auth" component={AuthScreens} />
         ) : !isProfileComplete ? (
-          // 2. Logged In, Profile Incomplete
+          // 2. Logged In, Profile Incomplete - Complete Signup
           <RootStack.Screen
             name={session.userType === 'music_lover' ? "MusicLoverSignUpFlow" : "OrganizerSignUpFlow"}
             component={session.userType === 'music_lover' ? MusicLoverSignUpFlow : OrganizerSignUpFlow}
             options={{ gestureEnabled: false }}
           />
-        ) : needsPaymentMethod ? (
-          // 3. Logged In, Profile Complete, but Payment Method Required
-          // This is the critical check that ensures payment screen is always shown when needed
+        ) : requiresPaymentScreen ? (
+          // 3. 🚨 CRITICAL: Payment Required - Show PaymentRequiredStack (BULLETPROOF MIDDLEMAN)
           <RootStack.Screen 
-            name="RequiredPaymentScreen" 
-            component={RequiredPaymentScreen}
+            name="PaymentRequired" 
+            component={PaymentRequiredStack}
             options={{ 
-              gestureEnabled: false, // Prevent swipe back
-              headerShown: false // Keep header hidden for full control
+              gestureEnabled: false, // Prevent any swipe navigation
+              headerShown: false,
             }}
           />
         ) : (
-          // 4. Logged In, Profile Complete, and Payment Method OK (or not required)
+          // 4. Fully Authenticated and Payment Complete - Show Main App
           <>
             {/* Main App entry point (renders MainAppStack) */}
             <RootStack.Screen name="MainApp" component={MainAppStack} />
@@ -463,8 +547,6 @@ const AppNavigator = () => {
                 options={{ headerShown: true, title: 'Add Members', headerBackTitleVisible: false }}
             />
             {/* *** END REGISTRATION *** */}
-
-            {/* ViewOrganizerProfileScreen REMOVED from here */}
 
           </>
         )}
