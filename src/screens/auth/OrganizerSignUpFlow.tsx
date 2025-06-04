@@ -23,7 +23,7 @@ type OrganizerSignUpNavigationProp = NavigationProp<RootStackParamList>;
 // type Step = 'account-details' | 'profile-details' | 'payment';
 type BusinessType = 'venue' | 'promoter' | 'artist_management' | 'festival_organizer' | 'other' | '';
 // Correct the Step type definition based on usage in the component
-type Step = 'account-details' | 'profile-details' | 'payment';
+type Step = 'account-details' | 'profile-details';
 
 // Define window width for animations (Assuming SCREEN_WIDTH is needed)
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -249,16 +249,6 @@ const OrganizerSignUpFlow = () => {
     return true;
   };
 
-  const validatePaymentStep = () => {
-     // ... (keep existing validation)
-      const { cardNumber, expiry, cvv, name } = formData.paymentInfo;
-      if (!cardNumber.trim()) { setError('Please enter your card number'); return false; }
-      if (!expiry.trim()) { setError('Please enter the card expiry date'); return false; }
-      if (!cvv.trim()) { setError('Please enter the CVV'); return false; }
-      if (!name.trim()) { setError('Please enter the cardholder name'); return false; }
-    return true;
-  };
-
   // Handle logo picking (not uploading directly here anymore)
   const handleLogoPick = async () => {
     // Ensure permissions are granted first
@@ -325,11 +315,6 @@ const OrganizerSignUpFlow = () => {
 
   // Complete signup process - Updated Flow
   const handleCompleteSignup = async () => {
-    // Double check payment validation before proceeding
-    if (!validatePaymentStep()) {
-        return;
-    }
-
     setIsLoading(true);
     setError(''); // Clear previous errors
 
@@ -393,12 +378,14 @@ const OrganizerSignUpFlow = () => {
        console.log('Organizer profile created/updated successfully.');
 
       // Step 3: Signup and Profile creation successful!
-      // Navigation should happen automatically if `onAuthStateChange` updates the session
-      // and your main App navigator logic handles session changes.
-      // If direct navigation is needed:
-      // navigation.navigate('OrganizerTabs' as never);
-       console.log('Organizer sign up flow complete.');
-       // No need to call signIn manually, auth state change handles it.
+      // Redirect to RequiredPaymentScreen - the AppNavigator will handle the detection
+      console.log('Organizer sign up flow complete. The app will automatically redirect to payment setup.');
+      
+      // Force a re-render by resetting to MainApp, which will trigger the payment check
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'MainApp' }],
+      });
 
     } catch (err: any) {
       console.error('Error completing signup process:', err);
@@ -428,13 +415,9 @@ const OrganizerSignUpFlow = () => {
 
       case 'profile-details':
         if (validateProfileDetailsStep()) {
-          goToNextStep('payment');
+          // Final step - trigger the complete signup process
+          await handleCompleteSignup();
         }
-        break;
-
-      case 'payment':
-        // Final step - trigger the complete signup process
-        await handleCompleteSignup();
         break;
     }
   };
@@ -630,76 +613,6 @@ const OrganizerSignUpFlow = () => {
       </View>
   );
 
-
-  // Render payment step (No changes needed, but data isn't sent currently)
-  const renderPaymentStep = () => (
-      // ... No changes here ...
-       <View style={styles.stepContent}>
-      <Text style={styles.stepTitle}>Payment Information</Text>
-      <Text style={styles.stepDescription}>
-        Link a payment method for potential future billing (e.g., premium features, transaction fees). No charges now.
-      </Text>
-
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Card Number</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter card number"
-          value={formData.paymentInfo.cardNumber}
-          onChangeText={(text) => handleChange('paymentInfo.cardNumber', text.replace(/\D/g, ''))} // Allow only digits
-          keyboardType="number-pad"
-          maxLength={19} // Account for potential spaces/formatting
-        />
-      </View>
-
-      <View style={styles.rowContainer}>
-        <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
-          <Text style={styles.inputLabel}>Expiry Date</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="MM/YY"
-            value={formData.paymentInfo.expiry}
-             onChangeText={(text) => {
-                 let formatted = text.replace(/\D/g, ''); // Remove non-digits
-                 if (formatted.length > 2) {
-                     formatted = formatted.slice(0, 2) + '/' + formatted.slice(2);
-                 }
-                 handleChange('paymentInfo.expiry', formatted);
-             }}
-            keyboardType="number-pad"
-            maxLength={5} // MM/YY
-          />
-        </View>
-
-        <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
-          <Text style={styles.inputLabel}>CVV</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="CVV"
-            value={formData.paymentInfo.cvv}
-            onChangeText={(text) => handleChange('paymentInfo.cvv', text.replace(/\D/g, ''))} // Allow only digits
-            keyboardType="number-pad"
-            maxLength={4}
-             secureTextEntry // Hide CVV
-          />
-        </View>
-      </View>
-
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Cardholder Name</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter name as it appears on card"
-          value={formData.paymentInfo.name}
-          onChangeText={(text) => handleChange('paymentInfo.name', text)}
-          autoCapitalize="words"
-        />
-      </View>
-
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-    </View>
-  );
-
   // Render current step with appropriate button action/text
   const renderCurrentStep = () => {
      // Determine if the main action button should be disabled
@@ -708,22 +621,20 @@ const OrganizerSignUpFlow = () => {
 
       // Determine button text
       let buttonText = 'Continue';
-      if (currentStep === 'payment') {
+      if (currentStep === 'profile-details') {
           buttonText = 'Complete Sign Up';
       }
 
       // Determine which function the button calls
-      const buttonAction = currentStep === 'payment' ? handleCompleteSignup : handleStepSubmit;
+      const buttonAction = handleStepSubmit;
 
     switch (currentStep) {
       case 'account-details':
       case 'profile-details':
-      case 'payment': // All steps now use the same structure
         return (
           <View style={styles.stepContainer}>
             {currentStep === 'account-details' && renderAccountDetailsStep()}
             {currentStep === 'profile-details' && renderProfileDetailsStep()}
-            {currentStep === 'payment' && renderPaymentStep()}
 
             <TouchableOpacity
               style={[
@@ -773,7 +684,7 @@ const OrganizerSignUpFlow = () => {
                         // Navigate back to landing page from first step
                         navigation.goBack(); // Use goBack instead of navigate to specific screen
                     } else {
-                        const steps: Step[] = ['account-details', 'profile-details', 'payment'];
+                        const steps: Step[] = ['account-details', 'profile-details'];
                         const currentIndex = steps.indexOf(currentStep);
                         if (currentIndex > 0) {
                             // Go back to previous step with animation
@@ -790,7 +701,6 @@ const OrganizerSignUpFlow = () => {
             <View style={styles.stepIndicatorContainer}>
                 <View style={[styles.stepIndicator, currentStep === 'account-details' ? styles.stepIndicatorActive : {}]} />
                 <View style={[styles.stepIndicator, currentStep === 'profile-details' ? styles.stepIndicatorActive : {}]} />
-                <View style={[styles.stepIndicator, currentStep === 'payment' ? styles.stepIndicatorActive : {}]} />
             </View>
             {/* Add a placeholder view to balance the header if needed */}
             <View style={{ width: 28 }} />
