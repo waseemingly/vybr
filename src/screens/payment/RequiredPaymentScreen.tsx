@@ -26,14 +26,14 @@ type RequiredPaymentNavigationProp = NavigationProp<RootStackParamList>;
 
 const StripeSetupFormWebRequired = ({ clientSecret, onSetupSuccess, onSetupError }: {
     clientSecret: string;
-    onSetupSuccess: (setupIntentId: string) => void;
+    onSetupSuccess: (setupIntentId: string, paymentMethodId?: string) => void;
     onSetupError: (errorMsg: string) => void;
 }) => {
     const stripe = useWebStripe();
     const elements = useElements();
+    const [isPaymentElementReady, setIsPaymentElementReady] = useState(false);
     const [isProcessingWebPayment, setIsProcessingWebPayment] = useState(false);
     const [errorMessageWeb, setErrorMessageWeb] = useState<string | null>(null);
-    const [isPaymentElementReady, setIsPaymentElementReady] = useState(false);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -52,70 +52,63 @@ const StripeSetupFormWebRequired = ({ clientSecret, onSetupSuccess, onSetupError
         }
         setIsProcessingWebPayment(true);
         setErrorMessageWeb(null);
-        const returnUrl = `${window.location.origin}/payment-method-setup-complete`;
 
         try {
-            const result = await stripe.confirmSetup({
+            const { error, setupIntent } = await stripe.confirmSetup({
                 elements,
-                confirmParams: { return_url: returnUrl },
+                confirmParams: {
+                    return_url: window.location.origin,
+                },
+                redirect: 'if_required',
             });
 
-            if (result.error) {
-                console.error('[StripeSetupFormWebRequired] stripe.confirmSetup error:', result.error);
-                setErrorMessageWeb(result.error.message || 'Failed to save card.');
-                onSetupError(result.error.message || 'Failed to save card.');
-            } else {
-                // Success case - result has setupIntent when no error
-                const setupIntent = (result as any).setupIntent;
-                if (setupIntent?.status === 'succeeded') {
-                    onSetupSuccess(setupIntent.id);
-                } else if (setupIntent?.status === 'requires_action' || setupIntent?.status === 'requires_confirmation') {
-                    // Redirect is handled by Stripe.js
-                } else {
-                    const msg = `Setup failed. Status: ${setupIntent?.status || 'Unknown'}.`;
-                    setErrorMessageWeb(msg);
-                    onSetupError(msg);
-                }
+            if (error) {
+                console.error('[StripeSetupFormWebRequired] Setup confirmation error:', error);
+                setErrorMessageWeb(error.message || 'Payment setup failed');
+                onSetupError(error.message || 'Payment setup failed');
+            } else if (setupIntent) {
+                console.log('[StripeSetupFormWebRequired] Setup Intent confirmed:', setupIntent);
+                // Extract payment method ID from setup intent
+                const paymentMethodId = setupIntent.payment_method as string;
+                onSetupSuccess(setupIntent.id, paymentMethodId);
             }
         } catch (error: any) {
-            console.error('[StripeSetupFormWebRequired] Unexpected error:', error);
-            setErrorMessageWeb('An unexpected error occurred.');
-            onSetupError('An unexpected error occurred.');
+            console.error('[StripeSetupFormWebRequired] Setup confirmation exception:', error);
+            setErrorMessageWeb('An unexpected error occurred');
+            onSetupError('An unexpected error occurred');
+        } finally {
+            setIsProcessingWebPayment(false);
         }
-        
-        setIsProcessingWebPayment(false);
     };
 
     return (
         <View style={styles.webFormContainer}>
-            <Text style={styles.inputLabel}>Securely Add Your Card</Text>
-            {!isPaymentElementReady && (
-                <View style={styles.loadingMessageContainer}>
-                    <ActivityIndicator />
-                    <Text style={styles.loadingTextUi}>Loading payment form...</Text>
-                </View>
+            <PaymentElement 
+                onReady={() => {
+                    console.log('[StripeSetupFormWebRequired] PaymentElement is ready');
+                    setIsPaymentElementReady(true);
+                }}
+                options={{
+                    layout: 'tabs'
+                }}
+            />
+            {errorMessageWeb && (
+                <Text style={styles.errorText}>{errorMessageWeb}</Text>
             )}
-            <View style={{ display: isPaymentElementReady ? 'flex' : 'none' }}>
-                <PaymentElement
-                    onReady={() => {
-                        console.log('%c[StripeSetupFormWebRequired] PaymentElement onReady FIRED!', 'color: green; font-weight: bold;');
-                        setIsPaymentElementReady(true);
-                    }}
-                    onChange={(event) => {
-                        if (event.complete === false && event.value?.type) {
-                            setErrorMessageWeb(null);
-                        }
-                    }}
-                />
-            </View>
             <TouchableOpacity
-                style={[styles.button, { marginTop: 20 }, (isProcessingWebPayment || !isPaymentElementReady) && styles.buttonDisabled]}
+                style={[
+                    styles.submitButton,
+                    (!isPaymentElementReady || isProcessingWebPayment) && styles.submitButtonDisabled
+                ]}
                 onPress={handleSubmitWeb}
-                disabled={!stripe || !elements || isProcessingWebPayment || !isPaymentElementReady}
+                disabled={!isPaymentElementReady || isProcessingWebPayment}
             >
-                {isProcessingWebPayment ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Save Card</Text>}
+                {isProcessingWebPayment ? (
+                    <ActivityIndicator color="white" size="small" />
+                ) : (
+                    <Text style={styles.submitButtonText}>Add Payment Method</Text>
+                )}
             </TouchableOpacity>
-            {errorMessageWeb && <Text style={styles.errorTextWeb}>{errorMessageWeb}</Text>}
         </View>
     );
 };
@@ -156,6 +149,7 @@ const RequiredPaymentScreen: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [isLoadingData, setIsLoadingData] = useState(false);
     const [isStripeActionActive, setIsStripeActionActive] = useState(false);
+    const [newPaymentMethodId, setNewPaymentMethodId] = useState<string | null>(null); // Store the new payment method ID
 
     // Enhanced back button handling - prevent ANY navigation away from this screen
     const handleBackPress = useCallback(() => {
@@ -203,24 +197,38 @@ const RequiredPaymentScreen: React.FC = () => {
         return unsubscribe;
     }, [navigation, handleBackPress]);
 
-    // Additional effect to monitor for profile changes and redirect if payment method is added elsewhere
-    useEffect(() => {
-        if (isPaymentMethodRequired && hasValidPaymentMethod) {
-            console.log("[RequiredPayment] Payment method detected, navigating to main app");
-            // Payment method was added, navigate to main app
-            if (isOrganizer) {
-                navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'MainApp', params: { screen: 'OrganizerTabs' } }],
-                });
-            } else if (isPremiumUser) {
-                navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'MainApp', params: { screen: 'UserTabs' } }],
-                });
+    // Helper function to set payment method as default (using supabase.functions.invoke like ManagePlanScreen)
+    const setPaymentMethodAsDefault = async (paymentMethodId: string) => {
+        try {
+            console.log("[RequiredPayment] Setting payment method as default:", paymentMethodId);
+            console.log("[RequiredPayment] Using customer ID:", setupIntentParams?.customerId);
+            
+            if (!setupIntentParams?.customerId) {
+                throw new Error("Customer ID is missing");
             }
+            
+            const { data, error } = await supabase.functions.invoke('set-default-payment-method', {
+                body: JSON.stringify({ 
+                    customerId: setupIntentParams.customerId,
+                    paymentMethodId: paymentMethodId 
+                })
+            });
+
+            if (error) {
+                throw error;
+            }
+
+            if (data?.error) {
+                throw new Error(data.error);
+            }
+
+            console.log("[RequiredPayment] Successfully set payment method as default:", data);
+            return true;
+        } catch (error: any) {
+            console.error("[RequiredPayment] Exception in setPaymentMethodAsDefault:", error);
+            throw error;
         }
-    }, [hasValidPaymentMethod, isPaymentMethodRequired, isOrganizer, isPremiumUser, navigation]);
+    };
 
     const loadSetupIntentData = useCallback(async () => {
         console.log(`[RequiredPayment] loadSetupIntentData CALLED.`);
@@ -266,80 +274,71 @@ const RequiredPaymentScreen: React.FC = () => {
         }
     }, [userId, userEmail, currentProfile, userType, isOrganizer]);
 
-    // Enhanced focus effect to ensure data is always fresh when screen is accessed
+    // Simplified focus effect - only loads data when needed, no redirect logic
     useFocusEffect(
         useCallback(() => {
-            console.log("[RequiredPayment] Screen focused, checking requirements...");
+            console.log("[RequiredPayment] Screen focused, loading setup data...");
             
             if (userId && userEmail) {
-                // Double-check that payment is still required
-                if (isPaymentMethodRequired && !hasValidPaymentMethod) {
-                    console.log("[RequiredPayment] Payment still required, loading setup data...");
-                    loadSetupIntentData();
-                } else {
-                    console.log("[RequiredPayment] Payment no longer required, should redirect...");
-                }
+                loadSetupIntentData();
             } else if (!authLoading) {
                 setError("User details not fully loaded.");
                 setIsLoadingData(false);
             }
-        }, [loadSetupIntentData, userId, userEmail, authLoading, isPaymentMethodRequired, hasValidPaymentMethod])
+        }, [loadSetupIntentData, userId, userEmail, authLoading])
     );
 
-    const handleCardSavedSuccessfully = async () => {
-        Alert.alert("Success!", "Your payment method has been saved.", [
-            {
-                text: "Continue",
-                onPress: async () => {
-                    if (refreshUserProfile) {
-                        console.log("[RequiredPayment] Card saved, calling refreshUserProfile...");
-                        await refreshUserProfile();
-                        console.log("[RequiredPayment] refreshUserProfile completed.");
-                    }
+    const handleCardSavedSuccessfully = async (paymentMethodId?: string) => {
+        console.log('[RequiredPaymentScreen] Card saved successfully, paymentMethodId:', paymentMethodId);
+        setError('');
+        setIsLoadingData(true);
 
-                    // Set the payment method as default automatically
-                    try {
-                        if (currentStripeCustomerId && setupIntentParams?.customerId) {
-                            console.log("[RequiredPayment] Setting payment method as default...");
-                            // Get the latest payment methods to find the new one
-                            const { data, error } = await supabase.functions.invoke('list-organizer-payment-methods', {
-                                body: JSON.stringify({
-                                    customerId: currentStripeCustomerId
-                                })
-                            });
+        try {
+            // Call setPaymentMethodAsDefault if paymentMethodId is provided
+            if (paymentMethodId) {
+                console.log('[RequiredPaymentScreen] Setting payment method as default:', paymentMethodId);
+                await setPaymentMethodAsDefault(paymentMethodId);
+            } else {
+                console.log('[RequiredPaymentScreen] No paymentMethodId provided, checking existing payment methods...');
+                
+                // Fallback: Fetch payment methods and set the first one as default
+                const { data, error } = await supabase.functions.invoke('list-organizer-payment-methods', {
+                    body: JSON.stringify({
+                        customerId: currentStripeCustomerId
+                    })
+                });
 
-                            if (!error && data?.paymentMethods && data.paymentMethods.length > 0) {
-                                // Set the first (newest) payment method as default
-                                const newestPaymentMethod = data.paymentMethods[0];
-                                await supabase.functions.invoke('set-default-payment-method', {
-                                    body: JSON.stringify({
-                                        customerId: currentStripeCustomerId,
-                                        paymentMethodId: newestPaymentMethod.id
-                                    })
-                                });
-                                console.log("[RequiredPayment] Payment method set as default successfully.");
-                            }
-                        }
-                    } catch (error) {
-                        console.error("[RequiredPayment] Error setting default payment method:", error);
-                        // Don't block navigation on this error
-                    }
+                if (error) {
+                    console.error('[RequiredPaymentScreen] Error fetching payment methods for fallback:', error);
+                    throw new Error(`Failed to fetch payment methods: ${error.message}`);
+                }
 
-                    // Navigate to the appropriate screen based on user type
-                    if (isOrganizer) {
-                        navigation.reset({
-                            index: 0,
-                            routes: [{ name: 'MainApp', params: { screen: 'OrganizerTabs' } }],
-                        });
-                    } else if (isPremiumUser) {
-                        navigation.reset({
-                            index: 0,
-                            routes: [{ name: 'MainApp', params: { screen: 'UserTabs' } }],
-                        });
-                    }
+                const paymentMethods = data?.paymentMethods || [];
+                if (paymentMethods.length > 0) {
+                    const firstPaymentMethod = paymentMethods[0];
+                    console.log('[RequiredPaymentScreen] Setting first payment method as default:', firstPaymentMethod.id);
+                    await setPaymentMethodAsDefault(firstPaymentMethod.id);
+                } else {
+                    console.warn('[RequiredPaymentScreen] No payment methods found after successful card save!');
+                    throw new Error('No payment methods found after card save');
                 }
             }
-        ]);
+
+            // CRITICAL: Refresh user profile to update the AppNavigator
+            console.log('[RequiredPaymentScreen] Refreshing user profile to update AppNavigator...');
+            await refreshUserProfile();
+            
+            console.log('[RequiredPaymentScreen] Payment method setup completed successfully!');
+            
+            // Let the AppNavigator handle the navigation based on the refreshed profile
+            // No manual navigation here - AppNavigator will detect the payment method change
+
+        } catch (error: any) {
+            console.error('[RequiredPaymentScreen] Error in handleCardSavedSuccessfully:', error);
+            setError(error.message || 'Payment setup failed. Please try again.');
+        } finally {
+            setIsLoadingData(false);
+        }
     };
 
     const handleMobileAddCard = async () => {
@@ -347,6 +346,7 @@ const RequiredPaymentScreen: React.FC = () => {
             Alert.alert("Error", "Payment setup details are not ready. Please try refreshing.");
             return;
         }
+        
         setIsStripeActionActive(true);
         try {
             const merchantName = isOrganizer ? 'VYBR Organizer' : 'VYBR Premium';
@@ -358,7 +358,10 @@ const RequiredPaymentScreen: React.FC = () => {
                 allowsDelayedPaymentMethods: true,
                 returnURL: `vybr://stripe-redirect-payment-setup`,
             });
-            if (initError) throw new Error(`Init Error: ${initError.message} (Code: ${initError.code})`);
+            
+            if (initError) {
+                throw new Error(`Init Error: ${initError.message} (Code: ${initError.code})`);
+            }
 
             const result = await presentPaymentSheet();
             console.log('[RequiredPayment Mobile] presentPaymentSheet Response:', JSON.stringify(result));
@@ -371,9 +374,13 @@ const RequiredPaymentScreen: React.FC = () => {
                 }
             } else {
                 // Success case - payment sheet completed successfully
-                await handleCardSavedSuccessfully();
+                // For mobile, we don't get the payment method ID directly from presentPaymentSheet
+                // So we'll use the fallback method in handleCardSavedSuccessfully
+                console.log('[RequiredPayment Mobile] Payment sheet completed successfully, processing...');
+                await handleCardSavedSuccessfully(); // No payment method ID available on mobile
             }
         } catch (e: any) {
+            console.error('[RequiredPayment Mobile] Error:', e);
             Alert.alert("Error", `Payment method setup failed: ${e.message}`);
         } finally {
             setIsStripeActionActive(false);
@@ -451,7 +458,10 @@ const RequiredPaymentScreen: React.FC = () => {
                                     }}>
                                         <StripeSetupFormWebRequired
                                             clientSecret={setupIntentParams.clientSecret}
-                                            onSetupSuccess={handleCardSavedSuccessfully}
+                                            onSetupSuccess={(setupIntentId: string, paymentMethodId?: string) => {
+                                                console.log('[RequiredPayment] Web form success:', { setupIntentId, paymentMethodId });
+                                                handleCardSavedSuccessfully(paymentMethodId);
+                                            }}
                                             onSetupError={(errMsg) => {
                                                 Alert.alert("Save Card Error", `Failed to save card: ${errMsg}. Please check details or try another card.`);
                                             }}
@@ -629,6 +639,21 @@ const styles = StyleSheet.create({
         color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
         textAlign: 'center',
         lineHeight: 16,
+    },
+    submitButton: {
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+        paddingVertical: 16,
+        borderRadius: 12,
+        alignItems: 'center',
+        marginTop: 20,
+    },
+    submitButtonDisabled: {
+        backgroundColor: APP_CONSTANTS.COLORS.DISABLED,
+    },
+    submitButtonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: '600',
     },
     centeredMessage: {
         flex: 1,
