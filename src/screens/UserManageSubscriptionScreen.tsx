@@ -412,45 +412,70 @@ const UserManageSubscriptionScreen: React.FC = () => {
                 return;
             }
             const currentUserId = session.user.id;
-            console.log(`Attempting downgrade for userId: ${currentUserId}`);
+            const currentUserEmail = session.user.email;
+            console.log(`Attempting subscription cancellation for userId: ${currentUserId}, email: ${currentUserEmail}`);
 
             try {
-                // 1. Update the database
-                const { error: updateError } = await supabase
-                    .from('music_lover_profiles')
-                    .update({ is_premium: false })
-                    .eq('user_id', currentUserId);
+                // 1. Schedule Stripe subscription cancellation at period end using the Edge Function
+                console.log('Calling cancel-premium-subscription Edge Function...');
+                const { data: cancelData, error: cancelError } = await supabase.functions.invoke('cancel-premium-subscription', {
+                    body: JSON.stringify({ 
+                        userId: currentUserId,
+                        userEmail: currentUserEmail,
+                    })
+                });
 
-                if (updateError) {
-                    console.error('Supabase update error during cancellation:', updateError);
-                    throw new Error(`Database Update Failed: ${updateError.message}`);
-                }
-                console.log('Supabase profile update successful (is_premium: false).');
-
-                // 2. Refresh the user profile from useAuth
-                if (refreshUserProfile) {
-                    console.log('Refreshing user profile state...');
-                    await refreshUserProfile();
-                    console.log('User profile refresh attempt complete.');
-                } else {
-                    console.warn('refreshUserProfile function not available in useAuth. UI might not update immediately without a manual refresh.');
-                    setSubscriptionStatus('free');
-                    setPlanName('Free Tier');
-                    setRenewalDate(null);
+                if (cancelError) {
+                    console.error('Subscription cancellation error:', cancelError);
+                    throw new Error(`Subscription cancellation failed: ${cancelError.message}`);
                 }
 
-                if (Platform.OS === 'web') {
-                    window.alert("Success: Your subscription has been cancelled and your account downgraded.");
+                if (cancelData?.error) {
+                    console.error('Subscription cancellation data error:', cancelData.error);
+                    throw new Error(cancelData.error);
+                }
+
+                console.log('Subscription cancellation scheduled successfully:', cancelData);
+                
+                // 2. Update local UI state to show "canceled" status (but user keeps premium until period end)
+                const scheduledCount = cancelData?.stripe_subscriptions_scheduled || 0;
+                const accessEndsDate = cancelData?.access_ends_date;
+                
+                if (scheduledCount > 0) {
+                    // Update UI to show subscription is scheduled for cancellation
+                    setSubscriptionStatus('canceled');
+                    setRenewalDate(accessEndsDate || null);
+                    
+                    // Note: We don't call refreshUserProfile() here because is_premium should stay true
+                    // until the subscription actually ends. The user keeps premium access until then.
+                    
+                    // Show success message with end date
+                    const successMessage = `Your premium subscription has been scheduled for cancellation. You will retain premium access until ${accessEndsDate || 'the end of your billing period'}. After that, your account will automatically downgrade to the Free Tier.`;
+                    
+                    if (Platform.OS === 'web') {
+                        window.alert(successMessage);
+                    } else {
+                        Alert.alert("Subscription Scheduled for Cancellation", successMessage);
+                    }
                 } else {
-                    Alert.alert("Success", "Your subscription has been cancelled and your account downgraded.");
+                    // No active subscriptions found
+                    const message = 'No active subscriptions were found to cancel. Your account status has been updated.';
+                    
+                    if (Platform.OS === 'web') {
+                        window.alert(message);
+                    } else {
+                        Alert.alert("No Active Subscription", message);
+                    }
                 }
 
             } catch (error: any) {
                 console.error("Detailed error canceling subscription:", error);
+                const errorMessage = `Could not schedule subscription cancellation. Reason: ${error?.message || 'Unknown error. Please contact support.'}`;
+                
                 if (Platform.OS === 'web') {
-                    window.alert(`Cancellation Failed: Could not update your subscription. Reason: ${error?.message || 'Unknown error.'}`);
+                    window.alert(`Cancellation Failed: ${errorMessage}`);
                 } else {
-                    Alert.alert("Cancellation Failed", `Could not update your subscription. Reason: ${error?.message || 'Unknown error.'}`);
+                    Alert.alert("Cancellation Failed", errorMessage);
                 }
             } finally {
                 setIsCanceling(false);
@@ -458,17 +483,17 @@ const UserManageSubscriptionScreen: React.FC = () => {
         };
 
         if (Platform.OS === 'web') {
-            if (window.confirm("Are you sure you want to cancel your Premium subscription? This will immediately downgrade your account to the Free Tier.")) {
+            if (window.confirm("Are you sure you want to cancel your Premium subscription? You will retain premium access until the end of your current billing period, after which your account will downgrade to the Free Tier.")) {
                 confirmCancellation();
             }
         } else {
             Alert.alert(
                 "Cancel Subscription",
-                "Are you sure you want to cancel your Premium subscription? This will immediately downgrade your account to the Free Tier.",
+                "Are you sure you want to cancel your Premium subscription? You will retain premium access until the end of your current billing period, after which your account will downgrade to the Free Tier.",
                 [
                     { text: "Keep Subscription", style: "cancel" },
                     {
-                        text: "Confirm Cancellation",
+                        text: "Schedule Cancellation",
                         style: "destructive",
                         onPress: confirmCancellation
                     }
@@ -560,37 +585,42 @@ const UserManageSubscriptionScreen: React.FC = () => {
                     </View>
                 </View>
 
-                {subscriptionStatus === 'active' && (
+                {(subscriptionStatus === 'active' || subscriptionStatus === 'canceled') && (
                     <View style={styles.section}>
                         <Text style={styles.sectionTitle}>Manage Your Subscription</Text>
                         <TouchableOpacity
-                            style={[styles.button, styles.cancelButton, isCanceling && styles.buttonDisabled]}
+                            style={[
+                                styles.button, 
+                                styles.cancelButton, 
+                                (isCanceling || subscriptionStatus === 'canceled') && styles.buttonDisabled
+                            ]}
                             onPress={handleCancelSubscription}
-                            disabled={isCanceling}
+                            disabled={isCanceling || subscriptionStatus === 'canceled'}
                         >
                             {isCanceling ? (
                                 <ActivityIndicator color="#FFFFFF" size="small" style={styles.buttonLoader} />
                             ) : (
                                 <Feather name="x-circle" size={18} color="#FFFFFF" />
                             )}
-                            <Text style={styles.buttonText}>Cancel Premium</Text>
+                            <Text style={styles.buttonText}>
+                                {subscriptionStatus === 'canceled' ? 'Cancellation Scheduled' : 'Cancel Premium'}
+                            </Text>
                         </TouchableOpacity>
                          <Text style={styles.cancelNote}>
-                            If you cancel, your premium benefits will continue until the end of your current billing period ({renewalDate || 'N/A'}). After that, you'll be on the Free Tier.
+                            {subscriptionStatus === 'canceled' 
+                                ? `Your subscription is scheduled to end on ${renewalDate || 'your next billing date'}. You'll keep premium access until then.`
+                                : 'Cancelling will schedule your subscription to end at your next billing date. You\'ll keep premium access until then and won\'t be charged again.'
+                            }
                         </Text>
                     </View>
                 )}
 
-                {(subscriptionStatus === 'free' || subscriptionStatus === 'canceled') && (
+                {subscriptionStatus === 'free' && (
                     <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>
-                            {subscriptionStatus === 'free' ? 'Upgrade to Premium' : 'Reactivate Premium'}
-                        </Text>
+                        <Text style={styles.sectionTitle}>Upgrade to Premium</Text>
                         <TouchableOpacity style={[styles.button, styles.upgradeButton]} onPress={navigateToUpgrade}>
                             <Feather name="star" size={18} color="#FFFFFF" />
-                            <Text style={styles.buttonText}>
-                                {subscriptionStatus === 'free' ? 'Upgrade to Premium' : 'Reactivate Premium'}
-                            </Text>
+                            <Text style={styles.buttonText}>Upgrade to Premium</Text>
                         </TouchableOpacity>
                         <Text style={styles.upgradeNote}>Unlock exclusive features and enhance your Vybr experience!</Text>
                     </View>
