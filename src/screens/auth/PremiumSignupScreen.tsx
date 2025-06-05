@@ -162,8 +162,8 @@ const PremiumSignupScreen = () => {
     Alert.alert('Payment Successful!', 'Your premium subscription is now active.');
     console.log('[PremiumSignupScreen] Payment successful. Updating premium status for user:', userId);
     try {
-      // Pass preventAutomaticNavigation if your AuthProvider might navigate prematurely
-      const result = await updatePremiumStatus(userId, true, { preventAutomaticNavigation: true });
+      // Update premium status without the third parameter
+      const result = await updatePremiumStatus(userId, true);
       if ('error' in result && result.error) {
         console.error('[PremiumSignupScreen] Premium status update client-side error:', result.error);
         Alert.alert('Warning', 'Payment confirmed, but there was an issue with the immediate status update. Your access will be granted shortly. Please check your profile or contact support if needed.');
@@ -175,11 +175,10 @@ const PremiumSignupScreen = () => {
         Alert.alert('Warning', 'Payment confirmed, but an error occurred during the immediate status update. Your access will be granted shortly.');
     }
 
-    // Navigate to a generic success screen or directly to the app
-    // PaymentSuccessScreen itself can handle redirecting to MainApp after a delay
+    // Navigate to MainApp instead of PaymentSuccessScreen since it's not in RootStackParamList
     navigation.reset({
       index: 0,
-      routes: [{ name: 'PaymentSuccessScreen' }], // Let PaymentSuccessScreen show its message then redirect
+      routes: [{ name: 'MainApp' }],
     });
   };
 
@@ -377,7 +376,8 @@ const PremiumSignupScreen = () => {
 
   // 5. Mobile: Fallback if PaymentSheet isn't active but params are loaded (e.g., if presentPaymentSheet was not auto-called)
   // This state is less likely to be hit with the current auto-present logic for mobile.
-  if (Platform.OS !== 'web' && paymentParams && !paymentInProgressMobile && !uiLoading) {
+  if (Platform.OS === 'ios' || Platform.OS === 'android') {
+    if (paymentParams && !paymentInProgressMobile && !uiLoading) {
       return (
            <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
                <View style={styles.header}>
@@ -394,7 +394,11 @@ const PremiumSignupScreen = () => {
                             setPaymentInProgressMobile(true);
                             const { error: presentError } = await presentPaymentSheet();
                             setPaymentInProgressMobile(false);
-                            if (presentError) { /* ... handle error ... */ } else { await handlePaymentSuccess(); }
+                            if (presentError && presentError.code !== 'Canceled') { 
+                                Alert.alert('Payment Error', `Payment failed: ${presentError.message}`);
+                            } else if (!presentError) { 
+                                await handlePaymentSuccess(); 
+                            }
                         }}
                     >
                         <Text style={styles.buttonText}>Proceed to Payment</Text>
@@ -402,6 +406,7 @@ const PremiumSignupScreen = () => {
                </ScrollView>
            </SafeAreaView>
       );
+    }
   }
 
   // Default fallback (should ideally not be reached if all states are handled)

@@ -20,9 +20,26 @@ import type { RootStackParamList } from '@/navigation/AppNavigator';
 // --- Stripe Configuration ---
 const STRIPE_PUBLISHABLE_KEY_NATIVE = "pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN";
 const STRIPE_PUBLISHABLE_KEY_WEB = "pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN";
+const PREMIUM_PLAN_PRICE_ID = 'price_1ROtS1DHMm6OC3yQAkqDjUWd'; // Premium plan price ID
 const stripePromiseWeb = Platform.OS === 'web' ? loadStripe(STRIPE_PUBLISHABLE_KEY_WEB) : null;
 
 type RequiredPaymentNavigationProp = NavigationProp<RootStackParamList>;
+
+// Combined payment params interface to handle both SetupIntent and PaymentIntent
+interface PaymentParams {
+    // For saving payment method (SetupIntent)
+    setupIntent?: {
+        clientSecret: string;
+        customerId: string;
+        ephemeralKey: string;
+    };
+    // For billing premium users (PaymentIntent)
+    paymentIntent?: {
+        paymentIntentClientSecret: string;
+        customerId: string;
+        ephemeralKey: string;
+    };
+}
 
 const StripeSetupFormWebRequired = ({ clientSecret, onSetupSuccess, onSetupError }: {
     clientSecret: string;
@@ -113,9 +130,93 @@ const StripeSetupFormWebRequired = ({ clientSecret, onSetupSuccess, onSetupError
     );
 };
 
+// Web component for handling both payment and setup (premium users)
+const StripePaymentFormWebRequired = ({ paymentClientSecret, onPaymentSuccess, onPaymentError }: {
+    paymentClientSecret: string;
+    onPaymentSuccess: () => void;
+    onPaymentError: (errorMsg: string) => void;
+}) => {
+    const stripe = useWebStripe();
+    const elements = useElements();
+    const [isPaymentElementReady, setIsPaymentElementReady] = useState(false);
+    const [isProcessingWebPayment, setIsProcessingWebPayment] = useState(false);
+    const [errorMessageWeb, setErrorMessageWeb] = useState<string | null>(null);
+
+    const handleSubmitWeb = async () => {
+        if (!stripe || !elements || !isPaymentElementReady) {
+            const msg = !stripe || !elements ? 'Payment system (Stripe/Elements) not loaded.' : 'Payment form not ready.';
+            onPaymentError(msg);
+            return;
+        }
+        setIsProcessingWebPayment(true);
+        setErrorMessageWeb(null);
+
+        try {
+            const { error, paymentIntent } = await stripe.confirmPayment({
+                elements,
+                confirmParams: {
+                    return_url: `${window.location.origin}/payment-confirmation`,
+                },
+                redirect: 'if_required',
+            });
+
+            if (error) {
+                console.error('[StripePaymentFormWebRequired] Payment confirmation error:', error);
+                setErrorMessageWeb(error.message || 'Payment failed');
+                onPaymentError(error.message || 'Payment failed');
+            } else if (paymentIntent) {
+                console.log('[StripePaymentFormWebRequired] Payment Intent confirmed:', paymentIntent);
+                if (paymentIntent.status === 'succeeded') {
+                    onPaymentSuccess();
+                } else {
+                    console.warn(`[StripePaymentFormWebRequired] PaymentIntent status: ${paymentIntent.status}`);
+                    setErrorMessageWeb(`Payment status: ${paymentIntent.status}`);
+                }
+            }
+        } catch (error: any) {
+            console.error('[StripePaymentFormWebRequired] Payment confirmation exception:', error);
+            setErrorMessageWeb('An unexpected error occurred');
+            onPaymentError('An unexpected error occurred');
+        } finally {
+            setIsProcessingWebPayment(false);
+        }
+    };
+
+    return (
+        <View style={styles.webFormContainer}>
+            <PaymentElement 
+                onReady={() => {
+                    console.log('[StripePaymentFormWebRequired] PaymentElement is ready');
+                    setIsPaymentElementReady(true);
+                }}
+                options={{
+                    layout: 'tabs'
+                }}
+            />
+            {errorMessageWeb && (
+                <Text style={styles.errorText}>{errorMessageWeb}</Text>
+            )}
+            <TouchableOpacity
+                style={[
+                    styles.submitButton,
+                    (!isPaymentElementReady || isProcessingWebPayment) && styles.submitButtonDisabled
+                ]}
+                onPress={handleSubmitWeb}
+                disabled={!isPaymentElementReady || isProcessingWebPayment}
+            >
+                {isProcessingWebPayment ? (
+                    <ActivityIndicator color="white" size="small" />
+                ) : (
+                    <Text style={styles.submitButtonText}>Complete Payment & Subscription</Text>
+                )}
+            </TouchableOpacity>
+        </View>
+    );
+};
+
 const RequiredPaymentScreen: React.FC = () => {
     const navigation = useNavigation<RequiredPaymentNavigationProp>();
-    const { session, loading: authLoading, refreshUserProfile, musicLoverProfile, organizerProfile } = useAuth();
+    const { session, loading: authLoading, refreshUserProfile, musicLoverProfile, organizerProfile, updatePremiumStatus } = useAuth();
     const { initPaymentSheet, presentPaymentSheet } = useNativeStripe();
 
     const userId = session?.user?.id;
@@ -145,11 +246,10 @@ const RequiredPaymentScreen: React.FC = () => {
     console.log("[RequiredPayment] Should Show Payment Screen:", isPaymentMethodRequired && !hasValidPaymentMethod);
     console.log("[RequiredPayment] =========================");
 
-    const [setupIntentParams, setSetupIntentParams] = useState<{ clientSecret: string; customerId: string; ephemeralKey: string } | null>(null);
+    const [paymentParams, setPaymentParams] = useState<PaymentParams | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isLoadingData, setIsLoadingData] = useState(false);
     const [isStripeActionActive, setIsStripeActionActive] = useState(false);
-    const [newPaymentMethodId, setNewPaymentMethodId] = useState<string | null>(null); // Store the new payment method ID
 
     // Enhanced back button handling - prevent ANY navigation away from this screen
     const handleBackPress = useCallback(() => {
@@ -198,18 +298,18 @@ const RequiredPaymentScreen: React.FC = () => {
     }, [navigation, handleBackPress]);
 
     // Helper function to set payment method as default (using supabase.functions.invoke like ManagePlanScreen)
-    const setPaymentMethodAsDefault = async (paymentMethodId: string) => {
+    const setPaymentMethodAsDefault = async (paymentMethodId: string, customerId: string) => {
         try {
             console.log("[RequiredPayment] Setting payment method as default:", paymentMethodId);
-            console.log("[RequiredPayment] Using customer ID:", setupIntentParams?.customerId);
+            console.log("[RequiredPayment] Using customer ID:", customerId);
             
-            if (!setupIntentParams?.customerId) {
+            if (!customerId) {
                 throw new Error("Customer ID is missing");
             }
             
             const { data, error } = await supabase.functions.invoke('set-default-payment-method', {
                 body: JSON.stringify({ 
-                    customerId: setupIntentParams.customerId,
+                    customerId: customerId,
                     paymentMethodId: paymentMethodId 
                 })
             });
@@ -230,8 +330,161 @@ const RequiredPaymentScreen: React.FC = () => {
         }
     };
 
-    const loadSetupIntentData = useCallback(async () => {
-        console.log(`[RequiredPayment] loadSetupIntentData CALLED.`);
+    const handlePaymentSuccess = async () => {
+        console.log('[RequiredPaymentScreen] Payment successful. Updating premium status for user:', userId);
+        try {
+            // Update premium status
+            const result = await updatePremiumStatus(userId!, true);
+            if ('error' in result && result.error) {
+                console.error('[RequiredPaymentScreen] Premium status update client-side error:', result.error);
+                Alert.alert('Warning', 'Payment confirmed, but there was an issue with the immediate status update. Your access will be granted shortly. Please check your profile or contact support if needed.');
+            } else {
+                console.log('[RequiredPaymentScreen] Premium status updated client-side.');
+            }
+        } catch (e: any) {
+            console.error('[RequiredPaymentScreen] Exception during client-side premium status update:', e);
+            Alert.alert('Warning', 'Payment confirmed, but an error occurred during the immediate status update. Your access will be granted shortly.');
+        }
+
+        // For premium users, refresh profile after successful billing
+        await refreshProfileAfterPaymentSuccess();
+    };
+
+    const refreshProfileAfterPaymentSuccess = async () => {
+        try {
+            // CRITICAL: Refresh user profile to update the AppNavigator
+            console.log('[RequiredPaymentScreen] Refreshing user profile to update AppNavigator...');
+            await refreshUserProfile();
+            
+            console.log('[RequiredPaymentScreen] Payment and setup completed successfully!');
+            
+            // Let the AppNavigator handle the navigation based on the refreshed profile
+            // No manual navigation here - AppNavigator will detect the payment method change
+
+        } catch (error: any) {
+            console.error('[RequiredPaymentScreen] Error in refreshProfileAfterPaymentSuccess:', error);
+            setError(error.message || 'Profile refresh failed. Please restart the app.');
+        } finally {
+            setIsLoadingData(false);
+        }
+    };
+
+    const handlePremiumSetupSuccess = async (setupIntentId: string, paymentMethodId?: string) => {
+        console.log('[RequiredPaymentScreen] Premium setup success - now proceeding to billing...', { setupIntentId, paymentMethodId });
+        
+        try {
+            setIsLoadingData(true);
+            
+            // First, set the payment method as default if we have the ID
+            if (paymentMethodId) {
+                const customerId = paymentParams?.setupIntent?.customerId;
+                if (customerId) {
+                    console.log('[RequiredPaymentScreen] Setting payment method as default before billing:', paymentMethodId);
+                    await setPaymentMethodAsDefault(paymentMethodId, customerId);
+                }
+            }
+
+            // Now proceed with billing the premium subscription using the saved payment method
+            // We'll create a server-side function that handles both creation and confirmation
+            console.log('[RequiredPaymentScreen] Creating and confirming subscription for premium billing...');
+            const { data: billingData, error: billingError } = await supabase.functions.invoke('create-premium-subscription', {
+                body: JSON.stringify({
+                    priceId: PREMIUM_PLAN_PRICE_ID,
+                    userId,
+                    userEmail,
+                    paymentMethodId: paymentMethodId, // Pass the saved payment method ID
+                }),
+            });
+
+            if (billingError) {
+                console.error('[RequiredPaymentScreen] Billing error:', billingError);
+                throw new Error(billingError.message || "Function invocation error for premium billing.");
+            }
+            
+            if (billingData && billingData.error) {
+                console.error('[RequiredPaymentScreen] Billing data error:', billingData.error);
+                throw new Error(billingData.error || "Backend failed to process premium billing.");
+            }
+
+            // Check the billing result
+            if (billingData?.success) {
+                console.log('[RequiredPaymentScreen] Premium subscription created and confirmed successfully');
+                await handlePaymentSuccess();
+            } else if (billingData?.requires_action && billingData?.client_secret) {
+                // Payment requires additional action (like 3D Secure)
+                console.log('[RequiredPaymentScreen] Payment requires additional authentication...');
+                
+                if (Platform.OS === 'web') {
+                    // For web, handle 3D Secure authentication
+                    const stripe = await stripePromiseWeb;
+                    if (!stripe) throw new Error('Stripe not loaded');
+                    
+                    const { error, paymentIntent } = await stripe.confirmPayment({
+                        clientSecret: billingData.client_secret,
+                        confirmParams: {
+                            return_url: `${window.location.origin}/payment-confirmation`,
+                        },
+                        redirect: 'if_required',
+                    });
+
+                    if (error) {
+                        throw new Error(error.message || 'Payment authentication failed');
+                    } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+                        console.log('[RequiredPaymentScreen] Web payment authenticated and confirmed successfully');
+                        await handlePaymentSuccess();
+                    } else {
+                        throw new Error(`Payment authentication status: ${paymentIntent?.status || 'unknown'}`);
+                    }
+                } else {
+                    // For mobile, use PaymentSheet for 3D Secure
+                    console.log('[RequiredPaymentScreen] Mobile - using PaymentSheet for authentication...');
+                    
+                    setIsStripeActionActive(true);
+                    const { error: initError } = await initPaymentSheet({
+                        merchantDisplayName: 'VYBR Premium',
+                        customerId: billingData.customerId || paymentParams?.setupIntent?.customerId,
+                        customerEphemeralKeySecret: billingData.ephemeralKey,
+                        paymentIntentClientSecret: billingData.client_secret,
+                        allowsDelayedPaymentMethods: true,
+                        returnURL: `vybr://stripe-redirect-premium-auth`,
+                    });
+                    
+                    if (initError) {
+                        throw new Error(`Init Error: ${initError.message} (Code: ${initError.code})`);
+                    }
+
+                    const result = await presentPaymentSheet();
+                    console.log('[RequiredPaymentScreen] Mobile auth presentPaymentSheet Response:', JSON.stringify(result));
+
+                    if (result.error) {
+                        if (result.error.code !== 'Canceled') {
+                            throw new Error(`Present Error: ${result.error.message} (Code: ${result.error.code})`);
+                        } else {
+                            Alert.alert("Canceled", "Premium subscription authentication canceled.");
+                            return;
+                        }
+                    } else {
+                        // Success case - authentication completed successfully
+                        console.log('[RequiredPaymentScreen] Mobile authentication completed successfully');
+                        await handlePaymentSuccess();
+                    }
+                }
+            } else {
+                throw new Error('Unexpected billing response format');
+            }
+
+        } catch (error: any) {
+            console.error('[RequiredPaymentScreen] Error in handlePremiumSetupSuccess:', error);
+            Alert.alert('Premium Setup Error', `Failed to complete premium subscription: ${error.message}`);
+            setError(error.message || 'Premium subscription setup failed');
+        } finally {
+            setIsStripeActionActive(false);
+            setIsLoadingData(false);
+        }
+    };
+
+    const loadPaymentData = useCallback(async () => {
+        console.log(`[RequiredPayment] loadPaymentData CALLED.`);
 
         if (!userId || !userEmail) {
             setError("User details missing. Please ensure you are logged in.");
@@ -241,51 +494,83 @@ const RequiredPaymentScreen: React.FC = () => {
 
         setIsLoadingData(true);
         setError(null);
-        setSetupIntentParams(null);
+        setPaymentParams(null);
 
         try {
-            console.log('[RequiredPayment] Fetching/Creating SetupIntent params...');
-            const { data: siData, error: siError } = await supabase.functions.invoke('create-organizer-setup-intent', {
-                body: JSON.stringify({
-                    userId: userId,
-                    email: userEmail,
-                    userType: userType,
-                    companyName: isOrganizer ? (currentProfile as any)?.companyName || '' : (currentProfile as any)?.displayName || '',
-                }),
-            });
-            console.log('[RequiredPayment] "create-organizer-setup-intent" RAW RESPONSE: data=', JSON.stringify(siData), 'siError=', siError);
+            const newPaymentParams: PaymentParams = {};
 
-            if (siError) throw new Error(siError.message || "Function invocation error for SetupIntent.");
-            if (siData && siData.error) throw new Error(siData.error || "Backend failed to prepare payment setup.");
-            if (!siData?.clientSecret || !siData?.customerId) throw new Error("Invalid setup details from server (missing clientSecret or customerId).");
+            // For premium users, we'll start with SetupIntent to save the payment method
+            // Then use the saved payment method for billing in handlePremiumSetupSuccess
+            if (userType === 'music_lover' && isPremiumUser) {
+                console.log('[RequiredPayment] Premium user detected - creating SetupIntent for card saving first...');
+                
+                const { data: siData, error: siError } = await supabase.functions.invoke('create-organizer-setup-intent', {
+                    body: JSON.stringify({
+                        userId: userId,
+                        email: userEmail,
+                        userType: userType,
+                        companyName: (currentProfile as any)?.displayName || '',
+                    }),
+                });
 
-            setSetupIntentParams({
-                clientSecret: siData.clientSecret,
-                customerId: siData.customerId,
-                ephemeralKey: siData.ephemeralKey,
-            });
-            console.log('[RequiredPayment] Successfully set setupIntentParams.');
+                if (siError) throw new Error(siError.message || "Function invocation error for SetupIntent.");
+                if (siData && siData.error) throw new Error(siData.error || "Backend failed to prepare payment setup.");
+                if (!siData?.clientSecret || !siData?.customerId) throw new Error("Invalid setup details from server (missing clientSecret or customerId).");
+
+                newPaymentParams.setupIntent = {
+                    clientSecret: siData.clientSecret,
+                    customerId: siData.customerId,
+                    ephemeralKey: siData.ephemeralKey,
+                };
+
+                console.log('[RequiredPayment] SetupIntent created successfully for premium user. Billing will happen after card save.');
+            } else {
+                // For organizers, only create SetupIntent to save payment method
+                console.log('[RequiredPayment] Organizer detected - creating SetupIntent only...');
+                const { data: siData, error: siError } = await supabase.functions.invoke('create-organizer-setup-intent', {
+                    body: JSON.stringify({
+                        userId: userId,
+                        email: userEmail,
+                        userType: userType,
+                        companyName: isOrganizer ? (currentProfile as any)?.companyName || '' : (currentProfile as any)?.displayName || '',
+                    }),
+                });
+
+                if (siError) throw new Error(siError.message || "Function invocation error for SetupIntent.");
+                if (siData && siData.error) throw new Error(siData.error || "Backend failed to prepare payment setup.");
+                if (!siData?.clientSecret || !siData?.customerId) throw new Error("Invalid setup details from server (missing clientSecret or customerId).");
+
+                newPaymentParams.setupIntent = {
+                    clientSecret: siData.clientSecret,
+                    customerId: siData.customerId,
+                    ephemeralKey: siData.ephemeralKey,
+                };
+
+                console.log('[RequiredPayment] SetupIntent created successfully for organizer.');
+            }
+
+            setPaymentParams(newPaymentParams);
 
         } catch (e: any) {
-            console.error("[RequiredPayment] CRITICAL ERROR in loadSetupIntentData:", e.message, e);
+            console.error("[RequiredPayment] CRITICAL ERROR in loadPaymentData:", e.message, e);
             setError(e.message);
         } finally {
             setIsLoadingData(false);
         }
-    }, [userId, userEmail, currentProfile, userType, isOrganizer]);
+    }, [userId, userEmail, currentProfile, userType, isOrganizer, isPremiumUser]);
 
     // Simplified focus effect - only loads data when needed, no redirect logic
     useFocusEffect(
         useCallback(() => {
-            console.log("[RequiredPayment] Screen focused, loading setup data...");
+            console.log("[RequiredPayment] Screen focused, loading payment data...");
             
             if (userId && userEmail) {
-                loadSetupIntentData();
+                loadPaymentData();
             } else if (!authLoading) {
                 setError("User details not fully loaded.");
                 setIsLoadingData(false);
             }
-        }, [loadSetupIntentData, userId, userEmail, authLoading])
+        }, [loadPaymentData, userId, userEmail, authLoading])
     );
 
     const handleCardSavedSuccessfully = async (paymentMethodId?: string) => {
@@ -294,17 +579,23 @@ const RequiredPaymentScreen: React.FC = () => {
         setIsLoadingData(true);
 
         try {
-            // Call setPaymentMethodAsDefault if paymentMethodId is provided
+            const customerId = paymentParams?.setupIntent?.customerId || paymentParams?.paymentIntent?.customerId;
+            
+            if (!customerId) {
+                throw new Error('Customer ID not found in payment parameters');
+            }
+
+            // Set payment method as default if paymentMethodId is provided
             if (paymentMethodId) {
                 console.log('[RequiredPaymentScreen] Setting payment method as default:', paymentMethodId);
-                await setPaymentMethodAsDefault(paymentMethodId);
+                await setPaymentMethodAsDefault(paymentMethodId, customerId);
             } else {
                 console.log('[RequiredPaymentScreen] No paymentMethodId provided, checking existing payment methods...');
                 
                 // Fallback: Fetch payment methods and set the first one as default
                 const { data, error } = await supabase.functions.invoke('list-organizer-payment-methods', {
                     body: JSON.stringify({
-                        customerId: currentStripeCustomerId
+                        customerId: customerId
                     })
                 });
 
@@ -317,7 +608,7 @@ const RequiredPaymentScreen: React.FC = () => {
                 if (paymentMethods.length > 0) {
                     const firstPaymentMethod = paymentMethods[0];
                     console.log('[RequiredPaymentScreen] Setting first payment method as default:', firstPaymentMethod.id);
-                    await setPaymentMethodAsDefault(firstPaymentMethod.id);
+                    await setPaymentMethodAsDefault(firstPaymentMethod.id, customerId);
                 } else {
                     console.warn('[RequiredPaymentScreen] No payment methods found after successful card save!');
                     throw new Error('No payment methods found after card save');
@@ -341,15 +632,22 @@ const RequiredPaymentScreen: React.FC = () => {
         }
     };
 
-    const handleMobileAddCard = async () => {
-        if (!setupIntentParams?.clientSecret || !setupIntentParams?.customerId || !setupIntentParams?.ephemeralKey) {
+    const handleMobilePayment = async () => {
+        const setupIntentParams = paymentParams?.setupIntent;
+        
+        if (!setupIntentParams) {
+            Alert.alert("Error", "Payment details not available. Please try refreshing.");
+            return;
+        }
+
+        if (!setupIntentParams.clientSecret || !setupIntentParams.customerId || !setupIntentParams.ephemeralKey) {
             Alert.alert("Error", "Payment setup details are not ready. Please try refreshing.");
             return;
         }
         
         setIsStripeActionActive(true);
         try {
-            const merchantName = isOrganizer ? 'VYBR Organizer' : 'VYBR Premium';
+            const merchantName = isPremiumUser ? 'VYBR Premium' : (isOrganizer ? 'VYBR Organizer' : 'VYBR');
             const { error: initError } = await initPaymentSheet({
                 merchantDisplayName: merchantName,
                 customerId: setupIntentParams.customerId,
@@ -370,18 +668,23 @@ const RequiredPaymentScreen: React.FC = () => {
                 if (result.error.code !== 'Canceled') {
                     throw new Error(`Present Error: ${result.error.message} (Code: ${result.error.code})`);
                 } else {
-                    Alert.alert("Canceled", "Payment method setup canceled.");
+                    Alert.alert("Canceled", `${isPremiumUser ? 'Premium subscription' : 'Payment method'} setup canceled.`);
                 }
             } else {
                 // Success case - payment sheet completed successfully
-                // For mobile, we don't get the payment method ID directly from presentPaymentSheet
-                // So we'll use the fallback method in handleCardSavedSuccessfully
-                console.log('[RequiredPayment Mobile] Payment sheet completed successfully, processing...');
-                await handleCardSavedSuccessfully(); // No payment method ID available on mobile
+                console.log('[RequiredPayment Mobile] Payment method setup completed successfully, processing...');
+                
+                if (isPremiumUser) {
+                    // For premium users, this will trigger billing after card save
+                    await handlePremiumSetupSuccess('mobile_setup_success'); // No setup intent ID available on mobile
+                } else {
+                    // For organizers, just save the card
+                    await handleCardSavedSuccessfully(); // No payment method ID available on mobile
+                }
             }
         } catch (e: any) {
             console.error('[RequiredPayment Mobile] Error:', e);
-            Alert.alert("Error", `Payment method setup failed: ${e.message}`);
+            Alert.alert("Error", `${isPremiumUser ? 'Premium subscription' : 'Payment method'} setup failed: ${e.message}`);
         } finally {
             setIsStripeActionActive(false);
         }
@@ -434,7 +737,9 @@ const RequiredPaymentScreen: React.FC = () => {
                         <View style={styles.iconContainer}>
                             <Feather name="credit-card" size={32} color={APP_CONSTANTS.COLORS.PRIMARY} />
                         </View>
-                        <Text style={styles.title}>Add Payment Method</Text>
+                        <Text style={styles.title}>
+                            {isPremiumUser ? 'Complete Premium Subscription' : 'Add Payment Method'}
+                        </Text>
                         <Text style={styles.subtitle}>{userTypeText} Account</Text>
                         <Text style={styles.description}>{description}</Text>
                     </View>
@@ -448,22 +753,26 @@ const RequiredPaymentScreen: React.FC = () => {
                     )}
 
                     {/* Payment Form */}
-                    {setupIntentParams?.clientSecret && (
+                    {paymentParams && paymentParams.setupIntent && (
                         <View style={styles.formSection}>
                             {Platform.OS === 'web' ? (
                                 stripePromiseWeb ? (
                                     <Elements stripe={stripePromiseWeb} options={{ 
-                                        clientSecret: setupIntentParams.clientSecret, 
+                                        clientSecret: paymentParams.setupIntent.clientSecret, 
                                         appearance: { theme: 'stripe' } 
                                     }}>
                                         <StripeSetupFormWebRequired
-                                            clientSecret={setupIntentParams.clientSecret}
+                                            clientSecret={paymentParams.setupIntent.clientSecret}
                                             onSetupSuccess={(setupIntentId: string, paymentMethodId?: string) => {
                                                 console.log('[RequiredPayment] Web form success:', { setupIntentId, paymentMethodId });
-                                                handleCardSavedSuccessfully(paymentMethodId);
+                                                if (isPremiumUser) {
+                                                    handlePremiumSetupSuccess(setupIntentId, paymentMethodId);
+                                                } else {
+                                                    handleCardSavedSuccessfully(paymentMethodId);
+                                                }
                                             }}
                                             onSetupError={(errMsg) => {
-                                                Alert.alert("Save Card Error", `Failed to save card: ${errMsg}. Please check details or try another card.`);
+                                                Alert.alert("Setup Error", `Failed to setup payment: ${errMsg}. Please check details or try another card.`);
                                             }}
                                         />
                                     </Elements>
@@ -476,13 +785,15 @@ const RequiredPaymentScreen: React.FC = () => {
                             ) : (
                                 <TouchableOpacity
                                     style={[styles.button, (isStripeActionActive || isLoadingData) && styles.buttonDisabled]}
-                                    onPress={handleMobileAddCard}
+                                    onPress={handleMobilePayment}
                                     disabled={isStripeActionActive || isLoadingData}
                                 >
                                     {(isStripeActionActive || isLoadingData) ? (
                                         <ActivityIndicator color="#FFFFFF" />
                                     ) : (
-                                        <Text style={styles.buttonText}>Add Payment Method</Text>
+                                        <Text style={styles.buttonText}>
+                                            {isPremiumUser ? 'Complete Premium Subscription' : 'Add Payment Method'}
+                                        </Text>
                                     )}
                                 </TouchableOpacity>
                             )}
@@ -492,9 +803,9 @@ const RequiredPaymentScreen: React.FC = () => {
                         </View>
                     )}
 
-                    {!setupIntentParams?.clientSecret && !error && !isLoadingData && (
+                    {!paymentParams && !error && !isLoadingData && (
                         <View style={styles.formSection}>
-                            <TouchableOpacity style={styles.button} onPress={loadSetupIntentData}>
+                            <TouchableOpacity style={styles.button} onPress={loadPaymentData}>
                                 <Text style={styles.buttonText}>Try Again</Text>
                             </TouchableOpacity>
                         </View>
