@@ -27,400 +27,536 @@ const STRIPE_PUBLISHABLE_KEY_WEB = 'pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNL
 
 const stripePromise = Platform.OS === 'web' ? loadStripe(STRIPE_PUBLISHABLE_KEY_WEB) : null;
 
-// Internal Component for Web Payment Form using Stripe Elements
-const StripePaymentFormWeb = ({ clientSecret, onPaymentSuccess, onPaymentError }: { clientSecret: string, onPaymentSuccess: () => void, onPaymentError: (errorMsg: string) => void }) => {
-  const stripe = useWebStripe();
-  const elements = useElements();
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+// Updated payment params interface to handle SetupIntent for premium subscription
+interface PaymentParams {
+    setupIntentClientSecret: string;
+    customerId: string;
+    ephemeralKey: string;
+}
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log('[StripePaymentFormWeb] handleSubmit called.');
+// Web component for SetupIntent (card saving) 
+const StripeSetupFormWeb = ({ clientSecret, onSetupSuccess, onSetupError }: {
+    clientSecret: string;
+    onSetupSuccess: (setupIntentId: string, paymentMethodId?: string) => void;
+    onSetupError: (errorMsg: string) => void;
+}) => {
+    const stripe = useWebStripe();
+    const elements = useElements();
+    const [isPaymentElementReady, setIsPaymentElementReady] = useState(false);
+    const [isProcessingWebPayment, setIsProcessingWebPayment] = useState(false);
+    const [errorMessageWeb, setErrorMessageWeb] = useState<string | null>(null);
 
-    if (!stripe || !elements) {
-      console.error('[StripePaymentFormWeb] Stripe.js or Elements not loaded yet.');
-      return;
-    }
-
-    setIsProcessing(true);
-    setMessage(null);
-
-    console.log('[StripePaymentFormWeb] Attempting stripe.confirmPayment...');
-    try {
-      const { error, paymentIntent } = await stripe.confirmPayment({
-        elements,
-        confirmParams: {
-          return_url: `${window.location.origin}/payment-confirmation`,
-        },
-        redirect: 'if_required',
-      });
-
-      if (error) {
-        console.error('[StripePaymentFormWeb] confirmPayment immediate error:', error);
-        setMessage(error.message || 'An error occurred during payment.');
-        onPaymentError(error.message || 'Payment failed');
-      } else if (paymentIntent) {
-        console.log('[StripePaymentFormWeb] confirmPayment returned paymentIntent. Status:', paymentIntent.status);
-        if (paymentIntent.status === 'succeeded') {
-          console.log('[StripePaymentFormWeb] Payment Succeeded directly. Calling onPaymentSuccess.');
-          onPaymentSuccess();
-        } else if (paymentIntent.status === 'requires_action' || paymentIntent.status === 'requires_confirmation') {
-          console.log('[StripePaymentFormWeb] Payment requires further action. Stripe should handle redirect.');
-          // Stripe will handle the redirect
-        } else {
-          console.warn(`[StripePaymentFormWeb] PaymentIntent status: ${paymentIntent.status}`);
-          setMessage(`Payment status: ${paymentIntent.status}`);
+    const handleSubmitWeb = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!stripe || !elements || !isPaymentElementReady) {
+            const msg = !stripe || !elements ? 'Payment system (Stripe/Elements) not loaded.' : 'Payment form not ready.';
+            onSetupError(msg);
+            return;
         }
-      } else {
-        console.log('[StripePaymentFormWeb] Stripe likely redirected. Outcome to be handled on return_url.');
-        // Stripe has initiated a redirect, the outcome will be handled on the return_url page
-      }
-    } catch (e) {
-      console.error('[StripePaymentFormWeb] Exception during confirmPayment:', e);
-      setMessage('An unexpected error occurred.');
-      onPaymentError('An unexpected error occurred');
-    } finally {
-      setIsProcessing(false);
-      console.log('[StripePaymentFormWeb] setIsProcessing(false) in finally block.');
-    }
-  };
+        setIsProcessingWebPayment(true);
+        setErrorMessageWeb(null);
 
-  return (
-    <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: '500px', margin: '0 auto' }}>
-      <PaymentElement
-        id="payment-element"
-        options={{
-          layout: 'tabs',
-          defaultValues: {
-            billingDetails: {
-              name: 'Auto-filled name',
-            },
-          },
-        }}
-        onChange={(e) => {
-          console.log('[StripePaymentFormWeb] PaymentElement is ready.');
-        }}
-      />
-      <button
-        disabled={isProcessing || !stripe || !elements}
-        id="submit"
-        style={{
-          backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-          color: '#fff',
-          padding: '12px 24px',
-          borderRadius: '8px',
-          border: 'none',
-          fontSize: '16px',
-          fontWeight: 'bold',
-          cursor: 'pointer',
-          width: '100%',
-          marginTop: '20px',
-          opacity: isProcessing ? 0.7 : 1,
-        }}
-      >
-        <span id="button-text">
-          {isProcessing ? 'Processing...' : 'Pay now'}
-        </span>
-      </button>
-      {message && (
-        <div
-          id="payment-message"
-          style={{
-            color: 'rgb(105, 115, 134)',
-            textAlign: 'center',
-            fontSize: '16px',
-            lineHeight: '20px',
-            paddingTop: '12px',
-          }}
-        >
-          {message}
-        </div>
-      )}
-    </form>
-  );
+        try {
+            const { error, setupIntent } = await stripe.confirmSetup({
+                elements,
+                confirmParams: {
+                    return_url: window.location.origin,
+                },
+                redirect: 'if_required',
+            });
+
+            if (error) {
+                console.error('[StripeSetupFormWeb] Setup confirmation error:', error);
+                setErrorMessageWeb(error.message || 'Payment setup failed');
+                onSetupError(error.message || 'Payment setup failed');
+            } else if (setupIntent) {
+                console.log('[StripeSetupFormWeb] Setup Intent confirmed:', setupIntent);
+                // Extract payment method ID from setup intent
+                const paymentMethodId = setupIntent.payment_method as string;
+                onSetupSuccess(setupIntent.id, paymentMethodId);
+            }
+        } catch (error: any) {
+            console.error('[StripeSetupFormWeb] Setup confirmation exception:', error);
+            setErrorMessageWeb('An unexpected error occurred');
+            onSetupError('An unexpected error occurred');
+        } finally {
+            setIsProcessingWebPayment(false);
+        }
+    };
+
+    return (
+        <form onSubmit={handleSubmitWeb} style={{ width: '100%', maxWidth: '500px', margin: '0 auto' }}>
+            <PaymentElement 
+                onReady={() => {
+                    console.log('[StripeSetupFormWeb] PaymentElement is ready');
+                    setIsPaymentElementReady(true);
+                }}
+                options={{
+                    layout: 'tabs'
+                }}
+            />
+            {errorMessageWeb && (
+                <div style={{ color: 'rgb(220, 38, 38)', textAlign: 'center', marginTop: '12px', fontSize: '14px' }}>
+                    {errorMessageWeb}
+                </div>
+            )}
+            <button
+                disabled={!isPaymentElementReady || isProcessingWebPayment}
+                style={{
+                    backgroundColor: !isPaymentElementReady || isProcessingWebPayment ? '#9CA3AF' : APP_CONSTANTS.COLORS.PRIMARY,
+                    color: '#fff',
+                    padding: '12px 24px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    width: '100%',
+                    marginTop: '20px',
+                    opacity: !isPaymentElementReady || isProcessingWebPayment ? 0.7 : 1,
+                }}
+            >
+                {isProcessingWebPayment ? 'Processing...' : 'Complete Premium Subscription'}
+            </button>
+        </form>
+    );
 };
-
 
 // Main Screen Component
 const PremiumSignupScreen = () => {
-  const [uiLoading, setUiLoading] = useState(true); // For fetching payment params initially
-  const [paymentInProgressMobile, setPaymentInProgressMobile] = useState(false); // For mobile PaymentSheet active state
-  const [paymentParams, setPaymentParams] = useState<any>(null); // Stores { paymentIntentClientSecret, ephemeralKey, customerId }
+    const [uiLoading, setUiLoading] = useState(true); // For fetching payment params initially
+    const [isStripeActionActive, setIsStripeActionActive] = useState(false); // For mobile PaymentSheet active state
+    const [paymentParams, setPaymentParams] = useState<PaymentParams | null>(null); // Stores SetupIntent params
+    const [isLoadingData, setIsLoadingData] = useState(false); // For processing after setup
 
-  const { initPaymentSheet, presentPaymentSheet } = useNativeStripe();
-  const navigation = useNavigation<PremiumSignupNavigationProp>();
-  const route = useRoute<PremiumSignupScreenRouteProp>();
-  const { userEmail, userId } = route.params;
-  const { updatePremiumStatus } = useAuth(); // Assuming this hook is correctly set up
+    const { initPaymentSheet, presentPaymentSheet } = useNativeStripe();
+    const navigation = useNavigation<PremiumSignupNavigationProp>();
+    const route = useRoute<PremiumSignupScreenRouteProp>();
+    const { userEmail, userId } = route.params;
+    const { updatePremiumStatus } = useAuth(); // Assuming this hook is correctly set up
 
-  // This function is called after payment is confirmed to be successful
-  // - On mobile: after presentPaymentSheet succeeds.
-  // - On web (no redirect): after stripe.confirmPayment succeeds directly.
-  // - On web (with redirect): THIS FUNCTION IS NOT CALLED HERE. PaymentConfirmationScreen handles it.
-  const handlePaymentSuccess = async () => {
-    Alert.alert('Payment Successful!', 'Your premium subscription is now active.');
-    console.log('[PremiumSignupScreen] Payment successful. Updating premium status for user:', userId);
-    try {
-      // Update premium status without the third parameter
-      const result = await updatePremiumStatus(userId, true);
-      if ('error' in result && result.error) {
-        console.error('[PremiumSignupScreen] Premium status update client-side error:', result.error);
-        Alert.alert('Warning', 'Payment confirmed, but there was an issue with the immediate status update. Your access will be granted shortly. Please check your profile or contact support if needed.');
-      } else {
-        console.log('[PremiumSignupScreen] Premium status updated client-side.');
-      }
-    } catch (e: any) {
-        console.error('[PremiumSignupScreen] Exception during client-side premium status update:', e);
-        Alert.alert('Warning', 'Payment confirmed, but an error occurred during the immediate status update. Your access will be granted shortly.');
-    }
+    // Helper function to set payment method as default (same as RequiredPaymentScreen)
+    const setPaymentMethodAsDefault = async (paymentMethodId: string, customerId: string) => {
+        try {
+            console.log("[PremiumSignupScreen] Setting payment method as default:", paymentMethodId);
+            console.log("[PremiumSignupScreen] Using customer ID:", customerId);
+            
+            if (!customerId) {
+                throw new Error("Customer ID is missing");
+            }
+            
+            const { data, error } = await supabase.functions.invoke('set-default-payment-method', {
+                body: JSON.stringify({ 
+                    customerId: customerId,
+                    paymentMethodId: paymentMethodId 
+                })
+            });
 
-    // Navigate to MainApp instead of PaymentSuccessScreen since it's not in RootStackParamList
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'MainApp' }],
-    });
-  };
+            if (error) {
+                throw error;
+            }
 
-  // Called on payment errors from either mobile or web (non-redirect case)
-  const handlePaymentError = (errorMessage: string) => {
-    console.error('[PremiumSignupScreen] handlePaymentError called with:', errorMessage);
-    Alert.alert('Payment Error', errorMessage);
-    // Consider UI changes, like re-enabling a button or showing error inline
-  };
+            if (data?.error) {
+                throw new Error(data.error);
+            }
 
-  // Fetches parameters from backend and initializes payment UI
-  const fetchAndSetupPayment = async () => {
-    setUiLoading(true);
-    setPaymentParams(null); // Reset previous params
-    console.log('[PremiumSignupScreen] Fetching payment parameters...');
-    try {
-      const { data, error: invokeError } = await supabase.functions.invoke('create-checkout-session', {
-        body: JSON.stringify({ // Ensure body is stringified if your function expects raw JSON string
-          priceId: PREMIUM_PLAN_PRICE_ID,
-          userId,
-          userEmail,
-        }),
-      });
+            console.log("[PremiumSignupScreen] Successfully set payment method as default:", data);
+            return true;
+        } catch (error: any) {
+            console.error("[PremiumSignupScreen] Exception in setPaymentMethodAsDefault:", error);
+            throw error;
+        }
+    };
 
-      if (invokeError) {
-        console.error('Supabase function error during fetch:', invokeError);
-        throw new Error(invokeError.message || 'Failed to create payment session. Please try again.');
-      }
+    // This function is called after payment setup and subscription creation is successful
+    const handlePaymentSuccess = async () => {
+        Alert.alert('Payment Successful!', 'Your premium subscription is now active.');
+        console.log('[PremiumSignupScreen] Payment successful. Updating premium status for user:', userId);
+        try {
+            // Update premium status
+            const result = await updatePremiumStatus(userId, true);
+            if ('error' in result && result.error) {
+                console.error('[PremiumSignupScreen] Premium status update client-side error:', result.error);
+                Alert.alert('Warning', 'Payment confirmed, but there was an issue with the immediate status update. Your access will be granted shortly. Please check your profile or contact support if needed.');
+            } else {
+                console.log('[PremiumSignupScreen] Premium status updated client-side.');
+            }
+        } catch (e: any) {
+            console.error('[PremiumSignupScreen] Exception during client-side premium status update:', e);
+            Alert.alert('Warning', 'Payment confirmed, but an error occurred during the immediate status update. Your access will be granted shortly.');
+        }
 
-      if (!data || !data.paymentIntentClientSecret || !data.ephemeralKey || !data.customerId) {
-        console.error('Invalid response from Supabase function (missing crucial keys):', data);
-        throw new Error('Invalid response from payment service. Crucial data missing.');
-      }
-      console.log('[PremiumSignupScreen] Payment parameters received:', data);
-      setPaymentParams(data); // Store params for both web and mobile
-
-      if (Platform.OS !== 'web') {
-        // Mobile Native Payment Sheet Flow
-        const { error: initError } = await initPaymentSheet({
-          merchantDisplayName: 'VYBR', // Your app/company name
-          customerId: data.customerId,
-          customerEphemeralKeySecret: data.ephemeralKey,
-          paymentIntentClientSecret: data.paymentIntentClientSecret,
-          allowsDelayedPaymentMethods: true,
-          returnURL: 'vybr://stripe-redirect', // Your app's custom URL scheme for mobile
+        // Navigate to MainApp
+        navigation.reset({
+            index: 0,
+            routes: [{ name: 'MainApp' }],
         });
+    };
 
-        if (initError) {
-          console.error('[PremiumSignupScreen] initPaymentSheet error:', initError);
-          throw initError; // Caught by catch block below
+    // Called when setup intent is successful - now proceed to subscription creation
+    const handleSetupSuccess = async (setupIntentId: string, paymentMethodId?: string) => {
+        console.log('[PremiumSignupScreen] Setup success - now proceeding to subscription creation...', { setupIntentId, paymentMethodId });
+        
+        try {
+            setIsLoadingData(true);
+            
+            // First, set the payment method as default if we have the ID
+            if (paymentMethodId && paymentParams) {
+                console.log('[PremiumSignupScreen] Setting payment method as default before subscription creation:', paymentMethodId);
+                await setPaymentMethodAsDefault(paymentMethodId, paymentParams.customerId);
+            }
+
+            // Now proceed with subscription creation using the saved payment method
+            console.log('[PremiumSignupScreen] Creating and confirming subscription...');
+            const { data: billingData, error: billingError } = await supabase.functions.invoke('create-premium-subscription', {
+                body: JSON.stringify({
+                    priceId: PREMIUM_PLAN_PRICE_ID,
+                    userId,
+                    userEmail,
+                    paymentMethodId: paymentMethodId, // Pass the saved payment method ID
+                }),
+            });
+
+            if (billingError) {
+                console.error('[PremiumSignupScreen] Subscription creation error:', billingError);
+                throw new Error(billingError.message || "Function invocation error for subscription creation.");
+            }
+            
+            if (billingData && billingData.error) {
+                console.error('[PremiumSignupScreen] Subscription creation data error:', billingData.error);
+                throw new Error(billingData.error || "Backend failed to process subscription creation.");
+            }
+
+            // Check the subscription creation result
+            if (billingData?.success) {
+                console.log('[PremiumSignupScreen] Premium subscription created and confirmed successfully');
+                await handlePaymentSuccess();
+            } else if (billingData?.requires_action && billingData?.client_secret) {
+                // Payment requires additional action (like 3D Secure)
+                console.log('[PremiumSignupScreen] Subscription requires additional authentication...');
+                
+                if (Platform.OS === 'web') {
+                    // For web, handle 3D Secure authentication
+                    const stripe = await stripePromise;
+                    if (!stripe) throw new Error('Stripe not loaded');
+                    
+                    const { error, paymentIntent } = await stripe.confirmPayment({
+                        clientSecret: billingData.client_secret,
+                        confirmParams: {
+                            return_url: `${window.location.origin}/payment-confirmation`,
+                        },
+                        redirect: 'if_required',
+                    });
+
+                    if (error) {
+                        throw new Error(error.message || 'Payment authentication failed');
+                    } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+                        console.log('[PremiumSignupScreen] Web payment authenticated and confirmed successfully');
+                        await handlePaymentSuccess();
+                    } else {
+                        throw new Error(`Payment authentication status: ${paymentIntent?.status || 'unknown'}`);
+                    }
+                } else {
+                    // For mobile, use PaymentSheet for 3D Secure
+                    console.log('[PremiumSignupScreen] Mobile - using PaymentSheet for authentication...');
+                    
+                    setIsStripeActionActive(true);
+                    const { error: initError } = await initPaymentSheet({
+                        merchantDisplayName: 'VYBR Premium',
+                        customerId: billingData.customerId || paymentParams?.customerId,
+                        customerEphemeralKeySecret: billingData.ephemeralKey,
+                        paymentIntentClientSecret: billingData.client_secret,
+                        allowsDelayedPaymentMethods: true,
+                        returnURL: `vybr://stripe-redirect-premium-auth`,
+                    });
+                    
+                    if (initError) {
+                        throw new Error(`Init Error: ${initError.message} (Code: ${initError.code})`);
+                    }
+
+                    const result = await presentPaymentSheet();
+                    console.log('[PremiumSignupScreen] Mobile auth presentPaymentSheet Response:', JSON.stringify(result));
+
+                    if (result.error) {
+                        if (result.error.code !== 'Canceled') {
+                            throw new Error(`Present Error: ${result.error.message} (Code: ${result.error.code})`);
+                        } else {
+                            Alert.alert("Canceled", "Premium subscription authentication canceled.");
+                            return;
+                        }
+                    } else {
+                        // Success case - authentication completed successfully
+                        console.log('[PremiumSignupScreen] Mobile authentication completed successfully');
+                        await handlePaymentSuccess();
+                    }
+                }
+            } else {
+                throw new Error('Unexpected subscription response format');
+            }
+
+        } catch (error: any) {
+            console.error('[PremiumSignupScreen] Error in handleSetupSuccess:', error);
+            Alert.alert('Subscription Setup Error', `Failed to complete premium subscription: ${error.message}`);
+        } finally {
+            setIsStripeActionActive(false);
+            setIsLoadingData(false);
         }
-        setUiLoading(false); // Params fetched, sheet initialized for mobile
-        console.log('[PremiumSignupScreen] Mobile PaymentSheet initialized. Presenting...');
-        setPaymentInProgressMobile(true);
-        const { error: presentError } = await presentPaymentSheet();
-        setPaymentInProgressMobile(false);
+    };
 
-        if (presentError) {
-          if (presentError.code === 'Canceled') {
-            Alert.alert('Payment Canceled', 'The payment process was canceled by you.');
-            navigation.goBack(); // Go back if canceled
-          } else {
-            console.error('[PremiumSignupScreen] presentPaymentSheet error:', presentError);
-            throw presentError; // Caught by catch block
-          }
-        } else {
-          // Mobile payment successful
-          console.log('[PremiumSignupScreen] Mobile payment successful via PaymentSheet.');
-          await handlePaymentSuccess();
+    // Called on setup errors
+    const handleSetupError = (errorMessage: string) => {
+        console.error('[PremiumSignupScreen] handleSetupError called with:', errorMessage);
+        Alert.alert('Payment Setup Error', errorMessage);
+    };
+
+    // Fetches SetupIntent parameters from backend
+    const fetchAndSetupPayment = async () => {
+        setUiLoading(true);
+        setPaymentParams(null); // Reset previous params
+        console.log('[PremiumSignupScreen] Fetching SetupIntent parameters...');
+        try {
+            // Use the same function as RequiredPaymentScreen to create SetupIntent
+            const { data, error: invokeError } = await supabase.functions.invoke('create-organizer-setup-intent', {
+                body: JSON.stringify({
+                    userId: userId,
+                    email: userEmail,
+                    userType: 'music_lover', // Premium users are music lovers
+                    companyName: '', // Not needed for music lovers
+                }),
+            });
+
+            if (invokeError) {
+                console.error('Supabase function error during fetch:', invokeError);
+                throw new Error(invokeError.message || 'Failed to create payment setup session. Please try again.');
+            }
+
+            if (!data || !data.clientSecret || !data.customerId || !data.ephemeralKey) {
+                console.error('Invalid response from Supabase function (missing crucial keys):', data);
+                throw new Error('Invalid response from payment service. Crucial data missing.');
+            }
+            
+            console.log('[PremiumSignupScreen] SetupIntent parameters received:', data);
+            setPaymentParams({
+                setupIntentClientSecret: data.clientSecret,
+                customerId: data.customerId,
+                ephemeralKey: data.ephemeralKey,
+            });
+
+            setUiLoading(false);
+            console.log('[PremiumSignupScreen] SetupIntent params set. Ready for payment method setup.');
+
+        } catch (err: any) {
+            console.error('[PremiumSignupScreen] Error in fetchAndSetupPayment:', err);
+            Alert.alert('Payment Setup Error', `Could not prepare payment: ${err.message || 'Unknown error'}. Please try again.`);
+            setUiLoading(false);
+            setPaymentParams(null); // Clear params on error to show setup failed UI
         }
-      } else {
-        // Web flow: params are set. The UI will re-render with <Elements>
-        setUiLoading(false);
-        console.log('[PremiumSignupScreen] Payment params set for web. Elements will render.');
-      }
+    };
 
-    } catch (err: any) {
-      console.error('[PremiumSignupScreen] Error in fetchAndSetupPayment:', err);
-      Alert.alert('Payment Setup Error', `Could not prepare payment: ${err.message || 'Unknown error'}. Please try again.`);
-      setUiLoading(false);
-      setPaymentParams(null); // Clear params on error to show setup failed UI
-    }
-  };
+    // Handle mobile payment setup
+    const handleMobilePayment = async () => {
+        if (!paymentParams) {
+            Alert.alert("Error", "Payment details not available. Please try refreshing.");
+            return;
+        }
 
-  useEffect(() => {
-    fetchAndSetupPayment();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run once on mount
+        setIsStripeActionActive(true);
+        try {
+            const { error: initError } = await initPaymentSheet({
+                merchantDisplayName: 'VYBR Premium',
+                customerId: paymentParams.customerId,
+                customerEphemeralKeySecret: paymentParams.ephemeralKey,
+                setupIntentClientSecret: paymentParams.setupIntentClientSecret,
+                allowsDelayedPaymentMethods: true,
+                returnURL: `vybr://stripe-redirect-premium-setup`,
+            });
+            
+            if (initError) {
+                throw new Error(`Init Error: ${initError.message} (Code: ${initError.code})`);
+            }
 
-  // Options for Stripe Elements on the Web
-  const appearance: Appearance = { theme: 'stripe' /* or 'night', 'flat', etc. */ };
-  const elementsOptions: StripeElementsOptions | undefined =
-    (Platform.OS === 'web' && paymentParams && paymentParams.paymentIntentClientSecret) ? {
-      clientSecret: paymentParams.paymentIntentClientSecret,
-      appearance,
-      // loader: 'always', // You can control Stripe's built-in loader for Elements
-    } : undefined;
+            const result = await presentPaymentSheet();
+            console.log('[PremiumSignupScreen Mobile] presentPaymentSheet Response:', JSON.stringify(result));
+
+            if (result.error) {
+                if (result.error.code !== 'Canceled') {
+                    throw new Error(`Present Error: ${result.error.message} (Code: ${result.error.code})`);
+                } else {
+                    Alert.alert("Canceled", "Premium subscription setup canceled.");
+                    navigation.goBack();
+                }
+            } else {
+                // Success case - payment method setup completed successfully
+                console.log('[PremiumSignupScreen Mobile] Payment method setup completed successfully, proceeding to subscription...');
+                await handleSetupSuccess('mobile_setup_success'); // No setup intent ID available on mobile
+            }
+        } catch (e: any) {
+            console.error('[PremiumSignupScreen Mobile] Error:', e);
+            Alert.alert("Error", `Premium subscription setup failed: ${e.message}`);
+        } finally {
+            setIsStripeActionActive(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchAndSetupPayment();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Run once on mount
+
+    // Options for Stripe Elements on the Web
+    const appearance: Appearance = { theme: 'stripe' };
+    const elementsOptions: StripeElementsOptions | undefined =
+        (Platform.OS === 'web' && paymentParams && paymentParams.setupIntentClientSecret) ? {
+            clientSecret: paymentParams.setupIntentClientSecret,
+            appearance,
+        } : undefined;
 
 
-  // --- Render Logic ---
+    // --- Render Logic ---
 
-  // 1. Initial Loading State (while fetching params)
-  if (uiLoading) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <View style={styles.header}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} /></TouchableOpacity>
-            <Text style={styles.headerTitle}>Premium Subscription</Text><View style={{ width: 32 }} />
-        </View>
-        <View style={styles.scrollContentCenter}>
-          <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
-          <Text style={styles.loadingText}>Preparing secure payment...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // 2. Mobile: Payment Sheet is active
-  if (Platform.OS !== 'web' && paymentInProgressMobile) {
-     return (
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <View style={styles.header}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} /></TouchableOpacity>
-            <Text style={styles.headerTitle}>Premium Subscription</Text><View style={{ width: 32 }} />
-        </View>
-        <View style={styles.scrollContentCenter}>
-          <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
-          <Text style={styles.loadingText}>Processing your payment...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // 3. Setup Failed State (if paymentParams are still null after uiLoading is false)
-  if (!paymentParams) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} /></TouchableOpacity>
-          <Text style={styles.headerTitle}>Premium Subscription</Text><View style={{ width: 32 }} />
-        </View>
-        <ScrollView style={styles.content} contentContainerStyle={styles.scrollContentCenter}>
-          <Feather name="alert-circle" size={48} color={APP_CONSTANTS.COLORS.WARNING} style={{marginBottom: 20}}/>
-          <Text style={styles.title}>Payment Setup Failed</Text>
-          <Text style={styles.description}>
-            We couldn't prepare the payment screen. This might be a temporary issue or a configuration problem.
-          </Text>
-          <TouchableOpacity style={styles.button} onPress={fetchAndSetupPayment}><Text style={styles.buttonText}>Try Again</Text></TouchableOpacity>
-          <TouchableOpacity style={[styles.button, styles.cancelButton]} onPress={() => navigation.goBack()}><Text style={[styles.buttonText, styles.cancelButtonText]}>Cancel</Text></TouchableOpacity>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
-  // 4. Web: Render Stripe Elements Form
-  if (Platform.OS === 'web') {
-    if (!stripePromise || !elementsOptions) { // Should not happen if paymentParams are set
+    // 1. Initial Loading State (while fetching params)
+    if (uiLoading) {
         return (
-             <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+            <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} /></TouchableOpacity>
+                    <Text style={styles.headerTitle}>Premium Subscription</Text><View style={{ width: 32 }} />
+                </View>
+                <View style={styles.scrollContentCenter}>
+                    <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+                    <Text style={styles.loadingText}>Preparing secure payment...</Text>
+                </View>
+            </SafeAreaView>
+        );
+    }
+
+    // 2. Mobile: Payment/Setup action is active
+    if ((Platform.OS !== 'web') && (isStripeActionActive || isLoadingData)) {
+        return (
+            <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} /></TouchableOpacity>
+                    <Text style={styles.headerTitle}>Premium Subscription</Text><View style={{ width: 32 }} />
+                </View>
+                <View style={styles.scrollContentCenter}>
+                    <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+                    <Text style={styles.loadingText}>
+                        {isStripeActionActive ? 'Setting up payment method...' : 'Creating subscription...'}
+                    </Text>
+                </View>
+            </SafeAreaView>
+        );
+    }
+
+    // 3. Setup Failed State (if paymentParams are still null after uiLoading is false)
+    if (!paymentParams) {
+        return (
+            <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
                 <View style={styles.header}>
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} /></TouchableOpacity>
                     <Text style={styles.headerTitle}>Premium Subscription</Text><View style={{ width: 32 }} />
                 </View>
                 <ScrollView style={styles.content} contentContainerStyle={styles.scrollContentCenter}>
                     <Feather name="alert-circle" size={48} color={APP_CONSTANTS.COLORS.WARNING} style={{marginBottom: 20}}/>
-                    <Text style={styles.title}>Payment Form Error</Text>
-                    <Text style={styles.description}>The payment form could not be loaded. Please ensure Stripe is configured correctly or try again.</Text>
-                    <TouchableOpacity style={styles.button} onPress={fetchAndSetupPayment}><Text style={styles.buttonText}>Retry Setup</Text></TouchableOpacity>
+                    <Text style={styles.title}>Payment Setup Failed</Text>
+                    <Text style={styles.description}>
+                        We couldn't prepare the payment screen. This might be a temporary issue or a configuration problem.
+                    </Text>
+                    <TouchableOpacity style={styles.button} onPress={fetchAndSetupPayment}><Text style={styles.buttonText}>Try Again</Text></TouchableOpacity>
                     <TouchableOpacity style={[styles.button, styles.cancelButton]} onPress={() => navigation.goBack()}><Text style={[styles.buttonText, styles.cancelButtonText]}>Cancel</Text></TouchableOpacity>
                 </ScrollView>
             </SafeAreaView>
         );
     }
-    // Render Web payment form
-    return (
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} /></TouchableOpacity>
-          <Text style={styles.headerTitle}>Premium Subscription</Text><View style={{ width: 32 }} />
-        </View>
-        <ScrollView style={styles.content} contentContainerStyle={styles.scrollContentCenter}>
-            <Text style={styles.title}>Complete Your Payment</Text>
-            <Text style={styles.description}>Your payment is securely processed by Stripe.</Text>
-            <Elements stripe={stripePromise} options={elementsOptions}>
-              <StripePaymentFormWeb
-                clientSecret={elementsOptions.clientSecret!} // Assert non-null as elementsOptions is checked
-                onPaymentSuccess={handlePaymentSuccess}
-                onPaymentError={handlePaymentError}
-              />
-            </Elements>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
 
-  // 5. Mobile: Fallback if PaymentSheet isn't active but params are loaded (e.g., if presentPaymentSheet was not auto-called)
-  // This state is less likely to be hit with the current auto-present logic for mobile.
-  if (Platform.OS === 'ios' || Platform.OS === 'android') {
-    if (paymentParams && !paymentInProgressMobile && !uiLoading) {
-      return (
-           <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-               <View style={styles.header}>
-                   <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} /></TouchableOpacity>
-                   <Text style={styles.headerTitle}>Premium Subscription</Text><View style={{ width: 32 }} />
-               </View>
-               <ScrollView style={styles.content} contentContainerStyle={styles.scrollContentCenter}>
-                   <Text style={styles.title}>Ready for Payment</Text>
-                   <Text style={styles.description}>Press the button below to open the secure payment form.</Text>
-                   {/* You could add a button here to manually re-trigger presentPaymentSheet if needed */}
-                   <TouchableOpacity
-                        style={styles.button}
-                        onPress={async () => { // Manually present sheet
-                            setPaymentInProgressMobile(true);
-                            const { error: presentError } = await presentPaymentSheet();
-                            setPaymentInProgressMobile(false);
-                            if (presentError && presentError.code !== 'Canceled') { 
-                                Alert.alert('Payment Error', `Payment failed: ${presentError.message}`);
-                            } else if (!presentError) { 
-                                await handlePaymentSuccess(); 
-                            }
-                        }}
-                    >
-                        <Text style={styles.buttonText}>Proceed to Payment</Text>
-                    </TouchableOpacity>
-               </ScrollView>
-           </SafeAreaView>
-      );
+    // 4. Web: Render Stripe Elements Setup Form
+    if (Platform.OS === 'web') {
+        if (!stripePromise || !elementsOptions) {
+            return (
+                <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+                    <View style={styles.header}>
+                        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} /></TouchableOpacity>
+                        <Text style={styles.headerTitle}>Premium Subscription</Text><View style={{ width: 32 }} />
+                    </View>
+                    <ScrollView style={styles.content} contentContainerStyle={styles.scrollContentCenter}>
+                        <Feather name="alert-circle" size={48} color={APP_CONSTANTS.COLORS.WARNING} style={{marginBottom: 20}}/>
+                        <Text style={styles.title}>Payment Form Error</Text>
+                        <Text style={styles.description}>The payment form could not be loaded. Please ensure Stripe is configured correctly or try again.</Text>
+                        <TouchableOpacity style={styles.button} onPress={fetchAndSetupPayment}><Text style={styles.buttonText}>Retry Setup</Text></TouchableOpacity>
+                        <TouchableOpacity style={[styles.button, styles.cancelButton]} onPress={() => navigation.goBack()}><Text style={[styles.buttonText, styles.cancelButtonText]}>Cancel</Text></TouchableOpacity>
+                    </ScrollView>
+                </SafeAreaView>
+            );
+        }
+        // Render Web setup form
+        return (
+            <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} /></TouchableOpacity>
+                    <Text style={styles.headerTitle}>Premium Subscription</Text><View style={{ width: 32 }} />
+                </View>
+                <ScrollView style={styles.content} contentContainerStyle={styles.scrollContentCenter}>
+                    <Text style={styles.title}>Complete Your Premium Subscription</Text>
+                    <Text style={styles.description}>Add your payment method and we'll create your premium subscription.</Text>
+                    {isLoadingData && (
+                        <View style={styles.loadingMessageContainer}>
+                            <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            <Text style={styles.loadingText}>Creating your subscription...</Text>
+                        </View>
+                    )}
+                    {!isLoadingData && (
+                        <Elements stripe={stripePromise} options={elementsOptions}>
+                            <StripeSetupFormWeb
+                                clientSecret={elementsOptions.clientSecret!}
+                                onSetupSuccess={handleSetupSuccess}
+                                onSetupError={handleSetupError}
+                            />
+                        </Elements>
+                    )}
+                </ScrollView>
+            </SafeAreaView>
+        );
     }
-  }
 
-  // Default fallback (should ideally not be reached if all states are handled)
-  return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <View style={styles.header}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} /></TouchableOpacity>
-            <Text style={styles.headerTitle}>Error</Text><View style={{ width: 32 }} />
-        </View>
-        <View style={styles.scrollContentCenter}>
-            <Text>An unexpected error occurred. Please go back and try again.</Text>
-        </View>
-    </SafeAreaView>
-  );
+    // 5. Mobile: Show button to trigger setup
+    if (Platform.OS === 'ios' || Platform.OS === 'android') {
+        return (
+            <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} /></TouchableOpacity>
+                    <Text style={styles.headerTitle}>Premium Subscription</Text><View style={{ width: 32 }} />
+                </View>
+                <ScrollView style={styles.content} contentContainerStyle={styles.scrollContentCenter}>
+                    <Text style={styles.title}>Premium Subscription</Text>
+                    <Text style={styles.description}>Add your payment method and we'll create your premium subscription.</Text>
+                    <TouchableOpacity
+                        style={[styles.button, (isStripeActionActive || isLoadingData) && styles.buttonDisabled]}
+                        onPress={handleMobilePayment}
+                        disabled={isStripeActionActive || isLoadingData}
+                    >
+                        {(isStripeActionActive || isLoadingData) ? (
+                            <ActivityIndicator color="#FFFFFF" />
+                        ) : (
+                            <Text style={styles.buttonText}>Complete Premium Subscription</Text>
+                        )}
+                    </TouchableOpacity>
+                </ScrollView>
+            </SafeAreaView>
+        );
+    }
+
+    // Default fallback
+    return (
+        <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} /></TouchableOpacity>
+                <Text style={styles.headerTitle}>Error</Text><View style={{ width: 32 }} />
+            </View>
+            <View style={styles.scrollContentCenter}>
+                <Text>An unexpected error occurred. Please go back and try again.</Text>
+            </View>
+        </SafeAreaView>
+    );
 };
 
 const styles = StyleSheet.create({
