@@ -693,6 +693,21 @@ const OverallAnalyticsScreen: React.FC = () => {
   // Load all data when screen is focused
   useFocusEffect(
     useCallback(() => {
+      // --- NEW: Trigger for monthly impression billing cycle ---
+      // This is a "fire-and-forget" call. It won't block the UI.
+      // The first organizer to open this screen in a new month will trigger
+      // the impression billing report for all users for the previous month.
+      supabase.functions.invoke('report-monthly-impression-usage')
+        .then(({ data, error }) => {
+          if (error) {
+            // This is not a critical error to the user, so we just log it.
+            console.warn('[AnalyticsScreen] Could not trigger impression billing cycle:', error.message);
+          } else if (data) {
+            console.log('[AnalyticsScreen] Impression billing cycle trigger response:', data.message);
+          }
+        });
+      // --- END NEW ---
+
       if (organizerId) {
         refreshAllData();
       }
