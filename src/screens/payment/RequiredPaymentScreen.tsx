@@ -229,32 +229,69 @@ const RequiredPaymentScreen: React.FC = () => {
         ? (organizerProfile as any)?.stripe_customer_id 
         : (musicLoverProfile as any)?.stripe_customer_id;
     
-    // Enhanced payment requirement validation
-    const isPaymentMethodRequired = isOrganizer || (userType === 'music_lover' && isPremiumUser);
-    const hasValidPaymentMethod = Boolean(currentStripeCustomerId && currentStripeCustomerId.trim() !== '');
-    
-    // Enhanced logging for debugging
-    console.log("[RequiredPayment] =========================");
-    console.log("[RequiredPayment] Component mounted/rendered");
-    console.log("[RequiredPayment] User ID:", userId);
-    console.log("[RequiredPayment] User Type:", userType);
-    console.log("[RequiredPayment] Is Organizer:", isOrganizer);
-    console.log("[RequiredPayment] Is Premium User:", isPremiumUser);
-    console.log("[RequiredPayment] Payment Required:", isPaymentMethodRequired);
-    console.log("[RequiredPayment] Stripe Customer ID:", currentStripeCustomerId ? `${currentStripeCustomerId.substring(0, 10)}...` : 'None');
-    console.log("[RequiredPayment] Has Valid Payment Method:", hasValidPaymentMethod);
-    console.log("[RequiredPayment] Should Show Payment Screen:", isPaymentMethodRequired && !hasValidPaymentMethod);
-    console.log("[RequiredPayment] =========================");
+    // This state will now track the entire setup process
+    const [isLoadingData, setIsLoadingData] = useState(true);
+    const [statusMessage, setStatusMessage] = useState('Verifying account status...');
 
     const [paymentParams, setPaymentParams] = useState<PaymentParams | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [isLoadingData, setIsLoadingData] = useState(false);
     const [isStripeActionActive, setIsStripeActionActive] = useState(false);
+
+    // This function will now be the single entry point for ensuring organizer setup
+    const verifyAndSetupOrganizer = useCallback(async () => {
+        if (!isOrganizer || !userId || !userEmail || !currentProfile) return;
+
+        console.log('[RequiredPayment] Starting organizer verification...');
+        setIsLoadingData(true);
+        setError(null);
+
+        // Step 1: Check if they have a Stripe Customer ID. If not, they need to add a card.
+        if (!currentStripeCustomerId) {
+            console.log('[RequiredPayment] Organizer needs to add a payment method.');
+            setStatusMessage('Please add a payment method to continue...');
+            await loadPaymentData(); // This prepares the SetupIntent form
+            setIsLoadingData(false);
+            return;
+        }
+
+        // Step 2: They have a customer ID, so now we ensure the usage subscription exists.
+        console.log('[RequiredPayment] Organizer has Stripe ID. Verifying usage subscription...');
+        setStatusMessage('Verifying your billing subscription...');
+        try {
+            // This function is idempotent: it checks for a sub, and if not found, creates one.
+            const { data, error: invokeError } = await supabase.functions.invoke('create-organizer-ticket-usage-subscription', {
+                body: JSON.stringify({
+                    userId: userId,
+                    email: userEmail,
+                    companyName: (currentProfile as any)?.companyName || ''
+                })
+            });
+
+            if (invokeError) throw invokeError;
+            if (data.error) throw new Error(data.error);
+
+            console.log('[RequiredPayment] Organizer subscription is active. Setup complete.');
+            setStatusMessage('Billing setup complete! Redirecting...');
+            
+            // CRITICAL: Refresh user profile which will trigger AppNavigator to re-evaluate
+            await refreshUserProfile();
+            
+        } catch (e: any) {
+            console.error('[RequiredPayment] Failed to ensure subscription exists:', e);
+            setError(`A problem occurred with your billing setup. Please try again. Error: ${e.message}`);
+            setIsLoadingData(false);
+        }
+
+    }, [isOrganizer, userId, userEmail, currentProfile, currentStripeCustomerId]);
 
     // Enhanced back button handling - prevent ANY navigation away from this screen
     const handleBackPress = useCallback(() => {
         console.log("[RequiredPayment] Back press detected - preventing navigation");
         
+        // Re-declare variables needed for this function's scope
+        const isPaymentMethodRequired = isOrganizer || (userType === 'music_lover' && isPremiumUser);
+        const hasValidPaymentMethod = Boolean(currentStripeCustomerId && currentStripeCustomerId.trim() !== '');
+
         // Show alert explaining why they can't go back
         if (isPaymentMethodRequired && !hasValidPaymentMethod) {
             Alert.alert(
@@ -267,7 +304,7 @@ const RequiredPaymentScreen: React.FC = () => {
             return true; // Prevent default back action
         }
         return false; // Allow default back action
-    }, [isPaymentMethodRequired, hasValidPaymentMethod, isOrganizer]);
+    }, [isOrganizer, userType, isPremiumUser, currentStripeCustomerId]);
 
     // Override hardware back button on Android with enhanced prevention
     useFocusEffect(
@@ -564,13 +601,19 @@ const RequiredPaymentScreen: React.FC = () => {
         useCallback(() => {
             console.log("[RequiredPayment] Screen focused, loading payment data...");
             
-            if (userId && userEmail) {
-                loadPaymentData();
-            } else if (!authLoading) {
-                setError("User details not fully loaded.");
+            if (isOrganizer) {
+                verifyAndSetupOrganizer();
+            } else if (isPremiumUser) {
+                // Keep existing logic for premium users
+                if (userId && userEmail) {
+                    loadPaymentData();
+                }
+            } else {
+                // If not an organizer or premium user, no payment is required.
+                // This case should ideally be handled by navigation logic before reaching this screen.
                 setIsLoadingData(false);
             }
-        }, [loadPaymentData, userId, userEmail, authLoading])
+        }, [isOrganizer, isPremiumUser, userId, userEmail, verifyAndSetupOrganizer, loadPaymentData])
     );
 
     const handleCardSavedSuccessfully = async (paymentMethodId?: string) => {
@@ -612,6 +655,61 @@ const RequiredPaymentScreen: React.FC = () => {
                 } else {
                     console.warn('[RequiredPaymentScreen] No payment methods found after successful card save!');
                     throw new Error('No payment methods found after card save');
+                }
+            }
+
+            // NEW: For organizers, create ticket usage subscription after card is saved
+            if (isOrganizer && userId && userEmail) {
+                console.log('[RequiredPaymentScreen] Creating ticket usage subscription for organizer...');
+                
+                try {
+                    const { data: subscriptionData, error: subscriptionError } = await supabase.functions.invoke('create-organizer-ticket-usage-subscription', {
+                        body: JSON.stringify({
+                            userId: userId,
+                            email: userEmail,
+                            companyName: (currentProfile as any)?.companyName || ''
+                        })
+                    });
+
+                    if (subscriptionError) {
+                        console.error('[RequiredPaymentScreen] Error creating ticket usage subscription:', subscriptionError);
+                        // Don't throw here - card save was successful, just log the warning
+                        console.warn('[RequiredPaymentScreen] Ticket usage subscription failed, but payment method was saved successfully. This can be set up later.');
+                        Alert.alert(
+                            'Payment Method Saved',
+                            'Your payment method was saved successfully. However, there was an issue setting up usage billing. You can set this up later in your billing settings.',
+                            [{ text: 'OK' }]
+                        );
+                    } else if (subscriptionData?.error) {
+                        console.error('[RequiredPaymentScreen] Subscription creation error:', subscriptionData.error);
+                        console.warn('[RequiredPaymentScreen] Ticket usage subscription failed, but payment method was saved successfully.');
+                        Alert.alert(
+                            'Payment Method Saved',
+                            'Your payment method was saved successfully. However, there was an issue setting up usage billing. You can set this up later in your billing settings.',
+                            [{ text: 'OK' }]
+                        );
+                    } else if (subscriptionData?.success) {
+                        console.log('[RequiredPaymentScreen] Ticket usage subscription created successfully:', {
+                            subscriptionId: subscriptionData.subscriptionId,
+                            nextBillingDate: subscriptionData.nextBillingDate,
+                            pricePerUnit: subscriptionData.pricePerUnit
+                        });
+                        
+                        // Show success message with billing info
+                        Alert.alert(
+                            'Setup Complete!',
+                            `Your payment method has been saved and usage billing is now active. You'll be charged $${subscriptionData.pricePerUnit} SGD per ticket sold or reservation made, billed monthly on the 1st.`,
+                            [{ text: 'Got it' }]
+                        );
+                    }
+                } catch (subscriptionException: any) {
+                    console.error('[RequiredPaymentScreen] Exception creating ticket usage subscription:', subscriptionException);
+                    console.warn('[RequiredPaymentScreen] Ticket usage subscription failed, but payment method was saved successfully.');
+                    Alert.alert(
+                        'Payment Method Saved',
+                        'Your payment method was saved successfully. However, there was an issue setting up usage billing. You can set this up later in your billing settings.',
+                        [{ text: 'OK' }]
+                    );
                 }
             }
 
@@ -712,7 +810,7 @@ const RequiredPaymentScreen: React.FC = () => {
         return (
             <SafeAreaView style={styles.centeredMessage}>
                 <ActivityIndicator size="large" />
-                <Text style={styles.loadingTextUi}>Setting up payment form...</Text>
+                <Text style={styles.loadingTextUi}>{statusMessage}</Text>
             </SafeAreaView>
         );
     }
@@ -749,11 +847,14 @@ const RequiredPaymentScreen: React.FC = () => {
                         <View style={styles.errorContainer}>
                             <Feather name="alert-circle" size={20} color={APP_CONSTANTS.COLORS.ERROR} />
                             <Text style={styles.errorText}>{error}</Text>
+                            <TouchableOpacity style={styles.retryButton} onPress={isOrganizer ? verifyAndSetupOrganizer : loadPaymentData}>
+                                <Text style={styles.retryButtonText}>Try Again</Text>
+                            </TouchableOpacity>
                         </View>
                     )}
 
                     {/* Payment Form */}
-                    {paymentParams && paymentParams.setupIntent && (
+                    {paymentParams && paymentParams.setupIntent && !isLoadingData && (
                         <View style={styles.formSection}>
                             {Platform.OS === 'web' ? (
                                 stripePromiseWeb ? (
@@ -898,6 +999,18 @@ const styles = StyleSheet.create({
         fontSize: 14,
         marginLeft: 8,
         flex: 1,
+    },
+    retryButton: {
+        marginLeft: 16,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        backgroundColor: `${APP_CONSTANTS.COLORS.ERROR}20`,
+        borderRadius: 8,
+    },
+    retryButtonText: {
+        color: APP_CONSTANTS.COLORS.ERROR,
+        fontWeight: '600',
+        fontSize: 14,
     },
     formSection: {
         width: '100%',
