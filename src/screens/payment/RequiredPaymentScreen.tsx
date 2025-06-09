@@ -254,12 +254,13 @@ const RequiredPaymentScreen: React.FC = () => {
             return;
         }
 
-        // Step 2: They have a customer ID, so now we ensure the usage subscription exists.
-        console.log('[RequiredPayment] Organizer has Stripe ID. Verifying usage subscription...');
-        setStatusMessage('Verifying your billing subscription...');
+        // Step 2: They have a customer ID, so now we ensure both usage subscriptions exist.
+        console.log('[RequiredPayment] Organizer has Stripe ID. Verifying usage subscriptions...');
+        setStatusMessage('Verifying your billing subscriptions...');
         try {
-            // This function is idempotent: it checks for a sub, and if not found, creates one.
-            const { data, error: invokeError } = await supabase.functions.invoke('create-organizer-ticket-usage-subscription', {
+            // This function is idempotent: it checks for a sub, and if not found, creates one for ticket usage.
+            console.log('[RequiredPayment] Verifying ticket usage subscription...');
+            const { data: ticketData, error: ticketError } = await supabase.functions.invoke('create-organizer-ticket-usage-subscription', {
                 body: JSON.stringify({
                     userId: userId,
                     email: userEmail,
@@ -267,17 +268,32 @@ const RequiredPaymentScreen: React.FC = () => {
                 })
             });
 
-            if (invokeError) throw invokeError;
-            if (data.error) throw new Error(data.error);
+            if (ticketError) throw ticketError;
+            if (ticketData.error) throw new Error(ticketData.error);
+            console.log('[RequiredPayment] Organizer ticket subscription is active.');
 
-            console.log('[RequiredPayment] Organizer subscription is active. Setup complete.');
+            // Now, ensure the impression subscription also exists.
+            console.log('[RequiredPayment] Verifying impression subscription...');
+            const { data: impressionData, error: impressionError } = await supabase.functions.invoke('create-organizer-impression-subscription', {
+                body: JSON.stringify({
+                    userId: userId,
+                    email: userEmail,
+                    companyName: (currentProfile as any)?.companyName || ''
+                })
+            });
+
+            if (impressionError) throw impressionError;
+            if (impressionData.error) throw new Error(impressionData.error);
+            console.log('[RequiredPayment] Organizer impression subscription is active.');
+
+            console.log('[RequiredPayment] Organizer subscriptions are active. Setup complete.');
             setStatusMessage('Billing setup complete! Redirecting...');
             
             // CRITICAL: Refresh user profile which will trigger AppNavigator to re-evaluate
             await refreshUserProfile();
             
         } catch (e: any) {
-            console.error('[RequiredPayment] Failed to ensure subscription exists:', e);
+            console.error('[RequiredPayment] Failed to ensure subscriptions exist:', e);
             setError(`A problem occurred with your billing setup. Please try again. Error: ${e.message}`);
             setIsLoadingData(false);
         }
@@ -658,12 +674,14 @@ const RequiredPaymentScreen: React.FC = () => {
                 }
             }
 
-            // NEW: For organizers, create ticket usage subscription after card is saved
+            // NEW: For organizers, create usage subscriptions after card is saved
             if (isOrganizer && userId && userEmail) {
-                console.log('[RequiredPaymentScreen] Creating ticket usage subscription for organizer...');
+                console.log('[RequiredPaymentScreen] Creating organizer usage subscriptions...');
                 
                 try {
-                    const { data: subscriptionData, error: subscriptionError } = await supabase.functions.invoke('create-organizer-ticket-usage-subscription', {
+                    // Step 1: Create Ticket Usage Subscription
+                    console.log('[RequiredPaymentScreen] Creating ticket usage subscription...');
+                    const { data: ticketData, error: ticketError } = await supabase.functions.invoke('create-organizer-ticket-usage-subscription', {
                         body: JSON.stringify({
                             userId: userId,
                             email: userEmail,
@@ -671,40 +689,47 @@ const RequiredPaymentScreen: React.FC = () => {
                         })
                     });
 
-                    if (subscriptionError) {
-                        console.error('[RequiredPaymentScreen] Error creating ticket usage subscription:', subscriptionError);
-                        // Don't throw here - card save was successful, just log the warning
-                        console.warn('[RequiredPaymentScreen] Ticket usage subscription failed, but payment method was saved successfully. This can be set up later.');
+                    if (ticketError || ticketData?.error) {
+                        const anError = ticketError || new Error(ticketData.error);
+                        console.error('[RequiredPaymentScreen] Error creating ticket usage subscription:', anError);
                         Alert.alert(
                             'Payment Method Saved',
-                            'Your payment method was saved successfully. However, there was an issue setting up usage billing. You can set this up later in your billing settings.',
+                            'Your payment method was saved successfully. However, we failed to set up the ticket usage billing. Please set it up later in settings.',
                             [{ text: 'OK' }]
                         );
-                    } else if (subscriptionData?.error) {
-                        console.error('[RequiredPaymentScreen] Subscription creation error:', subscriptionData.error);
-                        console.warn('[RequiredPaymentScreen] Ticket usage subscription failed, but payment method was saved successfully.');
-                        Alert.alert(
-                            'Payment Method Saved',
-                            'Your payment method was saved successfully. However, there was an issue setting up usage billing. You can set this up later in your billing settings.',
-                            [{ text: 'OK' }]
-                        );
-                    } else if (subscriptionData?.success) {
-                        console.log('[RequiredPaymentScreen] Ticket usage subscription created successfully:', {
-                            subscriptionId: subscriptionData.subscriptionId,
-                            nextBillingDate: subscriptionData.nextBillingDate,
-                            pricePerUnit: subscriptionData.pricePerUnit
+                    } else if (ticketData?.success) {
+                        console.log('[RequiredPaymentScreen] Ticket usage subscription created successfully.');
+
+                        // Step 2: Create Impression Subscription
+                        console.log('[RequiredPaymentScreen] Creating impression subscription...');
+                        const { data: impressionData, error: impressionError } = await supabase.functions.invoke('create-organizer-impression-subscription', {
+                            body: JSON.stringify({
+                                userId: userId,
+                                email: userEmail,
+                                companyName: (currentProfile as any)?.companyName || ''
+                            })
                         });
                         
-                        // Show success message with billing info
-                        Alert.alert(
-                            'Setup Complete!',
-                            `Your payment method has been saved and usage billing is now active. You'll be charged $${subscriptionData.pricePerUnit} SGD per ticket sold or reservation made, billed monthly on the 1st.`,
-                            [{ text: 'Got it' }]
-                        );
+                        if (impressionError || impressionData?.error) {
+                            const anError = impressionError || new Error(impressionData.error);
+                            console.error('[RequiredPaymentScreen] Error creating impression subscription:', anError);
+                            Alert.alert(
+                                'Partial Setup Complete',
+                                'Ticket usage billing is active, but we failed to set up impression billing. Please set it up later in settings.',
+                                [{ text: 'OK' }]
+                            );
+                        } else if (impressionData?.success) {
+                            console.log('[RequiredPaymentScreen] Impression subscription created successfully.');
+                            Alert.alert(
+                                'Setup Complete!',
+                                `Your payment method has been saved and usage billing is now active. You'll be charged for tickets sold (at $${ticketData.pricePerUnit} SGD each) and for event impressions, billed monthly.`,
+                                [{ text: 'Got it' }]
+                            );
+                        }
                     }
+
                 } catch (subscriptionException: any) {
-                    console.error('[RequiredPaymentScreen] Exception creating ticket usage subscription:', subscriptionException);
-                    console.warn('[RequiredPaymentScreen] Ticket usage subscription failed, but payment method was saved successfully.');
+                    console.error('[RequiredPaymentScreen] Exception creating usage subscriptions:', subscriptionException);
                     Alert.alert(
                         'Payment Method Saved',
                         'Your payment method was saved successfully. However, there was an issue setting up usage billing. You can set this up later in your billing settings.',
