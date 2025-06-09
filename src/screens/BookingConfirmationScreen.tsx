@@ -186,17 +186,25 @@ const BookingConfirmationScreen: React.FC = () => {
 
         if (bookingError) {
             console.error('[createBookingRecord] Error inserting booking:', bookingError);
-            // If the booking already exists (e.g., webhook ran first, or user re-ran flow),
-            // we can treat it as a success to avoid showing a scary error.
-            if (bookingError.code === '23505') { // unique_user_event_booking constraint
-                console.log('[createBookingRecord] Booking already exists, which is acceptable. Continuing.');
-                return;
-            }
-            // For other errors, inform the user something went wrong with saving the booking.
+            // Since we removed the unique constraint, any error here is a real problem.
             throw new Error(`Your payment was successful, but we failed to save your booking record. Please contact support with this Event ID: ${eventId}.`);
         }
 
-        console.log('[createBookingRecord] Booking created successfully:', newBooking);
+        if (newBooking) {
+            console.log('[createBookingRecord] Booking created successfully:', newBooking.id);
+            // --- NEW: Report usage in real-time ---
+            // This is a "fire-and-forget" call. We don't want to block the user's
+            // confirmation alert if this fails. We'll log errors on the server.
+            supabase.functions.invoke('report-booking-usage', {
+                body: { eventId: eventId, quantity: quantity },
+            }).then(({ error }) => {
+                if (error) {
+                    console.error('[Usage Report] Failed to report real-time usage:', error);
+                } else {
+                    console.log('[Usage Report] Real-time usage reported successfully.');
+                }
+            });
+        }
     };
 
     // --- NEW: Handle redirect from Stripe 3D Secure on web ---
