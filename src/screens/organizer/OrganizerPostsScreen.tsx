@@ -243,6 +243,19 @@ const OrganizerPostsScreen = () => {
     loadPostsForTab(activeTabIndex, true);
   }, [activeTabIndex, loadPostsForTab]);
 
+  useEffect(() => {
+    const getAndLogToken = async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+            console.log('Organizer Bearer Token:', session.access_token);
+        } else {
+            console.log('Could not find bearer token. The session object was:', JSON.stringify(session, null, 2));
+        }
+    };
+
+    getAndLogToken();
+  }, []);
+
   const handleLoadMoreAllMyEvents = () => {
     if (!isFetchingMoreAllMyEvents && !allMyEventsLoaded) {
       const nextPage = currentPageAllMyEvents + 1;
