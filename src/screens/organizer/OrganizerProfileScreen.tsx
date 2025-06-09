@@ -88,7 +88,7 @@ const OrganizerProfileScreen: React.FC = () => {
   if (!session || !organizerProfile) return ( <SafeAreaView style={styles.centered}><Feather name="alert-circle" size={40} color="#FFA500" /><Text style={styles.errorText}>Profile Error</Text><Text style={styles.errorSubText}>{ !session?"Not logged in.":"Profile incomplete."}</Text><TouchableOpacity style={[styles.logoutButton,{marginTop:20,backgroundColor:!session?APP_CONSTANTS.COLORS.PRIMARY:'#EF4444'}]} onPress={()=>!session?navigation.navigate('Auth'):logout()}><Feather name={!session?"log-in":"log-out"} size={18} color="#FFF" /><Text style={styles.logoutButtonText}>{!session?"Go to Login":"Logout"}</Text></TouchableOpacity></SafeAreaView>);
 
   // Data Extraction (Keep as before)
-  const { company_name, logo, bio, email: contactEmail, phoneNumber, website, businessType, average_rating } = organizerProfile || {};
+  const { companyName, logo, bio, email: contactEmail, phoneNumber, website, businessType, average_rating } = organizerProfile || {};
   const businessTypeFormatted = formatBusinessType(businessType);
   const logoUrl = logo ?? DEFAULT_ORGANIZER_LOGO;
   const displayRating = average_rating !== null && average_rating !== undefined ? average_rating.toFixed(1) : "N/A";
@@ -120,7 +120,7 @@ const OrganizerProfileScreen: React.FC = () => {
             <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={styles.coverPhoto} />
             <View style={styles.avatarContainer}><Image source={{ uri: logoUrl }} style={styles.avatar} /></View>
             <View style={styles.profileInfo}>
-                <Text style={styles.name}>{company_name ?? "Organizer"}</Text>
+                <Text style={styles.name}>{companyName ?? "Organizer"}</Text>
                  {businessTypeFormatted && (<Text style={styles.businessType}>{businessTypeFormatted}</Text>)}
                 <View style={styles.statsContainer}>
                      {/* Make Followers stat pressable */}
