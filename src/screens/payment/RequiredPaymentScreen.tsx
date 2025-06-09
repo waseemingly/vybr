@@ -393,7 +393,21 @@ const RequiredPaymentScreen: React.FC = () => {
             if (invokeError) throw invokeError;
             if (data.error) throw new Error(data.error);
             
-            console.log('[Verify] Step 3 PASSED: Subscription is active.');
+            console.log('[Verify] Ticket usage subscription is active.');
+
+            // Call the impression subscription function right after the ticket one
+            const { data: impressionData, error: impressionError } = await supabase.functions.invoke('create-organizer-impression-subscription', {
+                body: JSON.stringify({
+                    userId: userId,
+                    email: userEmail,
+                    companyName: (profile as any)?.companyName || ''
+                })
+            });
+
+            if (impressionError) throw impressionError;
+            if (impressionData.error) throw new Error(impressionData.error);
+
+            console.log('[Verify] Impression usage subscription is active.');
     
             console.log('[RequiredPayment] All verifications passed. Setup is complete.');
             setStatusMessage('Setup complete! Redirecting...');
