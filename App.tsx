@@ -16,7 +16,7 @@ import { Platform } from 'react-native';
 //import { Linking } from 'react-native';
 import * as Linking from 'expo-linking';
 // IMPORT from custom wrapper
-import { StripeProvider } from './src/lib/stripe'; 
+import { StripeProvider } from '@stripe/stripe-react-native';
 
 import { OrganizerModeProvider } from "./src/hooks/useOrganizerMode";
 import { AuthProvider } from "./src/hooks/useAuth";
@@ -57,8 +57,8 @@ const linking = {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <StripeProvider 
-        publishableKey={STRIPE_PUBLISHABLE_KEY}
+      <StripeProvider
+        publishableKey="pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN"
       >
         <OrganizerModeProvider>
           <AuthProvider navigationRef={navigationRef as React.RefObject<NavigationContainerRef<any>>}>
