@@ -93,7 +93,8 @@ export interface OrganizerProfile {
   businessType?: 'venue' | 'promoter' | 'artist_management' | 'festival_organizer' | 'other';
   bio?: string;
   website?: string;
-  stripe_customer_id?: string; // Added for Stripe integration
+  stripe_customer_id?: string | null; // Allow null
+  stripe_connect_account_id?: string | null; // Add this for payouts
 }
 
 export interface UserSession {

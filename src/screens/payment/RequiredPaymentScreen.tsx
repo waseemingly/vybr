@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, NavigationProp, useFocusEffect } from '@react-navigation/native';
+import * as Linking from 'expo-linking';
 import { APP_CONSTANTS } from '@/config/constants';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -237,68 +238,173 @@ const RequiredPaymentScreen: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [isStripeActionActive, setIsStripeActionActive] = useState(false);
 
-    // This function will now be the single entry point for ensuring organizer setup
-    const verifyAndSetupOrganizer = useCallback(async () => {
-        if (!isOrganizer || !userId || !userEmail || !currentProfile) return;
+    // New state to manage the multi-step UI
+    const [showConnectOnboarding, setShowConnectOnboarding] = useState(false);
+    const [isCreatingConnectLink, setIsCreatingConnectLink] = useState(false);
 
-        console.log('[RequiredPayment] Starting organizer verification...');
-        setIsLoadingData(true);
-        setError(null);
+    // --- FUNCTION DECLARATIONS ---
+    // Moved declarations before their usage to fix linter errors.
 
-        // Step 1: Check if they have a Stripe Customer ID. If not, they need to add a card.
-        if (!currentStripeCustomerId) {
-            console.log('[RequiredPayment] Organizer needs to add a payment method.');
-            setStatusMessage('Please add a payment method to continue...');
-            await loadPaymentData(); // This prepares the SetupIntent form
+    const loadPaymentData = useCallback(async () => {
+        console.log(`[RequiredPayment] loadPaymentData CALLED.`);
+
+        if (!userId || !userEmail) {
+            setError("User details missing. Please ensure you are logged in.");
             setIsLoadingData(false);
             return;
         }
 
-        // Step 2: They have a customer ID, so now we ensure both usage subscriptions exist.
-        console.log('[RequiredPayment] Organizer has Stripe ID. Verifying usage subscriptions...');
-        setStatusMessage('Verifying your billing subscriptions...');
+        setIsLoadingData(true);
+        setError(null);
+        setPaymentParams(null);
+
         try {
-            // This function is idempotent: it checks for a sub, and if not found, creates one for ticket usage.
-            console.log('[RequiredPayment] Verifying ticket usage subscription...');
-            const { data: ticketData, error: ticketError } = await supabase.functions.invoke('create-organizer-ticket-usage-subscription', {
-                body: JSON.stringify({
-                    userId: userId,
-                    email: userEmail,
-                    companyName: (currentProfile as any)?.companyName || ''
-                })
-            });
+            const newPaymentParams: PaymentParams = {};
 
-            if (ticketError) throw ticketError;
-            if (ticketData.error) throw new Error(ticketData.error);
-            console.log('[RequiredPayment] Organizer ticket subscription is active.');
+            if (userType === 'music_lover' && isPremiumUser) {
+                console.log('[RequiredPayment] Premium user detected - creating SetupIntent for card saving first...');
+                
+                const { data: siData, error: siError } = await supabase.functions.invoke('create-organizer-setup-intent', {
+                    body: JSON.stringify({
+                        userId: userId,
+                        email: userEmail,
+                        userType: userType,
+                        companyName: (currentProfile as any)?.displayName || '',
+                    }),
+                });
 
-            // Now, ensure the impression subscription also exists.
-            console.log('[RequiredPayment] Verifying impression subscription...');
-            const { data: impressionData, error: impressionError } = await supabase.functions.invoke('create-organizer-impression-subscription', {
-                body: JSON.stringify({
-                    userId: userId,
-                    email: userEmail,
-                    companyName: (currentProfile as any)?.companyName || ''
-                })
-            });
+                if (siError) throw new Error(siError.message || "Function invocation error for SetupIntent.");
+                if (siData && siData.error) throw new Error(siData.error || "Backend failed to prepare payment setup.");
+                if (!siData?.clientSecret || !siData?.customerId) throw new Error("Invalid setup details from server (missing clientSecret or customerId).");
 
-            if (impressionError) throw impressionError;
-            if (impressionData.error) throw new Error(impressionData.error);
-            console.log('[RequiredPayment] Organizer impression subscription is active.');
+                newPaymentParams.setupIntent = {
+                    clientSecret: siData.clientSecret,
+                    customerId: siData.customerId,
+                    ephemeralKey: siData.ephemeralKey,
+                };
 
-            console.log('[RequiredPayment] Organizer subscriptions are active. Setup complete.');
-            setStatusMessage('Billing setup complete! Redirecting...');
-            
-            // CRITICAL: Refresh user profile which will trigger AppNavigator to re-evaluate
-            await refreshUserProfile();
-            
+                console.log('[RequiredPayment] SetupIntent created successfully for premium user. Billing will happen after card save.');
+            } else {
+                // For organizers, only create SetupIntent to save payment method
+                console.log('[RequiredPayment] Organizer detected - creating SetupIntent only...');
+                const { data: siData, error: siError } = await supabase.functions.invoke('create-organizer-setup-intent', {
+                    body: JSON.stringify({
+                        userId: userId,
+                        email: userEmail,
+                        userType: userType,
+                        companyName: isOrganizer ? (currentProfile as any)?.companyName || '' : (currentProfile as any)?.displayName || '',
+                    }),
+                });
+
+                if (siError) throw new Error(siError.message || "Function invocation error for SetupIntent.");
+                if (siData && siData.error) throw new Error(siData.error || "Backend failed to prepare payment setup.");
+                if (!siData?.clientSecret || !siData?.customerId) throw new Error("Invalid setup details from server (missing clientSecret or customerId).");
+
+                newPaymentParams.setupIntent = {
+                    clientSecret: siData.clientSecret,
+                    customerId: siData.customerId,
+                    ephemeralKey: siData.ephemeralKey,
+                };
+
+                console.log('[RequiredPayment] SetupIntent created successfully for organizer.');
+            }
+
+            setPaymentParams(newPaymentParams);
+
         } catch (e: any) {
-            console.error('[RequiredPayment] Failed to ensure subscriptions exist:', e);
-            setError(`A problem occurred with your billing setup. Please try again. Error: ${e.message}`);
+            console.error("[RequiredPayment] CRITICAL ERROR in loadPaymentData:", e.message, e);
+            setError(e.message);
+        } finally {
             setIsLoadingData(false);
         }
+    }, [userId, userEmail, currentProfile, userType, isOrganizer, isPremiumUser]);
 
-    }, [isOrganizer, userId, userEmail, currentProfile, currentStripeCustomerId]);
+    // This function will now be the single entry point for ensuring organizer setup
+    const handleConnectStripe = useCallback(async () => {
+        if (isCreatingConnectLink) return;
+        setIsCreatingConnectLink(true);
+        setError(null);
+
+        try {
+            const { data, error } = await supabase.functions.invoke('create-connect-account-link');
+
+            if (error) throw error;
+            if (data.error) throw new Error(data.error);
+            if (!data.url) throw new Error("Could not get Stripe onboarding URL.");
+
+            // Redirect to Stripe
+            if (Platform.OS === 'web') {
+                window.location.href = data.url;
+            } else {
+                await Linking.openURL(data.url);
+            }
+        } catch (e: any) {
+            console.error("Failed to create Stripe Connect link:", e);
+            setError(`Could not connect to Stripe: ${e.message}`);
+        } finally {
+            setIsCreatingConnectLink(false);
+        }
+    }, [isCreatingConnectLink]);
+
+    const verifyAndSetupOrganizer = useCallback(async () => {
+        if (!isOrganizer || !userId || !userEmail) return;
+    
+        console.log('[RequiredPayment] Running full organizer verification...');
+        setIsLoadingData(true);
+        setError(null);
+        setShowConnectOnboarding(false);
+    
+        const profile = organizerProfile;
+    
+        // --- Step 1: Check for Payment Method (for platform fees) ---
+        if (!profile?.stripe_customer_id) {
+            console.log('[Verify] Step 1 FAILED: Stripe Customer ID is missing.');
+            setStatusMessage('Please add a payment method to cover platform fees.');
+            await loadPaymentData(); // This prepares the SetupIntent form
+            setIsLoadingData(false);
+            return;
+        }
+        console.log('[Verify] Step 1 PASSED: Payment method (customer ID) exists.');
+    
+        // --- Step 2: Check for Payout Account (Stripe Connect) ---
+        if (!(profile as any)?.stripe_connect_account_id) { // Using as any to bypass linter for now
+            console.log('[Verify] Step 2 FAILED: Stripe Connect account ID is missing. Auto-initiating onboarding.');
+            setStatusMessage('Connecting to Stripe to set up your payout account...');
+            // This will keep the main loading spinner active while we redirect.
+            await handleConnectStripe();
+            // The app will redirect away. If it fails, handleConnectStripe will set an error
+            // which will cause the component to re-render and display the error message.
+            return;
+        }
+        console.log('[Verify] Step 2 PASSED: Payout account is connected.');
+    
+        // --- Step 3: Check for Usage-Based Subscription ---
+        setStatusMessage('Verifying billing subscription...');
+        console.log('[Verify] Step 3: Ensuring usage-based subscription exists.');
+        try {
+            const { data, error: invokeError } = await supabase.functions.invoke('create-organizer-ticket-usage-subscription', {
+                body: JSON.stringify({
+                    userId: userId,
+                    email: userEmail,
+                    companyName: (profile as any)?.companyName || ''
+                })
+            });
+    
+            if (invokeError) throw invokeError;
+            if (data.error) throw new Error(data.error);
+            
+            console.log('[Verify] Step 3 PASSED: Subscription is active.');
+    
+            console.log('[RequiredPayment] All verifications passed. Setup is complete.');
+            setStatusMessage('Setup complete! Redirecting...');
+            await refreshUserProfile();
+    
+        } catch (e: any) {
+            console.error('[Verify] Step 3 FAILED:', e);
+            setError(`A problem occurred with your billing setup: ${e.message}`);
+            setIsLoadingData(false);
+        }
+    }, [isOrganizer, userId, userEmail, organizerProfile, loadPaymentData, refreshUserProfile, handleConnectStripe]);
 
     // Enhanced back button handling - prevent ANY navigation away from this screen
     const handleBackPress = useCallback(() => {
@@ -536,222 +642,59 @@ const RequiredPaymentScreen: React.FC = () => {
         }
     };
 
-    const loadPaymentData = useCallback(async () => {
-        console.log(`[RequiredPayment] loadPaymentData CALLED.`);
-
-        if (!userId || !userEmail) {
-            setError("User details missing. Please ensure you are logged in.");
-            setIsLoadingData(false);
-            return;
-        }
-
-        setIsLoadingData(true);
-        setError(null);
-        setPaymentParams(null);
-
-        try {
-            const newPaymentParams: PaymentParams = {};
-
-            // For premium users, we'll start with SetupIntent to save the payment method
-            // Then use the saved payment method for billing in handlePremiumSetupSuccess
-            if (userType === 'music_lover' && isPremiumUser) {
-                console.log('[RequiredPayment] Premium user detected - creating SetupIntent for card saving first...');
-                
-                const { data: siData, error: siError } = await supabase.functions.invoke('create-organizer-setup-intent', {
-                    body: JSON.stringify({
-                        userId: userId,
-                        email: userEmail,
-                        userType: userType,
-                        companyName: (currentProfile as any)?.displayName || '',
-                    }),
-                });
-
-                if (siError) throw new Error(siError.message || "Function invocation error for SetupIntent.");
-                if (siData && siData.error) throw new Error(siData.error || "Backend failed to prepare payment setup.");
-                if (!siData?.clientSecret || !siData?.customerId) throw new Error("Invalid setup details from server (missing clientSecret or customerId).");
-
-                newPaymentParams.setupIntent = {
-                    clientSecret: siData.clientSecret,
-                    customerId: siData.customerId,
-                    ephemeralKey: siData.ephemeralKey,
-                };
-
-                console.log('[RequiredPayment] SetupIntent created successfully for premium user. Billing will happen after card save.');
-            } else {
-                // For organizers, only create SetupIntent to save payment method
-                console.log('[RequiredPayment] Organizer detected - creating SetupIntent only...');
-                const { data: siData, error: siError } = await supabase.functions.invoke('create-organizer-setup-intent', {
-                    body: JSON.stringify({
-                        userId: userId,
-                        email: userEmail,
-                        userType: userType,
-                        companyName: isOrganizer ? (currentProfile as any)?.companyName || '' : (currentProfile as any)?.displayName || '',
-                    }),
-                });
-
-                if (siError) throw new Error(siError.message || "Function invocation error for SetupIntent.");
-                if (siData && siData.error) throw new Error(siData.error || "Backend failed to prepare payment setup.");
-                if (!siData?.clientSecret || !siData?.customerId) throw new Error("Invalid setup details from server (missing clientSecret or customerId).");
-
-                newPaymentParams.setupIntent = {
-                    clientSecret: siData.clientSecret,
-                    customerId: siData.customerId,
-                    ephemeralKey: siData.ephemeralKey,
-                };
-
-                console.log('[RequiredPayment] SetupIntent created successfully for organizer.');
-            }
-
-            setPaymentParams(newPaymentParams);
-
-        } catch (e: any) {
-            console.error("[RequiredPayment] CRITICAL ERROR in loadPaymentData:", e.message, e);
-            setError(e.message);
-        } finally {
-            setIsLoadingData(false);
-        }
-    }, [userId, userEmail, currentProfile, userType, isOrganizer, isPremiumUser]);
-
     // Simplified focus effect - only loads data when needed, no redirect logic
     useFocusEffect(
         useCallback(() => {
-            console.log("[RequiredPayment] Screen focused, loading payment data...");
-            
             if (isOrganizer) {
+                console.log("[RequiredPayment] Screen focused, running organizer verification.");
                 verifyAndSetupOrganizer();
             } else if (isPremiumUser) {
-                // Keep existing logic for premium users
+                // This logic remains for premium music lovers
                 if (userId && userEmail) {
                     loadPaymentData();
                 }
             } else {
-                // If not an organizer or premium user, no payment is required.
-                // This case should ideally be handled by navigation logic before reaching this screen.
                 setIsLoadingData(false);
             }
         }, [isOrganizer, isPremiumUser, userId, userEmail, verifyAndSetupOrganizer, loadPaymentData])
     );
 
     const handleCardSavedSuccessfully = async (paymentMethodId?: string) => {
-        console.log('[RequiredPaymentScreen] Card saved successfully, paymentMethodId:', paymentMethodId);
-        setError('');
+        console.log('[RequiredPaymentScreen] Card saved successfully. Setting as default and refreshing profile...');
+        setError(null);
         setIsLoadingData(true);
-
+        setStatusMessage('Saving payment details...');
+    
         try {
-            const customerId = paymentParams?.setupIntent?.customerId || paymentParams?.paymentIntent?.customerId;
-            
-            if (!customerId) {
-                throw new Error('Customer ID not found in payment parameters');
-            }
-
-            // Set payment method as default if paymentMethodId is provided
+            const customerId = paymentParams?.setupIntent?.customerId;
+            if (!customerId) throw new Error('Customer ID not found after card save.');
+    
+            // Set the new card as the default for future charges
             if (paymentMethodId) {
-                console.log('[RequiredPaymentScreen] Setting payment method as default:', paymentMethodId);
                 await setPaymentMethodAsDefault(paymentMethodId, customerId);
             } else {
-                console.log('[RequiredPaymentScreen] No paymentMethodId provided, checking existing payment methods...');
-                
-                // Fallback: Fetch payment methods and set the first one as default
+                // Fallback for mobile if ID is not returned
                 const { data, error } = await supabase.functions.invoke('list-organizer-payment-methods', {
-                    body: JSON.stringify({
-                        customerId: customerId
-                    })
+                    body: JSON.stringify({ customerId: customerId })
                 });
-
-                if (error) {
-                    console.error('[RequiredPaymentScreen] Error fetching payment methods for fallback:', error);
-                    throw new Error(`Failed to fetch payment methods: ${error.message}`);
-                }
-
+                if (error) throw new Error(`Failed to fetch payment methods: ${error.message}`);
                 const paymentMethods = data?.paymentMethods || [];
                 if (paymentMethods.length > 0) {
-                    const firstPaymentMethod = paymentMethods[0];
-                    console.log('[RequiredPaymentScreen] Setting first payment method as default:', firstPaymentMethod.id);
-                    await setPaymentMethodAsDefault(firstPaymentMethod.id, customerId);
+                    await setPaymentMethodAsDefault(paymentMethods[0].id, customerId);
                 } else {
-                    console.warn('[RequiredPaymentScreen] No payment methods found after successful card save!');
-                    throw new Error('No payment methods found after card save');
+                    throw new Error('No payment methods found after card save.');
                 }
             }
-
-            // NEW: For organizers, create usage subscriptions after card is saved
-            if (isOrganizer && userId && userEmail) {
-                console.log('[RequiredPaymentScreen] Creating organizer usage subscriptions...');
-                
-                try {
-                    // Step 1: Create Ticket Usage Subscription
-                    console.log('[RequiredPaymentScreen] Creating ticket usage subscription...');
-                    const { data: ticketData, error: ticketError } = await supabase.functions.invoke('create-organizer-ticket-usage-subscription', {
-                        body: JSON.stringify({
-                            userId: userId,
-                            email: userEmail,
-                            companyName: (currentProfile as any)?.companyName || ''
-                        })
-                    });
-
-                    if (ticketError || ticketData?.error) {
-                        const anError = ticketError || new Error(ticketData.error);
-                        console.error('[RequiredPaymentScreen] Error creating ticket usage subscription:', anError);
-                        Alert.alert(
-                            'Payment Method Saved',
-                            'Your payment method was saved successfully. However, we failed to set up the ticket usage billing. Please set it up later in settings.',
-                            [{ text: 'OK' }]
-                        );
-                    } else if (ticketData?.success) {
-                        console.log('[RequiredPaymentScreen] Ticket usage subscription created successfully.');
-
-                        // Step 2: Create Impression Subscription
-                        console.log('[RequiredPaymentScreen] Creating impression subscription...');
-                        const { data: impressionData, error: impressionError } = await supabase.functions.invoke('create-organizer-impression-subscription', {
-                            body: JSON.stringify({
-                                userId: userId,
-                                email: userEmail,
-                                companyName: (currentProfile as any)?.companyName || ''
-                            })
-                        });
-                        
-                        if (impressionError || impressionData?.error) {
-                            const anError = impressionError || new Error(impressionData.error);
-                            console.error('[RequiredPaymentScreen] Error creating impression subscription:', anError);
-                            Alert.alert(
-                                'Partial Setup Complete',
-                                'Ticket usage billing is active, but we failed to set up impression billing. Please set it up later in settings.',
-                                [{ text: 'OK' }]
-                            );
-                        } else if (impressionData?.success) {
-                            console.log('[RequiredPaymentScreen] Impression subscription created successfully.');
-                            Alert.alert(
-                                'Setup Complete!',
-                                `Your payment method has been saved and usage billing is now active. You'll be charged for tickets sold (at $${ticketData.pricePerUnit} SGD each) and for event impressions, billed monthly.`,
-                                [{ text: 'Got it' }]
-                            );
-                        }
-                    }
-
-                } catch (subscriptionException: any) {
-                    console.error('[RequiredPaymentScreen] Exception creating usage subscriptions:', subscriptionException);
-                    Alert.alert(
-                        'Payment Method Saved',
-                        'Your payment method was saved successfully. However, there was an issue setting up usage billing. You can set this up later in your billing settings.',
-                        [{ text: 'OK' }]
-                    );
-                }
-            }
-
-            // CRITICAL: Refresh user profile to update the AppNavigator
-            console.log('[RequiredPaymentScreen] Refreshing user profile to update AppNavigator...');
+            
+            console.log('[RequiredPaymentScreen] Payment method saved. Refreshing profile to continue setup.');
+            // This refresh is CRITICAL. It updates the `organizerProfile` in the auth context.
+            // The useFocusEffect will then re-run `verifyAndSetupOrganizer`, which will now pass Step 1.
             await refreshUserProfile();
-            
-            console.log('[RequiredPaymentScreen] Payment method setup completed successfully!');
-            
-            // Let the AppNavigator handle the navigation based on the refreshed profile
-            // No manual navigation here - AppNavigator will detect the payment method change
-
+    
         } catch (error: any) {
             console.error('[RequiredPaymentScreen] Error in handleCardSavedSuccessfully:', error);
-            setError(error.message || 'Payment setup failed. Please try again.');
-        } finally {
-            setIsLoadingData(false);
+            setError(error.message || 'Failed to save payment method. Please try again.');
+            setIsLoadingData(false); // Stop loading on error
         }
     };
 
@@ -878,8 +821,33 @@ const RequiredPaymentScreen: React.FC = () => {
                         </View>
                     )}
 
-                    {/* Payment Form */}
-                    {paymentParams && paymentParams.setupIntent && !isLoadingData && (
+                    {/* NEW: Stripe Connect Onboarding Step */}
+                    {showConnectOnboarding && !isLoadingData && (
+                        <View style={styles.onboardingStepContainer}>
+                            <Feather name="link" size={40} color={APP_CONSTANTS.COLORS.SUCCESS} />
+                            <Text style={styles.onboardingTitle}>Set Up Payouts</Text>
+                            <Text style={styles.onboardingDescription}>
+                                Connect a Stripe account to securely receive payments for your ticket sales. You will be redirected to Stripe to complete this step.
+                            </Text>
+                            <TouchableOpacity
+                                style={[styles.connectButton, isCreatingConnectLink && styles.buttonDisabled]}
+                                onPress={handleConnectStripe}
+                                disabled={isCreatingConnectLink}
+                            >
+                                {isCreatingConnectLink ? (
+                                    <ActivityIndicator color="#FFFFFF" />
+                                ) : (
+                                    <>
+                                        <Feather name="share" size={16} color="white" style={{marginRight: 8}} />
+                                        <Text style={styles.buttonText}>Connect with Stripe</Text>
+                                    </>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    )}
+
+                    {/* Payment Form (hide if showing connect step) */}
+                    {!showConnectOnboarding && paymentParams && paymentParams.setupIntent && !isLoadingData && (
                         <View style={styles.formSection}>
                             {Platform.OS === 'web' ? (
                                 stripePromiseWeb ? (
@@ -1114,6 +1082,37 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
         textAlign: 'center',
+    },
+    onboardingStepContainer: {
+        alignItems: 'center',
+        paddingVertical: 24,
+        borderTopWidth: 1,
+        borderTopColor: APP_CONSTANTS.COLORS.BORDER,
+        marginTop: 24,
+    },
+    onboardingTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+        marginTop: 16,
+        marginBottom: 8,
+    },
+    onboardingDescription: {
+        fontSize: 14,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        textAlign: 'center',
+        lineHeight: 20,
+        marginBottom: 24,
+        maxWidth: '90%',
+    },
+    connectButton: {
+        flexDirection: 'row',
+        backgroundColor: '#635BFF', // Stripe's brand color
+        paddingVertical: 16,
+        paddingHorizontal: 24,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 });
 

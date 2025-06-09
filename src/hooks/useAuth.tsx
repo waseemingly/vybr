@@ -1,7 +1,18 @@
 import React, { createContext, useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { NavigationContainerRef } from '@react-navigation/native';
 // Adjust path as necessary
-import { supabase, UserTypes, SignUpCredentials, LoginCredentials, UserSession, MusicLoverProfile as DbMusicLoverProfile, OrganizerProfile as DbOrganizerProfile, MusicLoverBio as SupabaseMusicLoverBio } from '../lib/supabase';
+import { 
+    supabase, 
+    UserTypes, 
+    SignUpCredentials, 
+    LoginCredentials, 
+    UserSession, 
+    MusicLoverProfile,
+    OrganizerProfile,
+    MusicLoverBio as SupabaseMusicLoverBio,
+    CreateMusicLoverProfileData,
+    CreateOrganizerProfileData
+} from '../lib/supabase';
 import { useOrganizerMode } from './useOrganizerMode'; // Ensure path is correct
 import { Platform, Alert } from 'react-native';
 import Constants from 'expo-constants'; // For fallback Supabase URL
@@ -14,45 +25,9 @@ import { Buffer } from 'buffer'; // Import Buffer for robust Base64 handling
 // --- Exported Types ---
 export type MusicLoverBio = SupabaseMusicLoverBio;
 
-// Update MusicLoverProfile interface to include the new DB column
-// Assuming DbMusicLoverProfile from supabase types might not have it yet
-export interface MusicLoverProfile extends Omit<DbMusicLoverProfile, 'selected_streaming_service'> {
-    termsAccepted?: boolean; // Keep this if not in base type
-    selectedStreamingService?: string | null; // Add this field
-    secondary_streaming_services?: string[] | null; // <<< ADD THE NEW FIELD TYPE
-    // Add the favorite music fields
-    favorite_artists?: string | null;
-    favorite_albums?: string | null;
-    favorite_songs?: string | null;
-    // Add stripe_customer_id for payment methods
-    stripe_customer_id?: string | null;
-}
-
-// Data needed to create the profile (matches signup flow)
-// Add profilePictureMimeType temporarily for passing data internally
-export type CreateMusicLoverProfileData = Omit<DbMusicLoverProfile, 'id' | 'user_id' | 'is_premium' | 'created_at' | 'age' | 'music_data' | 'profile_picture' | 'bio' | 'country' | 'city' | 'terms_accepted' | 'selected_streaming_service'> & {
-    userId: string;
-    age?: number | null; // Optional from form
-    profilePictureUri?: string; // Optional URI string from picker
-    profilePictureMimeType?: string | null; // <<< ADDED for passing internally
-    termsAccepted: boolean; // Required from form
-    bio: MusicLoverBio; // Required from form
-    country?: string; // Optional from form
-    city?: string; // Optional from form
-    selectedStreamingService: string; // Required from form
-};
-
-// Data for Organizer (Ensure DbOrganizerProfile is accurate)
-export type CreateOrganizerProfileData = Omit<DbOrganizerProfile, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'logo'> & {
-    userId: string;
-    logoUri?: string; // Optional URI string from picker
-    logoMimeType?: string | null; // <<< ADDED for passing internally
-};
-
-export interface OrganizerProfile extends DbOrganizerProfile {
-    // Add any frontend-specific fields if needed
-    average_rating?: number | null;
-}
+// The types from supabase.ts are now the single source of truth.
+// We just re-export them here if needed by other parts of the app.
+export type { MusicLoverProfile, OrganizerProfile, CreateMusicLoverProfileData, CreateOrganizerProfileData };
 
 // --- End Exported Types ---
 
@@ -338,107 +313,102 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 console.log(`[AuthProvider] User type determined: ${userType}`);
 
                 // Fetch the correct profile based on userType
-            if (userType === 'music_lover') {
-                    console.log("[AuthProvider] Fetching music lover profile...");
-                    const { data: profileData, error: profileError } = await supabase
-                        .from('music_lover_profiles')
-                        .select('*')
-                        .eq('user_id', userId)
-                    .maybeSingle();
+                const _fetchProfileData = async (user: any, userType: UserTypes) => {
+                    try {
+                        if (userType === 'music_lover') {
+                            console.log("[AuthProvider] Fetching music lover profile...");
+                            const { data: profileData, error: profileError } = await supabase
+                                .from('music_lover_profiles')
+                                .select('*')
+                                .eq('user_id', userId)
+                            .maybeSingle();
 
-                    if (profileError) {
-                        console.error("[AuthProvider] Error fetching music lover profile:", profileError);
-                        // Don't throw, allow session to proceed but profile will be null
-                    } else if (profileData) {
-                        console.log("[AuthProvider] Music lover profile fetched successfully:", profileData);
-                        // Map DB snake_case to frontend camelCase
-                        const fullProfile: MusicLoverProfile = {
-                           id: profileData.id,
-                           userId: profileData.user_id,
-                           firstName: profileData.first_name,
-                           lastName: profileData.last_name,
-                           username: profileData.username,
-                           email: profileData.email,
-                           age: profileData.age,
-                           profilePicture: profileData.profile_picture,
-                           bio: profileData.bio,
-                           country: profileData.country,
-                           city: profileData.city,
-                           isPremium: profileData.is_premium,
-                           musicData: profileData.music_data,
-                           selectedStreamingService: profileData.selected_streaming_service,
-                           termsAccepted: profileData.terms_accepted,
-                           secondary_streaming_services: profileData.secondary_streaming_services ?? null, // <<< MAP THE NEW FIELD
-                           // Map the favorite music fields
-                           favorite_artists: profileData.favorite_artists ?? null,
-                           favorite_albums: profileData.favorite_albums ?? null,
-                           favorite_songs: profileData.favorite_songs ?? null,
-                           // Add stripe_customer_id mapping for payment methods
-                           stripe_customer_id: profileData.stripe_customer_id,
-                        };
-                        console.log("[AuthProvider] Setting musicLoverProfile state:", fullProfile);
-                        setMusicLoverProfile(fullProfile);
-                        if (currentSession) currentSession.musicLoverProfile = fullProfile;
-                   } else {
-                         console.log("[AuthProvider] No music lover profile found for this user.");
+                            if (profileError) {
+                                console.error("[AuthProvider] Error fetching music lover profile:", profileError);
+                                // Don't throw, allow session to proceed but profile will be null
+                            } else if (profileData) {
+                                console.log("[AuthProvider] Music lover profile fetched successfully:", profileData);
+                                // Map DB snake_case to frontend camelCase
+                                const fullProfile: MusicLoverProfile = {
+                                   id: profileData.id,
+                                   userId: profileData.user_id,
+                                   firstName: profileData.first_name,
+                                   lastName: profileData.last_name,
+                                   username: profileData.username,
+                                   email: profileData.email,
+                                   age: profileData.age,
+                                   profilePicture: profileData.profile_picture,
+                                   bio: profileData.bio,
+                                   country: profileData.country,
+                                   city: profileData.city,
+                                   isPremium: profileData.is_premium,
+                                   musicData: profileData.music_data,
+                                   selectedStreamingService: profileData.selected_streaming_service,
+                                   termsAccepted: profileData.terms_accepted,
+                                   secondary_streaming_services: profileData.secondary_streaming_services ?? null, // <<< MAP THE NEW FIELD
+                                   // Map the favorite music fields
+                                   favorite_artists: profileData.favorite_artists ?? null,
+                                   favorite_albums: profileData.favorite_albums ?? null,
+                                   favorite_songs: profileData.favorite_songs ?? null,
+                                   // Add stripe_customer_id mapping for payment methods
+                                   stripe_customer_id: profileData.stripe_customer_id,
+                                };
+                                console.log("[AuthProvider] Setting musicLoverProfile state:", fullProfile);
+                                setMusicLoverProfile(fullProfile);
+                                if (currentSession) currentSession.musicLoverProfile = fullProfile;
+                           } else {
+                                 console.log("[AuthProvider] No music lover profile found for this user.");
+                            }
+                        } else if (userType === 'organizer') {
+                            console.log("[AuthProvider] Fetching organizer profile...");
+                             const { data: profileData, error: profileError } = await supabase
+                                .from('organizer_profiles')
+                                .select('*')
+                                .eq('user_id', userId)
+                                .single();
+
+                            if (profileError) {
+                                console.error("[AuthProvider] Error fetching organizer profile:", profileError);
+                            } else if (profileData) {
+                                 console.log("[AuthProvider] Organizer profile fetched successfully.", profileData.id);
+                                 const { data: avgRatingData } = await supabase.rpc('get_organizer_average_rating', { p_organizer_id: userId });
+
+                                 const fullProfile: OrganizerProfile = {
+                                   ...profileData,
+                                   average_rating: avgRatingData,
+                                   stripe_connect_account_id: profileData.stripe_connect_account_id,
+                                   stripe_customer_id: profileData.stripe_customer_id,
+                                 };
+                                 setOrganizerProfile(fullProfile);
+                                 if (currentSession) currentSession.organizerProfile = fullProfile;
+                            } else {
+                                console.log("[AuthProvider] No organizer profile found for this user.");
+                            }
+                        } else {
+                            console.warn("[AuthProvider] User type is null or unrecognized, cannot fetch profile.");
+                        }
+
+                        // Set organizer mode based on fetched profile
+                        if (currentSession?.organizerProfile) { // Guarded access
+                            setIsOrganizerMode(true);
+                            console.log("[AuthProvider] Setting Organizer Mode ON based on profile.");
+                        } else {
+                            setIsOrganizerMode(false);
+                            console.log("[AuthProvider] Setting Organizer Mode OFF (no organizer profile).");
+                        }
+
+                    } catch (e) {
+                        console.error("[AuthProvider] Error in checkSession process:", e);
+                        setSession(null);
+                        setMusicLoverProfile(null);
+                        setOrganizerProfile(null);
+                        setIsOrganizerMode(false);
+                        // Optionally navigate to Auth on error
+                        // navigationRef.current?.reset({ index: 0, routes: [{ name: 'Auth' }] });
                     }
-            } else if (userType === 'organizer') {
-                    console.log("[AuthProvider] Fetching organizer profile...");
-                     const { data: profileData, error: profileError } = await supabase
-                        .from('organizer_profiles')
-                        .select(`
-                            id,
-                            user_id,
-                            company_name,
-                            email,
-                            phone_number,
-                            logo,
-                            business_type,
-                            bio,
-                            website,
-                            average_rating, 
-                            created_at, 
-                            updated_at,
-                            stripe_customer_id
-                         `)
-                        .eq('user_id', userId)
-                        .maybeSingle();
+                };
 
-                    if (profileError) {
-                        console.error("[AuthProvider] Error fetching organizer profile:", profileError);
-                    } else if (profileData) {
-                         console.log("[AuthProvider] Organizer profile fetched successfully.", profileData.id);
-                         // Map DB snake_case to frontend camelCase
-                         const fullProfile: OrganizerProfile = {
-                           id: profileData.id,
-                           userId: profileData.user_id,
-                           companyName: profileData.company_name,
-                           email: profileData.email,
-                           phoneNumber: profileData.phone_number,
-                           logo: profileData.logo,
-                           businessType: profileData.business_type,
-                           bio: profileData.bio,
-                           website: profileData.website,
-                           average_rating: profileData.average_rating,
-                           stripe_customer_id: profileData.stripe_customer_id,
-                         };
-                         setOrganizerProfile(fullProfile);
-                         if (currentSession) currentSession.organizerProfile = fullProfile;
-                    } else {
-                        console.log("[AuthProvider] No organizer profile found for this user.");
-                    }
-                } else {
-                    console.warn("[AuthProvider] User type is null or unrecognized, cannot fetch profile.");
-                }
-
-                // Set organizer mode based on fetched profile
-                if (currentSession?.organizerProfile) { // Guarded access
-                    setIsOrganizerMode(true);
-                    console.log("[AuthProvider] Setting Organizer Mode ON based on profile.");
-                } else {
-                    setIsOrganizerMode(false);
-                    console.log("[AuthProvider] Setting Organizer Mode OFF (no organizer profile).");
-                }
+                await _fetchProfileData(supabaseSession.user, userType);
 
             } else {
                 console.log("[AuthProvider] No active Supabase session found.");
