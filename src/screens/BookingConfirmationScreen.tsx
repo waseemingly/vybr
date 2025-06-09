@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -164,6 +164,81 @@ const BookingConfirmationScreen: React.FC = () => {
         maxReservations
     } = route.params;
 
+    // --- NEW: Centralized function to create the booking record ---
+    const createBookingRecord = async () => {
+        if (!session?.user) throw new Error("User session not found for booking creation.");
+
+        console.log(`[createBookingRecord] Creating booking for event ${eventId}, user ${session.user.id}`);
+
+        const { data: newBooking, error: bookingError } = await supabase
+            .from('event_bookings')
+            .insert({
+                event_id: eventId,
+                user_id: session.user.id,
+                quantity: quantity,
+                price_paid_per_item: rawPricePerItem,
+                total_price_paid: rawTotalPrice,
+                booking_fee_paid: rawFeePaid,
+                status: 'CONFIRMED'
+            })
+            .select()
+            .single();
+
+        if (bookingError) {
+            console.error('[createBookingRecord] Error inserting booking:', bookingError);
+            // If the booking already exists (e.g., webhook ran first, or user re-ran flow),
+            // we can treat it as a success to avoid showing a scary error.
+            if (bookingError.code === '23505') { // unique_user_event_booking constraint
+                console.log('[createBookingRecord] Booking already exists, which is acceptable. Continuing.');
+                return;
+            }
+            // For other errors, inform the user something went wrong with saving the booking.
+            throw new Error(`Your payment was successful, but we failed to save your booking record. Please contact support with this Event ID: ${eventId}.`);
+        }
+
+        console.log('[createBookingRecord] Booking created successfully:', newBooking);
+    };
+
+    // --- NEW: Handle redirect from Stripe 3D Secure on web ---
+    useEffect(() => {
+        if (Platform.OS !== 'web') return;
+
+        const url = new URL(window.location.href);
+        const paymentSuccess = url.searchParams.get('payment_success');
+        const paymentIntentClientSecret = url.searchParams.get('payment_intent_client_secret');
+
+        // Check for redirect parameters from Stripe
+        if (paymentSuccess === 'true' && paymentIntentClientSecret) {
+            console.log('[Stripe Redirect] Payment success detected via URL. Finalizing booking...');
+            
+            // Show loading state and hide payment form
+            setIsConfirming(true);
+            setWebClientSecret(null);
+            
+            const finalizeBooking = async () => {
+                try {
+                    await createBookingRecord();
+                    showAlert(
+                        'Payment Successful!',
+                        `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed! Check your profile for details.`,
+                        [{ text: 'OK', onPress: () => navigation.navigate('Events') }]
+                    );
+                } catch (e: any) {
+                    console.error('[Stripe Redirect] Error finalizing booking:', e);
+                    showAlert('Booking Creation Failed', e.message);
+                } finally {
+                    setIsConfirming(false);
+                }
+            };
+
+            finalizeBooking();
+
+            // Clean the URL to prevent re-triggering on refresh
+            const cleanUrl = window.location.pathname + window.location.hash;
+            window.history.replaceState({}, document.title, cleanUrl);
+        }
+    }, [navigation, eventId, quantity]); // Rerun if these key identifiers change
+
     const actionTextLower = bookingType === 'TICKETED' ? 'ticket' : 'reservation';
     const actionTextProper = bookingType === 'TICKETED' ? 'Ticket' : 'Reservation';
     
@@ -256,7 +331,9 @@ const BookingConfirmationScreen: React.FC = () => {
                 }
 
                 // --- 5. Payment Succeeded! ---
-                // The webhook will handle creating the booking record in the database.
+                // --- MODIFIED: Create booking on client-side ---
+                await createBookingRecord();
+
                 showAlert(
                     'Payment Successful!',
                     `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed! Check your profile for details.`,
@@ -350,17 +427,27 @@ const BookingConfirmationScreen: React.FC = () => {
                     <Elements stripe={stripePromiseWeb} options={{ clientSecret: webClientSecret, appearance: { theme: 'stripe' } }}>
                         <WebPaymentForm
                             totalPriceDisplay={totalPriceDisplay}
-                            onPaymentSuccess={() => {
-                                showAlert(
-                                    'Payment Successful!',
-                                    `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed! Check your profile for details.`,
-                                    [{ text: 'OK', onPress: () => navigation.navigate('Events') }]
-                                );
+                            onPaymentSuccess={async () => {
+                                // --- MODIFIED: Create booking record on success ---
+                                try {
+                                    await createBookingRecord();
+                                    showAlert(
+                                        'Payment Successful!',
+                                        `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed! Check your profile for details.`,
+                                        [{ text: 'OK', onPress: () => navigation.navigate('Events') }]
+                                    );
+                                } catch (e: any) {
+                                    showAlert('Booking Creation Failed', e.message);
+                                    // Also reset the form to allow another attempt if booking fails
+                                    setIsConfirming(false);
+                                    setWebClientSecret(null);
+                                }
                             }}
                             onPaymentError={(message: string) => {
                                 showAlert(`${actionTextProper} Failed`, `Could not complete: ${message}`);
                                 // Reset to allow user to try again
                                 setWebClientSecret(null);
+                                setIsConfirming(false); // Also reset main button
                             }}
                         />
                     </Elements>
@@ -416,11 +503,12 @@ const BookingConfirmationScreen: React.FC = () => {
                 )}
 
                 <TouchableOpacity
-                    style={styles.cancelButton}
+                    style={[styles.cancelButton, isConfirming && styles.disabledButton]}
                     onPress={() => {
                         if (webClientSecret) {
                             // If web payment form is showing, cancel returns to summary
                             setWebClientSecret(null);
+                            setIsConfirming(false); // Reset the main button state
                         } else {
                             navigation.goBack();
                         }
