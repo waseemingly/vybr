@@ -116,6 +116,12 @@ const UserBillingHistoryScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                    <Feather name="chevron-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Billing History</Text>
+            </View>
             {isLoading ? (
                 <View style={styles.centeredLoader} >
                      <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
@@ -153,7 +159,20 @@ const styles = StyleSheet.create({
     emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30, marginTop: 50, },
     emptyText: { fontSize: 17, fontWeight: '600', color: '#6B7280', marginTop: 15, textAlign: 'center', },
     emptySubText: { fontSize: 14, color: '#9CA3AF', marginTop: 8, textAlign: 'center', },
-    errorText: { color: APP_CONSTANTS.COLORS.ERROR, }
+    errorText: { color: APP_CONSTANTS.COLORS.ERROR, },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 10,
+    },
+    backButton: {
+        padding: 5,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        marginLeft: 10,
+    },
 });
 
 export default UserBillingHistoryScreen; 

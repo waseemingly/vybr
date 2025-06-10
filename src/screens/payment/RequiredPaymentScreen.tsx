@@ -409,9 +409,13 @@ const RequiredPaymentScreen: React.FC = () => {
 
             console.log('[Verify] Impression usage subscription is active.');
     
+            // *** FIX: REMOVED refreshUserProfile() TO PREVENT RELOAD LOOP ***
+            // The AppNavigator is already watching the auth state and will automatically
+            // navigate away from this screen once all conditions are met. Manually calling
+            // a refresh here causes a disruptive screen flicker.
             console.log('[RequiredPayment] All verifications passed. Setup is complete.');
             setStatusMessage('Setup complete! Redirecting...');
-            await refreshUserProfile();
+            // await refreshUserProfile(); // <-- THIS LINE WAS REMOVED
     
         } catch (e: any) {
             console.error('[Verify] Step 3 FAILED:', e);
@@ -1130,4 +1134,4 @@ const styles = StyleSheet.create({
     },
 });
 
-export default RequiredPaymentScreen; 
+export default RequiredPaymentScreen;
