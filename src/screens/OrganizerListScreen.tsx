@@ -144,6 +144,12 @@ const OrganizerListScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                    <Feather name="chevron-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Followed Organizers</Text>
+            </View>
             {renderContent()}
         </SafeAreaView>
     );
@@ -173,6 +179,19 @@ const styles = StyleSheet.create({
     emptyContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 20, },
     emptyText: { fontSize: 18, fontWeight: '600', color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginTop: 15, textAlign: 'center', },
     emptySubText: { fontSize: 14, color: APP_CONSTANTS.COLORS.DISABLED, marginTop: 8, textAlign: 'center', },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 10,
+    },
+    backButton: {
+        padding: 5,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        marginLeft: 10,
+    },
 });
 
 export default OrganizerListScreen; 

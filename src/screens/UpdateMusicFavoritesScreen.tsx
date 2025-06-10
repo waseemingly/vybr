@@ -245,7 +245,9 @@ const UpdateMusicFavoritesScreen = () => {
       >
         <ScrollView style={styles.scrollView}>
           <View style={styles.header}>
-            <Feather name="music" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+              <Feather name="chevron-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+            </TouchableOpacity>
             <Text style={styles.headerText}>Update Your Music Favorites</Text>
           </View>
           
@@ -368,7 +370,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    paddingBottom: 8,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  backButton: {
+    padding: 8,
   },
   headerText: {
     fontSize: 20,

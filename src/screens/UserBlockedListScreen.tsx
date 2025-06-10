@@ -38,7 +38,12 @@ const UserBlockedListScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-            {/* Header Removed */}
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                    <Feather name="chevron-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Blocked Users</Text>
+            </View>
 
             {/* Content */}
             {blockedUsers.length > 0 ? (
@@ -64,15 +69,20 @@ const styles = StyleSheet.create({
     header: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
+        padding: 16,
+        backgroundColor: 'white',
         borderBottomWidth: 1,
         borderBottomColor: '#E5E7EB',
-        backgroundColor: 'white',
     },
-    backButton: { padding: 4 },
-    headerTitle: { fontSize: 18, fontWeight: '600', color: '#1F2937' },
+    backButton: {
+        padding: 8,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        marginLeft: 10,
+        color: '#1F2937',
+    },
     list: {
         flex: 1,
     },

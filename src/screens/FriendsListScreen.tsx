@@ -215,6 +215,12 @@ const FriendsListScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                    <Feather name="chevron-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Friends List</Text>
+            </View>
             <View style={styles.tabContainer}>
                 <TouchableOpacity 
                     style={[styles.tabButton, activeTab === 'friends' && styles.activeTabButton]}
@@ -288,6 +294,20 @@ const styles = StyleSheet.create({
         backgroundColor: APP_CONSTANTS.COLORS.ERROR,
         padding: 8,
         borderRadius: 15,
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 10,
+    },
+    backButton: {
+        padding: 5,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: APP_CONSTANTS.COLORS.PRIMARY,
+        marginLeft: 10,
     },
 });
 

@@ -133,7 +133,6 @@ const ProfileScreen: React.FC = () => {
     const [countsLoading, setCountsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [refreshingStreamingData, setRefreshingStreamingData] = useState(false);
-    const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
     const [showSpotifyReconnectModal, setShowSpotifyReconnectModal] = useState(false);
 
     // Handle navigation to LinkMusicServicesScreen if requested via params
@@ -154,13 +153,19 @@ const ProfileScreen: React.FC = () => {
         }
     }, [navigation, route.params]);
 
-    // Fetch music streaming data if musicLoverProfile is loaded
+    // This effect handles the INITIAL fetch of streaming data when the component loads
+    // or when the user changes. Subsequent fetches are handled by manual actions (pull-to-refresh, buttons).
     useEffect(() => {
-        if (musicLoverProfile?.userId && !streamingDataLoading) {
-            console.log("[ProfileScreen] MusicLoverProfile loaded. Checking streaming data...");
+        // We fetch if:
+        // 1. We have a valid user ID.
+        // 2. There is no streaming data loaded yet (streamingData is null/undefined).
+        // 3. We are not already in the process of loading data.
+        if (musicLoverProfile?.userId && !streamingData && !streamingDataLoading) {
+            console.log("[ProfileScreen] Initial data check: No streaming data found. Triggering fetch.");
             fetchStreamingData();
         }
-    }, [musicLoverProfile, fetchStreamingData, streamingDataLoading]);
+    }, [musicLoverProfile?.userId, streamingData, streamingDataLoading, fetchStreamingData]);
+
 
     // Add debug logging when streaming data changes
     useEffect(() => {
@@ -213,7 +218,7 @@ const ProfileScreen: React.FC = () => {
             await Promise.all([
                 refreshUserProfile(), 
                 fetchCounts(),
-                fetchStreamingData()
+                fetchStreamingData(true) // Pass true to force a re-fetch from the database
             ]); 
         }
         catch (error) { 
@@ -296,48 +301,6 @@ const ProfileScreen: React.FC = () => {
             );
         }
     }, [showSpotifyReconnectModal, spotifyError, spotifyAuthLoading, handleSpotifyLoginInModal]);
-
-    // Automatic 30-day refresh logic
-    useEffect(() => {
-        const autoRefreshData = async () => {
-            if (session?.user?.id && isSpotifyLoggedIn && streamingData?.snapshot_date && !isAutoRefreshing && !refreshingStreamingData) {
-                const snapshotDate = new Date(streamingData.snapshot_date);
-                const thirtyDaysAgo = new Date();
-                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-                if (snapshotDate < thirtyDaysAgo) {
-                    console.log("[ProfileScreen] Streaming data is older than 30 days. Attempting automatic refresh.");
-                    setIsAutoRefreshing(true);
-                    try {
-                        const premium = !!musicLoverProfile?.isPremium;
-                        console.log(`[ProfileScreen] Auto-refreshing Spotify data for ${premium ? 'premium' : 'free'} user`);
-                        
-                        const success = await forceFetchAndSaveSpotifyData(session.user.id, premium);
-                        
-                        if (success) {
-                            console.log("[ProfileScreen] Automatic data refresh successful. Updating UI...");
-                            // Force refresh the UI with the new data
-                            await fetchStreamingData(true);
-                        } else {
-                            console.warn("[ProfileScreen] Automatic data refresh completed but reported failure.");
-                            // Still try to refresh the UI in case some data was updated
-                            await fetchStreamingData(true);
-                        }
-                    } catch (error) {
-                        console.error("[ProfileScreen] Error during automatic data refresh:", error);
-                        // Try to refresh UI with any existing data
-                        await fetchStreamingData(true);
-                    } finally {
-                        setIsAutoRefreshing(false);
-                    }
-                } else {
-                    console.log("[ProfileScreen] Streaming data is up-to-date. No automatic refresh needed.");
-                }
-            }
-        };
-
-        autoRefreshData();
-    }, [session, isSpotifyLoggedIn, streamingData, forceFetchAndSaveSpotifyData, isAutoRefreshing, refreshingStreamingData, musicLoverProfile, fetchStreamingData]);
 
     // Handle manual refresh of streaming service data
     const handleForceRefreshStreamingData = useCallback(async (service: 'spotify') => {
@@ -976,6 +939,27 @@ const ProfileScreen: React.FC = () => {
                     isPremiumFeature 
                     isPremiumUser={isPremium}
                 >
+                    {/* Spotify Reconnection Notice - Show if we have data but no current auth */}
+                    {serviceId === 'spotify' && topMoods.length > 0 && !isSpotifyLoggedIn && !spotifyAccessToken && !spotifyAuthLoading && (
+                        <View style={styles.reconnectionNotice}>
+                            <View style={styles.reconnectionHeader}>
+                                <Feather name="alert-circle" size={20} color="#F59E0B" />
+                                <Text style={styles.reconnectionTitle}>Spotify Session Expired</Text>
+                            </View>
+                            <Text style={styles.reconnectionText}>
+                                Your Spotify connection has expired. Reconnect to refresh your music data.
+                            </Text>
+                            <TouchableOpacity 
+                                style={styles.reconnectionButton}
+                                onPress={handleSpotifyReconnect}
+                            >
+                                <Feather name="refresh-cw" size={16} color="white" />
+                                <Text style={styles.reconnectionButtonText}>Reconnect Spotify</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
+                    
+                    {/* Spotify Refresh Button */}
                     {(serviceId === 'spotify' || isSpotifyLoggedIn) && isPremium && (
                         <TouchableOpacity 
                             style={styles.refreshSpotifyButton}

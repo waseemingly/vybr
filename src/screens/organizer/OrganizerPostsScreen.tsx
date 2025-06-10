@@ -83,6 +83,9 @@ const OrganizerPostsScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<OrganizerPostsScreenRouteProp>();
   const { session, loading: authLoading } = useAuth();
+  
+  // FIX: Destructure userId from the session to create a stable dependency.
+  const userId = session?.user?.id;
 
   // Tab-specific data states
   const [allMyEventsTabSource, setAllMyEventsTabSource] = useState<MappedPost[]>([]);
@@ -109,7 +112,8 @@ const OrganizerPostsScreen = () => {
   const [modalVisible, setModalVisible] = useState(false);
 
   const fetchOrganizerPosts = useCallback(async (page: number, tabIndex: number) => {
-    if (!session?.user?.id) {
+    // FIX: Depend on the stable userId instead of the whole session object.
+    if (!userId) {
       setError("Login required.");
       setIsLoading(false);
       setRefreshing(false);
@@ -125,8 +129,8 @@ const OrganizerPostsScreen = () => {
     try {
       let query = supabase
         .from("events")
-        .select("id, title, event_datetime, location_text, poster_urls, booking_type") // Removed confirmed_bookings_count
-        .eq("organizer_id", session.user.id);
+        .select("id, title, event_datetime, location_text, poster_urls, booking_type")
+        .eq("organizer_id", userId); // FIX: Use the stable userId variable.
 
       const now = new Date().toISOString();
       if (tabIndex === 1) { // "Upcoming" tab
@@ -140,14 +144,14 @@ const OrganizerPostsScreen = () => {
       if (fetchError) throw fetchError;
 
       const isLastPage = !data || data.length < itemsPerPage;
-      return { data: data as SupabaseEventFromDB[] || [], error: null, isLastPage }; // Cast data
+      return { data: data as SupabaseEventFromDB[] || [], error: null, isLastPage };
 
     } catch (err: any) {
       console.error("Fetch Organizer Posts Err:", err);
       setError(`Failed to fetch posts: ${err.message}`);
       return { data: [], error: err, isLastPage: true };
     }
-  }, [session, refreshing]);
+  }, [userId, refreshing]); // FIX: Changed dependency from [session, refreshing] to [userId, refreshing]
 
   const loadPostsForTab = useCallback(async (tabIndex: number, forRefresh = false) => {
     const isAllMyEventsTab = tabIndex === 0;
@@ -171,7 +175,6 @@ const OrganizerPostsScreen = () => {
         return;
     }
     
-    // Corrected type for post in map
     const mappedNewPosts: MappedPost[] = newPostsData.map((post: SupabaseEventFromDB): MappedPost => {
         const { date, time } = formatDateTime(post.event_datetime);
         return {
@@ -183,7 +186,7 @@ const OrganizerPostsScreen = () => {
           venue: post.location_text ?? "N/A",
           booking_type: post.booking_type,
           event_datetime_iso: post.event_datetime,
-          status: getEventStatus(post.event_datetime), // Add status
+          status: getEventStatus(post.event_datetime),
         };
     });
 
@@ -201,10 +204,11 @@ const OrganizerPostsScreen = () => {
     if (forRefresh) setRefreshing(false);
     setIsLoading(false);
 
-  }, [fetchOrganizerPosts, currentPageAllMyEvents, currentPageUpcoming ]); // Removed setIsLoading from deps
+  }, [fetchOrganizerPosts, currentPageAllMyEvents, currentPageUpcoming ]);
 
   useEffect(() => {
-    if (session?.user?.id) {
+    // FIX: Depend on the stable userId instead of session?.user?.id
+    if (userId) {
         setIsLoading(true);
         loadPostsForTab(activeTabIndex, true);
     } else {
@@ -213,7 +217,7 @@ const OrganizerPostsScreen = () => {
         setLoadedUpcomingEvents([]);
         setIsLoading(false);
     }
-  }, [activeTabIndex, session?.user?.id, loadPostsForTab]); 
+  }, [activeTabIndex, userId, loadPostsForTab]); // FIX: Changed dependency
 
   useFocusEffect(useCallback(() => {
     const { openPostId, initialScreenTab } = route.params || {};
@@ -229,17 +233,15 @@ const OrganizerPostsScreen = () => {
     }
 
     if (needsTabChange) {
-        setActiveTabIndex(tabToLoad); // This will trigger the useEffect above to load data
+        setActiveTabIndex(tabToLoad);
     } else {
-        // If no tab change, or already on the correct tab, refresh its data
-        setIsLoading(true); // Show loading for focus refresh
+        setIsLoading(true);
         loadPostsForTab(tabToLoad, true);
     }
   }, [route.params, activeTabIndex, loadPostsForTab]));
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    // No need to reset currentPage here, loadPostsForTab with forRefresh=true handles it.
     loadPostsForTab(activeTabIndex, true);
   }, [activeTabIndex, loadPostsForTab]);
 
@@ -355,7 +357,7 @@ const OrganizerPostsScreen = () => {
     if (isInitialTabLoading) {
       return <View style={styles.centeredContainer}><ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} /></View>;
     }
-    if (error && !isLoading && !refreshing) { // Show error only if not loading/refreshing
+    if (error && !isLoading && !refreshing) {
       return (
         <View style={styles.centeredContainer}>
           <Feather name="alert-triangle" size={40} color="#F87171" />
