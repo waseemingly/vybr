@@ -388,8 +388,15 @@ const UserSettingsScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-            {/* Content */}
-            <ScrollView style={styles.scrollView}>
+             <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                    <Feather name="chevron-left" size={28} color="#111827" />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Settings</Text>
+                {/* Spacer */}
+                <View style={{ width: 28 }} />
+            </View>
+            <ScrollView style={styles.scrollView} contentContainerStyle={styles.contentContainer}>
                 <SettingsSection title="Profile Settings">
                     <SettingsItem label="Edit Profile" icon="edit-3" onPress={navigateToEditProfile} />
                     <SettingsItem label="Change Profile Theme" icon="sun" onPress={() => Alert.alert("Theme", "TODO: Implement Theme Selection")} />
@@ -473,7 +480,28 @@ const UserSettingsScreen: React.FC = () => {
 const styles = StyleSheet.create({
     centeredLoader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB' },
     container: { flex: 1, backgroundColor: '#F9FAFB', },
-    scrollView: { flex: 1, },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    backButton: {
+        padding: 4,
+    },
+    headerTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#111827',
+    },
+    scrollView: {
+        flex: 1,
+    },
+    contentContainer: { paddingBottom: 30 },
     sectionContainer: { marginTop: 12, backgroundColor: 'white', borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#E5E7EB', },
     sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, },
     sectionTitle: { fontSize: 14, fontWeight: '600', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.5, },

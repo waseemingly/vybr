@@ -61,6 +61,7 @@ interface AppConstantsType {
   };
   // --- END OF ADDED SPOTIFY TYPE ---
   DEFAULT_PROFILE_PIC: string;
+  DEFAULT_EVENT_IMAGE: string;
   NAVBAR_HEIGHT: number;
 }
 // --- END OF INTERFACE DEFINITION ---
@@ -131,6 +132,7 @@ export const APP_CONSTANTS: AppConstantsType = {
 
   // Default assets
   DEFAULT_PROFILE_PIC: 'https://via.placeholder.com/150/CCCCCC/808080?text=No+Image',
+  DEFAULT_EVENT_IMAGE: "https://via.placeholder.com/800x450/D1D5DB/1F2937?text=No+Image",
 
   // Layout dimensions
   NAVBAR_HEIGHT: 90,

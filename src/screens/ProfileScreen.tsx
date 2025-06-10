@@ -1099,12 +1099,22 @@ const ProfileScreen: React.FC = () => {
                  <ProfileSection title="My Attended Events" icon="check-square" isPremiumUser={isPremium}>
                       <TouchableOpacity 
                           style={styles.linkButton} 
-                          // onPress={() => navigation.navigate('AttendedEventsScreen')} // TODO: Fix navigation path
+                          onPress={() => navigation.navigate('AttendedEventsScreen')}
                       >
                          <Text style={styles.linkButtonText}>View & Rate Past Events</Text>
                          <Feather name="chevron-right" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
                       </TouchableOpacity>
                  </ProfileSection>
+
+                 <ProfileSection title="My Bookings" icon="book-open" isPremiumUser={isPremium}>
+                    <TouchableOpacity
+                        style={styles.linkButton}
+                        onPress={() => navigation.navigate('MyBookingsScreen')}
+                    >
+                       <Text style={styles.linkButtonText}>View Upcoming Bookings</Text>
+                       <Feather name="chevron-right" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                    </TouchableOpacity>
+               </ProfileSection>
 
                 {!isPremium && (
                     <TouchableOpacity 

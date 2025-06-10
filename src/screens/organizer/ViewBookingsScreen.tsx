@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Image, Alert, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -26,6 +26,7 @@ interface BookingInfo {
   quantity: number;
   status: string; // e.g., CONFIRMED
   checked_in: boolean; // Added for check-in status
+  booking_code: string | null;
 }
 
 const DEFAULT_PROFILE_IMAGE = APP_CONSTANTS.DEFAULT_PROFILE_PIC || 'https://via.placeholder.com/100x100/D1D5DB/1F2937?text=N';
@@ -36,6 +37,8 @@ const ViewBookingsScreen = () => {
   const { eventId, eventTitle } = route.params;
 
   const [bookings, setBookings] = useState<BookingInfo[]>([]);
+  const [filteredBookings, setFilteredBookings] = useState<BookingInfo[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,7 +60,7 @@ const ViewBookingsScreen = () => {
       // Step 1: Fetch confirmed bookings for the event, including checked_in status
       const { data: bookingsData, error: bookingsError } = await supabase
         .from('event_bookings')
-        .select('id, user_id, quantity, status, checked_in') // Added checked_in
+        .select('id, user_id, quantity, status, checked_in, booking_code') // Added checked_in and booking_code
         .eq('event_id', eventId)
         .eq('status', 'CONFIRMED');
 
@@ -118,6 +121,7 @@ const ViewBookingsScreen = () => {
             quantity: booking.quantity || 0,
             status: booking.status,
             checked_in: booking.checked_in || false, // Ensure default if null
+            booking_code: booking.booking_code,
           };
         });
         setBookings(mappedBookings);
@@ -137,14 +141,26 @@ const ViewBookingsScreen = () => {
     fetchBookings();
   }, [fetchBookings]);
 
+  useEffect(() => {
+    if (searchQuery.trim() === '') {
+      setFilteredBookings(bookings);
+    } else {
+      const lowercasedQuery = searchQuery.toLowerCase();
+      const filtered = bookings.filter(booking => {
+        const nameMatch = booking.name.toLowerCase().includes(lowercasedQuery);
+        const codeMatch = booking.booking_code?.toLowerCase().includes(lowercasedQuery);
+        return nameMatch || codeMatch;
+      });
+      setFilteredBookings(filtered);
+    }
+  }, [searchQuery, bookings]);
+
   const handleToggleCheckIn = async (bookingId: string, currentCheckedInStatus: boolean) => {
     console.log(`[ViewBookingsScreen] Toggling check-in for bookingId: ${bookingId} from ${currentCheckedInStatus} to ${!currentCheckedInStatus}`);
-    // Optimistically update UI
-    setBookings(prevBookings =>
-      prevBookings.map(b =>
-        b.id === bookingId ? { ...b, checked_in: !currentCheckedInStatus } : b
-      )
-    );
+    // Optimistically update both lists
+    const updater = (b: BookingInfo) => b.id === bookingId ? { ...b, checked_in: !currentCheckedInStatus } : b;
+    setBookings(prev => prev.map(updater));
+    setFilteredBookings(prev => prev.map(updater));
 
     // Update in Supabase
     const { error: updateError } = await supabase
@@ -155,11 +171,8 @@ const ViewBookingsScreen = () => {
     if (updateError) {
       console.error("[ViewBookingsScreen] Failed to update check-in status in Supabase:", updateError);
       // Revert optimistic update on error
-      setBookings(prevBookings =>
-        prevBookings.map(b =>
-          b.id === bookingId ? { ...b, checked_in: currentCheckedInStatus } : b
-        )
-      );
+      setBookings(prev => prev.map(updater));
+      setFilteredBookings(prev => prev.map(updater));
       Alert.alert("Error", "Could not update check-in status. Please try again.");
     }
   };
@@ -180,6 +193,12 @@ const ViewBookingsScreen = () => {
         <View style={styles.bookingInfo}>
           <Text style={styles.userName}>{item.name}</Text>
           <Text style={styles.ticketInfo}>{item.quantity} {item.quantity === 1 ? 'ticket' : 'tickets'}</Text>
+          {item.booking_code && (
+            <View style={styles.codeContainer}>
+              <Feather name="tag" size={12} color="#6B7280" style={styles.codeIcon} />
+              <Text style={styles.codeText}>{item.booking_code}</Text>
+            </View>
+          )}
         </View>
         <TouchableOpacity onPress={() => handleToggleCheckIn(item.id, item.checked_in)} style={styles.checkboxContainer}>
           <Feather 
@@ -224,8 +243,20 @@ const ViewBookingsScreen = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+      <View style={styles.searchContainer}>
+        <Feather name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search by name or code..."
+          placeholderTextColor="#9CA3AF"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      </View>
       <FlatList
-        data={bookings}
+        data={filteredBookings}
         renderItem={renderBookingItem}
         keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={styles.listContentContainer}
@@ -302,11 +333,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   ticketInfo: {
     fontSize: 14,
     color: '#4B5563',
+  },
+  codeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  codeIcon: {
+    marginRight: 4,
+  },
+  codeText: {
+    fontSize: 13,
+    color: '#374151',
+    fontWeight: '500',
+    letterSpacing: 1,
   },
   checkboxContainer: {
     padding: 8, // For easier touch
@@ -316,6 +361,24 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#F3F4F6', // Light separator line
     marginLeft: 16 + 50 + 16, // Align with text, after image and margin
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 10,
+    marginHorizontal: 16,
+    marginVertical: 12,
+    paddingHorizontal: 12,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    height: 44,
+    fontSize: 16,
+    color: '#111827',
   },
 });
 
