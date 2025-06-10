@@ -86,6 +86,9 @@ import OverallAnalyticsScreen from '@/screens/organizer/OverallAnalyticsScreen';
 // Required Payment Screen
 import RequiredPaymentScreen from '@/screens/payment/RequiredPaymentScreen';
 
+// My Bookings Screen
+import MyBookingsScreen from '@/screens/MyBookingsScreen';
+
 // NEW: PaymentRequiredStack - Acts as a mandatory gateway
 export type PaymentRequiredStackParamList = {
   RequiredPaymentScreen: undefined;
@@ -126,6 +129,7 @@ export type MainStackParamList = {
   UserBillingHistoryScreen: undefined;
   UpdateMusicFavoritesScreen: undefined;
   LinkMusicServicesScreen: { autoLinkSpotify?: boolean } | undefined;
+  MyBookingsScreen: undefined;
 
   // Organizer Specific Screens (outside tabs)
   EventDetail: { eventId: string };   // Corrected from EditEventScreen, eventId to string
@@ -410,9 +414,13 @@ const usePaymentRequirementCheck = () => {
 
 // --- Main App Stack Component (NO PaymentGuard here anymore) ---
 const MainAppStack = () => {
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { isOrganizerMode } = useOrganizerMode();
+  const { session, loading, musicLoverProfile } = useAuth();
+  const [initialRouteName, setInitialRouteName] = useState<keyof MainStackParamList | null>(null);
+
   return (
-      <MainStack.Navigator screenOptions={{ headerShown: true }} >
+      <MainStack.Navigator screenOptions={{ headerShown: false, contentStyle: styles.cardStyle }} >
           {isOrganizerMode ? (
                <>
                    <MainStack.Screen name="OrganizerTabs" component={OrganizerTabs} options={{ headerShown: false }} />
@@ -443,6 +451,7 @@ const MainAppStack = () => {
                    <MainStack.Screen name="UserBillingHistoryScreen" component={UserBillingHistoryScreen} options={{ title: 'Billing History' }} />
                    <MainStack.Screen name="UpdateMusicFavoritesScreen" component={UpdateMusicFavoritesScreen} options={{ title: 'Music Favorites' }} />
                    <MainStack.Screen name="LinkMusicServicesScreen" component={LinkMusicServicesScreen} options={{ title: 'Link Music Services' }} />
+                   <MainStack.Screen name="MyBookingsScreen" component={MyBookingsScreen} />
                    <MainStack.Screen name="PremiumSignupScreen" component={PremiumSignupScreen} options={{ title: 'Payment' }} />
                    <MainStack.Screen name="PaymentConfirmationScreen" component={PaymentConfirmationScreen} options={{ title: 'Payment Confirmation' }} />
                    <MainStack.Screen name="PaymentSuccessScreen" component={PaymentSuccessScreen} />
@@ -562,6 +571,9 @@ const styles = StyleSheet.create({
    tabBarStyle: { height: Platform.OS === 'ios' ? 85 : 65, // Adjust height for iOS notch area
        paddingBottom: Platform.OS === 'ios' ? 30 : 8, // More padding for iOS bottom
        paddingTop: 5, backgroundColor: 'white', borderTopWidth: 1, borderTopColor: APP_CONSTANTS?.COLORS?.BORDER || '#E5E7EB',
+    },
+    cardStyle: {
+        backgroundColor: '#FFFFFF',
     },
 });
 

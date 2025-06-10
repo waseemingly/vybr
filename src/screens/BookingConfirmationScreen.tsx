@@ -8,10 +8,11 @@ import {
     Alert,
     ScrollView,
     Platform,
+    Button,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, CommonActions } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useStripe } from '@stripe/stripe-react-native';
@@ -164,6 +165,18 @@ const BookingConfirmationScreen: React.FC = () => {
         maxReservations
     } = route.params;
 
+    const navigateToMyBookings = () => {
+        navigation.dispatch(
+            CommonActions.reset({
+                index: 1,
+                routes: [
+                    { name: 'UserTabs', params: { screen: 'Profile' } },
+                    { name: 'MyBookingsScreen' },
+                ],
+            })
+        );
+    };
+
     // --- NEW: Centralized function to create the booking record ---
     const createBookingRecord = async () => {
         if (!session?.user) throw new Error("User session not found for booking creation.");
@@ -181,7 +194,7 @@ const BookingConfirmationScreen: React.FC = () => {
                 booking_fee_paid: rawFeePaid,
                 status: 'CONFIRMED'
             })
-            .select()
+            .select('id, booking_code')
             .single();
 
         if (bookingError) {
@@ -229,7 +242,7 @@ const BookingConfirmationScreen: React.FC = () => {
                     showAlert(
                         'Payment Successful!',
                         `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed! Check your profile for details.`,
-                        [{ text: 'OK', onPress: () => navigation.navigate('Events') }]
+                        [{ text: 'OK', onPress: navigateToMyBookings }]
                     );
                 } catch (e: any) {
                     console.error('[Stripe Redirect] Error finalizing booking:', e);
@@ -345,7 +358,7 @@ const BookingConfirmationScreen: React.FC = () => {
                 showAlert(
                     'Payment Successful!',
                     `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed! Check your profile for details.`,
-                    [{ text: 'OK', onPress: () => navigation.navigate('Events') }]
+                    [{ text: 'OK', onPress: navigateToMyBookings }]
                 );
             }
 
@@ -403,7 +416,7 @@ const BookingConfirmationScreen: React.FC = () => {
                     booking_fee_paid: rawFeePaid,
                     status: 'CONFIRMED'
                 })
-                .select()
+                .select('id, booking_code')
                 .single();
 
             if (bookingError) {
@@ -414,8 +427,11 @@ const BookingConfirmationScreen: React.FC = () => {
                      throw bookingError;
                 }
             } else if (newBooking) {
-                showAlert(`${actionTextProper} Confirmed!`, `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed!`);
-                navigation.navigate('Events');
+                showAlert(
+                    `${actionTextProper} Confirmed!`,
+                    `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed!`,
+                    [{ text: 'OK', onPress: navigateToMyBookings }]
+                );
             } else {
                  throw new Error("Booking completed but no confirmation data received.");
             }
@@ -442,7 +458,7 @@ const BookingConfirmationScreen: React.FC = () => {
                                     showAlert(
                                         'Payment Successful!',
                                         `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed! Check your profile for details.`,
-                                        [{ text: 'OK', onPress: () => navigation.navigate('Events') }]
+                                        [{ text: 'OK', onPress: navigateToMyBookings }]
                                     );
                                 } catch (e: any) {
                                     showAlert('Booking Creation Failed', e.message);

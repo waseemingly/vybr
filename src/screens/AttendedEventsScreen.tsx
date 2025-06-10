@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity,
-  Image, Alert, RefreshControl
+  Image, Alert, RefreshControl, ScrollView, Dimensions, Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -9,17 +9,25 @@ import { Feather } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase'; // Adjust path if necessary
 import { useAuth } from '@/hooks/useAuth'; // Adjust path if necessary
 import { APP_CONSTANTS } from '@/config/constants'; // Adjust path if necessary
+import ImageSwiper from '@/components/ImageSwiper'; // Import ImageSwiper
+
+// --- Constants for Web Layout ---
+const CARDS_PER_ROW_WEB = 4;
+const CARD_MARGIN_WEB = 16;
 
 // Type for Attended Event Data + User Rating
 interface AttendedEvent {
   event_id: string;
   title: string;
-  poster_url: string | null;
+  poster_urls: string[];
   event_datetime: string;
   location_text: string | null;
-  organizer_name: string | null; // Fetch organizer name if needed
-  user_rating: number | null; // User's rating for this event (1-5)
-  rating_id: string | null; // ID of the rating record if it exists
+  organizer_name: string | null;
+  organizer_id: string | null;
+  user_rating: number | null;
+  rating_id: string | null;
+  tags_genres: string[];
+  tags_artists: string[];
 }
 
 // Simple Star Rating Component
@@ -53,7 +61,6 @@ const StarRating: React.FC<StarRatingProps> = ({
           name="star"
           size={size}
           color={rating !== null && i <= rating ? APP_CONSTANTS.COLORS.WARNING : '#D1D5DB'}
-          style={rating !== null && i <= rating ? styles.starFilled : styles.starOutline} // Add fill for selected stars
         />
       </TouchableOpacity>
     );
@@ -112,7 +119,9 @@ const AttendedEventsScreen = () => {
                 poster_urls,
                 event_datetime,
                 location_text,
-                organizer_id 
+                organizer_id,
+                tags_genres,
+                tags_artists
             `)
             .in('id', bookedEventIds)
             .lt('event_datetime', now)
@@ -134,9 +143,9 @@ const AttendedEventsScreen = () => {
                     .select('user_id, company_name')
                     .in('user_id', organizerIds);
 
-                if (profilesError) {
-                    console.warn("Error fetching organizer profiles:", profilesError.message);
-                } else if (profilesData) {
+                if (profilesError) throw profilesError;
+                
+                if (profilesData) {
                     profilesData.forEach(p => {
                          if (p.user_id) {
                               organizerProfilesMap.set(p.user_id, { companyName: p.company_name });
@@ -169,12 +178,15 @@ const AttendedEventsScreen = () => {
                  return {
                      event_id: event.id,
                      title: event.title ?? 'Untitled Event',
-                     poster_url: event.poster_urls?.[0] ?? APP_CONSTANTS.DEFAULT_EVENT_IMAGE ?? null,
+                     poster_urls: event.poster_urls?.length > 0 ? event.poster_urls : [],
                      event_datetime: event.event_datetime,
                      location_text: event.location_text ?? 'N/A',
                      organizer_name: companyName,
+                     organizer_id: event.organizer_id,
                      user_rating: ratingsMap.get(event.id)?.rating ?? null,
                      rating_id: ratingsMap.get(event.id)?.id ?? null,
+                     tags_genres: event.tags_genres ?? [],
+                     tags_artists: event.tags_artists ?? [],
                  };
              });
             setAttendedEvents(mappedEvents);
@@ -248,75 +260,131 @@ const AttendedEventsScreen = () => {
 
     } catch (err: any) {
       console.error("Error submitting rating:", err);
-      Alert.alert('Rating Failed', `Could not submit rating: ${err.message}`);
+      Alert.alert("Error", `Could not submit rating: ${err.message}`);
     } finally {
-      setRatingSubmitting(prev => ({ ...prev, [eventId]: false })); // Stop submitting indicator
+      setRatingSubmitting(prev => ({ ...prev, [eventId]: false })); // End submitting indicator
     }
   };
 
+  const formatDateTime = (isoString: string) => {
+    if (!isoString) return { date: "N/A", time: "N/A" };
+    try {
+      const d = new Date(isoString);
+      const date = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'long' });
+      const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
+      return { date, time };
+    } catch (e) {
+      return { date: "Invalid Date", time: "" };
+    }
+  };
 
   const renderEventItem = ({ item }: { item: AttendedEvent }) => {
-    const isSubmitting = ratingSubmitting[item.event_id] ?? false;
-    const eventDate = new Date(item.event_datetime);
-    const formattedDate = eventDate.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    const { date, time } = formatDateTime(item.event_datetime);
+    const isSubmitting = ratingSubmitting[item.event_id];
+    const allTags = [...(item.tags_genres || []), ...(item.tags_artists || [])];
+
+    const cardWidth = Platform.OS === 'web' 
+        ? (Dimensions.get('window').width - (styles.listContentContainer.paddingHorizontal * 2) - CARD_MARGIN_WEB * (CARDS_PER_ROW_WEB - 1)) / CARDS_PER_ROW_WEB
+        : Dimensions.get('window').width - (styles.listContentContainer.paddingHorizontal * 2);
+
+    const imageDimension = cardWidth; // For 1:1 aspect ratio
 
     return (
-      <View style={styles.eventCard}>
-        <Image source={{ uri: item.poster_url || undefined }} style={styles.eventImage} />
-        <View style={styles.eventDetails}>
-          <Text style={styles.eventTitle} numberOfLines={2}>{item.title}</Text>
-          <Text style={styles.eventOrganizer}>{item.organizer_name}</Text>
-          <Text style={styles.eventDate}>{formattedDate}</Text>
-          <View style={styles.ratingSection}>
-             <Text style={styles.ratingLabel}>Your Rating:</Text>
-             {isSubmitting ? (
-                <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={{marginLeft: 10}} />
-             ) : (
-                 <StarRating
-                     rating={item.user_rating}
-                     onRate={(newRating) => handleRateEvent(item.event_id, item.rating_id, newRating)}
-                     disabled={isSubmitting}
-                 />
-             )}
-           </View>
+      <View style={[styles.eventCard, Platform.OS === 'web' && styles.eventCardWeb]}>
+         <ImageSwiper
+            images={item.poster_urls}
+            defaultImage={APP_CONSTANTS.DEFAULT_EVENT_IMAGE}
+            containerStyle={[styles.eventImageContainer, { height: imageDimension }]}
+            imageStyle={[styles.eventImage, { height: imageDimension, width: cardWidth }]}
+            height={imageDimension}
+         />
+        <View style={styles.cardContent}>
+            <Text style={styles.eventTitle} numberOfLines={2}>{item.title}</Text>
+            <Text style={styles.cardOrganizerName} numberOfLines={1}>by {item.organizer_name || 'Unknown Organizer'}</Text>
+            
+            <View style={styles.tagsScrollContainer}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tagsContainerCard}>
+                    {allTags.length > 0 ? (
+                        allTags.slice(0, 4).map((tag, i) => (
+                            <View key={`${tag}-${i}-card`} style={styles.tagBadgeCard}>
+                                <Text style={styles.tagTextCard}>{tag}</Text>
+                            </View>
+                        ))
+                    ) : (
+                        <Text style={styles.noTagsTextCard}>No tags</Text>
+                    )}
+                    {allTags.length > 4 && <Text style={styles.tagTextCard}>...</Text>}
+                </ScrollView>
+            </View>
+            
+            <View style={styles.eventInfoRow}>
+                <Feather name="calendar" size={14} color="#6B7280" />
+                <Text style={styles.eventInfoText}>{date}</Text>
+            </View>
+            <View style={styles.eventInfoRow}>
+                <Feather name="clock" size={14} color="#6B7280" />
+                <Text style={styles.eventInfoText}>{time}</Text>
+            </View>
+             <View style={styles.eventInfoRow}>
+                <Feather name="map-pin" size={14} color="#6B7280" />
+                <Text style={styles.eventInfoText}>{item.location_text}</Text>
+            </View>
+        </View>
+
+        <View style={styles.cardFooter}>
+            <View style={styles.ratingContainer}>
+                <Text style={styles.ratingLabel}>Your Rating</Text>
+                <StarRating
+                    rating={item.user_rating}
+                    onRate={(newRating) => handleRateEvent(item.event_id, item.rating_id, newRating)}
+                    disabled={isSubmitting}
+                    size={22}
+                />
+            </View>
+            {isSubmitting && <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} />}
         </View>
       </View>
     );
   };
 
   const renderListEmpty = () => (
-    <View style={styles.centered}>
-      <Feather name="calendar" size={40} color={APP_CONSTANTS.COLORS.DISABLED} />
-      <Text style={styles.emptyText}>No Past Attended Events Found</Text>
-      <Text style={styles.emptySubText}>Events you've booked tickets for and have passed will appear here.</Text>
+    <View style={styles.centeredContainer}>
+      <Feather name="calendar" size={40} color={APP_CONSTANTS.COLORS.DISABLED} style={styles.emptyStateIcon} />
+      <Text style={styles.emptyStateText}>No Past Attended Events Found</Text>
+      <Text style={styles.emptySubText}>Events you've attended will appear here after they happen.</Text>
     </View>
   );
 
   return (
-    <SafeAreaView edges={["top"]} style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <Feather name="chevron-left" size={28} color="#111827" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Attended Events</Text>
+        <View style={{ width: 28 }} />
+      </View>
       {loading && !refreshing ? (
-        <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} /></View>
+        <View style={styles.centeredContainer}>
+          <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+        </View>
       ) : error ? (
-        <View style={styles.centered}>
-            <Feather name="alert-circle" size={40} color={APP_CONSTANTS.COLORS.WARNING} />
-            <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity style={styles.retryButton} onPress={fetchAttendedEvents}>
-                 <Text style={styles.retryButtonText}>Retry</Text>
-            </TouchableOpacity>
+        <View style={styles.centeredContainer}>
+          <Feather name="alert-circle" size={40} color={APP_CONSTANTS.COLORS.ERROR} />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchAttendedEvents}>
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
           data={attendedEvents}
           renderItem={renderEventItem}
           keyExtractor={(item) => item.event_id}
-          contentContainerStyle={styles.listContent}
           ListEmptyComponent={renderListEmpty}
+          contentContainerStyle={styles.listContentContainer}
           refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={[APP_CONSTANTS.COLORS.PRIMARY]}
-            />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]}/>
           }
         />
       )}
@@ -325,61 +393,182 @@ const AttendedEventsScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB' },
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 10,
     paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: 'white',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
-    backgroundColor: 'white',
   },
-  backButton: { padding: 5 },
-  headerTitle: { fontSize: 18, fontWeight: '600', color: '#1F2937' },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, marginTop: 50 },
-  emptyText: { fontSize: 17, fontWeight: '600', color: '#6B7280', marginTop: 15, textAlign: 'center' },
-  emptySubText: { fontSize: 14, color: '#9CA3AF', marginTop: 8, textAlign: 'center', maxWidth: '80%' },
-  errorText: { fontSize: 16, color: '#DC2626', marginTop: 10, textAlign: 'center' },
-  retryButton: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, marginTop: 15 },
-  retryButtonText: { color: '#FFF', fontWeight: '600' },
-  listContent: { paddingVertical: 16, paddingHorizontal: 16 },
+  backButton: {
+      padding: 4,
+  },
+  headerTitle: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: '#111827',
+  },
+  listContentContainer: {
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    flexGrow: 1, // Allow content to grow
+    ...(Platform.OS === 'web' ? { 
+        flexDirection: 'row', 
+        flexWrap: 'wrap', 
+        justifyContent: 'center', 
+    } : {})
+  },
+  centeredContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
   eventCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-    overflow: 'hidden', // Ensure image corners are rounded if needed
+    backgroundColor: "white", 
+    borderRadius: 12, 
+    overflow: "hidden", 
+    marginBottom: 20, 
+    shadowColor: "#000", 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.08, 
+    shadowRadius: 4, 
+    elevation: 3,
+     ...(Platform.OS === 'web' ? {} : { width: '100%' })
+  },
+  eventCardWeb: {
+    width: (Dimensions.get('window').width - 16 * 2 - CARD_MARGIN_WEB * (CARDS_PER_ROW_WEB -1) ) / CARDS_PER_ROW_WEB,
+    marginHorizontal: CARD_MARGIN_WEB / 2,
+    marginBottom: CARD_MARGIN_WEB,
+  },
+  eventImageContainer: {
+    width: "100%",
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    backgroundColor: '#F3F4F6',
+    overflow: 'hidden',
   },
   eventImage: {
-    width: '100%',
-    height: 150,
-    backgroundColor: '#E5E7EB', // Placeholder color
+    width: "100%",
+    backgroundColor: '#F3F4F6',
   },
-  eventDetails: { padding: 12 },
-  eventTitle: { fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 4 },
-  eventOrganizer: { fontSize: 13, color: '#6B7280', marginBottom: 6 },
-  eventDate: { fontSize: 13, color: '#6B7280', marginBottom: 12 },
-  ratingSection: {
-     marginTop: 8,
-     paddingTop: 12,
-     borderTopWidth: 1,
-     borderTopColor: '#F3F4F6',
-     flexDirection: 'row',
-     alignItems: 'center',
-     justifyContent: 'space-between'
-   },
-  ratingLabel: { fontSize: 14, fontWeight: '500', color: '#374151', marginRight: 10 },
-  // Star Rating Styles
-  starContainer: { flexDirection: 'row' },
-  starButton: { paddingHorizontal: 3 }, // Add some space between stars
-  starFilled: { opacity: 1.0 }, // Make filled stars fully opaque
-  starOutline: { opacity: 0.9 }, // Make outline slightly less opaque for contrast
+  cardContent: {
+    padding: 16,
+  },
+  eventTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1F2937",
+    marginBottom: 4,
+  },
+  cardOrganizerName: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginBottom: 10,
+  },
+  tagsScrollContainer: {
+    marginBottom: 12,
+  },
+  tagsContainerCard: {
+    flexDirection: "row",
+    flexWrap: "nowrap",
+    alignItems: 'center',
+  },
+  tagBadgeCard: {
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    marginRight: 6,
+    marginBottom: 0,
+  },
+  tagTextCard: {
+    fontSize: 12,
+    color: "#1E3A8A",
+    fontWeight: '500',
+  },
+  noTagsTextCard: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    fontStyle: 'italic',
+  },
+  eventInfoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  eventInfoText: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginLeft: 8,
+    flexShrink: 1,
+  },
+  cardFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  ratingContainer: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  ratingLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  starContainer: {
+    flexDirection: 'row',
+  },
+  starButton: {
+    paddingHorizontal: 4,
+  },
+  errorText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: '600',
+    color: APP_CONSTANTS.COLORS.ERROR,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 24,
+    backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  emptyStateIcon: {
+    marginBottom: 16,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#4B5563',
+    textAlign: 'center',
+  },
+  emptySubText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+    textAlign: 'center',
+    maxWidth: '80%',
+  },
 });
 
 export default AttendedEventsScreen; 

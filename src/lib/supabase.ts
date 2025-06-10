@@ -81,6 +81,9 @@ export interface MusicLoverProfile {
   city?: string;
   isPremium?: boolean;
   musicData?: SpotifyData; // Keep if still relevant
+  favorite_artists?: string | null;
+  favorite_songs?: string | null;
+  favorite_albums?: string | null;
 }
 
 export interface OrganizerProfile {

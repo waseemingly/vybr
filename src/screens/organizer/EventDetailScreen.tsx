@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Dimensions,
-  ActivityIndicator, Alert, RefreshControl, Platform
+  ActivityIndicator, Alert, RefreshControl, Platform, useWindowDimensions
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
@@ -13,7 +13,7 @@ import { supabase } from "../../lib/supabase"; // Adjust path
 
 // Define Param List to match AppNavigator
 type OrganizerStackParamList = {
-  OrganizerPosts: undefined;
+  OrganizerPostsScreen: undefined;
   EventDetail: { eventId: string };
   EditEvent: { eventId: string };
   PromoteEvent: { eventId: string }; // Keep if planning to implement
@@ -78,7 +78,6 @@ const formatEventType = (type: string | null): string => { if (!type) return "Un
 interface SectionProps { title: string; children: React.ReactNode; icon?: React.ComponentProps<typeof Feather>['name']; }
 const Section: React.FC<SectionProps> = ({ title, children, icon }) => ( <View style={styles.section}><View style={styles.sectionHeader}><View style={styles.sectionTitleContainer}>{icon && <Feather name={icon} size={18} color="#4B5563" style={{marginRight: 8}}/>}<Text style={styles.sectionTitle}>{title}</Text></View></View>{children}</View> );
 
-const screenWidth = Dimensions.get("window").width;
 const chartConfig = { backgroundColor: "#F9FAFB", backgroundGradientFrom: "#F9FAFB", backgroundGradientTo: "#F9FAFB", decimalPlaces: 0, color: (opacity = 1) => `rgba(59, 130, 246, ${opacity})`, labelColor: (opacity = 1) => `rgba(107, 114, 128, ${opacity})`, style: { borderRadius: 8 }, propsForDots: { r: "4", strokeWidth: "1", stroke: "#3B82F6" } };
 const pieChartColors = ["#60A5FA", "#34D399", "#FBBF24", "#F87171", "#A78BFA", "#FB923C", "#9CA3AF"];
 
@@ -94,6 +93,8 @@ const EventDetailScreen = () => {
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
+  const { width: windowWidth } = useWindowDimensions();
+  const isWideScreen = Platform.OS === 'web' && windowWidth > 800;
 
   // Fetch event details AND analytics data
   const fetchEventData = useCallback(async () => {
@@ -197,12 +198,6 @@ const EventDetailScreen = () => {
   const handleMoreOptions = () => { Alert.alert("More Options", "Future options: Duplicate Event, Cancel Event, etc."); };
 
   // --- Image Swiper Logic ---
-  const windowWidth = Dimensions.get('window').width;
-  // Constrain the content width on web, and image takes this constrained width
-  const contentContainerMaxWidth = Platform.OS === 'web' ? Math.min(windowWidth * 0.9, 650) : windowWidth;
-  
-  const imageContainerWidth = contentContainerMaxWidth;
-  const imageContainerHeight = imageContainerWidth; // For 1:1 aspect ratio
   const images = event?.images ?? [DEFAULT_EVENT_IMAGE];
 
   const onScroll = (nativeEvent: any) => {
@@ -214,16 +209,16 @@ const EventDetailScreen = () => {
     }
   };
 
-  const goToPrevious = () => {
+  const goToPrevious = (width: number) => {
       if (currentImageIndex > 0) {
-          scrollViewRef.current?.scrollTo({ x: imageContainerWidth * (currentImageIndex - 1), animated: true });
+          scrollViewRef.current?.scrollTo({ x: width * (currentImageIndex - 1), animated: true });
           setCurrentImageIndex(currentImageIndex - 1);
       }
   };
 
-  const goToNext = () => {
+  const goToNext = (width: number) => {
       if (currentImageIndex < images.length - 1) {
-          scrollViewRef.current?.scrollTo({ x: imageContainerWidth * (currentImageIndex + 1), animated: true });
+          scrollViewRef.current?.scrollTo({ x: width * (currentImageIndex + 1), animated: true });
           setCurrentImageIndex(currentImageIndex + 1);
       }
   };
@@ -268,18 +263,30 @@ const EventDetailScreen = () => {
                          : 0;
   const spotsRemaining = !isUnlimited && bookingLimit ? bookingLimit - bookingsMade : null;
 
+  // Use a different max-width for web for better layout
+  const contentContainerMaxWidth = Platform.OS === 'web' ? Math.min(windowWidth * 0.95, 720) : windowWidth;
+  const chartWidth = contentContainerMaxWidth - 32; // Adjusted for single-column layout
+  const imageContainerHeight = contentContainerMaxWidth; // For 1:1 aspect ratio
+
   return (
     <SafeAreaView edges={["top"]} style={styles.container}>
+      <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+              <Feather name="arrow-left" size={24} color="#1F2937" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Event Details</Text>
+          <View style={{ width: 24 }} />
+      </View>
       <ScrollView 
-        style={[
-          styles.scrollContainer,
+        style={styles.scrollContainer}
+        contentContainerStyle={[
+          styles.scrollContent,
           Platform.OS === 'web' && {
             width: '100%',
             maxWidth: contentContainerMaxWidth,
             alignSelf: 'center',
           }
-        ]}
-        contentContainerStyle={styles.scrollContent} 
+        ]} 
         refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]} /> }
       >
         {/* --- Image Swiper Start --- */}
@@ -291,13 +298,13 @@ const EventDetailScreen = () => {
                  showsHorizontalScrollIndicator={false}
                  onMomentumScrollEnd={(e) => onScroll(e.nativeEvent)}
                  scrollEventThrottle={16}
-                 style={{ width: imageContainerWidth, height: imageContainerHeight }}
+                 style={{ width: contentContainerMaxWidth, height: imageContainerHeight }}
              >
                  {images.map((uri, index) => (
                      <Image
                          key={index}
                          source={{ uri: uri }}
-                         style={[styles.coverImage, { width: imageContainerWidth, height: imageContainerHeight }]}
+                         style={[styles.coverImage, { width: contentContainerMaxWidth, height: imageContainerHeight }]}
                          resizeMode="cover"
                      />
                  ))}
@@ -318,14 +325,14 @@ const EventDetailScreen = () => {
                  <>
                      <TouchableOpacity
                          style={[styles.arrowButton, styles.arrowLeft]}
-                         onPress={goToPrevious}
+                         onPress={() => goToPrevious(contentContainerMaxWidth)}
                          disabled={currentImageIndex === 0}
                      >
                          <Feather name="chevron-left" size={28} color={currentImageIndex === 0 ? '#9CA3AF' : '#FFF'} />
                      </TouchableOpacity>
                      <TouchableOpacity
                          style={[styles.arrowButton, styles.arrowRight]}
-                         onPress={goToNext}
+                         onPress={() => goToNext(contentContainerMaxWidth)}
                          disabled={currentImageIndex === images.length - 1}
                      >
                          <Feather name="chevron-right" size={28} color={currentImageIndex === images.length - 1 ? '#9CA3AF' : '#FFF'} />
@@ -376,28 +383,25 @@ const EventDetailScreen = () => {
              {analyticsLoading ? ( 
                  <View style={styles.dataMissingContainer}><ActivityIndicator color="#3B82F6"/><Text style={styles.dataMissingTextSmall}>Loading analytics...</Text></View> 
              ) : ( 
-                 // Only show analytics content if loading is finished
-                 <>
+                 <View>
                      <View style={styles.analyticItem}><Feather name="eye" size={16} color="#6B7280" style={styles.infoIcon}/><Text style={styles.infoTextBold}>Total Views:</Text><Text style={styles.infoText}> {event.totalImpressions !== null ? event.totalImpressions : 'N/A'}</Text></View>
                      
-                     {/* Impressions Chart */}
-                     {(event.impressionsOverTime && event.impressionsOverTime.length > 1) ? ( // Require at least 2 points for a line
+                     {(event.impressionsOverTime && event.impressionsOverTime.length > 1) ? (
                          <View style={styles.chartContainer}>
                              <Text style={styles.chartTitle}>Impressions Over Time</Text>
-                             <LineChart data={lineChartData} width={screenWidth - 64} height={220} chartConfig={chartConfig} bezier style={styles.chartStyle} />
+                             <LineChart data={lineChartData} width={chartWidth} height={220} chartConfig={chartConfig} bezier style={styles.chartStyle} />
                          </View>
                      ) : ( <Text style={styles.dataMissingTextSmall}>Not enough impression data for trend chart.</Text> )}
                      
-                     {/* Age Distribution Chart */}
                       {(pieChartData && pieChartData.length > 0) ? ( 
                           <View style={styles.chartContainer}>
                               <Text style={styles.chartTitle}>Attendee Age Distribution</Text>
-                              <PieChart data={pieChartData} width={screenWidth - 64} height={220} chartConfig={chartConfig} accessor={"population"} backgroundColor={"transparent"} paddingLeft={"15"} absolute style={styles.chartStyle} />
+                              <PieChart data={pieChartData} width={chartWidth} height={220} chartConfig={chartConfig} accessor={"population"} backgroundColor={"transparent"} paddingLeft={"15"} absolute style={styles.chartStyle} />
                           </View>
                       ) : ( 
                           <View style={styles.dataMissingContainer}><Feather name="users" size={24} color="#9CA3AF" /><Text style={styles.dataMissingText}>No attendee age data available.</Text></View>
                       )}
-                 </>
+                 </View>
              )}
           </Section>
 
@@ -435,7 +439,7 @@ const EventDetailScreen = () => {
                                           }],
                                           legend: ["Cumulative Impression Cost ($)"]
                                       }}
-                                      width={screenWidth - 64}
+                                      width={chartWidth}
                                       height={220}
                                       chartConfig={{
                                           ...chartConfig,
@@ -481,7 +485,7 @@ const EventDetailScreen = () => {
                                           }],
                                           legend: ["Cumulative Transaction Cost ($)"]
                                       }}
-                                      width={screenWidth - 64}
+                                      width={chartWidth}
                                       height={220}
                                       chartConfig={{
                                           ...chartConfig,
@@ -517,7 +521,6 @@ const EventDetailScreen = () => {
                               <View style={styles.chartContainer}>
                                   <LineChart 
                                       data={{
-                                          // Use impression data points for the timeline
                                           labels: event.impressionsOverTime.map(p => 
                                               new Date(p.interval_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                                           ),
@@ -543,7 +546,7 @@ const EventDetailScreen = () => {
                                           }],
                                           legend: ["Total Platform Cost ($)"]
                                       }}
-                                      width={screenWidth - 64}
+                                      width={chartWidth}
                                       height={220}
                                       chartConfig={{
                                           ...chartConfig,
@@ -591,14 +594,33 @@ const EventDetailScreen = () => {
 
 // --- Styles ---
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "white" },
+  container: { flex: 1, backgroundColor: "#FFFFFF" },
   centeredContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: 'white' },
   errorText: { fontSize: 16, fontWeight: '600', color: '#DC2626', marginTop: 10, textAlign: 'center' },
   emptyText: { fontSize: 16, fontWeight: '600', color: '#4B5563', marginTop: 10, textAlign: 'center' },
   retryButton: { backgroundColor: '#3B82F6', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, marginTop: 15 },
   retryButtonText: { color: '#FFF', fontWeight: '600' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  backButton: {
+      padding: 4,
+  },
+  headerTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: '#1F2937',
+  },
   scrollContainer: { 
     flex: 1,
+    backgroundColor: '#F9FAFB'
   },
   scrollContent: { paddingBottom: 40 },
   imageSwiperContainer: {
@@ -678,6 +700,15 @@ const styles = StyleSheet.create({
   chartContainer: { marginTop: 16, alignItems: 'center', marginBottom: 16 },
   chartTitle: { fontSize: 16, fontWeight: '600', color: '#374151', marginBottom: 8, textAlign: 'center' },
   chartStyle: { marginVertical: 8, borderRadius: 8 },
+  responsiveGridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -8, // Counteract padding on children
+  },
+  gridItem: {
+    paddingHorizontal: 8,
+    width: '100%',
+  },
   actionButtons: { flexDirection: "row", marginTop: 24, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
   editButtonFullWidth: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(59, 130, 246, 0.1)", paddingVertical: 12, borderRadius: 8, },
   editButtonText: { color: "#3B82F6", fontWeight: "600", marginLeft: 8, fontSize: 16 },

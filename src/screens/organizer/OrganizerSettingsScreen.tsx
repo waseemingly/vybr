@@ -308,39 +308,146 @@ const OrganizerSettingsScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-            {/* Content */}
-            <ScrollView style={styles.scrollView}>
-                 <SettingsSection title="Profile Settings">
-                    <SettingsItem label="Edit Organizer Profile" icon="edit-3" onPress={navigateToEditProfile} />
-                    <SettingsItem label="Change Profile Theme" icon="sun" onPress={() => Alert.alert("Theme", "TODO: Implement Theme Selection (Premium Only?)")} disabled={true /* Example: Add premium check */} />
-                </SettingsSection>
-
-                 <SettingsSection title="Notifications">
-                    {/* Handle null state visually and disable toggle until loaded */}
-                    <SettingsItem label="New Followers" icon="user-plus" toggleValue={notifications.notify_new_followers ?? true} onToggleChange={(v) => handleToggle('notify_new_followers', v)} isUpdating={updatingSetting === 'notify_new_followers'} disabled={notifications.notify_new_followers === null} />
-                    <SettingsItem label="Event Engagement" icon="message-circle" toggleValue={notifications.notify_event_engagement ?? true} onToggleChange={(v) => handleToggle('notify_event_engagement', v)} isUpdating={updatingSetting === 'notify_event_engagement'} disabled={notifications.notify_event_engagement === null} />
-                    <SettingsItem label="App Updates & News" icon="info" toggleValue={notifications.notify_app_updates ?? true} onToggleChange={(v) => handleToggle('notify_app_updates', v)} isUpdating={updatingSetting === 'notify_app_updates'} disabled={notifications.notify_app_updates === null} />
-                </SettingsSection>
-
-                <SettingsSection title="Payment & Billing">
-                    {/* Display N/A if profile info isn't available */}
-                    <SettingsItem label="Change Payment Details" icon="credit-card" onPress={navigateToManagePlan} value={organizerProfile ? "Available" : "Not available"} disabled={!organizerProfile} />
-                    <SettingsItem label="Billing History" icon="file-text" onPress={navigateToBillingHistory} value={organizerProfile ? "View history" : "Not available"} disabled={!organizerProfile} />
-                </SettingsSection>
-
-                <SettingsSection title="Account Management">
-                    <SettingsItem label="Download My Data" icon="download" onPress={handleDownloadData} disabled={!userId || isDeleting}/>
-                    <SettingsItem 
-                        label="Delete Account" 
-                        icon="trash-2" 
-                        isDestructive 
-                        onPress={handleDeleteAccount} 
-                        disabled={!userId || isDeleting}
-                        isUpdating={isDeleting}
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                    <Feather name="chevron-left" size={28} color="#111827" />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Settings</Text>
+                {/* Spacer */}
+                <View style={{ width: 28 }} />
+            </View>
+            <ScrollView style={styles.scrollView} contentContainerStyle={styles.contentContainer}>
+                {/* Account Section */}
+                <SettingsSection title="Account">
+                    <SettingsItem
+                        label="Edit Profile"
+                        icon="user"
+                        onPress={navigateToEditProfile}
+                        disabled={authLoading}
                     />
-                    <SettingsItem label="Log Out" icon="log-out" isDestructive onPress={handleLogout} disabled={isDeleting} />
+                    <SettingsItem
+                        label="Manage Plan"
+                        icon="credit-card"
+                        onPress={navigateToManagePlan}
+                        disabled={authLoading}
+                    />
+                     <SettingsItem
+                        label="Billing History"
+                        icon="clock"
+                        onPress={navigateToBillingHistory}
+                        disabled={authLoading}
+                    />
                 </SettingsSection>
-                 <View style={{ height: 30 }} />
+
+                {/* Notifications Section */}
+                <SettingsSection title="Notifications">
+                    {loadingSettings ? (
+                        <ActivityIndicator style={{ marginVertical: 20 }} color={APP_CONSTANTS.COLORS.PRIMARY}/>
+                    ) : (
+                        <>
+                            <SettingsItem
+                                label="New Followers"
+                                icon="user-plus"
+                                toggleValue={notifications.notify_new_followers ?? false}
+                                onToggleChange={(val) => handleToggle('notify_new_followers', val)}
+                                isUpdating={updatingSetting === 'notify_new_followers'}
+                                disabled={notifications.notify_new_followers === null}
+                            />
+                            <SettingsItem
+                                label="Event Engagement"
+                                icon="message-square"
+                                toggleValue={notifications.notify_event_engagement ?? false}
+                                onToggleChange={(val) => handleToggle('notify_event_engagement', val)}
+                                isUpdating={updatingSetting === 'notify_event_engagement'}
+                                disabled={notifications.notify_event_engagement === null}
+                            />
+                            <SettingsItem
+                                label="App Updates & News"
+                                icon="bell"
+                                toggleValue={notifications.notify_app_updates ?? false}
+                                onToggleChange={(val) => handleToggle('notify_app_updates', val)}
+                                isUpdating={updatingSetting === 'notify_app_updates'}
+                                disabled={notifications.notify_app_updates === null}
+                            />
+                        </>
+                    )}
+                </SettingsSection>
+
+                {/* Privacy & Security Section */}
+                <SettingsSection title="Privacy & Security">
+                    <SettingsItem
+                        label="Download Your Data"
+                        icon="download-cloud"
+                        onPress={handleDownloadData}
+                        disabled // Not implemented
+                    />
+                    <SettingsItem
+                        label="Logout on All Devices"
+                        icon="log-out"
+                        onPress={handleLogoutAllDevices}
+                        disabled // Not implemented
+                    />
+                </SettingsSection>
+                
+                {/* Actions Section */}
+                 <SettingsSection title="Actions">
+                    <SettingsItem
+                        label="Logout"
+                        icon="log-out"
+                        onPress={handleLogout}
+                        isDestructive={false} // Logout is not "destructive" in the sense of data loss
+                        disabled={authLoading}
+                    />
+                    <SettingsItem
+                        label="Delete Account"
+                        icon="trash-2"
+                        onPress={() => {
+                            const confirmDelete = async () => {
+                                if (!userId) return;
+                                setIsDeleting(true);
+                                try {
+                                    console.log("[OrganizerSettingsScreen] Starting account deletion process...", {
+                                        platform: Platform.OS,
+                                        userId,
+                                        isWeb: Platform.OS === 'web'
+                                    });
+                                    
+                                    // 1. Delete the user's auth account using Edge function
+                                    const { data, error: functionError } = await supabase.functions.invoke('delete-user-account');
+                                    
+                                    if (functionError) {
+                                        throw new Error(`Failed to delete account: ${functionError.message}`);
+                                    }
+                        
+                                    if (data && typeof data === 'object' && (data as any).error) {
+                                        throw new Error(`Account deletion failed: ${(data as any).error || (data as any).message || 'Unknown error from deletion function'}`);
+                                    }
+                        
+                                    // 2. Sign out & force clear state
+                                    await logout();
+                        
+                                } catch (err: any) {
+                                    console.error("[OrganizerSettingsScreen] Account deletion failed:", err);
+                                    Alert.alert("Deletion Failed", err.message || "An unexpected error occurred. Please try again or contact support.");
+                                } finally {
+                                    setIsDeleting(false);
+                                }
+                            };
+
+                            Alert.alert(
+                                'Delete Account',
+                                'This is irreversible and will permanently delete all your data. Are you sure?',
+                                [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    { text: 'Delete', style: 'destructive', onPress: confirmDelete }
+                                ]
+                            );
+                        }}
+                        isDestructive={true}
+                        disabled={isDeleting}
+                        isUpdating={isDeleting} // Show loader when deleting
+                    />
+                </SettingsSection>
             </ScrollView>
         </SafeAreaView>
     );
@@ -351,10 +458,30 @@ const OrganizerSettingsScreen: React.FC = () => {
 const styles = StyleSheet.create({
     centeredLoader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB' },
     container: { flex: 1, backgroundColor: '#F9FAFB', },
-    backButton: { padding: 4, },
-    headerTitle: { fontSize: 18, fontWeight: '600', color: '#1F2937', },
-    headerRightPlaceholder: { width: 32, },
-    scrollView: { flex: 1, },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    backButton: {
+        padding: 4,
+    },
+    headerTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#111827',
+    },
+    scrollView: {
+        flex: 1,
+    },
+    contentContainer: {
+        padding: 16,
+    },
     sectionContainer: { marginTop: 12, backgroundColor: 'white', borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#E5E7EB', },
     sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, },
     sectionTitle: { fontSize: 14, fontWeight: '600', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.5, },
