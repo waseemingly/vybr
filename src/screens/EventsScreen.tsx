@@ -567,6 +567,19 @@ const logImpression = async (eventId: string, source: string = 'feed') => {
         } else {
             console.log(`[IMPRESSION] Successfully logged for event ${eventId} by user ${userId || 'anonymous'}`);
         }
+
+        // As requested, invoking the edge function to report usage.
+        console.log(`[IMPRESSION] Invoking edge function 'report-monthly-impression-usage' for event: ${eventId}`);
+        const { error: functionError } = await supabase.functions.invoke('report-monthly-impression-usage', {
+            body: { eventId: eventId },
+        });
+
+        if (functionError) {
+            console.error(`[IMPRESSION] Error invoking report-monthly-impression-usage function:`, functionError.message);
+        } else {
+            console.log(`[IMPRESSION] Successfully invoked edge function for event: ${eventId}`);
+        }
+
     } catch (e) {
         console.error('[IMPRESSION] Unexpected error:', e);
     }
