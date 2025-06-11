@@ -73,7 +73,7 @@ Refer to the main Vybr Terms & Conditions.
 const OrganizerSignUpFlow = () => {
   const navigation = useNavigation<OrganizerSignUpNavigationProp>();
   // Get new functions from useAuth
-  const { signUp, createOrganizerProfile, requestMediaLibraryPermissions, loading: authLoading, checkOrganizerEmailExists } = useAuth();
+  const { signUp, createOrganizerProfile, requestMediaLibraryPermissions, loading: authLoading, checkEmailExists } = useAuth();
 
   const [formData, setFormData] = useState({
     companyName: '',
@@ -200,18 +200,18 @@ const OrganizerSignUpFlow = () => {
     setEmailFeedback('Checking availability...');
     
     try {
-      console.log('[OrganizerSignUpFlow] Calling checkOrganizerEmailExists...');
-      const result = await checkOrganizerEmailExists(email);
-      console.log(`[OrganizerSignUpFlow] checkOrganizerEmailExists result:`, result);
+      console.log('[OrganizerSignUpFlow] Calling checkEmailExists...');
+      const result = await checkEmailExists(email);
+      console.log(`[OrganizerSignUpFlow] checkEmailExists result:`, result);
       
-      if (result.error) {
+      if (result.exists) {
+        setEmailStatus('invalid');
+        setEmailFeedback(result.error || 'This email is already registered.');
+        console.log('[OrganizerSignUpFlow] Email already exists');
+      } else if (result.error) {
         setEmailStatus('error');
         setEmailFeedback(result.error || 'Could not verify email.');
         console.log(`[OrganizerSignUpFlow] Email check error: ${result.error}`);
-      } else if (result.exists) {
-        setEmailStatus('invalid');
-        setEmailFeedback('Email is already in use by an Organizer.');
-        console.log('[OrganizerSignUpFlow] Email already exists for an Organizer');
       } else {
         setEmailStatus('valid');
         setEmailFeedback('Email available!');
