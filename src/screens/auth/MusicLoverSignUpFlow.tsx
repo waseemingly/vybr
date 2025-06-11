@@ -1383,12 +1383,12 @@ const MusicLoverSignUpFlow = () => {
         try {
             // TODO: Replace with: const result = await auth.checkEmailExists(email);
             const result = await checkEmailExists(email); // This now correctly calls the music_lover specific check
-            if (result.error) {
-                setEmailStatus('error');
-                setEmailFeedback(result.error || 'Could not verify email.');
-            } else if (result.exists) {
+            if (result.exists) {
                 setEmailStatus('invalid');
-                setEmailFeedback('Email is already in use by a Music Lover.'); // Clarified feedback
+                setEmailFeedback(result.error || 'This email is already registered.');
+            } else if (result.error) {
+                setEmailStatus('error');
+                setEmailFeedback(result.error);
             } else {
                 setEmailStatus('valid');
                 setEmailFeedback('Email available!');
