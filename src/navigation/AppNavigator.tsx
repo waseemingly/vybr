@@ -50,6 +50,7 @@ import OrgBillingHistoryScreen from '@/screens/organizer/OrgBillingHistoryScreen
 import UserListScreen from '@/screens/UserListScreen';
 import UpcomingEventsListScreen from '@/screens/UpcomingEventsListScreen';
 import PastEventsListScreen from '@/screens/PastEventsListScreen';
+import OrganizerReservationsScreen from '@/screens/OrganizerReservationsScreen';
 
 // Attended Events Screen (New)
 import AttendedEventsScreen from '@/screens/AttendedEventsScreen'; // <-- IMPORT NEW SCREEN
@@ -142,6 +143,7 @@ export type MainStackParamList = {
   UserListScreen: undefined; // For organizers viewing followers/attendees
   PromoteEvent: { eventId: string }; // Added based on EventDetailScreen's OrganizerStackParamList
   OverallAnalyticsScreen: undefined; // <-- ADDED OverallAnalyticsScreen for organizers
+  OrganizerReservationsScreen: undefined; // <-- ADDED
 
   // Common Screens (accessible by both, or general purpose)
   OtherUserProfileScreen: { userId: string };
@@ -434,6 +436,7 @@ const MainAppStack = () => {
                    <MainStack.Screen name="UserListScreen" component={UserListScreen} options={{ title: 'Followers' }}/>
                    <MainStack.Screen name="OverallAnalyticsScreen" component={OverallAnalyticsScreen} options={{ title: 'Overall Analytics' }}/>
                    <MainStack.Screen name="ShareEventScreen" component={ShareEventScreen} options={{ title: 'Share Event' }}/>
+                   <MainStack.Screen name="OrganizerReservationsScreen" component={OrganizerReservationsScreen} options={{ title: 'Organizer Reservations' }}/>
                </>
           ) : (
                <>

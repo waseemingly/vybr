@@ -24,6 +24,8 @@ import { APP_CONSTANTS } from '../../config/constants';
 import { supabase } from '../../lib/supabase';
 import { decode } from 'base64-arraybuffer'; // For image upload
 import ImageCropper from '../../components/ImageCropper'; // Add ImageCropper
+import OpeningHoursEditor from '../../components/OpeningHoursEditor'; // <-- ADD
+import type { OpeningHours } from '../../hooks/useAuth'; // <-- ADD
 // --------------------
 
 // Helper function to get a clean, single image MIME type (copied from other screens)
@@ -52,15 +54,23 @@ const DEFAULT_ORGANIZER_LOGO = 'https://via.placeholder.com/150/BFDBFE/1E40AF?te
 
 const EditOrganizerProfileScreen: React.FC = () => {
     const navigation = useNavigation<EditOrganizerProfileScreenNavigationProp>();
-    const { session, loading: authLoading, organizerProfile, refreshSessionData } = useAuth(); // Assume refreshSessionData exists
+    const { 
+        session, 
+        loading: authLoading, 
+        organizerProfile, 
+        updateOrganizerProfile, // <-- ADD
+        refreshSessionData 
+    } = useAuth();
 
     // --- State --- 
     const [companyName, setCompanyName] = useState(organizerProfile?.companyName ?? '');
     const [bio, setBio] = useState(organizerProfile?.bio ?? '');
     const [email, setEmail] = useState(organizerProfile?.email ?? '');
-    const [phoneNumber, setPhoneNumber] = useState(organizerProfile?.phoneNumber ?? '');
+    const [phoneNumber, setPhoneNumber] = useState(organizerProfile?.phone_number ?? '');
     const [website, setWebsite] = useState(organizerProfile?.website ?? '');
-    const [businessType, setBusinessType] = useState(organizerProfile?.businessType ?? ''); // TODO: Consider a Picker component?
+    const [businessType, setBusinessType] = useState(organizerProfile?.business_type ?? ''); // TODO: Consider a Picker component?
+    const [capacity, setCapacity] = useState(organizerProfile?.capacity?.toString() ?? ''); // <-- ADD
+    const [openingHours, setOpeningHours] = useState<OpeningHours | null>(organizerProfile?.opening_hours ?? null); // <-- ADD
     const [logoUrl, setLogoUrl] = useState(organizerProfile?.logo ?? null);
     const [newLogoUri, setNewLogoUri] = useState<string | null>(null); // Store local URI of selected new logo
     const [pickedImageBase64, setPickedImageBase64] = useState<string | null>(null); // State for base64 data
@@ -82,9 +92,11 @@ const EditOrganizerProfileScreen: React.FC = () => {
             setCompanyName(organizerProfile.companyName ?? '');
             setBio(organizerProfile.bio ?? '');
             setEmail(organizerProfile.email ?? '');
-            setPhoneNumber(organizerProfile.phoneNumber ?? '');
+            setPhoneNumber(organizerProfile.phone_number ?? '');
             setWebsite(organizerProfile.website ?? '');
-            setBusinessType(organizerProfile.businessType ?? '');
+            setBusinessType(organizerProfile.business_type ?? '');
+            setCapacity(organizerProfile.capacity?.toString() ?? ''); // <-- ADD
+            setOpeningHours(organizerProfile.opening_hours ?? null); // <-- ADD
             setLogoUrl(organizerProfile.logo ?? null);
             setIsLoading(false);
         } else if (!authLoading) {
@@ -106,8 +118,8 @@ const EditOrganizerProfileScreen: React.FC = () => {
         let result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsEditing: Platform.OS !== 'web', // Only use built-in editing on mobile
-            aspect: Platform.OS !== 'web' ? [1, 1] : undefined, // Square aspect ratio for logo on mobile
-            quality: 0.6, // Compress image slightly
+            aspect: Platform.OS !== 'web' ? [4, 5] : undefined, // Match signup aspect ratio
+            quality: 0.7,
             base64: Platform.OS === 'web', // Request base64 on web for cropping
         });
 
@@ -119,21 +131,10 @@ const EditOrganizerProfileScreen: React.FC = () => {
                 setTempImageUri(asset.uri);
                 setShowCropper(true);
             } else {
-                // On mobile, use the cropped result directly and read base64 from file
-                try {
-                    // Read the file as base64 for mobile since we didn't request it from picker
-                    const fileBase64 = await FileSystem.readAsStringAsync(asset.uri, {
-                        encoding: FileSystem.EncodingType.Base64,
-                    });
-                    
-                    setNewLogoUri(asset.uri); // Keep local URI for display
-                    setPickedImageBase64(fileBase64); // Store base64 from FileSystem
-                    setLogoUrl(asset.uri); // Update display image immediately
-                    setPickedImageMimeType(asset.mimeType ?? null); // Store the mimeType
-                } catch (error) {
-                    console.error('[EditOrganizerProfile] Error reading image as base64:', error);
-                    Alert.alert('Image Error', 'Could not process the selected image. Please try again.');
-                }
+                // On mobile, just set the local URI and mimeType
+                setNewLogoUri(asset.uri);
+                setLogoUrl(asset.uri); // Update display image immediately
+                setPickedImageMimeType(asset.mimeType ?? null); // Store the mimeType
             }
         } else {
             // Reset if cancelled or error
@@ -145,9 +146,9 @@ const EditOrganizerProfileScreen: React.FC = () => {
 
     // Handle cropped image from web cropper
     const handleCroppedImage = (croppedImageUri: string, croppedBase64: string) => {
+        // For web, the cropped URI is often a blob or base64 data url, which is what we need
         setNewLogoUri(croppedImageUri);
-        setPickedImageBase64(croppedBase64);
-        setLogoUrl(croppedImageUri);
+        setLogoUrl(croppedImageUri); // Update preview
         setPickedImageMimeType('image/jpeg'); // Cropper outputs JPEG
         setShowCropper(false);
         setTempImageUri(null);
@@ -161,105 +162,39 @@ const EditOrganizerProfileScreen: React.FC = () => {
 
     // --- Save Handler --- 
     const handleSave = async () => {
-        if (!userId || isSaving || isUploading) return;
+        if (!userId || isSaving) return;
         setIsSaving(true);
-        let uploadedLogoPath: string | null = organizerProfile?.logo ?? null; // Start with existing logo
 
-        // 1. Upload new logo if base64 data exists in state
-        if (pickedImageBase64 && newLogoUri) { // Ensure newLogoUri is also present for extension hint
-            setIsUploading(true);
-            try {
-                const base64 = pickedImageBase64;
-
-                let extHint = newLogoUri.split('.').pop()?.toLowerCase().split('?')[0];
-                if (extHint && (extHint.length > 5 || !/^[a-zA-Z0-9]+$/.test(extHint))) {
-                    extHint = undefined;
-                }
-                if (extHint === 'jpg') extHint = 'jpeg';
-
-                let finalMimeType = getCleanImageMimeType(pickedImageMimeType || undefined);
-                if (!finalMimeType && extHint) {
-                    finalMimeType = getCleanImageMimeType(`image/${extHint}`);
-                }
-                if (!finalMimeType) {
-                    finalMimeType = 'image/png'; // Default for logos if all else fails
-                    console.warn(`[EditOrganizerProfile] Could not determine clean MIME for logo. Defaulting to ${finalMimeType}. Picker: ${pickedImageMimeType}, URI: ${newLogoUri.substring(0,100)}`);
-                }
-
-                let finalFileExtension = 'png';
-                const typeParts = finalMimeType.split('/');
-                if (typeParts.length === 2 && typeParts[0] === 'image' && typeParts[1]) {
-                    finalFileExtension = typeParts[1].replace('jpeg', 'jpg').replace('svg+xml', 'svg');
-                }
-
-                const filePath = `${userId}/${Date.now()}.${finalFileExtension}`;
-                const actualMimeTypeForUpload = finalMimeType; // finalMimeType should be good here
-
-                console.log(`[EditOrganizerProfile] Uploading logo. Path: ${filePath}, ContentType: ${actualMimeTypeForUpload}`);
-
-                const { data: uploadData, error: uploadError } = await supabase.storage
-                    .from('logos')
-                    .upload(filePath, decode(base64), { contentType: actualMimeTypeForUpload });
-
-                if (uploadError) {
-                    console.error("[EditOrganizerProfile] Supabase Logo Upload Error:", uploadError);
-                    throw uploadError;
-                }
-
-                // Get public URL
-                const { data: urlData } = supabase.storage
-                    .from('logos')
-                    .getPublicUrl(filePath);
-
-                uploadedLogoPath = urlData.publicUrl;
-                setNewLogoUri(null); 
-                setPickedImageBase64(null); 
-                setPickedImageMimeType(null); // Clear picked mimeType
-
-            } catch (error: any) {
-                 console.error("Error uploading logo:", error);
-                 Alert.alert("Upload Failed", "Could not upload the new logo. Please try again.");
-                 setIsUploading(false);
-                 setIsSaving(false);
-                 return; // Stop saving process
-            } finally {
-                setIsUploading(false);
-            }
-        } else if (!newLogoUri && logoUrl !== organizerProfile?.logo) {
-             // Handle case where user picked an image but then cleared it maybe?
-             // Or if logoUrl was somehow changed without picking new base64
-             // For safety, if there's no base64 but the displayed logo URI 
-             // isn't the original one, perhaps don't change the logo path.
-             // uploadedLogoPath = organizerProfile?.logo ?? null;
-             // OR - if you allow *removing* a logo, set uploadedLogoPath = null here
-        }
-
-        // 2. Update profile data in the database
         try {
-            const updates = {
-                company_name: companyName.trim() || null,
-                bio: bio.trim() || null,
-                email: email.trim().toLowerCase() || null,
-                phone_number: phoneNumber.trim() || null,
-                website: website.trim() || null,
-                business_type: businessType.trim() || null,
-                logo: uploadedLogoPath, // Use new or existing path
+            // 1. Prepare the data payload
+            const profileData: Parameters<typeof updateOrganizerProfile>[1] = {
+                companyName: companyName.trim(),
+                bio: bio.trim(),
+                email: email.trim().toLowerCase(),
+                phoneNumber: phoneNumber.trim(),
+                website: website.trim(),
+                businessType: businessType as any, // Cast because state is just string for now
+                capacity: businessType === 'F&B' ? parseInt(capacity, 10) || 0 : undefined,
+                openingHours: businessType === 'F&B' ? (openingHours ?? undefined) : undefined,
+                logoUri: (newLogoUri || logoUrl) ?? undefined, // Pass new URI if set, otherwise existing URL
+                logoMimeType: pickedImageMimeType,
             };
 
-            const { error } = await supabase
-                .from('organizer_profiles')
-                .update(updates)
-                .eq('user_id', userId);
+            // 2. Call the update function from the hook
+            const result = await updateOrganizerProfile(userId, profileData);
 
-            if (error) throw error;
+            if (result && 'error' in result && result.error) {
+                throw result.error;
+            }
 
-            Alert.alert("Success", "Organizer profile updated successfully!");
-            await refreshSessionData?.(); // Refresh session data
+            // 3. Success
+            Alert.alert("Success", "Your profile has been updated.");
+            await refreshSessionData(); // Refresh data to get the latest profile
             navigation.goBack();
 
         } catch (error: any) {
-            console.error("Error updating organizer profile:", error);
-            Alert.alert("Error", "Could not save profile changes. Please try again.");
+            console.error("Error saving profile:", error);
+            Alert.alert("Save Failed", error.message || "Could not save your profile. Please try again.");
         } finally {
             setIsSaving(false);
         }
@@ -314,6 +249,18 @@ const EditOrganizerProfileScreen: React.FC = () => {
                 <TextInput style={styles.input} placeholder="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} keyboardType="phone-pad" placeholderTextColor="#9CA3AF" />
                 <TextInput style={styles.input} placeholder="Website (optional)" value={website} onChangeText={setWebsite} keyboardType="url" autoCapitalize="none" placeholderTextColor="#9CA3AF" />
 
+                {/* --- ADDED Capacity and Opening Hours --- */}
+                {businessType === 'F&B' && (
+                    <>
+                        <Text style={styles.sectionTitle}>Venue Details</Text>
+                        <TextInput style={styles.input} placeholder="Venue Capacity" value={capacity} onChangeText={setCapacity} keyboardType="number-pad" placeholderTextColor="#9CA3AF" />
+                        <OpeningHoursEditor 
+                            openingHours={openingHours}
+                            onOpeningHoursChange={setOpeningHours}
+                        />
+                    </>
+                )}
+
                  <View style={{ height: 40 }} />
             </ScrollView>
             
@@ -322,7 +269,7 @@ const EditOrganizerProfileScreen: React.FC = () => {
                 <ImageCropper
                     visible={showCropper}
                     imageUri={tempImageUri || ''}
-                    aspectRatio={[1, 1]} // Square aspect ratio for logo
+                    aspectRatio={[4, 5]} // Match signup aspect ratio
                     onCrop={handleCroppedImage}
                     onCancel={handleCropperCancel}
                 />

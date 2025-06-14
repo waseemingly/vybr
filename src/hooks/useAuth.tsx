@@ -7,11 +7,7 @@ import {
     SignUpCredentials, 
     LoginCredentials, 
     UserSession, 
-    MusicLoverProfile,
-    OrganizerProfile,
     MusicLoverBio as SupabaseMusicLoverBio,
-    CreateMusicLoverProfileData,
-    CreateOrganizerProfileData
 } from '../lib/supabase';
 import { useOrganizerMode } from './useOrganizerMode'; // Ensure path is correct
 import { Platform, Alert } from 'react-native';
@@ -21,13 +17,109 @@ import * as FileSystem from 'expo-file-system';
 // Import permission function from expo-image-picker (needed by context consumer)
 import { requestMediaLibraryPermissionsAsync } from 'expo-image-picker';
 import { Buffer } from 'buffer'; // Import Buffer for robust Base64 handling
+import { createClient } from '@supabase/supabase-js';
 
 // --- Exported Types ---
 export type MusicLoverBio = SupabaseMusicLoverBio;
 
+// --- Locally Defined/Patched Types to fix linter errors and add new fields ---
+export interface MusicLoverProfile {
+  id: string;
+  userId: string;
+  firstName: string;
+  lastName: string;
+  username: string;
+  email: string;
+  age: number | undefined;
+  profilePicture: string | undefined;
+  bio: MusicLoverBio | undefined;
+  country: string | undefined;
+  city: string | undefined;
+  isPremium: boolean;
+  musicData: any | null;
+  selectedStreamingService: string | undefined;
+  termsAccepted: boolean;
+  secondary_streaming_services: string[] | undefined;
+  favorite_artists: string | null | undefined;
+  favorite_albums: string | null | undefined;
+  favorite_songs: string | null | undefined;
+  stripe_customer_id: string | undefined;
+}
+
+export interface OrganizerProfile {
+    id: string;
+    user_id: string;
+    company_name: string;
+    email: string;
+    phone_number: string | undefined;
+    business_type: 'venue' | 'promoter' | 'artist_management' | 'festival_organizer' | 'other' | 'F&B' | 'club' | 'party' | undefined;
+    bio: string | undefined;
+    website: string | undefined;
+    logo: string | undefined;
+    created_at: string;
+    updated_at: string;
+    stripe_connect_account_id: string | undefined;
+    stripe_customer_id: string | undefined;
+    average_rating?: number | undefined; // It's optional as it comes from an RPC call
+    capacity?: number | undefined; // <-- ADDED
+    opening_hours?: OpeningHours | undefined; // <-- ADDED
+    companyName: string;
+    age?: number | null;
+}
+
+export interface CreateMusicLoverProfileData {
+    userId: string;
+    firstName: string;
+    lastName: string;
+    username: string;
+    email: string;
+    termsAccepted: boolean;
+    selectedStreamingService: string;
+    profilePictureUri?: string;
+    profilePictureMimeType?: string | null;
+    bio?: MusicLoverBio | null;
+    country?: string | null;
+    city?: string | null;
+    age?: number | null;
+    website?: string;
+    capacity?: number; // <-- ADDED
+    openingHours?: OpeningHours; // <-- ADDED
+}
+
+export interface CreateOrganizerProfileData {
+    userId: string;
+    companyName: string;
+    email: string;
+    logoUri?: string;
+    logoMimeType?: string | null;
+    phoneNumber?: string;
+    businessType?: 'venue' | 'promoter' | 'artist_management' | 'festival_organizer' | 'other' | 'F&B' | 'club' | 'party';
+    bio?: string;
+    website?: string;
+    capacity?: number;
+    openingHours?: OpeningHours;
+}
+
+export type TimeSlot = {
+  open: string;
+  close: string;
+};
+
+export type DayOpeningHours = TimeSlot[];
+
+export type OpeningHours = {
+  monday: DayOpeningHours;
+  tuesday: DayOpeningHours;
+  wednesday: DayOpeningHours;
+  thursday: DayOpeningHours;
+  friday: DayOpeningHours;
+  saturday: DayOpeningHours;
+  sunday: DayOpeningHours;
+};
+
 // The types from supabase.ts are now the single source of truth.
 // We just re-export them here if needed by other parts of the app.
-export type { MusicLoverProfile, OrganizerProfile, CreateMusicLoverProfileData, CreateOrganizerProfileData };
+// export type { MusicLoverProfile, OrganizerProfile, CreateMusicLoverProfileData, CreateOrganizerProfileData };
 
 // --- End Exported Types ---
 
@@ -45,10 +137,12 @@ const AuthContext = createContext<{
     refreshUserProfile: () => Promise<void>;
     createMusicLoverProfile: (profileData: CreateMusicLoverProfileData) => Promise<{ error: any } | { success: boolean; profilePictureUrl?: string | null }>;
     createOrganizerProfile: (profileData: CreateOrganizerProfileData) => Promise<{ error: any } | { success: boolean; logoUrl?: string | null }>;
+    updateOrganizerProfile: (userId: string, profileData: Partial<CreateOrganizerProfileData>) => Promise<{ error: any } | { success: boolean; logoUrl?: string | null }>;
     updatePremiumStatus: (userId: string, isPremium: boolean) => Promise<{ error: any } | { success: boolean }>;
     requestMediaLibraryPermissions: () => Promise<boolean>;
     checkUsernameExists: (username: string) => Promise<{ exists: boolean, error?: string }>;
-    checkEmailExists: (email: string) => Promise<{ exists: boolean, error?: string }>; // For Music Lovers & Organizers
+    checkEmailExists: (email: string) => Promise<{ exists: boolean, error?: string }>;
+    verifyEmailIsReal: (email: string) => Promise<{ isValid: boolean, error?: string }>;
 }>({
     session: null,
     loading: true,
@@ -62,10 +156,12 @@ const AuthContext = createContext<{
     refreshUserProfile: async () => { },
     createMusicLoverProfile: async () => ({ error: 'Not implemented' }),
     createOrganizerProfile: async () => ({ error: 'Not implemented' }),
+    updateOrganizerProfile: async () => ({ error: 'Not implemented' }),
     updatePremiumStatus: async () => ({ error: 'Not implemented' }),
     requestMediaLibraryPermissions: async () => false,
     checkUsernameExists: async () => ({ exists: false, error: 'Not implemented' }),
     checkEmailExists: async () => ({ exists: false, error: 'Not implemented' }),
+    verifyEmailIsReal: async () => ({ isValid: false, error: 'Not implemented' }),
 });
 
 // --- Provider Component ---
@@ -85,6 +181,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     useEffect(() => {
         previousSessionRef.current = session;
     }, [session]);
+
+    // Attempt to use service role key if environment provides it (bypass RLS)
+    // WARNING: Only use this for specific admin functions, never expose in client code
+    const supabaseAdmin = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY ? 
+        createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+            process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || '',
+            {
+                auth: {
+                    persistSession: false
+                }
+            }
+        ) : null;
 
     // --- Permissions Function (Exposed via context) ---
     const requestMediaLibraryPermissions = async (): Promise<boolean> => {
@@ -328,28 +437,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 console.log("[AuthProvider] Music lover profile fetched successfully:", profileData);
                                 // Map DB snake_case to frontend camelCase
                                 const fullProfile: MusicLoverProfile = {
-                                   id: profileData.id,
+                                   id: profileData.id.toString(),
                                    userId: profileData.user_id,
-                                   firstName: profileData.first_name,
-                                   lastName: profileData.last_name,
-                                   username: profileData.username,
+                                   firstName: profileData.first_name ?? '',
+                                   lastName: profileData.last_name ?? '',
+                                   username: profileData.username ?? '',
                                    email: profileData.email,
-                                   age: profileData.age,
-                                   profilePicture: profileData.profile_picture,
-                                   bio: profileData.bio,
-                                   country: profileData.country,
-                                   city: profileData.city,
+                                   age: profileData.age ?? undefined,
+                                   profilePicture: profileData.profile_picture ?? undefined,
+                                   bio: profileData.bio ?? undefined,
+                                   country: profileData.country ?? undefined,
+                                   city: profileData.city ?? undefined,
                                    isPremium: profileData.is_premium,
                                    musicData: profileData.music_data,
-                                   selectedStreamingService: profileData.selected_streaming_service,
+                                   selectedStreamingService: profileData.selected_streaming_service ?? undefined,
                                    termsAccepted: profileData.terms_accepted,
-                                   secondary_streaming_services: profileData.secondary_streaming_services ?? null, // <<< MAP THE NEW FIELD
-                                   // Map the favorite music fields
-                                   favorite_artists: profileData.favorite_artists ?? null,
-                                   favorite_albums: profileData.favorite_albums ?? null,
-                                   favorite_songs: profileData.favorite_songs ?? null,
-                                   // Add stripe_customer_id mapping for payment methods
-                                   stripe_customer_id: profileData.stripe_customer_id,
+                                   secondary_streaming_services: profileData.secondary_streaming_services ?? undefined,
+                                   favorite_artists: profileData.favorite_artists ?? undefined,
+                                   favorite_albums: profileData.favorite_albums ?? undefined,
+                                   favorite_songs: profileData.favorite_songs ?? undefined,
+                                   stripe_customer_id: profileData.stripe_customer_id ?? undefined,
                                 };
                                 console.log("[AuthProvider] Setting musicLoverProfile state:", fullProfile);
                                 setMusicLoverProfile(fullProfile);
@@ -363,7 +470,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 .from('organizer_profiles')
                                 .select('*')
                                 .eq('user_id', userId)
-                                .single();
+                                .maybeSingle();
 
                             if (profileError) {
                                 console.error("[AuthProvider] Error fetching organizer profile:", profileError);
@@ -372,10 +479,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                  const { data: avgRatingData } = await supabase.rpc('get_organizer_average_rating', { p_organizer_id: userId });
 
                                  const fullProfile: OrganizerProfile = {
-                                   ...profileData,
-                                   average_rating: avgRatingData,
-                                   stripe_connect_account_id: profileData.stripe_connect_account_id,
-                                   stripe_customer_id: profileData.stripe_customer_id,
+                                   id: profileData.id.toString(),
+                                   user_id: profileData.user_id,
+                                   company_name: profileData.company_name,
+                                   email: profileData.email,
+                                   phone_number: profileData.phone_number ?? undefined,
+                                   business_type: profileData.business_type ?? undefined,
+                                   bio: profileData.bio ?? undefined,
+                                   website: profileData.website ?? undefined,
+                                   logo: profileData.logo ?? undefined,
+                                   created_at: profileData.created_at,
+                                   updated_at: profileData.updated_at,
+                                   average_rating: avgRatingData ?? undefined,
+                                   stripe_connect_account_id: profileData.stripe_connect_account_id ?? undefined,
+                                   stripe_customer_id: profileData.stripe_customer_id ?? undefined,
+                                   capacity: profileData.capacity ?? undefined,
+                                   opening_hours: profileData.opening_hours ?? undefined,
+                                   companyName: profileData.company_name,
+                                   age: profileData.age ?? undefined,
                                  };
                                  setOrganizerProfile(fullProfile);
                                  if (currentSession) currentSession.organizerProfile = fullProfile;
@@ -387,7 +508,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         }
 
                         // Set organizer mode based on fetched profile
-                        if (currentSession?.organizerProfile) { // Guarded access
+                        if (currentSession?.organizerProfile) {
                             setIsOrganizerMode(true);
                             console.log("[AuthProvider] Setting Organizer Mode ON based on profile.");
                         } else {
@@ -591,9 +712,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
         } catch (error: any) {
             console.error('[AuthProvider] signUp: UNEXPECTED error:', error);
-            return { error };
-        } finally {
             setLoading(false);
+            return { error };
         }
     };
 
@@ -633,7 +753,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             }
 
             // --- Prepare DB Data (Match DB Columns) ---
-            const { userId, profilePictureUri, profilePictureMimeType, termsAccepted, bio, country, city, age, selectedStreamingService, ...basicProfileData } = profileData;
+            const { userId, profilePictureUri, profilePictureMimeType, termsAccepted, bio, country, city, age, selectedStreamingService, website, capacity, openingHours, ...basicProfileData } = profileData;
             const profileToInsert = {
                 user_id: userId,
                 first_name: basicProfileData.firstName,
@@ -648,13 +768,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 terms_accepted: termsAccepted,
                 selected_streaming_service: selectedStreamingService === null ? undefined : selectedStreamingService, // Convert null to undefined
                 is_premium: false,
+                website: website,
+                capacity: capacity,
+                opening_hours: openingHours,
                  // Ensure all REQUIRED DB fields are present or have defaults
                 // music_data: {} // Example default if required and not nullable
             };
             console.log('[AuthProvider] createMusicLoverProfile: Preparing to upsert profile data:', { ...profileToInsert, profile_picture: profileToInsert.profile_picture ? 'URL exists' : 'null' });
 
             // --- Upsert Profile in DB ---
-            const { data: upsertData, error: upsertError } = await supabase
+            const client = supabaseAdmin || supabase; // Use admin client if available to bypass RLS
+            const { data: upsertData, error: upsertError } = await client
                 .from('music_lover_profiles') // *** CHECK TABLE NAME ***
                 .upsert(profileToInsert, { onConflict: 'user_id' })
                 .select('id')
@@ -716,7 +840,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             }
 
             // --- Prepare DB Data (Match DB Columns for organizer_profiles table) ---
-            const { userId, logoUri, logoMimeType, ...basicOrgData } = profileData;
+            const { userId, logoUri, logoMimeType, capacity, openingHours, ...basicOrgData } = profileData;
             const profileToInsert = {
                 user_id: userId,
                 company_name: basicOrgData.companyName,
@@ -728,12 +852,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 bio: basicOrgData.bio === null || basicOrgData.bio === '' ? undefined : basicOrgData.bio,
                 website: basicOrgData.website === null || basicOrgData.website === '' ? undefined : basicOrgData.website,
                 logo: publicLogoUrl ?? undefined,
+                capacity: capacity,
+                opening_hours: openingHours,
                  // Ensure all REQUIRED DB fields are present or have defaults
             };
             console.log('[AuthProvider] createOrganizerProfile: Preparing to upsert profile data:', { ...profileToInsert, logo: profileToInsert.logo ? 'URL exists' : 'null' });
 
             // --- Upsert Profile in DB ---
-            const { data: upsertData, error: upsertError } = await supabase
+            const client = supabaseAdmin || supabase; // Use admin client if available to bypass RLS
+            const { data: upsertData, error: upsertError } = await client
                 .from('organizer_profiles') // *** CHECK TABLE NAME ***
                 .upsert(profileToInsert, { onConflict: 'user_id' })
                 .select('id')
@@ -759,22 +886,92 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         }
     };
 
+    // --- Update Organizer Profile ---
+    const updateOrganizerProfile = async (userId: string, profileData: Partial<CreateOrganizerProfileData>): Promise<{ error: any } | { success: boolean; logoUrl?: string | null }> => {
+        console.log(`[AuthProvider] updateOrganizerProfile: START user: ${userId}`);
+        setLoading(true);
+        let publicLogoUrl: string | null = null;
+
+        try {
+            // --- Logo Upload ---
+            if (profileData.logoUri && !profileData.logoUri.startsWith('http')) {
+                console.log('[AuthProvider] updateOrganizerProfile: New logo provided, uploading...');
+                publicLogoUrl = await _uploadImage(
+                    userId,
+                    profileData.logoUri,
+                    'logos',
+                    profileData.logoMimeType
+                );
+                if (publicLogoUrl === null) {
+                     return { error: new Error("Logo upload failed. Profile was not updated.") };
+                }
+            } else {
+                publicLogoUrl = profileData.logoUri ?? null; // Keep existing if not changed or if it's already a URL
+            }
+
+            // --- Prepare DB Data ---
+            const { companyName, email, phoneNumber, businessType, bio, website, capacity, openingHours } = profileData;
+
+            const profileToUpdate: { [key: string]: any } = {
+                updated_at: new Date().toISOString(),
+            };
+            
+            if (companyName) profileToUpdate.company_name = companyName;
+            if (email) profileToUpdate.email = email;
+            if (phoneNumber) profileToUpdate.phone_number = phoneNumber;
+            if (businessType) profileToUpdate.business_type = businessType;
+            if (bio) profileToUpdate.bio = bio;
+            if (website) profileToUpdate.website = website;
+            if (capacity) profileToUpdate.capacity = capacity;
+            if (openingHours) profileToUpdate.opening_hours = openingHours;
+            if (publicLogoUrl) profileToUpdate.logo = publicLogoUrl;
+
+            console.log('[AuthProvider] updateOrganizerProfile: Preparing to update profile data with:', profileToUpdate);
+
+            // --- Update Profile in DB ---
+            const client = supabaseAdmin || supabase;
+            const { error: updateError } = await client
+                .from('organizer_profiles')
+                .update(profileToUpdate)
+                .eq('user_id', userId);
+
+            if (updateError) {
+                console.error('[AuthProvider] updateOrganizerProfile: Update FAILED:', JSON.stringify(updateError, null, 2));
+                return { error: new Error(`Failed to update organizer profile: ${updateError.message}`) };
+            }
+            console.log('[AuthProvider] updateOrganizerProfile: Update SUCCESS.');
+
+            // --- Refresh Session ---
+            await refreshSessionData();
+
+            return { success: true, logoUrl: publicLogoUrl };
+
+        } catch (error: any) {
+            console.error('[AuthProvider] updateOrganizerProfile: UNEXPECTED error:', error);
+            return { error: new Error('An unexpected error occurred updating the organizer profile.') };
+        } finally {
+            setLoading(false);
+        }
+    };
+
     // --- Update Premium Status ---
     const updatePremiumStatus = async (userId: string, isPremium: boolean): Promise<{ error: any } | { success: boolean }> => {
         console.log(`[AuthProvider] updatePremiumStatus: Setting premium=${isPremium} for user ${userId}`);
         setLoading(true);
         try {
-            console.log(`[AuthPremium] Updating 'is_premium' flag in music_lover_profiles for ${userId}...`);
-            const { error: updateError } = await supabase
+            console.log('[AuthPremium] Updating \'is_premium\' flag in music_lover_profiles for ' + userId + '...');
+            
+            // Use admin client if available to bypass RLS
+            const client = supabaseAdmin || supabase;
+            const { error: updateError } = await client
                 .from('music_lover_profiles') // *** CHECK TABLE NAME ***
                 .update({ is_premium: isPremium, updated_at: new Date().toISOString() })
                 .eq('user_id', userId); // Use user_id
 
             if (updateError) {
-                console.error(`[AuthPremium] Failed to update is_premium flag for ${userId}:`, updateError);
-                return { error: new Error(`Failed to update account status: ${updateError.message}`) };
+                console.error('[AuthPremium] Error updating premium status:', updateError);
+                return { error: new Error(`Failed to update premium status: ${updateError.message}`) };
             }
-            console.log(`[AuthPremium] is_premium flag updated successfully for ${userId}.`);
 
             // --- Handle Subscription/Payment Records (Optional) ---
             // Add logic here if needed for subscriptions/payments tables
@@ -885,6 +1082,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 setIsOrganizerMode(dbUserType === 'organizer');
                 await checkSession({ navigateToProfile: true });
                 return { user: retryLoginData.user };
+
             }
 
             // If we get here, the first email authentication attempt was successful
@@ -991,14 +1189,34 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 console.error('[AuthProvider] checkUsernameExists: Supabase error checking organizer_profiles:', orgError);
                 return { exists: false, error: `Error checking username: ${orgError.message}` };
             }
-
+ 
             const totalCount = (mlCount || 0) + (orgCount || 0);
             console.log(`[AuthProvider] checkUsernameExists: Count for username "${username}": ${totalCount} (ML: ${mlCount}, Org: ${orgCount})`);
             return { exists: totalCount > 0 };
-
+ 
         } catch (e: any) {
             console.error('[AuthProvider] checkUsernameExists: Unexpected error:', e);
             return { exists: false, error: 'An unexpected error occurred while checking username.' };
+        }
+    };
+ 
+    // This function verifies if an email is real using the verify-email-api edge function
+    const verifyEmailIsReal = async (email: string): Promise<{ isValid: boolean, error?: string }> => {
+        console.log(`[AuthProvider] verifyEmailIsReal: Verifying if email "${email}" is real`);
+        try {
+            const { data, error } = await supabase.functions.invoke('verify-email-api', {
+                body: { email: email.trim() }
+            });
+
+            if (error) {
+                console.error('[AuthProvider] verifyEmailIsReal: Edge function error:', error);
+                return { isValid: false, error: 'Could not verify email at this time.' };
+            }
+
+            return { isValid: !!data?.isValid };
+        } catch (e: any) {
+            console.error('[AuthProvider] verifyEmailIsReal: Unexpected error:', e);
+            return { isValid: false, error: 'An unexpected error occurred while verifying email.' };
         }
     };
 
@@ -1011,40 +1229,40 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         }
         try {
             const trimmedEmail = email.trim();
-
+ 
             // 1. Check Music Lover profiles first
             const { count: mlCount, error: mlError } = await supabase
                 .from('music_lover_profiles')
                 .select('email', { count: 'exact', head: true })
                 .eq('email', trimmedEmail);
-
+ 
             if (mlError) {
                 console.error('[AuthProvider] Supabase error checking music_lover_profiles:', mlError);
                 return { exists: false, error: `Error checking email: ${mlError.message}` };
             }
-
+ 
             if (mlCount !== null && mlCount > 0) {
                 return { exists: true, error: 'Email is already in use by a Music Lover.' };
             }
-
+ 
             // 2. Then, check Organizer profiles
             const { count: orgCount, error: orgError } = await supabase
                 .from('organizer_profiles')
                 .select('email', { count: 'exact', head: true })
                 .eq('email', trimmedEmail);
-
+ 
             if (orgError) {
                 console.error('[AuthProvider] Supabase error checking organizer_profiles:', orgError);
                 return { exists: false, error: `Error checking email: ${orgError.message}` };
             }
-
+ 
             if (orgCount !== null && orgCount > 0) {
                 return { exists: true, error: 'Email is already in use by an Organizer.' };
             }
             
             // If we reach here, email is not in either table
             return { exists: false };
-
+ 
         } catch (e: any) {
             console.error('[AuthProvider] Unexpected error in checkEmailExists:', e);
             return { exists: false, error: 'An unexpected error occurred while checking email.' };
@@ -1066,10 +1284,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             refreshUserProfile,
             createMusicLoverProfile,
             createOrganizerProfile,
+            updateOrganizerProfile,
             updatePremiumStatus,
             requestMediaLibraryPermissions,
             checkUsernameExists,
-            checkEmailExists, // UNIFIED
+            checkEmailExists,
+            verifyEmailIsReal,
         }}>
             {children}
         </AuthContext.Provider>

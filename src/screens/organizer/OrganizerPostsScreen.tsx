@@ -130,7 +130,8 @@ const OrganizerPostsScreen = () => {
       let query = supabase
         .from("events")
         .select("id, title, event_datetime, location_text, poster_urls, booking_type")
-        .eq("organizer_id", userId); // FIX: Use the stable userId variable.
+        .eq("organizer_id", userId) // FIX: Use the stable userId variable.
+        .neq("booking_type", 'RESERVATION'); // Exclude automated reservation posts
 
       const now = new Date().toISOString();
       if (tabIndex === 1) { // "Upcoming" tab
@@ -151,7 +152,7 @@ const OrganizerPostsScreen = () => {
       setError(`Failed to fetch posts: ${err.message}`);
       return { data: [], error: err, isLastPage: true };
     }
-  }, [userId, refreshing]); // FIX: Changed dependency from [session, refreshing] to [userId, refreshing]
+  }, [userId, refreshing]);
 
   const loadPostsForTab = useCallback(async (tabIndex: number, forRefresh = false) => {
     const isAllMyEventsTab = tabIndex === 0;
