@@ -142,7 +142,8 @@ const MusicLoverSignUpFlow = () => {
         requestMediaLibraryPermissions, // Use this before picking
         loading: authLoading, // Hook's loading state
         checkUsernameExists, // Use these real functions from useAuth
-        checkEmailExists     // Use these real functions from useAuth 
+        checkEmailExists,     // Use these real functions from useAuth 
+        verifyEmailIsReal,    // Added new function
     } = useAuth();
     
     // Spotify auth hook
@@ -1381,8 +1382,16 @@ const MusicLoverSignUpFlow = () => {
         setEmailStatus('checking');
         setEmailFeedback('Checking availability...');
         try {
-            // TODO: Replace with: const result = await auth.checkEmailExists(email);
-            const result = await checkEmailExists(email); // This now correctly calls the music_lover specific check
+            // First verify if the email is real
+            const verifyResult = await verifyEmailIsReal(email);
+            if (!verifyResult.isValid) {
+                setEmailStatus('invalid');
+                setEmailFeedback(verifyResult.error || 'Please enter a real email address.');
+                return;
+            }
+
+            // Then check if email exists in our system
+            const result = await checkEmailExists(email);
             if (result.exists) {
                 setEmailStatus('invalid');
                 setEmailFeedback(result.error || 'This email is already registered.');

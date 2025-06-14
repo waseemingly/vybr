@@ -88,7 +88,7 @@ const OrganizerProfileScreen: React.FC = () => {
   if (!session || !organizerProfile) return ( <SafeAreaView style={styles.centered}><Feather name="alert-circle" size={40} color="#FFA500" /><Text style={styles.errorText}>Profile Error</Text><Text style={styles.errorSubText}>{ !session?"Not logged in.":"Profile incomplete."}</Text><TouchableOpacity style={[styles.logoutButton,{marginTop:20,backgroundColor:!session?APP_CONSTANTS.COLORS.PRIMARY:'#EF4444'}]} onPress={()=>!session?navigation.navigate('Auth'):logout()}><Feather name={!session?"log-in":"log-out"} size={18} color="#FFF" /><Text style={styles.logoutButtonText}>{!session?"Go to Login":"Logout"}</Text></TouchableOpacity></SafeAreaView>);
 
   // Data Extraction (Keep as before)
-  const { company_name, logo, bio, email: contactEmail, phoneNumber, website, businessType, average_rating } = organizerProfile || {};
+  const { company_name, logo, bio, email: contactEmail, phone_number: phoneNumber, website, business_type: businessType, average_rating } = organizerProfile || {};
   const businessTypeFormatted = formatBusinessType(businessType);
   const logoUrl = logo ?? DEFAULT_ORGANIZER_LOGO;
   const displayRating = average_rating !== null && average_rating !== undefined ? average_rating.toFixed(1) : "N/A";
@@ -156,6 +156,13 @@ const OrganizerProfileScreen: React.FC = () => {
                  <Text style={styles.linkButtonText}>View Past Events</Text>
                   <Feather name="chevron-right" size={16} color={APP_CONSTANTS.COLORS.DISABLED} />
              </TouchableOpacity>
+            {businessType === 'F&B' && (
+                <TouchableOpacity style={styles.linkButton} onPress={() => navigation.navigate('OrganizerReservationsScreen')} >
+                    <Feather name="book-open" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                    <Text style={styles.linkButtonText}>View All Reservations</Text>
+                    <Feather name="chevron-right" size={16} color={APP_CONSTANTS.COLORS.DISABLED} />
+                </TouchableOpacity>
+            )}
         </Section>
         <Section title="Performance" icon="bar-chart-2">
           {statsLoading?<View style={styles.centered}><ActivityIndicator color={APP_CONSTANTS.COLORS.PRIMARY}/></View> : statsError?<Text style={[styles.errorText,{marginTop:0,marginBottom:10}]}>{statsError}</Text> : (<View style={styles.statsGrid}><View style={styles.statBox}><Feather name="calendar" size={24} color="#3B82F6" /><Text style={styles.statBoxValue}>{stats.upcomingEvents ?? 'N/A'}</Text><Text style={styles.statBoxLabel}>Upcoming</Text></View><View style={styles.statBox}><Feather name="check-circle" size={24} color="#10B981" /><Text style={styles.statBoxValue}>{stats.pastEvents ?? 'N/A'}</Text><Text style={styles.statBoxLabel}>Completed</Text></View><View style={styles.statBox}><Feather name="star" size={24} color="#F59E0B" /><Text style={styles.statBoxValue}>{displayRating}</Text><Text style={styles.statBoxLabel}>Avg Rating</Text></View></View>)}

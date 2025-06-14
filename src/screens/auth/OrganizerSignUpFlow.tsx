@@ -12,6 +12,8 @@ import { APP_CONSTANTS } from '@/config/constants';
 import * as ImagePicker from 'expo-image-picker';
 import TermsModal from '@/components/TermsModal'; // Import the modal
 import ImageCropper from '@/components/ImageCropper'; // Add ImageCropper
+import OpeningHoursEditor from '@/components/OpeningHoursEditor'; // <-- ADD THIS
+import type { OpeningHours } from '@/hooks/useAuth'; // <-- ADD THIS
 
 // Import the RootStackParamList to properly type the navigation
 import type { RootStackParamList } from '@/navigation/AppNavigator'; // Adjust the import path as needed
@@ -21,7 +23,7 @@ type OrganizerSignUpNavigationProp = NavigationProp<RootStackParamList>;
 
 // --- Define types --- 
 // type Step = 'account-details' | 'profile-details' | 'payment';
-type BusinessType = 'venue' | 'promoter' | 'artist_management' | 'festival_organizer' | 'other' | '';
+type BusinessType = 'venue' | 'promoter' | 'artist_management' | 'festival_organizer' | 'other' | 'F&B' | 'club' | 'party' | '';
 // Correct the Step type definition based on usage in the component
 type Step = 'account-details' | 'profile-details';
 
@@ -73,7 +75,7 @@ Refer to the main Vybr Terms & Conditions.
 const OrganizerSignUpFlow = () => {
   const navigation = useNavigation<OrganizerSignUpNavigationProp>();
   // Get new functions from useAuth
-  const { signUp, createOrganizerProfile, requestMediaLibraryPermissions, loading: authLoading, checkEmailExists } = useAuth();
+  const { signUp, createOrganizerProfile, requestMediaLibraryPermissions, loading: authLoading, checkEmailExists, verifyEmailIsReal } = useAuth();
 
   const [formData, setFormData] = useState({
     companyName: '',
@@ -87,6 +89,8 @@ const OrganizerSignUpFlow = () => {
     businessType: '' as BusinessType | '',
     website: '',
     bio: '',
+    capacity: '', // Add capacity
+    openingHours: null as OpeningHours | null, // <-- ADD THIS
     // Payment info remains - NOTE: This info isn't currently sent to supabase
     // You would need a backend function or further integration to process payments
     paymentInfo: {
@@ -178,49 +182,43 @@ const OrganizerSignUpFlow = () => {
   const handleEmailBlur = async () => {
     const email = formData.email.trim();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    
-    console.log(`[OrganizerSignUpFlow] handleEmailBlur called with email: ${email}`);
-    
     if (!email) {
-      setEmailStatus('invalid');
-      setEmailFeedback('Email is required.');
-      console.log('[OrganizerSignUpFlow] Email is empty');
-      return;
+        setEmailStatus('invalid');
+        setEmailFeedback('Email is required.');
+        return;
     }
-    
     if (!emailRegex.test(email)) {
-      setEmailStatus('invalid');
-      setEmailFeedback('Please enter a valid email address.');
-      console.log('[OrganizerSignUpFlow] Email format is invalid');
-      return;
+        setEmailStatus('invalid');
+        setEmailFeedback('Please enter a valid email address.');
+        return;
     }
-    
-    console.log('[OrganizerSignUpFlow] Checking email availability...');
+
     setEmailStatus('checking');
     setEmailFeedback('Checking availability...');
-    
     try {
-      console.log('[OrganizerSignUpFlow] Calling checkEmailExists...');
-      const result = await checkEmailExists(email);
-      console.log(`[OrganizerSignUpFlow] checkEmailExists result:`, result);
-      
-      if (result.exists) {
-        setEmailStatus('invalid');
-        setEmailFeedback(result.error || 'This email is already registered.');
-        console.log('[OrganizerSignUpFlow] Email already exists');
-      } else if (result.error) {
-        setEmailStatus('error');
-        setEmailFeedback(result.error || 'Could not verify email.');
-        console.log(`[OrganizerSignUpFlow] Email check error: ${result.error}`);
-      } else {
-        setEmailStatus('valid');
-        setEmailFeedback('Email available!');
-        console.log('[OrganizerSignUpFlow] Email is available for an Organizer');
-      }
+        // First verify if the email is real
+        const verifyResult = await verifyEmailIsReal(email);
+        if (!verifyResult.isValid) {
+            setEmailStatus('invalid');
+            setEmailFeedback(verifyResult.error || 'Please enter a real email address.');
+            return;
+        }
+
+        // Then check if email exists in our system
+        const result = await checkEmailExists(email);
+        if (result.exists) {
+            setEmailStatus('invalid');
+            setEmailFeedback(result.error || 'This email is already registered.');
+        } else if (result.error) {
+            setEmailStatus('error');
+            setEmailFeedback(result.error);
+        } else {
+            setEmailStatus('valid');
+            setEmailFeedback('Email available!');
+        }
     } catch (e: any) {
-      console.error('[OrganizerSignUpFlow] Error in email check:', e);
-      setEmailStatus('error');
-      setEmailFeedback('Error checking email.');
+        setEmailStatus('error');
+        setEmailFeedback('Error checking email.');
     }
   };
 
@@ -246,6 +244,16 @@ const OrganizerSignUpFlow = () => {
   const validateProfileDetailsStep = () => {
     // ... (keep existing validation - logo is optional)
      if (!formData.businessType) { setError('Please select your business type'); return false; }
+     if (formData.businessType === 'F&B') {
+      if (!formData.capacity.trim()) {
+          setError('Please enter your venue capacity');
+          return false;
+      }
+      if (!/^\d+$/.test(formData.capacity) || parseInt(formData.capacity, 10) <= 0) {
+          setError('Please enter a valid capacity (must be a positive number)');
+          return false;
+      }
+    }
     return true;
   };
 
@@ -360,6 +368,8 @@ const OrganizerSignUpFlow = () => {
         businessType: formData.businessType || undefined, // Ensure it's string or undefined
         bio: formData.bio,
         website: formData.website,
+        capacity: formData.businessType === 'F&B' ? parseInt(formData.capacity, 10) : undefined,
+        openingHours: formData.businessType === 'F&B' ? (formData.openingHours ?? undefined) : undefined,
       });
 
       // Check for profile creation errors
@@ -536,7 +546,7 @@ const OrganizerSignUpFlow = () => {
           <View style={styles.inputContainer}>
               <Text style={styles.inputLabel}>Business Type</Text>
               <View style={styles.businessTypeContainer}>
-                  {(['venue', 'promoter', 'artist_management', 'festival_organizer', 'other'] as BusinessType[]).map((type) => (
+                  {(['venue', 'promoter', 'F&B', 'festival_organizer', 'club','party','other'] as BusinessType[]).map((type) => (
                       <TouchableOpacity
                           key={type}
                           style={[
@@ -555,6 +565,26 @@ const OrganizerSignUpFlow = () => {
                   ))}
               </View>
           </View>
+
+          {formData.businessType === 'F&B' && (
+              <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Venue Capacity</Text>
+                  <TextInput
+                      style={styles.input}
+                      placeholder="Enter total capacity"
+                      value={formData.capacity}
+                      onChangeText={(text) => handleChange('capacity', text)}
+                      keyboardType="number-pad"
+                  />
+              </View>
+          )}
+
+          {formData.businessType === 'F&B' && (
+             <OpeningHoursEditor
+                  openingHours={formData.openingHours}
+                  onOpeningHoursChange={(hours) => handleChange('openingHours', hours)}
+              />
+          )}
 
           <View style={styles.inputContainer}>
               <Text style={styles.inputLabel}>Website (Optional)</Text>

@@ -145,6 +145,7 @@ const PastEventsListScreen: React.FC = () => {
                 `)
                 .eq('organizer_id', organizerId)
                 .lte('event_datetime', now) // Filter for past or ongoing events
+                .neq('booking_type', 'RESERVATION') // Exclude automated reservation posts
                 .order("event_datetime", { ascending: false }); // Show most recent first
 
             if (eventsError) throw eventsError;

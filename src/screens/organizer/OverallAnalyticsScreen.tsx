@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BarChart } from 'react-native-chart-kit';
 import { Feather } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { APP_CONSTANTS } from '../../config/constants';
@@ -119,6 +119,7 @@ const Section: React.FC<SectionProps> = ({ title, icon, children, loading = fals
 
 const OverallAnalyticsScreen: React.FC = () => {
   const { session } = useAuth();
+  const navigation = useNavigation();
   const organizerId = session?.user?.id;
   const [isRefreshing, setIsRefreshing] = useState(false);
   
@@ -1301,7 +1302,15 @@ const OverallAnalyticsScreen: React.FC = () => {
   }, [organizerId]);
   
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Overall Analytics</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -1886,11 +1895,28 @@ const OverallAnalyticsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#F9FAFB',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  backButton: {
+    padding: 4,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
   },
   scrollContent: {
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    paddingBottom: 40,
   },
   errorContainer: {
     flexDirection: 'row',
@@ -1911,7 +1937,8 @@ const styles = StyleSheet.create({
   section: {
     backgroundColor: 'white',
     borderRadius: 12,
-    marginBottom: 16,
+    marginHorizontal: 16,
+    marginTop: 16,
     padding: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },

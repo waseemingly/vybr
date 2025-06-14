@@ -214,6 +214,7 @@ const UpcomingEventsListScreen: React.FC = () => {
                 `)
                 .eq('organizer_id', organizerId)
                 .gt('event_datetime', now)
+                .neq('booking_type', 'RESERVATION')
                 .order("event_datetime", { ascending: true });
 
             if (eventsError) throw eventsError;

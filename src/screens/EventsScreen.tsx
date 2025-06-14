@@ -6,7 +6,7 @@ import {
   Share, // Added Share API
   // SectionList // No longer used
 } from "react-native";
-// import { TabView, SceneMap, TabBar } from 'react-native-tab-view'; // Removed
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation, useFocusEffect, useRoute, RouteProp } from "@react-navigation/native";
@@ -17,6 +17,7 @@ import { APP_CONSTANTS } from "@/config/constants";
 import type { MusicLoverBio } from "@/hooks/useAuth"; // Changed import source
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator';
 import ImageSwiper from '@/components/ImageSwiper'; // <-- Import the new component
+import { TextInput } from 'react-native';
 
 // Define navigation prop using imported types
 // Add openEventId to EventsScreen params in RootStackParamList
@@ -42,6 +43,14 @@ export interface OrganizerInfo {
     userId: string;
     name: string;
     image: string | null;
+}
+
+export interface FandBOrganizer {
+  userId: string;
+  name: string;
+  image: string | null;
+  capacity: number;
+  opening_hours?: any; // Using 'any' to avoid deep type issues for now
 }
 
 export interface MappedEvent {
@@ -451,6 +460,31 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
 };
 // --- End Event Detail Modal ---
 
+// --- Restaurant Card Component ---
+interface RestaurantCardProps {
+  organizer: FandBOrganizer;
+  onPress: () => void;
+}
+const RestaurantCard: React.FC<RestaurantCardProps> = React.memo(({ organizer, onPress }) => (
+    <View style={[styles.eventCard, styles.restaurantCard]}>
+        <Image 
+            source={{ uri: organizer.image ?? DEFAULT_ORGANIZER_LOGO }} 
+            style={styles.restaurantImage}
+        />
+        <View style={styles.cardContent}>
+            <Text style={styles.eventTitle} numberOfLines={1}>{organizer.name}</Text>
+            <Text style={styles.restaurantCapacity} numberOfLines={1}>Capacity: {organizer.capacity} guests</Text>
+            <View style={styles.cardFooter}>
+                <TouchableOpacity style={styles.bookButton} onPress={onPress}>
+                    <Feather name="bookmark" size={14} color="#fff" />
+                    <Text style={styles.bookButtonText}>Reserve</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+    </View>
+));
+// --- End Restaurant Card Component ---
+
 // --- Event Card Component ---
 interface EventCardProps { event: MappedEvent; onPress: () => void; }
 export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress }) => {
@@ -594,6 +628,12 @@ const EventsScreen: React.FC = () => {
     const [rawEvents, setRawEvents] = useState<SupabasePublicEvent[]>([]);
     const [organizerMap, setOrganizerMap] = useState<Map<string, OrganizerInfo>>(new Map());
     
+    // State for F&B organizers (restaurants)
+    const [restaurants, setRestaurants] = useState<FandBOrganizer[]>([]);
+    const [loadingRestaurants, setLoadingRestaurants] = useState(true);
+    const [restaurantSearchQuery, setRestaurantSearchQuery] = useState('');
+    const [filteredRestaurants, setFilteredRestaurants] = useState<FandBOrganizer[]>([]);
+
     // State for processed event lists for tabs
     const [forYouEvents, setForYouEvents] = useState<MappedEvent[]>([]);
     const [allEventsTabSource, setAllEventsTabSource] = useState<MappedEvent[]>([]); // Source for "All Events" tab before pagination
@@ -614,11 +654,13 @@ const EventsScreen: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [selectedEvent, setSelectedEvent] = useState<MappedEvent | null>(null);
     const [modalVisible, setModalVisible] = useState(false);
+    const [reservationModalVisible, setReservationModalVisible] = useState(false);
+    const [selectedRestaurant, setSelectedRestaurant] = useState<FandBOrganizer | null>(null);
     const [refreshing, setRefreshing] = useState(false);
     const navigation = useNavigation<NavigationProp>();
 
     // TabView state // Replaced with manual tab state
-    const [activeTabIndex, setActiveTabIndex] = useState(0); // 0 for 'For You', 1 for 'All Events'
+    const [activeTabIndex, setActiveTabIndex] = useState(0); // 0: For You, 1: All Events, 2: Restaurants
 
     // Impression tracking refs (keep as is)
     const viewabilityConfig = { itemVisiblePercentThreshold: 50 };
@@ -705,6 +747,36 @@ const EventsScreen: React.FC = () => {
         }
     }, [session]); // Depend on session
 
+    // Fetch F&B Organizers (Restaurants)
+    const fetchRestaurants = useCallback(async () => {
+        console.log("[EventsScreen] Fetching restaurants (F&B organizers)...");
+        setLoadingRestaurants(true);
+        try {
+            const { data, error } = await supabase
+                .from('organizer_profiles')
+                .select('user_id, company_name, logo, capacity, opening_hours')
+                .eq('business_type', 'F&B')
+                .order('company_name', { ascending: true });
+
+            if (error) throw error;
+
+            const mappedRestaurants: FandBOrganizer[] = data.map(org => ({
+                userId: org.user_id,
+                name: org.company_name ?? 'Restaurant',
+                image: org.logo,
+                capacity: org.capacity ?? 0,
+                opening_hours: org.opening_hours, // <-- ADD THIS LINE
+            }));
+            
+            setRestaurants(mappedRestaurants);
+        } catch (err: any) {
+            console.error("[EventsScreen] Fetch Restaurants Error:", err);
+            setError("Failed to load restaurants.");
+        } finally {
+            setLoadingRestaurants(false);
+        }
+    }, []);
+
     // Fetch ALL upcoming events and organizers (Modified)
     const fetchEventsAndOrganizers = useCallback(async () => {
         console.log("[EventsScreen] Fetching ALL events and organizers...");
@@ -776,7 +848,7 @@ const EventsScreen: React.FC = () => {
             setActiveTabIndex(0); // Default to 'For You' or handle other tabs
         }
 
-        Promise.all([fetchUserProfile(), fetchEventsAndOrganizers()])
+        Promise.all([fetchUserProfile(), fetchEventsAndOrganizers(), fetchRestaurants()])
             .then(() => {
                 if (openEventId) {
                     // The processing useEffect will handle finding and setting the event
@@ -787,7 +859,7 @@ const EventsScreen: React.FC = () => {
             .finally(() => {
            // setIsLoading(false); // Loading is set to false after processing effect runs
         });
-    }, [fetchUserProfile, fetchEventsAndOrganizers, route.params]));
+    }, [fetchUserProfile, fetchEventsAndOrganizers, fetchRestaurants, route.params]));
 
     // Process events whenever raw data or user profile changes
     useEffect(() => {
@@ -997,17 +1069,27 @@ const EventsScreen: React.FC = () => {
         setAllAllEventsLoaded(false);
         setIsLoading(true); // Show loading indicator during refresh fetch
         // Re-fetch profile and events
-        Promise.all([fetchUserProfile(), fetchEventsAndOrganizers()])
+        Promise.all([fetchUserProfile(), fetchEventsAndOrganizers(), fetchRestaurants()])
             .catch(err => {
                 console.error("Error during refresh:", err);
                 setError("Failed to refresh data.");
             })
             // Processing useEffect will handle setting isLoading/refreshing to false
-    }, [fetchUserProfile, fetchEventsAndOrganizers]);
+    }, [fetchUserProfile, fetchEventsAndOrganizers, fetchRestaurants]);
 
     // Modal control (Unchanged)
     const handleEventPress = (event: MappedEvent) => { setSelectedEvent(event); setModalVisible(true); };
     const handleCloseModal = () => { setModalVisible(false); setSelectedEvent(null); };
+
+    // Restaurant reservation modal control
+    const handleOpenReservationModal = (organizer: FandBOrganizer) => {
+        setSelectedRestaurant(organizer);
+        setReservationModalVisible(true);
+    };
+    const handleCloseReservationModal = () => {
+        setReservationModalVisible(false);
+        setSelectedRestaurant(null);
+    };
 
     // Render Section Header // NO LONGER USED with FlatList per tab
     // const renderSectionHeader = ({ section: { title } }: { section: EventSection }) => ( ... );
@@ -1060,7 +1142,7 @@ const EventsScreen: React.FC = () => {
                     style={[styles.tabItem, activeTabIndex === 0 && styles.activeTabItem]}
                     onPress={() => setActiveTabIndex(0)}
                 >
-                    <Text style={[styles.tabText, activeTabIndex === 0 && styles.activeTabText]}>Events For You</Text>
+                    <Text style={[styles.tabText, activeTabIndex === 0 && styles.activeTabText]}>For You</Text>
                 </TouchableOpacity>
                 <TouchableOpacity 
                     style={[styles.tabItem, activeTabIndex === 1 && styles.activeTabItem]}
@@ -1068,9 +1150,27 @@ const EventsScreen: React.FC = () => {
                 >
                     <Text style={[styles.tabText, activeTabIndex === 1 && styles.activeTabText]}>All Events</Text>
                 </TouchableOpacity>
+                 <TouchableOpacity 
+                    style={[styles.tabItem, activeTabIndex === 2 && styles.activeTabItem]}
+                    onPress={() => setActiveTabIndex(2)}
+                >
+                    <Text style={[styles.tabText, activeTabIndex === 2 && styles.activeTabText]}>Restaurants</Text>
+                </TouchableOpacity>
             </View>
         );
     };
+
+    // Filter restaurants based on search query
+    useEffect(() => {
+        if (restaurantSearchQuery.trim() === '') {
+            setFilteredRestaurants(restaurants);
+        } else {
+            const filtered = restaurants.filter(r =>
+                r.name.toLowerCase().includes(restaurantSearchQuery.trim().toLowerCase())
+            );
+            setFilteredRestaurants(filtered);
+        }
+    }, [restaurantSearchQuery, restaurants]);
 
     // Main render logic
     const renderMainContent = () => {
@@ -1149,6 +1249,49 @@ const EventsScreen: React.FC = () => {
                         refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]} /> }
                     />
                 )}
+                 {activeTabIndex === 2 && (
+                    <View style={{ flex: 1 }}>
+                        <View style={styles.searchBarContainer}>
+                            <Feather name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
+                            <TextInput
+                                style={styles.searchInput}
+                                placeholder="Search restaurants..."
+                                value={restaurantSearchQuery}
+                                onChangeText={setRestaurantSearchQuery}
+                                placeholderTextColor="#9CA3AF"
+                            />
+                            {restaurantSearchQuery.length > 0 && (
+                                <TouchableOpacity onPress={() => setRestaurantSearchQuery('')} style={styles.clearSearchButton}>
+                                    <Feather name="x" size={20} color="#9CA3AF" />
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                        <FlatList
+                            data={filteredRestaurants}
+                            keyExtractor={(item) => `restaurant-${item.userId}`}
+                            renderItem={({ item }) => (
+                                <RestaurantCard
+                                    organizer={item}
+                                    onPress={() => handleOpenReservationModal(item)}
+                                />
+                            )}
+                            contentContainerStyle={styles.eventsList}
+                            ListEmptyComponent={() => {
+                            if (loadingRestaurants) return null;
+                            return (
+                                <View style={styles.centeredContainerEmptyList}>
+                                    <Feather name="coffee" size={40} color="#9CA3AF" />
+                                    <Text style={styles.emptyText}>{restaurantSearchQuery ? 'No Results Found' : 'No Restaurants Found'}</Text>
+                                    <Text style={styles.emptySubText}>
+                                        {restaurantSearchQuery ? `No restaurants match "${restaurantSearchQuery}"` : "We couldn't find any F&B partners in your area yet."}
+                                    </Text>
+                                </View>
+                            );
+                            }}
+                            refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]} /> }
+                        />
+                    </View>
+                )}
             </View>
         );
     };
@@ -1185,6 +1328,12 @@ const EventsScreen: React.FC = () => {
                 event={selectedEvent}
                 visible={modalVisible}
                 onClose={handleCloseModal}
+                navigation={navigation}
+            />
+            <ReservationModal
+                visible={reservationModalVisible}
+                onClose={handleCloseReservationModal}
+                organizer={selectedRestaurant}
                 navigation={navigation}
             />
         </SafeAreaView>
@@ -1251,6 +1400,25 @@ const styles = StyleSheet.create({
     },
     imageContainer: { position: "relative", },
     eventImage: { width: "100%", backgroundColor: '#F3F4F6', }, // Removed aspectRatio
+    restaurantCard: {
+        width: '100%',
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+    },
+    restaurantImage: {
+        width: 80,
+        height: 80,
+        borderRadius: 10,
+        marginRight: 16,
+        backgroundColor: '#F3F4F6',
+    },
+    restaurantCapacity: {
+        fontSize: 13,
+        color: '#6B7280',
+        marginBottom: 8,
+        marginTop: 4,
+    },
     // Define eventImageStyle FIRST
     eventImageStyle: {
         // height is now dynamic, based on 1:1 aspect ratio of calculated width
@@ -1345,6 +1513,8 @@ const styles = StyleSheet.create({
         right: 15,
     },
     modalBody: { padding: 20, paddingBottom: 40 },
+    modalHeader: { padding: 20, paddingBottom: 0, alignItems: 'center' },
+    restaurantName: { fontSize: 18, fontWeight: '600', color: '#4B5563', marginTop: 4 },
     modalTitle: { fontSize: 24, fontWeight: "bold", color: "#1F2937", marginBottom: 16, },
     organizerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20, },
     organizerInfo: { flexDirection: "row", alignItems: "center", flexShrink: 1, marginRight: 10 },
@@ -1465,6 +1635,71 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         paddingVertical: 20, // Add some padding if needed
+    },
+    errorTextModal: { color: APP_CONSTANTS.COLORS.ERROR, marginBottom: 16, textAlign: 'center', fontSize: 14, marginTop: 10 },
+    searchBarContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'white',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        marginHorizontal: 16,
+        marginTop: 10,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        height: 44,
+    },
+    searchIcon: {
+        marginRight: 8,
+    },
+    searchInput: {
+        flex: 1,
+        fontSize: 16,
+        color: '#1F2937',
+        height: '100%',
+    },
+    clearSearchButton: {
+        padding: 4,
+    },
+    datePickerButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#F3F4F6',
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 8,
+      marginBottom: 16,
+    },
+    datePickerButtonText: {
+      marginLeft: 10,
+      fontSize: 16,
+      color: '#3B82F6',
+    },
+    timeSlotsContainer: {
+        paddingVertical: 10,
+    },
+    timeSlot: {
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        backgroundColor: '#F3F4F6',
+        marginHorizontal: 4,
+    },
+    timeSlotSelected: {
+        backgroundColor: '#3B82F61A',
+        borderColor: '#3B82F6',
+    },
+    timeSlotText: {
+        color: '#3B82F6',
+        fontWeight: '600',
+    },
+    timeSlotTextSelected: {
+        color: '#3B82F6',
+    },
+    noSlotsText: {
+        color: '#6B7280',
+        fontStyle: 'italic',
+        paddingHorizontal: 10,
     },
 });
 
@@ -1594,5 +1829,337 @@ const calculateEventScore = (event: MappedEvent, userProfile: MusicLoverProfileD
 
     return score;
 };
+
+// --- Restaurant Reservation Modal ---
+interface ReservationModalProps {
+  visible: boolean;
+  onClose: () => void;
+  organizer: FandBOrganizer | null;
+  navigation: NavigationProp;
+}
+
+const ReservationModal: React.FC<ReservationModalProps> = ({ visible, onClose, organizer, navigation }) => {
+    const [reservationDate, setReservationDate] = useState(new Date());
+    const [selectedTime, setSelectedTime] = useState<string | null>(null);
+    const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+    const [quantity, setQuantity] = useState(2);
+    const [showDatePicker, setShowDatePicker] = useState(false);
+    const [isConfirming, setIsConfirming] = useState(false);
+    const [error, setError] = useState('');
+
+    const generateTimeSlots = (date: Date, hours: any): string[] => {
+        if (!hours) return [];
+
+        const dayOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][date.getDay()];
+        const dayHours = hours[dayOfWeek] as { open: string, close: string }[] | undefined;
+
+        if (!dayHours || dayHours.length === 0) return [];
+
+        const slots: string[] = [];
+        const now = new Date();
+        const isToday = date.toDateString() === now.toDateString();
+
+        dayHours.forEach(slot => {
+            const [openHour, openMinute] = slot.open.split(':').map(Number);
+            const [closeHour, closeMinute] = slot.close.split(':').map(Number);
+
+            let currentTime = new Date(date);
+            currentTime.setHours(openHour, openMinute, 0, 0);
+
+            let endTime = new Date(date);
+            endTime.setHours(closeHour, closeMinute, 0, 0);
+
+            while (currentTime < endTime) {
+                if (!isToday || currentTime > now) {
+                    slots.push(currentTime.toTimeString().substring(0, 5));
+                }
+                currentTime.setMinutes(currentTime.getMinutes() + 30);
+            }
+        });
+
+        return slots;
+    };
+
+    useEffect(() => {
+        if (visible && organizer) {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(19, 0, 0, 0);
+            setReservationDate(tomorrow);
+            setQuantity(2);
+            setError('');
+            setIsConfirming(false);
+            setSelectedTime(null);
+
+            const initialSlots = generateTimeSlots(tomorrow, organizer.opening_hours);
+            setAvailableSlots(initialSlots);
+
+            if (Platform.OS === 'ios' || Platform.OS === 'web') {
+                setShowDatePicker(true);
+            } else {
+                setShowDatePicker(false);
+            }
+        }
+    }, [visible, organizer]);
+
+    if (!organizer) return null;
+
+    const onDateChange = (event: any, selectedDate?: Date) => {
+        if (Platform.OS === 'android') {
+            setShowDatePicker(false);
+        }
+        if (event.type === 'dismissed') {
+            return;
+        }
+
+        const currentDate = selectedDate || reservationDate;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const comparableCurrentDate = new Date(currentDate);
+        comparableCurrentDate.setHours(0, 0, 0, 0);
+
+        if (comparableCurrentDate < today) {
+            Alert.alert("Invalid Date", "Please select today or a future date for your reservation.");
+            return;
+        }
+
+        setReservationDate(currentDate);
+        setSelectedTime(null);
+        setAvailableSlots(generateTimeSlots(currentDate, organizer.opening_hours));
+    };
+
+    const incrementQuantity = () => setQuantity(q => q + 1);
+    const decrementQuantity = () => setQuantity(q => Math.max(1, q - 1));
+
+    const getOrCreateDailyReservationEvent = async (org: FandBOrganizer, date: Date): Promise<MappedEvent | null> => {
+        console.log(`[Reservation] Calling RPC for event for ${org.name} on ${date.toISOString()}`);
+        try {
+            const { data, error } = await supabase.rpc('get_or_create_daily_reservation_event', {
+                p_organizer_id: org.userId,
+                p_date: date.toISOString(),
+                p_capacity: org.capacity,
+                p_organizer_name: org.name,
+                p_organizer_image: org.image,
+            });
+
+            if (error) throw error;
+            
+            // The RPC returns a single JSON object which is the event row.
+            const eventData = data;
+            if (!eventData) throw new Error("RPC returned no event data.");
+
+            console.log('[Reservation] Received event from RPC:', eventData.id);
+            
+            const { date: formattedDate, time } = formatEventDateTime(eventData.event_datetime);
+            return {
+                // Map the returned eventData to MappedEvent
+                id: eventData.id,
+                title: eventData.title,
+                images: eventData.poster_urls ?? [],
+                date: formattedDate,
+                time: time,
+                venue: eventData.location_text ?? org.name,
+                genres: eventData.tags_genres ?? [],
+                artists: eventData.tags_artists ?? [],
+                songs: eventData.tags_songs ?? [],
+                description: eventData.description ?? `Reservations for ${org.name}`,
+                booking_type: eventData.booking_type,
+                ticket_price: eventData.ticket_price,
+                pass_fee_to_user: eventData.pass_fee_to_user ?? false,
+                max_tickets: eventData.max_tickets,
+                max_reservations: eventData.max_reservations,
+                organizer: { userId: org.userId, name: org.name, image: org.image },
+                event_datetime_iso: eventData.event_datetime,
+                country: eventData.country,
+                city: eventData.city,
+            };
+
+        } catch (e: any) {
+            if (e?.code === 'PGRST202') { // Specific check for "Not Found"
+                console.error('[Reservation] FATAL: The required database function `get_or_create_daily_reservation_event` is missing.', e);
+                setError('A critical backend function is missing. Please contact support and mention code DBF-404.');
+            } else {
+                console.error('[Reservation] Error in getOrCreateDailyReservationEvent RPC call:', e);
+                setError('Could not prepare reservation. Please check your connection and try again.');
+            }
+            return null;
+        }
+    };
+
+    const handleConfirmReservation = async () => {
+        if (!organizer || !selectedTime) return;
+        
+        setIsConfirming(true);
+        setError('');
+
+        try {
+            const finalDateTime = new Date(reservationDate);
+            const [hour, minute] = selectedTime.split(':').map(Number);
+            finalDateTime.setHours(hour, minute, 0, 0);
+
+            // Step 1: Get or create the daily reservation event
+            const event = await getOrCreateDailyReservationEvent(organizer, finalDateTime);
+
+            if (!event) {
+                // Error is already set within the helper function
+                setIsConfirming(false);
+                return;
+            }
+
+            // Step 2: Check current bookings against capacity
+            const { data: bookings, error: bookingsError } = await supabase
+                .from('event_bookings')
+                .select('quantity')
+                .eq('event_id', event.id);
+
+            if (bookingsError) {
+                throw new Error(`Could not verify current bookings: ${bookingsError.message}`);
+            }
+
+            const currentBookings = bookings?.reduce((sum, booking) => sum + booking.quantity, 0) ?? 0;
+
+            // Step 3: Validate capacity
+            if (currentBookings + quantity > (organizer.capacity || 0)) {
+                Alert.alert(
+                    "Capacity Exceeded",
+                    `Sorry, there are only ${Math.max(0, organizer.capacity - currentBookings)} spots remaining.`
+                );
+                setIsConfirming(false);
+                return;
+            }
+            
+            // Step 4: Proceed to confirmation if capacity is fine
+            navigation.navigate('BookingConfirmation' as any, {
+                eventId: event.id,
+                eventTitle: event.title,
+                quantity: quantity,
+                pricePerItemDisplay: "Free",
+                totalPriceDisplay: "$0.00",
+                bookingType: 'RESERVATION',
+                rawPricePerItem: 0,
+                rawTotalPrice: 0,
+                rawFeePaid: 0,
+                maxTickets: null,
+                maxReservations: event.max_reservations,
+            } as any);
+            onClose();
+
+        } catch (e: any) {
+            console.error('[Reservation] Error during confirmation process:', e);
+            setError(e.message || 'An unexpected error occurred.');
+        } finally {
+            setIsConfirming(false);
+        }
+    };
+
+    return (
+        <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
+            <View style={styles.modalContainer}>
+                <View style={styles.modalContent}>
+                    <TouchableOpacity style={styles.closeButton} onPress={onClose}><Feather name="x" size={24} color="#6B7280" /></TouchableOpacity>
+                    <ScrollView>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Make a Reservation</Text>
+                            <Text style={styles.restaurantName}>{organizer.name}</Text>
+                        </View>
+                        <View style={styles.modalBody}>
+                            <Text style={styles.sectionTitle}>Select Date</Text>
+                            {Platform.OS === 'web' ? (
+                                <input
+                                    type="date"
+                                    value={reservationDate.toISOString().split('T')[0]}
+                                    onChange={(e) => {
+                                        const dateValue = e.target.value;
+                                        if (!dateValue) return;
+                                        const parts = dateValue.split('-').map(Number);
+                                        const year = parts[0], month = parts[1] - 1, day = parts[2];
+                                        const newSelectedDate = new Date(year, month, day);
+                                        onDateChange({type: 'set'}, newSelectedDate);
+                                    }}
+                                    style={{
+                                        padding: '12px',
+                                        border: '1px solid #D1D5DB',
+                                        borderRadius: '8px',
+                                        fontSize: '16px',
+                                        color: '#1F2937',
+                                        backgroundColor: 'white',
+                                        width: '100%'
+                                    }}
+                                    min={new Date().toISOString().split('T')[0]}
+                                />
+                            ) : (
+                                <>
+                                    {Platform.OS === 'android' && (
+                                        <TouchableOpacity style={styles.datePickerButton} onPress={() => setShowDatePicker(true)}>
+                                            <Feather name="calendar" size={16} color="#3B82F6" />
+                                            <Text style={styles.datePickerButtonText}>{reservationDate.toLocaleDateString()}</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                    {showDatePicker && (
+                                        <DateTimePicker
+                                            value={reservationDate}
+                                            mode="date"
+                                            display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                                            onChange={onDateChange}
+                                            minimumDate={new Date()}
+                                        />
+                                    )}
+                                </>
+                            )}
+                            <View style={styles.divider} />
+
+                            <Text style={styles.sectionTitle}>Select a Time</Text>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.timeSlotsContainer}>
+                                {availableSlots.length > 0 ? (
+                                    availableSlots.map(time => (
+                                        <TouchableOpacity
+                                            key={time}
+                                            style={[styles.timeSlot, selectedTime === time && styles.timeSlotSelected]}
+                                            onPress={() => setSelectedTime(time)}
+                                        >
+                                            <Text style={[styles.timeSlotText, selectedTime === time && styles.timeSlotTextSelected]}>{time}</Text>
+                                        </TouchableOpacity>
+                                    ))
+                                ) : (
+                                    <Text style={styles.noSlotsText}>No available slots for this day.</Text>
+                                )}
+                            </ScrollView>
+                            <View style={styles.divider} />
+
+                            <Text style={styles.sectionTitle}>Number of Guests</Text>
+                            <View style={styles.quantitySelector}>
+                                <Text style={styles.quantityLabel}>{`${quantity} guest${quantity > 1 ? 's' : ''}`}</Text>
+                                <View style={styles.quantityControls}>
+                                    <TouchableOpacity onPress={decrementQuantity} style={styles.quantityButton} disabled={quantity <= 1}><Feather name="minus" size={20} color={quantity <= 1 ? "#9CA3AF" : "#3B82F6"} /></TouchableOpacity>
+                                    <Text style={styles.quantityValue}>{quantity}</Text>
+                                    <TouchableOpacity onPress={incrementQuantity} style={styles.quantityButton}><Feather name="plus" size={20} color={"#3B82F6"} /></TouchableOpacity>
+                                </View>
+                            </View>
+
+                            {error ? <Text style={styles.errorTextModal}>{error}</Text> : null}
+
+                            <TouchableOpacity
+                                style={[styles.bookNowButton, (isConfirming || !selectedTime) && styles.disabledButton]}
+                                onPress={handleConfirmReservation}
+                                disabled={isConfirming || !selectedTime}
+                            >
+                                {isConfirming ? (
+                                    <ActivityIndicator color="white" />
+                                ) : (
+                                    <>
+                                        <Feather name="bookmark" size={18} color="#fff" />
+                                        <Text style={styles.bookNowButtonText}>Confirm Reservation</Text>
+                                    </>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </ScrollView>
+                </View>
+            </View>
+        </Modal>
+    );
+};
+// --- End Restaurant Reservation Modal ---
 
 export default EventsScreen;

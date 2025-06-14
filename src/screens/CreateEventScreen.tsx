@@ -82,7 +82,7 @@ const getCleanImageMimeType = (rawMimeType?: string): string | undefined => {
 
 const CreateEventScreen: React.FC = () => {
   const navigation = useNavigation<CreateEventNavigationProp>();
-  const { session, loading: authIsLoading } = useAuth();
+  const { session, organizerProfile, loading: authIsLoading } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formState, setFormState] = useState<FormState>({
     title: "",
@@ -118,6 +118,20 @@ const CreateEventScreen: React.FC = () => {
   const [states, setStates] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
 
+  // Pre-fill capacity for F&B organizers
+  useEffect(() => {
+    if (organizerProfile && organizerProfile.business_type === 'F&B' && organizerProfile.capacity) {
+      // Determine if it should be tickets or reservations based on a default or initial eventType
+      const bookingType = derivedBookingType();
+      if (bookingType === 'RESERVATION') {
+          setFormState(prev => ({
+              ...prev,
+              maxReservations: organizerProfile.capacity!.toString(),
+          }));
+      }
+      // Keep maxTickets empty unless a ticketed event type is selected.
+    }
+  }, [organizerProfile]);
 
   const derivedBookingType = useCallback((): 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null => { if (formState.bookingMode === 'no' || formState.eventType === 'ADVERTISEMENT_ONLY') return 'INFO_ONLY'; if (TICKETED_EVENT_TYPES.includes(formState.eventType)) return 'TICKETED'; if (RESERVATION_EVENT_TYPES.includes(formState.eventType)) return 'RESERVATION'; return null; }, [formState.eventType, formState.bookingMode]);
   
@@ -131,9 +145,9 @@ const CreateEventScreen: React.FC = () => {
         ...prev,
         eventType: newEventType,
         bookingMode: newBookingMode,
-        // Keep booking details if type changes but booking is still possible
-        maxTickets: TICKETED_EVENT_TYPES.includes(newEventType) ? prev.maxTickets : '',
-        maxReservations: RESERVATION_EVENT_TYPES.includes(newEventType) ? prev.maxReservations : '',
+        // Pre-fill capacity when an F&B user selects a relevant event type
+        maxTickets: TICKETED_EVENT_TYPES.includes(newEventType) ? (organizerProfile?.capacity?.toString() ?? '') : '',
+        maxReservations: RESERVATION_EVENT_TYPES.includes(newEventType) ? (organizerProfile?.capacity?.toString() ?? '') : '',
         ticketPrice: TICKETED_EVENT_TYPES.includes(newEventType) ? prev.ticketPrice : '',
       }));
     }
@@ -218,36 +232,44 @@ const CreateEventScreen: React.FC = () => {
   }, [formState.countryCode, formState.stateCode]);
 
 
-  const onDateChange = (event: DateTimePickerEvent, selectedDate?: Date | undefined) => { 
+  const onDateChange = (event: DateTimePickerEvent, selectedDate?: Date | undefined) => {
     if (Platform.OS === 'web') {
       if (selectedDate) {
         const newEventDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 
           eventDate.getHours(), eventDate.getMinutes(), 0, 0);
-        if (newEventDate > new Date()) {
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Compare against the start of today
+
+        if (new Date(newEventDate.setHours(0, 0, 0, 0)) >= today) {
           setEventDate(newEventDate);
         } else {
-          Alert.alert("Invalid Date", "The selected date must be in the future.");
+          Alert.alert("Invalid Date", "The selected date cannot be in the past.");
         }
       }
-      setShowDatePicker(false);
+      // For web, don't hide picker. User clicks "Done".
       return;
     }
 
     // Mobile implementation
-    const currentDate = selectedDate || eventDate; 
-    setShowDatePicker(Platform.OS === 'ios'); 
-    if (event.type === 'set' && selectedDate) { 
-      setShowDatePicker(false); 
-      const newEventDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 
-        eventDate.getHours(), eventDate.getMinutes(), 0, 0); 
-      if (newEventDate > new Date()) { 
-        setEventDate(newEventDate); 
-      } else { 
-        Alert.alert("Invalid Date", "The selected date must be in the future."); 
-      } 
-    } else if (event.type === 'dismissed') { 
-      setShowDatePicker(false); 
-    } 
+    const currentDate = selectedDate || eventDate;
+    setShowDatePicker(Platform.OS === 'ios');
+    if (event.type === 'set' && selectedDate) {
+      setShowDatePicker(false);
+      const newEventDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(),
+        eventDate.getHours(), eventDate.getMinutes(), 0, 0);
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Compare against the start of today
+
+      if (new Date(newEventDate.setHours(0, 0, 0, 0)) >= today) {
+        setEventDate(newEventDate);
+      } else {
+        Alert.alert("Invalid Date", "The selected date cannot be in the past.");
+      }
+    } else if (event.type === 'dismissed') {
+      setShowDatePicker(false);
+    }
   };
 
   const onTimeChange = (event: DateTimePickerEvent, selectedTime?: Date | undefined) => { 
@@ -624,7 +646,16 @@ const CreateEventScreen: React.FC = () => {
                       type="date"
                       value={eventDate.toISOString().split('T')[0]}
                       onChange={(e) => {
-                        const selectedDate = new Date(e.target.value);
+                        const dateValue = e.target.value; // YYYY-MM-DD
+                        if (!dateValue) return;
+
+                        // Manually parse to avoid timezone issues. new Date("YYYY-MM-DD") is UTC.
+                        const parts = dateValue.split('-').map(Number);
+                        const year = parts[0];
+                        const month = parts[1] - 1; // month is 0-indexed
+                        const day = parts[2];
+                        const selectedDate = new Date(year, month, day);
+
                         onDateChange({ type: 'set' } as DateTimePickerEvent, selectedDate);
                       }}
                       style={{
