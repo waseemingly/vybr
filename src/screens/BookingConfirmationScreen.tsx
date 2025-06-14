@@ -199,25 +199,14 @@ const BookingConfirmationScreen: React.FC = () => {
 
         if (bookingError) {
             console.error('[createBookingRecord] Error inserting booking:', bookingError);
-            // Since we removed the unique constraint, any error here is a real problem.
+            if (bookingError.code === '23505') {
+                 throw new Error(`You already have a booking for this event.`);
+            }
+            // Since we removed the unique constraint, any other error here is a real problem.
             throw new Error(`Your payment was successful, but we failed to save your booking record. Please contact support with this Event ID: ${eventId}.`);
         }
 
-        if (newBooking) {
-            console.log('[createBookingRecord] Booking created successfully:', newBooking.id);
-            // --- NEW: Report usage in real-time ---
-            // This is a "fire-and-forget" call. We don't want to block the user's
-            // confirmation alert if this fails. We'll log errors on the server.
-            supabase.functions.invoke('report-booking-usage', {
-                body: { eventId: eventId, quantity: quantity },
-            }).then(({ error }) => {
-                if (error) {
-                    console.error('[Usage Report] Failed to report real-time usage:', error);
-                } else {
-                    console.log('[Usage Report] Real-time usage reported successfully.');
-                }
-            });
-        }
+        return newBooking; // Return the booking data
     };
 
     // --- NEW: Handle redirect from Stripe 3D Secure on web ---
@@ -373,7 +362,6 @@ const BookingConfirmationScreen: React.FC = () => {
          try {
             if (!session?.user) {
                 showAlert("Authentication Error", "You must be logged in to complete this action.");
-                setIsConfirming(false); // Release the button
                 return;
             }
             console.log(`Confirming ${actionTextLower} (qty: ${quantity}) for event ${eventId}, user ${session.user.id}`);
@@ -404,40 +392,39 @@ const BookingConfirmationScreen: React.FC = () => {
                 }
             }
             
-            // --- Insert Booking Record ---
-            const { data: newBooking, error: bookingError } = await supabase
-                .from('event_bookings')
-                .insert({
-                    event_id: eventId,
-                    user_id: session.user.id,
-                    quantity: quantity,
-                    price_paid_per_item: rawPricePerItem,
-                    total_price_paid: rawTotalPrice,
-                    booking_fee_paid: rawFeePaid,
-                    status: 'CONFIRMED'
-                })
-                .select('id, booking_code')
-                .single();
+            // --- MODIFIED: Use the centralized booking creation function AND get result ---
+            const newBooking = await createBookingRecord();
 
-            if (bookingError) {
-                if (bookingError.code === '23505') { // unique_user_event_booking constraint
-                   showAlert("Already Registered", `You already have a ${actionTextLower} for this event.`);
-                   navigation.goBack();
-                } else {
-                     throw bookingError;
-                }
-            } else if (newBooking) {
+            if (newBooking) {
+                console.log('[handleFreeBooking] Booking created successfully, reporting usage...');
+                // --- NEW: Report usage directly after confirmation ---
+                supabase.functions.invoke('report-booking-usage', {
+                    body: { eventId: eventId, quantity: quantity },
+                }).then(({ error }) => {
+                    if (error) {
+                        console.error('[Usage Report] Failed to report real-time usage:', error);
+                        // Optional: Inform user or log to a monitoring service
+                    } else {
+                        console.log('[Usage Report] Real-time usage reported successfully.');
+                    }
+                });
+
+                // The success alert will now be triggered after the record is created.
                 showAlert(
                     `${actionTextProper} Confirmed!`,
-                    `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed!`,
+                    `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed! Check your profile for details.`,
                     [{ text: 'OK', onPress: navigateToMyBookings }]
                 );
             } else {
-                 throw new Error("Booking completed but no confirmation data received.");
+                // This case should ideally not be reached if createBookingRecord throws on error
+                throw new Error("Booking failed: No confirmation data was returned.");
             }
+
         } catch (error: any) {
             console.error('[handleFreeBooking] Error:', error); // Detailed log
             showAlert(`${actionTextProper} Failed`, `Could not complete: ${error.message}`);
+        } finally {
+            setIsConfirming(false); // Release the button in all cases
         }
     };
 
