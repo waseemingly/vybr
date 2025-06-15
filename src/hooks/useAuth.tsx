@@ -63,6 +63,7 @@ export interface OrganizerProfile {
     average_rating?: number | undefined; // It's optional as it comes from an RPC call
     capacity?: number | undefined; // <-- ADDED
     opening_hours?: OpeningHours | undefined; // <-- ADDED
+    unavailable_dates?: string[]; // <-- ADDED
     companyName: string;
     age?: number | null;
 }
@@ -497,6 +498,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                    opening_hours: profileData.opening_hours ?? undefined,
                                    companyName: profileData.company_name,
                                    age: profileData.age ?? undefined,
+                                   unavailable_dates: profileData.unavailable_dates ?? undefined,
                                  };
                                  setOrganizerProfile(fullProfile);
                                  if (currentSession) currentSession.organizerProfile = fullProfile;

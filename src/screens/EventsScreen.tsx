@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, Image, FlatList, ScrollView, Modal,
   Dimensions, ActivityIndicator, RefreshControl, Alert, GestureResponderEvent,
@@ -18,6 +18,7 @@ import type { MusicLoverBio } from "@/hooks/useAuth"; // Changed import source
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator';
 import ImageSwiper from '@/components/ImageSwiper'; // <-- Import the new component
 import { TextInput } from 'react-native';
+import { Calendar, DateData } from 'react-native-calendars';
 
 // Define navigation prop using imported types
 // Add openEventId to EventsScreen params in RootStackParamList
@@ -51,6 +52,7 @@ export interface FandBOrganizer {
   image: string | null;
   capacity: number;
   opening_hours?: any; // Using 'any' to avoid deep type issues for now
+  unavailable_dates?: string[];
 }
 
 export interface MappedEvent {
@@ -96,6 +98,14 @@ const DEFAULT_ORGANIZER_LOGO = /* APP_CONSTANTS.DEFAULT_ORGANIZER_LOGO || */ "ht
 const DEFAULT_ORGANIZER_NAME = "Event Organizer";
 const TRANSACTION_FEE = 0.50;
 const EVENTS_PER_PAGE = 10;
+
+// --- Timezone-safe Date Formatting Helper ---
+const toYYYYMMDD = (date: Date) => {
+    const y = date.getFullYear();
+    const m = date.getMonth() + 1; // getMonth() is zero-based
+    const d = date.getDate();
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+};
 
 // Card dimensions for web
 const CARDS_PER_ROW_WEB = 4;
@@ -754,7 +764,7 @@ const EventsScreen: React.FC = () => {
         try {
             const { data, error } = await supabase
                 .from('organizer_profiles')
-                .select('user_id, company_name, logo, capacity, opening_hours')
+                .select('user_id, company_name, logo, capacity, opening_hours, unavailable_dates') // <-- ADDED unavailable_dates
                 .eq('business_type', 'F&B')
                 .order('company_name', { ascending: true });
 
@@ -765,7 +775,8 @@ const EventsScreen: React.FC = () => {
                 name: org.company_name ?? 'Restaurant',
                 image: org.logo,
                 capacity: org.capacity ?? 0,
-                opening_hours: org.opening_hours, // <-- ADD THIS LINE
+                opening_hours: org.opening_hours,
+                unavailable_dates: org.unavailable_dates || [], // <-- MAPPED HERE
             }));
             
             setRestaurants(mappedRestaurants);
@@ -870,8 +881,16 @@ const EventsScreen: React.FC = () => {
              return; 
         }
         
+        // NEW: Get F&B organizer IDs to filter out their automated reservations from event tabs
+        const fandBOrganizerIds = new Set(restaurants.map(r => r.userId));
+
         const now = new Date();
         const mappedEventsWithScores: MappedEvent[] = rawEvents
+            .filter(event => {
+                // Exclude events that are reservations from F&B organizers (restaurants)
+                const isAutomatedFandBReservation = fandBOrganizerIds.has(event.organizer_id) && event.booking_type === 'RESERVATION';
+                return !isAutomatedFandBReservation;
+            })
             .map((event: SupabasePublicEvent) => { // Map first, then filter by date
                 const { date, time } = formatEventDateTime(event.event_datetime);
                 const organizerInfo = organizerMap.get(event.organizer_id);
@@ -1015,7 +1034,7 @@ const EventsScreen: React.FC = () => {
         setRefreshing(false); 
         console.log(`[EventsScreen] Processing complete. For You (source): ${recommended.length}, All Events (source): ${allInLocationSortedByDate.length}`);
 
-    }, [rawEvents, organizerMap, userProfile, route.params, navigation, activeTabIndex]); // Added route.params, navigation, activeTabIndex
+    }, [rawEvents, organizerMap, userProfile, route.params, navigation, activeTabIndex, restaurants]); // Added route.params, navigation, activeTabIndex, restaurants
 
     // Update displayed events for "For You" tab based on pagination
     useEffect(() => {
@@ -1314,7 +1333,7 @@ const EventsScreen: React.FC = () => {
                         or use a custom solution if a global one over TabView is needed.
                         For simplicity, if FlatLists inside tabs become scrollable, their own
                         RefreshControl would be more standard. Adding a global one here for now.
-                    */}
+                          */}
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]}>
                          {/* This ^ might not work as expected if TabView's content isn't directly scrollable from here.
                              Consider adding refreshControl to each FlatList in renderScene instead.
@@ -1701,6 +1720,12 @@ const styles = StyleSheet.create({
         fontStyle: 'italic',
         paddingHorizontal: 10,
     },
+    calendarStyle: {
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+      borderRadius: 10,
+    },
 });
 
 // Function to calculate recommendation score
@@ -1839,11 +1864,12 @@ interface ReservationModalProps {
 }
 
 const ReservationModal: React.FC<ReservationModalProps> = ({ visible, onClose, organizer, navigation }) => {
+    if (!organizer) return null; // <-- ADD THIS GUARD CLAUSE
+
     const [reservationDate, setReservationDate] = useState(new Date());
+    const [timeSlots, setTimeSlots] = useState<string[]>([]);
     const [selectedTime, setSelectedTime] = useState<string | null>(null);
-    const [availableSlots, setAvailableSlots] = useState<string[]>([]);
-    const [quantity, setQuantity] = useState(2);
-    const [showDatePicker, setShowDatePicker] = useState(false);
+    const [quantity, setQuantity] = useState(1);
     const [isConfirming, setIsConfirming] = useState(false);
     const [error, setError] = useState('');
 
@@ -1879,12 +1905,20 @@ const ReservationModal: React.FC<ReservationModalProps> = ({ visible, onClose, o
 
         return slots;
     };
+    
+    // --- NEW: Add max date and unavailable dates logic ---
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Set to beginning of day
+    const maxDate = new Date(today);
+    maxDate.setDate(today.getDate() + 28); // 4 weeks from now
 
     useEffect(() => {
         if (visible && organizer) {
+            // Default to tomorrow if today has passed typical hours
             const tomorrow = new Date();
             tomorrow.setDate(tomorrow.getDate() + 1);
-            tomorrow.setHours(19, 0, 0, 0);
+            tomorrow.setHours(0, 0, 0, 0);
+
             setReservationDate(tomorrow);
             setQuantity(2);
             setError('');
@@ -1892,42 +1926,43 @@ const ReservationModal: React.FC<ReservationModalProps> = ({ visible, onClose, o
             setSelectedTime(null);
 
             const initialSlots = generateTimeSlots(tomorrow, organizer.opening_hours);
-            setAvailableSlots(initialSlots);
-
-            if (Platform.OS === 'ios' || Platform.OS === 'web') {
-                setShowDatePicker(true);
-            } else {
-                setShowDatePicker(false);
-            }
+            setTimeSlots(initialSlots);
         }
     }, [visible, organizer]);
 
-    if (!organizer) return null;
+    // --- NEW: Calendar onDayPress handler (Timezone-safe) ---
+    const onDayPress = useCallback((day: DateData) => {
+        // The 'day' object from react-native-calendars gives year, month (1-based), and day.
+        // Creating a new Date object this way ensures it's interpreted in the user's local timezone.
+        const { year, month, day: dayOfMonth } = day;
+        const newDate = new Date(year, month - 1, dayOfMonth);
 
-    const onDateChange = (event: any, selectedDate?: Date) => {
-        if (Platform.OS === 'android') {
-            setShowDatePicker(false);
-        }
-        if (event.type === 'dismissed') {
-            return;
-        }
+        setReservationDate(newDate);
+        setSelectedTime(null); // Reset time when date changes
+        const newSlots = generateTimeSlots(newDate, organizer.opening_hours);
+        setTimeSlots(newSlots);
+    }, [organizer.opening_hours]);
 
-        const currentDate = selectedDate || reservationDate;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        const comparableCurrentDate = new Date(currentDate);
-        comparableCurrentDate.setHours(0, 0, 0, 0);
+    // --- NEW: Memoized marked dates for the calendar ---
+    const markedDates = useMemo(() => {
+        const marked: { [key: string]: any } = {};
 
-        if (comparableCurrentDate < today) {
-            Alert.alert("Invalid Date", "Please select today or a future date for your reservation.");
-            return;
-        }
+        // Mark all unavailable dates as disabled
+        organizer.unavailable_dates?.forEach(dateString => {
+            marked[dateString] = { disabled: true, disableTouchEvent: true };
+        });
 
-        setReservationDate(currentDate);
-        setSelectedTime(null);
-        setAvailableSlots(generateTimeSlots(currentDate, organizer.opening_hours));
-    };
+        // Highlight the currently selected date (Timezone-safe)
+        const selectedDateString = toYYYYMMDD(reservationDate);
+        marked[selectedDateString] = {
+            ...(marked[selectedDateString] || {}), // Keep disabled property if it exists
+            selected: true,
+            selectedColor: APP_CONSTANTS.COLORS.PRIMARY
+        };
+
+        return marked;
+    }, [organizer.unavailable_dates, reservationDate]);
+
 
     const incrementQuantity = () => setQuantity(q => q + 1);
     const decrementQuantity = () => setQuantity(q => Math.max(1, q - 1));
@@ -2065,54 +2100,32 @@ const ReservationModal: React.FC<ReservationModalProps> = ({ visible, onClose, o
                         </View>
                         <View style={styles.modalBody}>
                             <Text style={styles.sectionTitle}>Select Date</Text>
-                            {Platform.OS === 'web' ? (
-                                <input
-                                    type="date"
-                                    value={reservationDate.toISOString().split('T')[0]}
-                                    onChange={(e) => {
-                                        const dateValue = e.target.value;
-                                        if (!dateValue) return;
-                                        const parts = dateValue.split('-').map(Number);
-                                        const year = parts[0], month = parts[1] - 1, day = parts[2];
-                                        const newSelectedDate = new Date(year, month, day);
-                                        onDateChange({type: 'set'}, newSelectedDate);
-                                    }}
-                                    style={{
-                                        padding: '12px',
-                                        border: '1px solid #D1D5DB',
-                                        borderRadius: '8px',
-                                        fontSize: '16px',
-                                        color: '#1F2937',
-                                        backgroundColor: 'white',
-                                        width: '100%'
-                                    }}
-                                    min={new Date().toISOString().split('T')[0]}
-                                />
-                            ) : (
-                                <>
-                                    {Platform.OS === 'android' && (
-                                        <TouchableOpacity style={styles.datePickerButton} onPress={() => setShowDatePicker(true)}>
-                                            <Feather name="calendar" size={16} color="#3B82F6" />
-                                            <Text style={styles.datePickerButtonText}>{reservationDate.toLocaleDateString()}</Text>
-                                        </TouchableOpacity>
-                                    )}
-                                    {showDatePicker && (
-                                        <DateTimePicker
-                                            value={reservationDate}
-                                            mode="date"
-                                            display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                                            onChange={onDateChange}
-                                            minimumDate={new Date()}
-                                        />
-                                    )}
-                                </>
-                            )}
+                            <Calendar
+                                current={toYYYYMMDD(reservationDate)}
+                                minDate={toYYYYMMDD(today)}
+                                maxDate={toYYYYMMDD(maxDate)}
+                                onDayPress={onDayPress}
+                                markedDates={markedDates}
+                                theme={{
+                                    selectedDayBackgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+                                    selectedDayTextColor: '#ffffff',
+                                    todayTextColor: APP_CONSTANTS.COLORS.PRIMARY,
+                                    arrowColor: APP_CONSTANTS.COLORS.PRIMARY,
+                                    disabledArrowColor: '#d9e1e8',
+                                    monthTextColor: '#1F2937',
+                                    textSectionTitleColor: '#6B7280',
+                                    dayTextColor: '#1F2937',
+                                    textDisabledColor: '#D1D5DB',
+                                }}
+                                hideExtraDays={true}
+                                style={styles.calendarStyle}
+                            />
                             <View style={styles.divider} />
 
                             <Text style={styles.sectionTitle}>Select a Time</Text>
                             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.timeSlotsContainer}>
-                                {availableSlots.length > 0 ? (
-                                    availableSlots.map(time => (
+                                {timeSlots.length > 0 ? (
+                                    timeSlots.map((time: string) => (
                                         <TouchableOpacity
                                             key={time}
                                             style={[styles.timeSlot, selectedTime === time && styles.timeSlotSelected]}
@@ -2122,7 +2135,7 @@ const ReservationModal: React.FC<ReservationModalProps> = ({ visible, onClose, o
                                         </TouchableOpacity>
                                     ))
                                 ) : (
-                                    <Text style={styles.noSlotsText}>No available slots for this day.</Text>
+                                    <Text style={styles.noSlotsText}>No available times for this date.</Text>
                                 )}
                             </ScrollView>
                             <View style={styles.divider} />

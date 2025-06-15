@@ -27,6 +27,7 @@ type OrganizerSettingsStackParamList = {
     EditOrganizerProfileScreen: undefined; // Use actual screen name
     ManagePlanScreen: undefined;      // Use actual screen name
     OrgBillingHistoryScreen: undefined;   // Use actual screen name
+    SetAvailabilityScreen: undefined;
     // ... other organizer settings sub-screens
 };
 
@@ -296,6 +297,7 @@ const OrganizerSettingsScreen: React.FC = () => {
     const navigateToEditProfile = () => navigation.navigate('EditOrganizerProfileScreen');
     const navigateToManagePlan = () => navigation.navigate('ManagePlanScreen');
     const navigateToBillingHistory = () => navigation.navigate('OrgBillingHistoryScreen');
+    const navigateToSetAvailability = () => navigation.navigate('SetAvailabilityScreen');
     // -------------------------
 
     if (loadingSettings || authLoading) {
@@ -323,6 +325,12 @@ const OrganizerSettingsScreen: React.FC = () => {
                         label="Edit Profile"
                         icon="user"
                         onPress={navigateToEditProfile}
+                        disabled={authLoading}
+                    />
+                    <SettingsItem
+                        label="Availability"
+                        icon="calendar"
+                        onPress={navigateToSetAvailability}
                         disabled={authLoading}
                     />
                     <SettingsItem
