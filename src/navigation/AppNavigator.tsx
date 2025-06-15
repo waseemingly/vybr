@@ -52,6 +52,9 @@ import UpcomingEventsListScreen from '@/screens/UpcomingEventsListScreen';
 import PastEventsListScreen from '@/screens/PastEventsListScreen';
 import OrganizerReservationsScreen from '@/screens/OrganizerReservationsScreen';
 
+// NEW: Add SetAvailabilityScreen
+import SetAvailabilityScreen from '@/screens/organizer/SetAvailabilityScreen';
+
 // Attended Events Screen (New)
 import AttendedEventsScreen from '@/screens/AttendedEventsScreen'; // <-- IMPORT NEW SCREEN
 
@@ -137,6 +140,7 @@ export type MainStackParamList = {
   EditEvent: { eventId: string };   // Corrected from EditEventScreen, eventId to string
   ViewBookings: { eventId: string; eventTitle: string }; // <<< ADDED ViewBookings
   OrganizerSettingsScreen: undefined;
+  SetAvailabilityScreen: undefined; // <-- ADDED
   EditOrganizerProfileScreen: undefined; // Simplified
   ManagePlanScreen: undefined;
   OrgBillingHistoryScreen: undefined;
@@ -430,6 +434,7 @@ const MainAppStack = () => {
                    <MainStack.Screen name="EditEvent" component={EditEventScreen} options={{ title: 'Edit Event' }}/>
                    <MainStack.Screen name="ViewBookings" component={ViewBookingsScreen} options={{ title: 'Event Bookings' }}/>
                    <MainStack.Screen name="OrganizerSettingsScreen" component={OrganizerSettingsScreen} options={{ title: 'Settings' }}/>
+                   <MainStack.Screen name="SetAvailabilityScreen" component={SetAvailabilityScreen} options={{ title: 'Set Availability' }}/>
                    <MainStack.Screen name="EditOrganizerProfileScreen" component={EditOrganizerProfileScreen} options={{ title: 'Edit Profile' }}/>
                    <MainStack.Screen name="ManagePlanScreen" component={ManagePlanScreen} options={{ title: 'Manage Plan' }}/>
                    <MainStack.Screen name="OrgBillingHistoryScreen" component={OrgBillingHistoryScreen} options={{ title: 'Billing History' }}/>
