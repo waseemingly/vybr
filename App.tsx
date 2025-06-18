@@ -16,7 +16,7 @@ import { Platform } from 'react-native';
 //import { Linking } from 'react-native';
 import * as Linking from 'expo-linking';
 // IMPORT from custom wrapper
-import { StripeProvider } from '@stripe/stripe-react-native';
+import CustomStripeProvider from './src/components/StripeProvider';
 
 import { OrganizerModeProvider } from "./src/hooks/useOrganizerMode";
 import { AuthProvider } from "./src/hooks/useAuth";
@@ -48,6 +48,11 @@ const linking = {
           PaymentConfirmationScreen: 'payment-confirmation',
           PremiumSignupScreen: 'premium-signup',
           PaymentSuccessScreen: 'payment-success',
+          OrganizerTabs: {
+            screens: {
+              Posts: 'organizer/dashboard',
+            }
+          }
         },
       },
     },
@@ -57,8 +62,8 @@ const linking = {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <StripeProvider
-        publishableKey="pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN"
+      <CustomStripeProvider
+        publishableKey={STRIPE_PUBLISHABLE_KEY}
       >
         <OrganizerModeProvider>
           <AuthProvider navigationRef={navigationRef as React.RefObject<NavigationContainerRef<any>>}>
@@ -73,7 +78,7 @@ export default function App() {
             </SafeAreaProvider>
           </AuthProvider>
         </OrganizerModeProvider>
-      </StripeProvider>
+      </CustomStripeProvider>
     </QueryClientProvider>
   );
 }

@@ -227,7 +227,7 @@ const LinkMusicServicesScreen: React.FC<Props> = ({ navigation, route }) => {
         console.log("[LinkMusicServicesScreen] Starting Spotify linking process...");
         // Log the version of the app and other important information
         console.log("[LinkMusicServicesScreen] Development mode:", __DEV__ ? "Yes" : "No");
-        console.log("[LinkMusicServicesScreen] Expected Redirect URI: http://127.0.0.1:8081/callback");
+        console.log("[LinkMusicServicesScreen] Expected Redirect URI: http://127.0.0.1:19006/callback");
         
         setAnalyzingServiceId('spotify');
         setFetchingSpotifyData(true);

@@ -11,9 +11,9 @@ import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 
 // --- Stripe Imports ---
-import { useStripe as useNativeStripe } from '@stripe/stripe-react-native';
+import { usePlatformStripe } from '../../hooks/useStripe';
 import { loadStripe, StripeElementsOptions, Appearance } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useStripe as useWebStripe, useElements } from '@stripe/react-stripe-js';
+import { Elements, PaymentElement } from '@stripe/react-stripe-js';
 
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 
@@ -31,8 +31,7 @@ const StripeSetupFormWebManage = ({ clientSecret, onSetupSuccess, onSetupError, 
     onSetupError: (errorMsg: string) => void;
     currentCardExists: boolean;
 }) => {
-    const stripe = useWebStripe();
-    const elements = useElements();
+    const { stripe, elements } = usePlatformStripe();
     const [isProcessingWebPayment, setIsProcessingWebPayment] = useState(false);
     const [errorMessageWeb, setErrorMessageWeb] = useState<string | null>(null);
     const [isPaymentElementReady, setIsPaymentElementReady] = useState(false);
@@ -123,7 +122,7 @@ const ManagePlanScreen: React.FC = () => {
     const navigation = useNavigation<OrgManagePlanNavigationProp>();
     // IMPORTANT: Destructure both profiles to handle both user types
     const { session, organizerProfile, musicLoverProfile, loading: authLoading, refreshUserProfile } = useAuth();
-    const { initPaymentSheet, presentPaymentSheet } = useNativeStripe();
+    const { initPaymentSheet, presentPaymentSheet } = usePlatformStripe();
 
     const [isLoadingData, setIsLoadingData] = useState(true);
     const [isStripeActionActive, setIsStripeActionActive] = useState(false);

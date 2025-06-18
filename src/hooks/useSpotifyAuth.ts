@@ -22,7 +22,7 @@ import { MUSIC_MOODS, generateGeminiMoodAnalysisPrompt, SongForMoodAnalysis, Gem
 const SPOTIFY_API_URL = 'https://api.spotify.com/v1';
 // CLIENT_ID and CLIENT_SECRET will be fetched from Supabase
 const AUTH_CALLBACK_SCHEME = 'vybr';
-const REGISTERED_WEB_REDIRECT_URI = 'http://127.0.0.1:8081/callback';
+const REGISTERED_WEB_REDIRECT_URI = 'http://127.0.0.1:19006/callback';
 
 // For Web, use the explicit redirect URI. For native, AuthSession will generate one.
 const explicitWebRedirectUri = REGISTERED_WEB_REDIRECT_URI || 
