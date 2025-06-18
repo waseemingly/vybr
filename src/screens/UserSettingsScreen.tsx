@@ -136,14 +136,12 @@ const UserSettingsScreen: React.FC = () => {
         notify_event_updates: boolean | null;
         notify_friend_requests: boolean | null;
         notify_new_messages: boolean | null;
-        notify_music_recommendations: boolean | null;
-        notify_app_updates: boolean | null;
+        notify_new_matches: boolean | null; // Add new matches notification setting
     }> ({
         notify_event_updates: null, // Initialize as null to indicate loading/not fetched
         notify_friend_requests: null,
         notify_new_messages: null,
-        notify_music_recommendations: null,
-        notify_app_updates: null,
+        notify_new_matches: null, // Add new matches notification setting
     });
     const [loadingSettings, setLoadingSettings] = useState(true);
     const [updatingSetting, setUpdatingSetting] = useState<string | null>(null); // Track which toggle is updating
@@ -163,8 +161,8 @@ const UserSettingsScreen: React.FC = () => {
             try {
                 const { data, error } = await supabase
                     .from('music_lover_profiles')
-                    // Removed show_music_profile from select
-                    .select('notify_event_updates, notify_friend_requests, notify_new_messages, notify_music_recommendations, notify_app_updates') 
+                    // Add notify_new_matches to the select query
+                    .select('notify_event_updates, notify_friend_requests, notify_new_messages, notify_new_matches') 
                     .eq('user_id', userId)
                     .single();
 
@@ -175,8 +173,7 @@ const UserSettingsScreen: React.FC = () => {
                         notify_event_updates: data.notify_event_updates ?? true, 
                         notify_friend_requests: data.notify_friend_requests ?? true, 
                         notify_new_messages: data.notify_new_messages ?? true, 
-                        notify_music_recommendations: data.notify_music_recommendations ?? false, 
-                        notify_app_updates: data.notify_app_updates ?? true, 
+                        notify_new_matches: data.notify_new_matches ?? true, // Add new matches with default true
                     });
                     // setShowMusicProfile(data.show_music_profile ?? true); // Temporarily disabled
                 } else {
@@ -187,8 +184,7 @@ const UserSettingsScreen: React.FC = () => {
                         notify_event_updates: true,
                         notify_friend_requests: true,
                         notify_new_messages: true,
-                        notify_music_recommendations: false,
-                        notify_app_updates: true,
+                        notify_new_matches: true, // Add new matches with default true
                     });
                     // setShowMusicProfile(true); // Temporarily disabled
                 }
@@ -200,8 +196,7 @@ const UserSettingsScreen: React.FC = () => {
                     notify_event_updates: true,
                     notify_friend_requests: true,
                     notify_new_messages: true,
-                    notify_music_recommendations: false,
-                    notify_app_updates: true,
+                    notify_new_matches: true, // Add new matches with default true
                 });
                 // setShowMusicProfile(true); // Temporarily disabled
             } finally {
@@ -422,11 +417,10 @@ const UserSettingsScreen: React.FC = () => {
                  </SettingsSection>
 
                 <SettingsSection title="Notifications">
+                    <SettingsItem label="New Matches" icon="heart" toggleValue={notifications.notify_new_matches ?? true} onToggleChange={(v) => handleToggle('notify_new_matches', v)} isUpdating={updatingSetting === 'notify_new_matches'} disabled={notifications.notify_new_matches === null}/>
                     <SettingsItem label="Event Updates & Invites" icon="calendar" toggleValue={notifications.notify_event_updates ?? true} onToggleChange={(v) => handleToggle('notify_event_updates', v)} isUpdating={updatingSetting === 'notify_event_updates'} disabled={notifications.notify_event_updates === null}/>
                     <SettingsItem label="Friend Requests / Followers" icon="user-plus" toggleValue={notifications.notify_friend_requests ?? true} onToggleChange={(v) => handleToggle('notify_friend_requests', v)} isUpdating={updatingSetting === 'notify_friend_requests'} disabled={notifications.notify_friend_requests === null}/>
                     <SettingsItem label="New Messages" icon="message-square" toggleValue={notifications.notify_new_messages ?? true} onToggleChange={(v) => handleToggle('notify_new_messages', v)} isUpdating={updatingSetting === 'notify_new_messages'} disabled={notifications.notify_new_messages === null}/>
-                    <SettingsItem label="Music Recommendations" icon="radio" toggleValue={notifications.notify_music_recommendations ?? false} onToggleChange={(v) => handleToggle('notify_music_recommendations', v)} isUpdating={updatingSetting === 'notify_music_recommendations'} disabled={notifications.notify_music_recommendations === null}/>
-                    <SettingsItem label="App Updates & News" icon="info" toggleValue={notifications.notify_app_updates ?? true} onToggleChange={(v) => handleToggle('notify_app_updates', v)} isUpdating={updatingSetting === 'notify_app_updates'} disabled={notifications.notify_app_updates === null}/>
                 </SettingsSection>
 
                 <SettingsSection title="Payment & Billing">

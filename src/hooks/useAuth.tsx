@@ -21,6 +21,8 @@ import { createClient } from '@supabase/supabase-js';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
+// Import notification service
+import NotificationService from '../services/NotificationService';
 
 // --- Exported Types ---
 export type MusicLoverBio = SupabaseMusicLoverBio;
@@ -534,6 +536,59 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         } else {
                             setIsOrganizerMode(false);
                             console.log("[AuthProvider] Setting Organizer Mode OFF (no organizer profile).");
+                        }
+
+                        // --- Register for push notifications after successful profile fetch ---
+                        try {
+                            if (currentSession && (currentSession.musicLoverProfile || currentSession.organizerProfile)) {
+                                console.log("[AuthProvider] Registering for push notifications...");
+                                const token = await NotificationService.registerForPushNotifications(userId);
+                                if (token) {
+                                    console.log("[AuthProvider] Push notification registration successful");
+                                } else {
+                                    console.log("[AuthProvider] Push notification registration failed or not supported");
+                                }
+                                
+                                // Setup notification listeners
+                                NotificationService.addNotificationReceivedListener((notification) => {
+                                    console.log('[AuthProvider] Notification received while app is open:', notification);
+                                    // You can handle in-app notifications here if needed
+                                });
+
+                                NotificationService.addNotificationResponseReceivedListener((response) => {
+                                    console.log('[AuthProvider] Notification tapped:', response);
+                                    
+                                    // Handle navigation based on notification data
+                                    const data = response.notification.request.content.data as any;
+                                    if (data?.screen && navigationRef.current?.isReady()) {
+                                        if (data.screen === 'MatchesScreen') {
+                                            // Navigate to matches screen
+                                            navigationRef.current.navigate('MainApp' as never, { 
+                                                screen: 'MatchesScreen' 
+                                            } as never);
+                                        } else if (data.screen === 'IndividualChatScreen' && data.matchUserId) {
+                                            // Navigate to specific chat
+                                            navigationRef.current.navigate('MainApp' as never, { 
+                                                screen: 'IndividualChatScreen',
+                                                params: { 
+                                                    matchUserId: data.matchUserId,
+                                                    matchName: data.senderName || data.matchName,
+                                                    isFirstInteractionFromMatches: false
+                                                }
+                                            } as never);
+                                        } else if (data.screen === 'GroupChatScreen' && data.groupId) {
+                                            // Navigate to group chat
+                                            navigationRef.current.navigate('MainApp' as never, { 
+                                                screen: 'GroupChatScreen',
+                                                params: { groupId: data.groupId }
+                                            } as never);
+                                        }
+                                    }
+                                });
+                            }
+                        } catch (notificationError) {
+                            console.error("[AuthProvider] Error setting up notifications:", notificationError);
+                            // Don't fail the whole login process if notifications fail
                         }
 
                     } catch (e) {
@@ -1170,6 +1225,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         console.log('[AuthProvider] logout: Initiating logout...');
         setLoading(true);
         try {
+            // Remove push tokens before logging out
+            if (session?.user?.id) {
+                try {
+                    await NotificationService.removePushToken(session.user.id);
+                    console.log('[AuthProvider] logout: Push tokens removed successfully');
+                } catch (tokenError) {
+                    console.error('[AuthProvider] logout: Error removing push tokens:', tokenError);
+                }
+            }
+
             const { error } = await supabase.auth.signOut();
             if (error) {
                 console.error("[AuthProvider] logout: Supabase signOut Error:", error);
