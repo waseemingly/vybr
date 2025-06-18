@@ -65,6 +65,7 @@ const MatchesScreen: React.FC = () => {
         try {
             const { data, error } = await supabase.rpc('get_matches_for_user', {
                 p_current_user_id: session.user.id,
+                p_minimum_score: 0.01 // <-- This filters out all 0% matches
             });
 
             if (error) {

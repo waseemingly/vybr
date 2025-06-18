@@ -2,12 +2,11 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, ScrollView, Platform, GestureResponderEvent
 } from 'react-native';
-// NATIVE Stripe
-import { useStripe as useNativeStripe } from '@stripe/stripe-react-native';
+import { usePlatformStripe } from '@/hooks/useStripe';
 
 // WEB Stripe
 import { loadStripe, StripeElementsOptions, Appearance } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useStripe as useWebStripe, useElements } from '@stripe/react-stripe-js';
+import { Elements, PaymentElement } from '@stripe/react-stripe-js';
 
 import { useNavigation, useRoute, NavigationProp, RouteProp } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase'; // Assuming this is your initialized Supabase client
@@ -40,8 +39,7 @@ const StripeSetupFormWeb = ({ clientSecret, onSetupSuccess, onSetupError }: {
     onSetupSuccess: (setupIntentId: string, paymentMethodId?: string) => void;
     onSetupError: (errorMsg: string) => void;
 }) => {
-    const stripe = useWebStripe();
-    const elements = useElements();
+    const { stripe, elements } = usePlatformStripe();
     const [isPaymentElementReady, setIsPaymentElementReady] = useState(false);
     const [isProcessingWebPayment, setIsProcessingWebPayment] = useState(false);
     const [errorMessageWeb, setErrorMessageWeb] = useState<string | null>(null);
@@ -129,7 +127,7 @@ const PremiumSignupScreen = () => {
     const [paymentParams, setPaymentParams] = useState<PaymentParams | null>(null); // Stores SetupIntent params
     const [isLoadingData, setIsLoadingData] = useState(false); // For processing after setup
 
-    const { initPaymentSheet, presentPaymentSheet } = useNativeStripe();
+    const { initPaymentSheet, presentPaymentSheet } = usePlatformStripe();
     const navigation = useNavigation<PremiumSignupNavigationProp>();
     const route = useRoute<PremiumSignupScreenRouteProp>();
     const { userEmail, userId } = route.params;

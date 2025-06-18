@@ -7,8 +7,8 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/useAuth'; // Correct path
 import { APP_CONSTANTS } from '@/config/constants';
-// Remove direct supabase import if not needed for other things
-// import { supabase } from '@/lib/supabase';
+// Import supabase
+import { supabase } from '@/lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import TermsModal from '@/components/TermsModal'; // Import the modal
 import ImageCropper from '@/components/ImageCropper'; // Add ImageCropper
@@ -25,7 +25,7 @@ type OrganizerSignUpNavigationProp = NavigationProp<RootStackParamList>;
 // type Step = 'account-details' | 'profile-details' | 'payment';
 type BusinessType = 'venue' | 'promoter' | 'artist_management' | 'festival_organizer' | 'other' | 'F&B' | 'club' | 'party' | '';
 // Correct the Step type definition based on usage in the component
-type Step = 'account-details' | 'profile-details';
+type Step = 'company-name' | 'profile-details' | 'account-details';
 
 // Define window width for animations (Assuming SCREEN_WIDTH is needed)
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -75,13 +75,20 @@ Refer to the main Vybr Terms & Conditions.
 const OrganizerSignUpFlow = () => {
   const navigation = useNavigation<OrganizerSignUpNavigationProp>();
   // Get new functions from useAuth
-  const { signUp, createOrganizerProfile, requestMediaLibraryPermissions, loading: authLoading, checkEmailExists, verifyEmailIsReal } = useAuth();
+  const { 
+    signUp, 
+    createOrganizerProfile, 
+    requestMediaLibraryPermissions, 
+    loading: authLoading, 
+    checkEmailExists, 
+    // verifyEmailIsReal, // Removed email verification function
+    signInWithGoogle, // Add Google Sign-In function
+    verifyGoogleAuthCompleted, // Add verifyGoogleAuthCompleted function
+    updateUserMetadata, // Add function to update user metadata
+  } = useAuth();
 
   const [formData, setFormData] = useState({
     companyName: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
     termsAccepted: false,
     phoneNumber: '',
     logoUri: '', // Store the local URI from the picker
@@ -91,24 +98,19 @@ const OrganizerSignUpFlow = () => {
     bio: '',
     capacity: '', // Add capacity
     openingHours: null as OpeningHours | null, // <-- ADD THIS
-    // Payment info remains - NOTE: This info isn't currently sent to supabase
-    // You would need a backend function or further integration to process payments
-    paymentInfo: {
-      cardNumber: '',
-      expiry: '',
-      cvv: '',
-      name: '',
-    },
     logoMimeType: null as string | null, // Added for mobile mimeType storage
   });
 
-  const [currentStep, setCurrentStep] = useState<Step>('account-details');
+  const [currentStep, setCurrentStep] = useState<Step>('company-name');
   // Use a local loading state, but consider authLoading for disabling actions during auth operations
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false); // Keep for logo upload UI feedback
   const [slideAnim] = useState(new Animated.Value(0));
   const [isTermsModalVisible, setIsTermsModalVisible] = useState(false);
+
+  // Add state to hold Google User ID
+  const [googleUserId, setGoogleUserId] = useState<string | null>(null);
 
   // Web cropping state
   const [showCropper, setShowCropper] = useState(false);
@@ -123,25 +125,9 @@ const OrganizerSignUpFlow = () => {
     requestMediaLibraryPermissions();
   }, [requestMediaLibraryPermissions]);
 
-
   const handleChange = (field: string, value: any) => {
-    // Special handling for payment info nested object
-    if (field.startsWith('paymentInfo.')) {
-      const key = field.split('.')[1];
-      setFormData(prev => ({
-        ...prev,
-        paymentInfo: { ...prev.paymentInfo, [key]: value }
-      }));
-    } else {
-      setFormData(prev => ({ ...prev, [field]: value }));
-    }
-    
-    // Reset email validation when email is changed
-    if (field === 'email') {
-      setEmailStatus('idle');
-      setEmailFeedback('');
-    }
-    
+    // Update formData with the new value
+    setFormData(prev => ({ ...prev, [field]: value }));
     setError(''); // Clear error on any change
   };
 
@@ -178,66 +164,16 @@ const OrganizerSignUpFlow = () => {
     });
   };
 
-  // Email validation handler
-  const handleEmailBlur = async () => {
-    const email = formData.email.trim();
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!email) {
-        setEmailStatus('invalid');
-        setEmailFeedback('Email is required.');
-        return;
-    }
-    if (!emailRegex.test(email)) {
-        setEmailStatus('invalid');
-        setEmailFeedback('Please enter a valid email address.');
-        return;
-    }
-
-    setEmailStatus('checking');
-    setEmailFeedback('Checking availability...');
-    try {
-        // First verify if the email is real
-        const verifyResult = await verifyEmailIsReal(email);
-        if (!verifyResult.isValid) {
-            setEmailStatus('invalid');
-            setEmailFeedback(verifyResult.error || 'Please enter a real email address.');
-            return;
-        }
-
-        // Then check if email exists in our system
-        const result = await checkEmailExists(email);
-        if (result.exists) {
-            setEmailStatus('invalid');
-            setEmailFeedback(result.error || 'This email is already registered.');
-        } else if (result.error) {
-            setEmailStatus('error');
-            setEmailFeedback(result.error);
-        } else {
-            setEmailStatus('valid');
-            setEmailFeedback('Email available!');
-        }
-    } catch (e: any) {
-        setEmailStatus('error');
-        setEmailFeedback('Error checking email.');
-    }
-  };
-
-  // Validation functions (remain mostly the same)
-  const validateAccountDetailsStep = () => {
-    if (!formData.companyName.trim()) { setError('Please enter your company name'); return false; }
-    if (!formData.email.trim()) { setError('Please enter your company email'); return false; }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(formData.email)) { setError('Please enter a valid email address'); return false; }
-    if (emailStatus !== 'valid') { 
-      if (emailStatus !== 'invalid' || !emailFeedback) {
-        setError('Please ensure your email is valid and available'); 
-      }
+  // Validation functions
+  const validateCompanyNameStep = () => {
+    if (!formData.companyName.trim()) { 
+      setError('Please enter your company name'); 
       return false; 
     }
-    if (!formData.password) { setError('Please enter a password'); return false; }
-    if (formData.password.length < 8) { setError('Password must be at least 8 characters long'); return false; }
-    if (formData.password !== formData.confirmPassword) { setError('Passwords do not match'); return false; }
-    if (!formData.termsAccepted) { setError('Please accept the Terms and Conditions'); return false; }
+    if (!formData.termsAccepted) { 
+      setError('Please accept the Terms and Conditions'); 
+      return false; 
+    }
     return true;
   };
 
@@ -321,68 +257,124 @@ const OrganizerSignUpFlow = () => {
     setTempImageUri(null);
   };
 
+  // Handle Google Sign-In
+  const handleGoogleSignIn = async () => {
+    try {
+      setIsLoading(true);
+      setError('');
+      
+      console.log('[OrganizerSignUpFlow] Starting Google Sign-In...');
+      const result = await signInWithGoogle();
+      
+      if ('error' in result) {
+        // Check for cancellation
+        if ((result.error as any)?.cancelled) {
+          console.log('[OrganizerSignUpFlow] Google Sign-In was cancelled by the user.');
+          return;
+        }
+        console.error('[OrganizerSignUpFlow] Google Sign-In error:', result.error);
+        setError(result.error.message || 'Failed to sign in with Google');
+        return;
+      }
+      
+      if ('user' in result && result.user) {
+        const { user } = result;
+        console.log('[OrganizerSignUpFlow] Google Sign-In successful, user:', user.id);
+        
+        // Ensure user type is set to organizer
+        await updateUserMetadata('organizer');
+        
+        // Create the organizer profile directly
+        const profileData = {
+          userId: user.id,
+          companyName: formData.companyName,
+          // Email is automatically fetched from the session
+          logoUri: formData.logoUri,
+          logoMimeType: formData.logoMimeType,
+          phoneNumber: formData.phoneNumber,
+          businessType: formData.businessType || undefined,
+          bio: formData.bio,
+          website: formData.website,
+          capacity: formData.businessType === 'F&B' ? parseInt(formData.capacity, 10) : undefined,
+          openingHours: formData.businessType === 'F&B' ? (formData.openingHours ?? undefined) : undefined,
+        };
+        
+        console.log('[OrganizerSignUpFlow] Creating profile for Google user:', profileData);
+        const profileResult = await createOrganizerProfile(profileData);
+        
+        if ('error' in profileResult && profileResult.error) {
+          console.error('[OrganizerSignUpFlow] Google user profile creation error:', profileResult.error);
+          setError(profileResult.error.message || 'Failed to create profile for Google user');
+          return;
+        }
+        
+        console.log('[OrganizerSignUpFlow] Organizer profile created successfully');
+        
+        // Force a re-render by resetting to MainApp, which will trigger the payment check
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'MainApp' }],
+        });
+      }
+    } catch (error: any) {
+      console.error('[OrganizerSignUpFlow] Google sign-in error:', error);
+      setError(error.message || 'Failed to sign in with Google');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Complete signup process - Updated Flow
   const handleCompleteSignup = async () => {
     setIsLoading(true);
     setError(''); // Clear previous errors
 
     try {
-      // Step 1: Sign up the user (Auth + User Type)
-      console.log('Attempting sign up with email:', formData.email);
-      const signUpResult = await signUp({
-        email: formData.email,
-        password: formData.password,
-        userType: 'organizer',
-         // Pass only essential data for signUp
-         // companyName: formData.companyName, // Not needed here anymore
-      });
+      let userId = googleUserId;
 
-       // Check for sign up errors
-      if ('error' in signUpResult && signUpResult.error) {
-        console.error('Sign up failed:', signUpResult.error);
-        setError(signUpResult.error.message || 'Sign up failed. Please check your details.');
+      // Step 1: Sign up the user (Auth + User Type) if not a Google sign-in
+      if (!userId) {
+        console.error('No user ID available. Google sign-in is required.');
+        setError('Google sign-in is required to create an organizer account.');
         setIsLoading(false);
         return;
       }
 
-      // Ensure we have a user object and ID
-      if (!('user' in signUpResult) || !signUpResult.user || !signUpResult.user.id) {
-         console.error('Sign up succeeded but returned invalid user data.');
-        setError('An unexpected error occurred during sign up.');
-        setIsLoading(false);
-        return;
+      // Ensure we have a userId before proceeding
+      if (!userId) {
+        throw new Error("Could not get a user ID to create the profile.");
       }
 
-       const userId = signUpResult.user.id;
-       console.log('Sign up successful, User ID:', userId);
+      // Get email from the authenticated user session
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData?.session?.user?.email) {
+        console.error('[OrganizerSignUpFlow] Could not get email from session');
+        throw new Error("Could not retrieve your email from Google. Please try again.");
+      }
+      
+      const email = sessionData.session.user.email;
+      console.log('[OrganizerSignUpFlow] Got email from authenticated session:', email);
 
       // Step 2: Create the Organizer Profile (including potential logo upload handled by the hook)
       console.log('Attempting to create organizer profile with data:', { ...formData, userId });
-      const profileResult = await createOrganizerProfile({
+      const profileData = {
         userId: userId,
         companyName: formData.companyName,
-        email: formData.email, // Use the confirmed email
-        logoUri: formData.logoUri, // Pass the local URI, hook handles upload
-        logoMimeType: formData.logoMimeType, // Pass the mimeType for upload
+        // No need to pass email as it will be fetched from the authenticated session
+        logoUri: formData.logoUri,
+        logoMimeType: formData.logoMimeType,
         phoneNumber: formData.phoneNumber,
-        businessType: formData.businessType || undefined, // Ensure it's string or undefined
+        businessType: formData.businessType || undefined,
         bio: formData.bio,
         website: formData.website,
         capacity: formData.businessType === 'F&B' ? parseInt(formData.capacity, 10) : undefined,
         openingHours: formData.businessType === 'F&B' ? (formData.openingHours ?? undefined) : undefined,
-      });
-
-      // Check for profile creation errors
+      };
+      console.log('[OrganizerSignUpFlow] Creating profile for Google user:', profileData);
+      const profileResult = await createOrganizerProfile(profileData);
       if ('error' in profileResult && profileResult.error) {
-        console.error('Profile creation failed:', profileResult.error);
-        // Dilemma: Auth user exists, but profile failed.
-        // Might need manual intervention or a retry mechanism.
-        setError(profileResult.error.message || 'Failed to save profile details. Please try editing later.');
-        // Don't stop loading immediately, maybe navigate somewhere? Or show error prominently.
-         // For now, just show error and stop loading. User is technically signed up.
-         setIsLoading(false);
-         // Consider navigating to a "complete profile" screen or dashboard with an error message.
-        return;
+        console.error('[OrganizerSignUpFlow] Google user profile creation error:', profileResult.error);
+        throw new Error(profileResult.error.message || 'Failed to create profile for Google user');
       }
 
        console.log('Organizer profile created/updated successfully.');
@@ -410,121 +402,99 @@ const OrganizerSignUpFlow = () => {
     setError(''); // Clear error before validation/action
 
     switch (currentStep) {
-      case 'account-details':
-        if (formData.email.trim() && emailStatus === 'idle') {
-          await handleEmailBlur();
-          if (!validateAccountDetailsStep()) {
-            return;
-          }
-        } else if (!validateAccountDetailsStep()) {
-          return;
+      case 'company-name':
+        if (validateCompanyNameStep()) {
+          goToNextStep('profile-details');
         }
-        
-        goToNextStep('profile-details');
         break;
-
+      
       case 'profile-details':
         if (validateProfileDetailsStep()) {
-          // Final step - trigger the complete signup process
-          await handleCompleteSignup();
+          goToNextStep('account-details');
         }
+        break;
+
+      case 'account-details':
+        // No validation needed for account details step
+        // Google Sign-In button handles everything
         break;
     }
   };
 
-  // Render company details step (Update with email validation UI)
-  const renderAccountDetailsStep = () => (
-      <View style={styles.stepContent}>
-          <Text style={styles.stepTitle}>Company Details</Text>
+  // Render company name step
+  const renderCompanyNameStep = () => (
+    <View style={styles.stepContent}>
+      <Text style={styles.stepTitle}>Company Name</Text>
+      <Text style={styles.stepDescription}>Let's start with your company's name</Text>
 
-          <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Company Name</Text>
-              <TextInput
-                  style={styles.input}
-                  placeholder="Enter your company name"
-                  value={formData.companyName}
-                  onChangeText={(text) => handleChange('companyName', text)}
-              />
-          </View>
-
-          <View style={styles.inputContainer}>
-              <View style={styles.labelRow}>
-                <Text style={styles.inputLabel}>Company Email</Text>
-                {emailStatus === 'checking' && <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={styles.inlineLoader} />}
-              </View>
-              <TextInput
-                  style={[
-                    styles.input,
-                    emailStatus === 'invalid' && styles.inputError,
-                    emailStatus === 'valid' && styles.inputValid,
-                  ]}
-                  placeholder="Enter your company email"
-                  value={formData.email}
-                  onChangeText={(text) => handleChange('email', text)}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  onBlur={() => {
-                    console.log('[OrganizerSignUpFlow] Email input onBlur triggered');
-                    handleEmailBlur();
-                  }}
-              />
-              {emailFeedback ? (
-                <Text style={[
-                  styles.feedbackText, 
-                  emailStatus === 'valid' && styles.feedbackTextValid,
-                  (emailStatus === 'invalid' || emailStatus === 'error') && styles.feedbackTextError,
-                ]}>
-                  {emailFeedback}
-                </Text>
-              ) : null}
-          </View>
-
-          <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Password</Text>
-              <TextInput
-                  style={styles.input}
-                  placeholder="Create a password (min. 8 characters)"
-                  value={formData.password}
-                  onChangeText={(text) => handleChange('password', text)}
-                  secureTextEntry
-                  autoCapitalize="none"
-              />
-          </View>
-
-          <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Confirm Password</Text>
-              <TextInput
-                  style={styles.input}
-                  placeholder="Confirm your password"
-                  value={formData.confirmPassword}
-                  onChangeText={(text) => handleChange('confirmPassword', text)}
-                  secureTextEntry
-                  autoCapitalize="none"
-              />
-          </View>
-
-          <View style={styles.termsContainer}>
-              <TouchableOpacity
-                  style={[
-                      styles.checkbox,
-                      formData.termsAccepted && styles.checkboxChecked
-                  ]}
-                  onPress={() => handleChange('termsAccepted', !formData.termsAccepted)}
-              >
-                  {formData.termsAccepted && (
-                      <Feather name="check" size={14} color="white" />
-                  )}
-              </TouchableOpacity>
-              <Text style={styles.termsText}>
-                  I agree to the{' '}
-                  <Text style={styles.termsLink} onPress={() => setIsTermsModalVisible(true)}>
-                      Organizer Terms and Conditions
-                  </Text> *
-              </Text>
-          </View>
-
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Company Name</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter your company name"
+          value={formData.companyName}
+          onChangeText={(text) => handleChange('companyName', text)}
+        />
       </View>
+
+      <View style={styles.termsContainer}>
+        <TouchableOpacity
+          style={[
+            styles.checkbox,
+            formData.termsAccepted && styles.checkboxChecked
+          ]}
+          onPress={() => handleChange('termsAccepted', !formData.termsAccepted)}
+        >
+          {formData.termsAccepted && (
+            <Feather name="check" size={14} color="white" />
+          )}
+        </TouchableOpacity>
+        <Text style={styles.termsText}>
+          I agree to the{' '}
+          <Text style={styles.termsLink} onPress={() => setIsTermsModalVisible(true)}>
+            Organizer Terms and Conditions
+          </Text> *
+        </Text>
+      </View>
+
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      <Text style={styles.requiredText}>* Required fields</Text>
+    </View>
+  );
+
+  // Render account details step with Google Sign-In only
+  const renderAccountDetailsStep = () => (
+    <View style={styles.stepContent}>
+      <Text style={styles.stepTitle}>Connect Your Account</Text>
+      <Text style={styles.stepDescription}>Sign in with Google to complete your profile</Text>
+
+      {/* Google Sign-In Button */}
+      <TouchableOpacity 
+        style={styles.googleSignInButton}
+        onPress={handleGoogleSignIn}
+        disabled={isLoading || authLoading}
+      >
+        <View style={styles.googleButtonContent}>
+          {/* Use appropriate Google icon here */}
+          <Feather name="mail" size={20} color="#4285F4" style={styles.googleIcon} />
+          <Text style={styles.googleSignInText}>Sign in with Google</Text>
+        </View>
+      </TouchableOpacity>
+
+      {/* Information text */}
+      <Text style={styles.googleInfoText}>
+        We use Google for secure authentication. Your email will be used to create your account and for important notifications.
+      </Text>
+
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+      {isLoading && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+          <Text style={styles.loadingText}>Creating your account...</Text>
+        </View>
+      )}
+    </View>
   );
 
   // Render contact and branding step (Update Logo Upload)
@@ -645,26 +615,28 @@ const OrganizerSignUpFlow = () => {
 
   // Render current step with appropriate button action/text
   const renderCurrentStep = () => {
-     // Determine if the main action button should be disabled
-      const isButtonDisabled = isLoading || authLoading || 
-        (currentStep === 'account-details' && emailStatus === 'checking');
+    // Determine if the main action button should be disabled
+    const isButtonDisabled = isLoading || authLoading || 
+      (currentStep === 'account-details' && emailStatus === 'checking');
 
-      // Determine button text
-      let buttonText = 'Continue';
-      if (currentStep === 'profile-details') {
-          buttonText = 'Complete Sign Up';
-      }
+    // Determine button text
+    let buttonText = 'Continue';
+    if (currentStep === 'company-name') buttonText = 'Continue';
+    if (currentStep === 'profile-details') buttonText = 'Continue to Account';
+    if (currentStep === 'account-details') buttonText = 'Complete Sign Up';
 
-      // Determine which function the button calls
-      const buttonAction = handleStepSubmit;
+    // Determine which function the button calls
+    const buttonAction = handleStepSubmit;
 
     switch (currentStep) {
-      case 'account-details':
+      case 'company-name':
       case 'profile-details':
+      case 'account-details':
         return (
           <View style={styles.stepContainer}>
-            {currentStep === 'account-details' && renderAccountDetailsStep()}
+            {currentStep === 'company-name' && renderCompanyNameStep()}
             {currentStep === 'profile-details' && renderProfileDetailsStep()}
+            {currentStep === 'account-details' && renderAccountDetailsStep()}
 
             <TouchableOpacity
               style={[
@@ -710,11 +682,11 @@ const OrganizerSignUpFlow = () => {
             <TouchableOpacity
                 style={styles.backButton}
                 onPress={() => {
-                    if (currentStep === 'account-details') {
+                    if (currentStep === 'company-name') {
                         // Navigate back to landing page from first step
                         navigation.goBack(); // Use goBack instead of navigate to specific screen
                     } else {
-                        const steps: Step[] = ['account-details', 'profile-details'];
+                        const steps: Step[] = ['company-name', 'profile-details', 'account-details'];
                         const currentIndex = steps.indexOf(currentStep);
                         if (currentIndex > 0) {
                             // Go back to previous step with animation
@@ -729,10 +701,11 @@ const OrganizerSignUpFlow = () => {
                 <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
             </TouchableOpacity>
             <View style={styles.stepIndicatorContainer}>
-                <View style={[styles.stepIndicator, currentStep === 'account-details' ? styles.stepIndicatorActive : {}]} />
+                <View style={[styles.stepIndicator, currentStep === 'company-name' ? styles.stepIndicatorActive : {}]} />
                 <View style={[styles.stepIndicator, currentStep === 'profile-details' ? styles.stepIndicatorActive : {}]} />
+                <View style={[styles.stepIndicator, currentStep === 'account-details' ? styles.stepIndicatorActive : {}]} />
             </View>
-            {/* Add a placeholder view to balance the header if needed */}
+            {/* Add a placeholder view to balance the header */}
             <View style={{ width: 28 }} />
         </View>
 
@@ -837,7 +810,7 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     stepDescription: {
-        fontSize: 14, // Slightly smaller description
+        fontSize: 14,
         color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
         marginBottom: 24,
         textAlign: 'center',
@@ -1005,6 +978,76 @@ const styles = StyleSheet.create({
     },
     feedbackTextError: {
         color: APP_CONSTANTS.COLORS.ERROR,
+    },
+    googleSignInButton: {
+        backgroundColor: '#FFFFFF',
+        paddingVertical: 14,
+        paddingHorizontal: 20,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginVertical: 20,
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 1.5,
+        borderWidth: 1,
+        borderColor: '#ddd',
+    },
+    googleButtonContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    googleIcon: {
+        marginRight: 10,
+    },
+    googleSignInText: {
+        color: '#444',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    orDivider: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginVertical: 20,
+    },
+    dividerLine: {
+        flex: 1,
+        height: 1,
+        backgroundColor: APP_CONSTANTS.COLORS.BORDER,
+    },
+    orText: {
+        marginHorizontal: 15,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        fontWeight: '600',
+    },
+    requiredText: { 
+        fontSize: 12, 
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, 
+        marginTop: 4, 
+        marginBottom: 16, 
+        textAlign: 'right', 
+        width: '100%' 
+    },
+    googleInfoText: {
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        fontSize: 12,
+        marginTop: 10,
+        marginBottom: 20,
+        textAlign: 'center',
+    },
+    loadingContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: 20,
+    },
+    loadingText: {
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        fontSize: 14,
+        marginLeft: 10,
     },
 });
 

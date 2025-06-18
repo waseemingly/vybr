@@ -61,10 +61,10 @@ import AttendedEventsScreen from '@/screens/AttendedEventsScreen'; // <-- IMPORT
 // Auth Screens
 import LandingScreen from "@/screens/auth/LandingScreen";
 import LoginScreen from "@/screens/auth/LoginScreen";
-import MusicLoverSignUpFlow from "@/screens/auth/MusicLoverSignUpFlow";
-import OrganizerSignUpFlow from "@/screens/auth/OrganizerSignUpFlow";
 import SignUpScreen from '@/screens/auth/SignUpScreen';
-// import ForgotPasswordScreen from '@/screens/auth/ForgotPasswordScreen';
+import MusicLoverSignUpFlow from '@/screens/auth/MusicLoverSignUpFlow';
+import OrganizerSignUpFlow from "@/screens/auth/OrganizerSignUpFlow";
+// import ForgotPasswordScreen from '@/screens/auth/ForgotPasswordScreen'; // Commented out - file doesn't exist
 import PremiumSignupScreen from '@/screens/auth/PremiumSignupScreen';
 import PaymentSuccessScreen from '@/screens/auth/PaymentSuccessScreen';
 import PaymentConfirmationScreen from '@/screens/auth/PaymentConfirmationScreen';
@@ -105,7 +105,6 @@ export type AuthStackParamList = {
   SignUpScreen: undefined;
   MusicLoverSignUpFlow: undefined;
   OrganizerSignUpFlow: undefined;
-  ForgotPasswordScreen: undefined;
   PremiumSignupScreen: { userEmail: string; userId: string };
   PaymentSuccessScreen: undefined;
   PaymentConfirmationScreen: undefined;
@@ -564,7 +563,6 @@ const AppNavigator = () => {
                 options={{ headerShown: true, title: 'Add Members', headerBackTitleVisible: false }}
             />
             {/* *** END REGISTRATION *** */}
-
           </>
         )}
         {/* Optional Global Fallback */}

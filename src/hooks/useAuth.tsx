@@ -18,6 +18,9 @@ import * as FileSystem from 'expo-file-system';
 import { requestMediaLibraryPermissionsAsync } from 'expo-image-picker';
 import { Buffer } from 'buffer'; // Import Buffer for robust Base64 handling
 import { createClient } from '@supabase/supabase-js';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 
 // --- Exported Types ---
 export type MusicLoverBio = SupabaseMusicLoverBio;
@@ -90,7 +93,7 @@ export interface CreateMusicLoverProfileData {
 export interface CreateOrganizerProfileData {
     userId: string;
     companyName: string;
-    email: string;
+    email?: string;
     logoUri?: string;
     logoMimeType?: string | null;
     phoneNumber?: string;
@@ -144,6 +147,9 @@ const AuthContext = createContext<{
     checkUsernameExists: (username: string) => Promise<{ exists: boolean, error?: string }>;
     checkEmailExists: (email: string) => Promise<{ exists: boolean, error?: string }>;
     verifyEmailIsReal: (email: string) => Promise<{ isValid: boolean, error?: string }>;
+    signInWithGoogle: () => Promise<{ error: any } | { user: any }>;
+    verifyGoogleAuthCompleted: () => Promise<boolean>;
+    updateUserMetadata: (userType: UserTypes) => Promise<{ error: any } | { success: boolean }>;
 }>({
     session: null,
     loading: true,
@@ -163,6 +169,9 @@ const AuthContext = createContext<{
     checkUsernameExists: async () => ({ exists: false, error: 'Not implemented' }),
     checkEmailExists: async () => ({ exists: false, error: 'Not implemented' }),
     verifyEmailIsReal: async () => ({ isValid: false, error: 'Not implemented' }),
+    signInWithGoogle: async () => ({ error: 'Not implemented' }),
+    verifyGoogleAuthCompleted: async () => false,
+    updateUserMetadata: async () => ({ error: 'Not implemented' }),
 });
 
 // --- Provider Component ---
@@ -178,6 +187,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     const [organizerProfile, setOrganizerProfile] = useState<OrganizerProfile | null>(null);
     const { isOrganizerMode, setIsOrganizerMode } = useOrganizerMode();
     const previousSessionRef = useRef<UserSession | null>(null);
+
+    useEffect(() => {
+        if (Platform.OS !== 'web') {
+            GoogleSignin.configure({
+                webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, // From Google Cloud Console
+                offlineAccess: true, 
+            });
+        }
+    }, []);
 
     useEffect(() => {
         previousSessionRef.current = session;
@@ -818,10 +836,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
         try {
             // --- Validation ---
-            if (!profileData.userId || !profileData.companyName || !profileData.email) {
+            if (!profileData.userId || !profileData.companyName) {
                 console.error("[AuthProvider] createOrganizerProfile: Missing required profile data.");
-                return { error: new Error("Missing required profile information (company name, email).") };
+                return { error: new Error("Missing required profile information (company name).") };
             }
+
+            // Get email from the authenticated session
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError) {
+                console.error("[AuthProvider] createOrganizerProfile: Error getting session:", sessionError);
+                return { error: new Error("Failed to get user session.") };
+            }
+            
+            const email = sessionData?.session?.user?.email || profileData.email;
+            if (!email) {
+                console.error("[AuthProvider] createOrganizerProfile: No email found in session or profile data.");
+                return { error: new Error("Missing required email.") };
+            }
+            console.log('[AuthProvider] createOrganizerProfile: Using email from session:', email);
 
             // --- Logo Upload ---
             if (profileData.logoUri) {
@@ -846,7 +878,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             const profileToInsert = {
                 user_id: userId,
                 company_name: basicOrgData.companyName,
-                email: basicOrgData.email,
+                email: email, // Use email from session or fallback to provided email
                 // Convert null or empty string to undefined for optional fields
                 phone_number: basicOrgData.phoneNumber === null || basicOrgData.phoneNumber === '' ? undefined : basicOrgData.phoneNumber,
                 // business_type is a specific enum or null, only check for null
@@ -1215,7 +1247,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 return { isValid: false, error: 'Could not verify email at this time.' };
             }
 
-            return { isValid: !!data?.isValid };
+            return { isValid: !!data?.isValid, error: data?.error };
         } catch (e: any) {
             console.error('[AuthProvider] verifyEmailIsReal: Unexpected error:', e);
             return { isValid: false, error: 'An unexpected error occurred while verifying email.' };
@@ -1271,6 +1303,249 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         }
     };
 
+    // Function to verify Google authentication was completed successfully
+    const verifyGoogleAuthCompleted = async (): Promise<boolean> => {
+        if (!session) {
+            console.log('[useAuth] No session available, Google authorization not complete');
+            return false;
+        }
+        
+        try {
+            // Validate the token by making a request to Supabase to get the user
+            const { data, error } = await supabase.auth.getUser();
+            
+            if (error) {
+                console.error('[useAuth] Error validating Google auth token:', error);
+                return false;
+            }
+            
+            if (data?.user) {
+                console.log('[useAuth] Google auth token validation successful');
+                return true;
+            }
+            
+            return false;
+        } catch (err) {
+            console.error('[useAuth] Error during Google auth verification:', err);
+            return false;
+        }
+    };
+
+    // Simplified Google Sign-In that follows Spotify's pattern
+    const signInWithGoogle = async (): Promise<{ error: any } | { user: any }> => {
+        setLoading(true);
+        
+        try {
+            console.log('[useAuth] Starting Google Sign-In...');
+            
+            if (Platform.OS === 'web') {
+                // For web, use Supabase's built-in OAuth with popup
+                const { data, error } = await supabase.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: {
+                        redirectTo: window.location.origin,
+                        queryParams: {
+                            access_type: 'offline',
+                            prompt: 'consent',
+                        },
+                        skipBrowserRedirect: true, // Skip redirect, we'll handle it manually
+                    },
+                });
+                
+                if (error) {
+                    console.error('[useAuth] Google OAuth initiation error:', error);
+                    setLoading(false);
+                    return { error };
+                }
+                
+                // Open popup manually with the OAuth URL
+                let popup: Window | null = null;
+                if (data?.url) {
+                    popup = window.open(
+                        data.url, 
+                        'google-oauth', 
+                        'width=500,height=600,scrollbars=yes,resizable=yes'
+                    );
+                    
+                    if (!popup) {
+                        setLoading(false);
+                        return { error: { message: "Popup blocked. Please allow popups for this site." } };
+                    }
+                }
+                
+                // Wait for the authentication to complete by listening for session changes
+                return new Promise((resolve) => {
+                    let attempts = 0;
+                    const maxAttempts = 120; // 60 seconds timeout
+                    let resolved = false;
+                    
+                    // Listen for auth state changes
+                    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+                        if (resolved) return;
+                        
+                        if (event === 'SIGNED_IN' && session?.user) {
+                            console.log('[useAuth] Google authentication successful via auth state change');
+                            resolved = true;
+                            setLoading(false);
+                            if (popup) {
+                                try {
+                                    popup.close();
+                                } catch (e) {
+                                    console.log('[useAuth] Could not close popup (expected with COOP)');
+                                }
+                            }
+                            authListener.subscription.unsubscribe();
+                            
+                            // CRITICAL: Set user_type immediately in user metadata
+                            // We need to determine if this is for music lover or organizer
+                            // Check the current URL path to determine user type
+                            const currentPath = window.location.pathname;
+                            const userType = currentPath.includes('MusicLover') ? 'music_lover' : 'organizer';
+                            
+                            console.log('[useAuth] Setting user_type immediately:', userType);
+                            try {
+                                await supabase.auth.updateUser({
+                                    data: { user_type: userType }
+                                });
+                                console.log('[useAuth] User type set successfully:', userType);
+                            } catch (metaError) {
+                                console.error('[useAuth] Error setting user_type:', metaError);
+                            }
+                            
+                            resolve({ user: session.user });
+                        } else if (event === 'SIGNED_OUT') {
+                            console.log('[useAuth] Authentication was cancelled or failed');
+                        }
+                    });
+                    
+                    // Fallback polling mechanism - more reliable than popup.closed
+                    const checkAuth = async () => {
+                        if (resolved) return;
+                        
+                        attempts++;
+                        
+                        try {
+                            const { data: sessionData } = await supabase.auth.getSession();
+                            
+                            if (sessionData?.session?.user) {
+                                console.log('[useAuth] Google authentication successful via polling');
+                                resolved = true;
+                                setLoading(false);
+                                if (popup) {
+                                    try {
+                                        popup.close();
+                                    } catch (e) {
+                                        console.log('[useAuth] Could not close popup (expected with COOP)');
+                                    }
+                                }
+                                authListener.subscription.unsubscribe();
+                                
+                                // CRITICAL: Set user_type immediately
+                                const currentPath = window.location.pathname;
+                                const userType = currentPath.includes('MusicLover') ? 'music_lover' : 'organizer';
+                                
+                                console.log('[useAuth] Setting user_type immediately (polling):', userType);
+                                try {
+                                    await supabase.auth.updateUser({
+                                        data: { user_type: userType }
+                                    });
+                                    console.log('[useAuth] User type set successfully (polling):', userType);
+                                } catch (metaError) {
+                                    console.error('[useAuth] Error setting user_type (polling):', metaError);
+                                }
+                                
+                                resolve({ user: sessionData.session.user });
+                                return;
+                            }
+                        } catch (err) {
+                            console.error('[useAuth] Error checking session:', err);
+                        }
+                        
+                        if (attempts >= maxAttempts) {
+                            console.log('[useAuth] Google authentication timeout');
+                            resolved = true;
+                            setLoading(false);
+                            if (popup) {
+                                try {
+                                    popup.close();
+                                } catch (e) {
+                                    console.log('[useAuth] Could not close popup (expected with COOP)');
+                                }
+                            }
+                            authListener.subscription.unsubscribe();
+                            resolve({ error: { message: "Authentication timeout. Please try again.", cancelled: true } });
+                            return;
+                        }
+                        
+                        // Check again in 500ms
+                        setTimeout(checkAuth, 500);
+                    };
+                    
+                    // Start monitoring after a brief delay
+                    setTimeout(checkAuth, 2000);
+                });
+            } else {
+                // For mobile, use the standard Supabase OAuth flow
+                const { data, error } = await supabase.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: {
+                        redirectTo: Constants.expoConfig?.extra?.SUPABASE_REDIRECT_URL,
+                        queryParams: {
+                            access_type: 'offline',
+                            prompt: 'consent',
+                        },
+                    },
+                });
+                
+                setLoading(false);
+                
+                if (error) {
+                    console.error('[useAuth] Mobile Google OAuth error:', error);
+                    return { error };
+                }
+                
+                // For mobile OAuth, we need to wait for the callback and check the session
+                console.log('[useAuth] Mobile OAuth initiated, checking for session...');
+                
+                // Wait a moment for the OAuth flow to complete
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                const { data: sessionData } = await supabase.auth.getSession();
+                
+                if (sessionData?.session?.user) {
+                    console.log('[useAuth] Mobile Google authentication successful');
+                    return { user: sessionData.session.user };
+                } else {
+                    return { error: { message: "Authentication was initiated. Please complete the process in your browser.", cancelled: false } };
+                }
+            }
+        } catch (err: any) {
+            console.error('[useAuth] Error in signInWithGoogle:', err);
+            setLoading(false);
+            return { error: err };
+        }
+    };
+
+    // Function to update user metadata with userType (needed for Google OAuth users)
+    const updateUserMetadata = async (userType: UserTypes): Promise<{ error: any } | { success: boolean }> => {
+        try {
+            const { data, error } = await supabase.auth.updateUser({
+                data: { user_type: userType }
+            });
+
+            if (error) {
+                console.error('[useAuth] Error updating user metadata:', error);
+                return { error };
+            }
+
+            console.log('[useAuth] User metadata updated successfully with user_type:', userType);
+            return { success: true };
+        } catch (err: any) {
+            console.error('[useAuth] Error in updateUserMetadata:', err);
+            return { error: err };
+        }
+    };
+
     // Provide context value
     return (
         <AuthContext.Provider value={{
@@ -1292,6 +1567,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             checkUsernameExists,
             checkEmailExists,
             verifyEmailIsReal,
+            signInWithGoogle,
+            verifyGoogleAuthCompleted,
+            updateUserMetadata,
         }}>
             {children}
         </AuthContext.Provider>

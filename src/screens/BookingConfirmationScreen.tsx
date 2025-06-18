@@ -15,18 +15,14 @@ import { Feather } from '@expo/vector-icons';
 import { useRoute, useNavigation, CommonActions } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useStripe } from '@stripe/stripe-react-native';
 import { supabase } from '../lib/supabase'; // Adjust path if needed
 import { useAuth } from '../hooks/useAuth'; // Adjust path if needed
+import { usePlatformStripe } from '../hooks/useStripe';
 
 // --- Stripe Web Imports ---
+import { PaymentElement } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useStripe as useWebStripe, useElements } from '@stripe/react-stripe-js';
-
-// --- Stripe Configuration ---
-// IMPORTANT: Replace with your actual publishable key from the Stripe Dashboard
-const STRIPE_PUBLISHABLE_KEY_WEB = "pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN"; 
-const stripePromiseWeb = Platform.OS === 'web' ? loadStripe(STRIPE_PUBLISHABLE_KEY_WEB) : null;
+import { Elements } from '@stripe/react-stripe-js';
 
 // Define Param List for the stack that includes this screen
 // Assuming it's in the MainStack or a dedicated BookingStack
@@ -70,6 +66,10 @@ const showAlert = (title: string, message: string, buttons?: Array<{ text: strin
     }
 };
 
+// --- Stripe Configuration ---
+const STRIPE_PUBLISHABLE_KEY = "pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN"; 
+const stripePromiseWeb = Platform.OS === 'web' ? loadStripe(STRIPE_PUBLISHABLE_KEY) : null;
+
 // --- Web Payment Form Component ---
 // This component renders the Stripe PaymentElement for web payments.
 
@@ -80,8 +80,7 @@ type WebPaymentFormProps = {
 };
 
 const WebPaymentForm: React.FC<WebPaymentFormProps> = ({ onPaymentSuccess, onPaymentError, totalPriceDisplay }) => {
-    const stripe = useWebStripe();
-    const elements = useElements();
+    const { stripe, elements } = usePlatformStripe();
     const [isProcessing, setIsProcessing] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -149,7 +148,7 @@ const BookingConfirmationScreen: React.FC = () => {
     const { session } = useAuth();
     const [isConfirming, setIsConfirming] = useState(false);
     const [webClientSecret, setWebClientSecret] = useState<string | null>(null); // New state for web
-    const { initPaymentSheet, presentPaymentSheet } = useStripe(); // This is for mobile
+    const { initPaymentSheet, presentPaymentSheet } = usePlatformStripe(); // This is for mobile
 
     const {
         eventId,
@@ -278,82 +277,62 @@ const BookingConfirmationScreen: React.FC = () => {
     
     // New function to handle the Stripe Payment Flow
     const handlePaidBooking = async () => {
-        try {
-            // --- 1. Availability Check (do this before creating payment intent) ---
-            const { data: currentBookingsData, error: countError } = await supabase
-                .from('event_bookings')
-                .select('quantity')
-                .eq('event_id', eventId)
-                .eq('status', 'CONFIRMED');
-
-            if (countError) throw new Error("Could not check event availability.");
-
-            const currentBookingsTotalQuantity = currentBookingsData?.reduce((sum, row) => sum + (row.quantity || 0), 0) ?? 0;
-            const limit = maxTickets;
-            const availableSpots = (limit === null || limit === 0) ? Infinity : limit - currentBookingsTotalQuantity;
-
-            if (availableSpots < quantity) {
-                if (limit !== null && limit > 0) {
-                   throw new Error(`Sorry, only ${availableSpots} ${actionTextLower}(s) remaining.`);
-                } else {
-                   throw new Error(`Sorry, tickets for this event are currently unavailable.`);
-                }
+        if (Platform.OS === 'web') {
+            // On web, we trigger the API to get a client secret, then show the form.
+            // The actual payment confirmation is handled inside WebPaymentForm.
+            if (!webClientSecret) {
+                fetchPaymentIntentClientSecret();
             }
+            return; // Stop execution here for web, as payment is handled in the form
+        }
 
-            // --- 2. Create Payment Intent by calling our Edge Function ---
-            const { data, error: functionError } = await supabase.functions.invoke('create-payment-intent-for-booking', {
-                body: { eventId, quantity },
+        // --- Mobile Payment Flow ---
+        setIsConfirming(true);
+        try {
+            // 1. Create payment intent on your server
+            const clientSecret = await fetchPaymentIntentClientSecret();
+            if (!clientSecret) return; // Error is handled inside the fetch function
+
+            // 2. Initialize the Payment Sheet
+            const initResult = await initPaymentSheet({
+                merchantDisplayName: "Vibr",
+                paymentIntentClientSecret: clientSecret,
+                allowsDelayedPaymentMethods: false,
+                returnURL: 'vybr://stripe-redirect', // your deep link
             });
 
-            if (functionError) throw new Error(`Could not initiate payment: ${functionError.message}`);
-            const { clientSecret } = data;
-            if (!clientSecret) throw new Error("Failed to get payment client secret.");
+            if (initResult && initResult.error) {
+                console.error('Error initializing payment sheet:', initResult.error);
+                showAlert('Error', `Could not initialize payment sheet: ${initResult.error.message}`);
+                setIsConfirming(false);
+                return;
+            }
 
-            // --- 3. Branch for Web vs. Mobile ---
-            if (Platform.OS === 'web') {
-                setWebClientSecret(clientSecret);
-                // The main component will now re-render to show the web payment form.
-                // The parent handleConfirm function will set isConfirming to false.
-            } else {
-                // --- MOBILE FLOW ---
-                const { error: initError } = await initPaymentSheet({
-                    merchantDisplayName: 'Vybr', // Your company name
-                    paymentIntentClientSecret: clientSecret,
-                    // You can pre-fill customer data if you have it
-                    // customerId: stripeCustomerId, 
-                    // customerEphemeralKeySecret: ephemeralKey,
-                    allowsDelayedPaymentMethods: true,
-                });
+            // 3. Present the Payment Sheet
+            const paymentResult = await presentPaymentSheet();
+            const { error } = paymentResult;
 
-                if (initError) throw new Error(`Could not initialize payment sheet: ${initError.message}`);
 
-                // --- 4. Present the Payment Sheet to the user ---
-                const { error: paymentError } = await presentPaymentSheet();
-                
-                if (paymentError) {
-                    // If the user cancels, paymentError.code will be 'Canceled'
-                    if (paymentError.code === 'Canceled') {
-                        showAlert('Payment Canceled', 'You have not been charged.');
-                    } else {
-                        throw new Error(`Payment failed: ${paymentError.message}`);
-                    }
-                    return; // Stop execution if payment failed or was canceled
+            if (error) {
+                if ('code' in error && error.code === 'Canceled') {
+                    showAlert('Canceled', 'The payment was canceled.');
+                } else {
+                    showAlert('Payment Error', error.message);
                 }
-
-                // --- 5. Payment Succeeded! ---
-                // --- MODIFIED: Create booking on client-side ---
+            } else {
+                // 4. Create booking record on success
                 await createBookingRecord();
-
                 showAlert(
                     'Payment Successful!',
                     `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed! Check your profile for details.`,
                     [{ text: 'OK', onPress: navigateToMyBookings }]
                 );
             }
-
-        } catch (error: any) {
-            console.error('[handlePaidBooking] Error:', error); // Detailed log
-            showAlert(`${actionTextProper} Failed`, `Could not complete: ${error.message}`);
+        } catch (e: any) {
+            console.error("An unexpected error occurred during the booking process:", e);
+            showAlert('Error', e.message || 'An unexpected error occurred.');
+        } finally {
+            setIsConfirming(false);
         }
     };
 
@@ -428,106 +407,78 @@ const BookingConfirmationScreen: React.FC = () => {
         }
     };
 
-    return (
-        <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-            <ScrollView contentContainerStyle={styles.content}>
-                <Text style={styles.eventTitle}>{eventTitle}</Text>
+    const renderContent = () => {
+        if (isConfirming && Platform.OS !== 'web') {
+            return (
+                <View style={styles.centered}>
+                    <ActivityIndicator size="large" color="#0277BD" />
+                    <Text style={styles.loadingText}>Confirming your booking...</Text>
+                </View>
+            );
+        }
 
-                {webClientSecret && stripePromiseWeb ? (
-                    // --- RENDER WEB PAYMENT FORM ---
-                    <Elements stripe={stripePromiseWeb} options={{ clientSecret: webClientSecret, appearance: { theme: 'stripe' } }}>
+        if (Platform.OS === 'web' && webClientSecret && stripePromiseWeb) {
+            return (
+                <View>
+                    {renderSummary()}
+                    <View style={styles.divider} />
+                    <Text style={styles.paymentHeader}>Enter Payment Details</Text>
+                     <Elements stripe={stripePromiseWeb} options={{ clientSecret: webClientSecret }}>
                         <WebPaymentForm
+                            onPaymentSuccess={handlePaymentSuccess}
+                            onPaymentError={handlePaymentError}
                             totalPriceDisplay={totalPriceDisplay}
-                            onPaymentSuccess={async () => {
-                                // --- MODIFIED: Create booking record on success ---
-                                try {
-                                    await createBookingRecord();
-                                    showAlert(
-                                        'Payment Successful!',
-                                        `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed! Check your profile for details.`,
-                                        [{ text: 'OK', onPress: navigateToMyBookings }]
-                                    );
-                                } catch (e: any) {
-                                    showAlert('Booking Creation Failed', e.message);
-                                    // Also reset the form to allow another attempt if booking fails
-                                    setIsConfirming(false);
-                                    setWebClientSecret(null);
-                                }
-                            }}
-                            onPaymentError={(message: string) => {
-                                showAlert(`${actionTextProper} Failed`, `Could not complete: ${message}`);
-                                // Reset to allow user to try again
-                                setWebClientSecret(null);
-                                setIsConfirming(false); // Also reset main button
-                            }}
                         />
                     </Elements>
-                ) : (
-                    // --- RENDER ORDER SUMMARY ---
-                    <>
-                        <View style={styles.summaryBox}>
-                            <Text style={styles.summaryTitle}>Order Summary</Text>
+                </View>
+            );
+        }
 
-                            <View style={styles.summaryItem}>
-                                <Text style={styles.summaryLabel}>{actionTextProper}(s)</Text>
-                                <Text style={styles.summaryValue}>{quantity}</Text>
-                            </View>
+        if (Platform.OS === 'web' && isConfirming) {
+             return (
+                <View style={styles.centered}>
+                    <ActivityIndicator size="large" color="#0277BD" />
+                    <Text style={styles.loadingText}>Finalizing booking...</Text>
+                </View>
+            );
+        }
 
-                            {bookingType === 'TICKETED' && (
-                                <View style={styles.summaryItem}>
-                                    <Text style={styles.summaryLabel}>Price per Ticket</Text>
-                                    <Text style={styles.summaryValue}>{pricePerItemDisplay}</Text>
-                                </View>
-                            )}
 
-                            <View style={styles.divider} />
-
-                            <View style={[styles.summaryItem, styles.totalItem]}>
-                                <Text style={styles.summaryLabelTotal}>Total</Text>
-                                <Text style={styles.summaryValueTotal}>{totalPriceDisplay}</Text>
-                            </View>
-                            {rawFeePaid !== null && rawFeePaid > 0 && bookingType === 'TICKETED' &&(
-                                <Text style={styles.feeText}>(Includes ${rawFeePaid.toFixed(2)} processing fee)</Text>
-                            )}
-                        </View>
-
-                        <Text style={styles.confirmationText}>
-                            Please review your {actionTextLower} details before confirming.
-                            {isPaidBooking ? ' Your payment method will be charged.' : ''}
-                        </Text>
-                        
-                        <TouchableOpacity
-                            style={[styles.confirmButton, isConfirming && styles.disabledButton]}
-                            onPress={handleConfirm}
-                            disabled={isConfirming}
-                        >
-                            {isConfirming ? (
-                                <ActivityIndicator color="#fff" size="small" />
-                            ) : (
-                                <Feather name="check-circle" size={20} color="#fff" />
-                            )}
-                            <Text style={styles.confirmButtonText}>
-                                {isConfirming ? 'Processing...' : isPaidBooking ? `Pay ${totalPriceDisplay}` : `Confirm ${actionTextProper}`}
-                            </Text>
-                        </TouchableOpacity>
-                    </>
-                )}
-
+        // Default view for mobile and initial web view
+        return (
+            <>
+                {renderSummary()}
                 <TouchableOpacity
-                    style={[styles.cancelButton, isConfirming && styles.disabledButton]}
-                    onPress={() => {
-                        if (webClientSecret) {
-                            // If web payment form is showing, cancel returns to summary
-                            setWebClientSecret(null);
-                            setIsConfirming(false); // Reset the main button state
-                        } else {
-                            navigation.goBack();
-                        }
-                    }}
-                    disabled={isConfirming && !webClientSecret} // Disable only during initial confirmation
+                    style={[styles.confirmButton, isConfirming && styles.disabledButton]}
+                    onPress={handleConfirm}
+                    disabled={isConfirming}
                 >
-                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                    {isConfirming ? (
+                        <ActivityIndicator color="#fff" />
+                    ) : (
+                        <Feather name="check-circle" size={24} color="#fff" />
+                    )}
+                    <Text style={styles.confirmButtonText}>
+                        {isConfirming ? 'Processing...' : `Confirm ${bookingType === 'TICKETED' ? 'and Pay' : 'Reservation'}`}
+                    </Text>
                 </TouchableOpacity>
+            </>
+        );
+    };
+
+
+    return (
+        <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+            <ScrollView contentContainerStyle={styles.container}>
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                        <Feather name="arrow-left" size={28} color="#333" />
+                    </TouchableOpacity>
+                    <Text style={styles.headerTitle}>Confirm Your Booking</Text>
+                </View>
+
+                {renderContent()}
+
             </ScrollView>
         </SafeAreaView>
     );

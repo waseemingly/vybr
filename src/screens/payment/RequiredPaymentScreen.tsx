@@ -10,11 +10,11 @@ import * as Linking from 'expo-linking';
 import { APP_CONSTANTS } from '@/config/constants';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
+import { usePlatformStripe } from '@/hooks/useStripe';
 
 // --- Stripe Imports ---
-import { useStripe as useNativeStripe } from '@stripe/stripe-react-native';
 import { loadStripe, StripeElementsOptions, Appearance } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useStripe as useWebStripe, useElements } from '@stripe/react-stripe-js';
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
 import type { RootStackParamList } from '@/navigation/AppNavigator';
 
@@ -42,12 +42,13 @@ interface PaymentParams {
     };
 }
 
+// Web-specific components using Stripe Elements
 const StripeSetupFormWebRequired = ({ clientSecret, onSetupSuccess, onSetupError }: {
     clientSecret: string;
     onSetupSuccess: (setupIntentId: string, paymentMethodId?: string) => void;
     onSetupError: (errorMsg: string) => void;
 }) => {
-    const stripe = useWebStripe();
+    const stripe = useStripe();
     const elements = useElements();
     const [isPaymentElementReady, setIsPaymentElementReady] = useState(false);
     const [isProcessingWebPayment, setIsProcessingWebPayment] = useState(false);
@@ -75,7 +76,7 @@ const StripeSetupFormWebRequired = ({ clientSecret, onSetupSuccess, onSetupError
             const { error, setupIntent } = await stripe.confirmSetup({
                 elements,
                 confirmParams: {
-                    return_url: window.location.origin,
+                    return_url: `${window.location.origin}/organizer/dashboard?stripe_onboarding_complete=true`,
                 },
                 redirect: 'if_required',
             });
@@ -137,7 +138,7 @@ const StripePaymentFormWebRequired = ({ paymentClientSecret, onPaymentSuccess, o
     onPaymentSuccess: () => void;
     onPaymentError: (errorMsg: string) => void;
 }) => {
-    const stripe = useWebStripe();
+    const stripe = useStripe();
     const elements = useElements();
     const [isPaymentElementReady, setIsPaymentElementReady] = useState(false);
     const [isProcessingWebPayment, setIsProcessingWebPayment] = useState(false);
@@ -156,7 +157,7 @@ const StripePaymentFormWebRequired = ({ paymentClientSecret, onPaymentSuccess, o
             const { error, paymentIntent } = await stripe.confirmPayment({
                 elements,
                 confirmParams: {
-                    return_url: `${window.location.origin}/payment-confirmation`,
+                    return_url: `${window.location.origin}/organizer/dashboard?stripe_onboarding_complete=true`,
                 },
                 redirect: 'if_required',
             });
@@ -215,10 +216,155 @@ const StripePaymentFormWebRequired = ({ paymentClientSecret, onPaymentSuccess, o
     );
 };
 
+// Web-specific component that uses Stripe Elements
+const WebPaymentHandler = ({ 
+    paymentParams, 
+    isPremiumUser, 
+    handlePremiumSetupSuccess, 
+    handleCardSavedSuccessfully 
+}: {
+    paymentParams: PaymentParams | null;
+    isPremiumUser: boolean;
+    handlePremiumSetupSuccess: (setupIntentId: string, paymentMethodId?: string) => Promise<void>;
+    handleCardSavedSuccessfully: (paymentMethodId?: string) => Promise<void>;
+}) => {
+    if (!paymentParams?.setupIntent?.clientSecret) {
+        return (
+            <View style={styles.centeredMessage}>
+                <ActivityIndicator />
+                <Text style={styles.loadingTextUi}>Loading web payment form...</Text>
+            </View>
+        );
+    }
+
+    return (
+        <Elements stripe={stripePromiseWeb} options={{ 
+            clientSecret: paymentParams.setupIntent.clientSecret, 
+            appearance: { theme: 'stripe' } 
+        }}>
+            <StripeSetupFormWebRequired
+                clientSecret={paymentParams.setupIntent.clientSecret}
+                onSetupSuccess={(setupIntentId: string, paymentMethodId?: string) => {
+                    console.log('[RequiredPayment] Web form success:', { setupIntentId, paymentMethodId });
+                    if (isPremiumUser) {
+                        handlePremiumSetupSuccess(setupIntentId, paymentMethodId);
+                    } else {
+                        handleCardSavedSuccessfully(paymentMethodId);
+                    }
+                }}
+                onSetupError={(errMsg) => {
+                    Alert.alert("Setup Error", `Failed to setup payment: ${errMsg}. Please check details or try another card.`);
+                }}
+            />
+        </Elements>
+    );
+};
+
+// Native-specific component that uses usePlatformStripe
+const NativePaymentHandlerImpl = ({ 
+    paymentParams, 
+    isPremiumUser, 
+    handlePremiumSetupSuccess, 
+    handleCardSavedSuccessfully 
+}: {
+    paymentParams: PaymentParams | null;
+    isPremiumUser: boolean;
+    handlePremiumSetupSuccess: (setupIntentId: string, paymentMethodId?: string) => Promise<void>;
+    handleCardSavedSuccessfully: (paymentMethodId?: string) => Promise<void>;
+}) => {
+    const { initPaymentSheet, presentPaymentSheet } = usePlatformStripe();
+    const [isStripeActionActive, setIsStripeActionActive] = useState(false);
+
+    const handleMobilePayment = async () => {
+        const setupIntentParams = paymentParams?.setupIntent;
+        
+        if (!setupIntentParams) {
+            Alert.alert("Error", "Payment details not available. Please try refreshing.");
+            return;
+        }
+        
+        if (!setupIntentParams.clientSecret || !setupIntentParams.customerId || !setupIntentParams.ephemeralKey) {
+            Alert.alert("Error", "Payment setup details are not ready. Please try refreshing.");
+            return;
+        }
+
+        setIsStripeActionActive(true);
+        try {
+            const merchantName = isPremiumUser ? 'VYBR Premium' : 'VYBR Organizer';
+            const { error: initError } = await initPaymentSheet({
+                merchantDisplayName: merchantName,
+                customerId: setupIntentParams.customerId,
+                customerEphemeralKeySecret: setupIntentParams.ephemeralKey,
+                setupIntentClientSecret: setupIntentParams.clientSecret,
+                allowsDelayedPaymentMethods: true,
+                returnURL: `vybr://stripe-redirect-payment-setup`,
+            });
+
+            if (initError) {
+                throw new Error(`Init Error: ${initError.message} (Code: ${initError.code})`);
+            }
+
+            const result = await presentPaymentSheet();
+            console.log('[RequiredPayment Mobile] presentPaymentSheet Response:', JSON.stringify(result));
+
+            if (result.error) {
+                if (result.error.code !== 'Canceled') {
+                    throw new Error(`Present Error: ${result.error.message} (Code: ${result.error.code})`);
+                } else {
+                    Alert.alert("Canceled", `${isPremiumUser ? 'Premium subscription' : 'Payment method'} setup canceled.`);
+                }
+            } else {
+                // Success case - payment sheet completed successfully
+                console.log('[RequiredPayment Mobile] Payment method setup completed successfully, processing...');
+                
+                if (isPremiumUser) {
+                    // For premium users, this will trigger billing after card save
+                    await handlePremiumSetupSuccess('mobile_setup_success'); // No setup intent ID available on mobile
+                } else {
+                    // For organizers, just save the card
+                    await handleCardSavedSuccessfully(); // No payment method ID available on mobile
+                }
+            }
+        } catch (e: any) {
+            console.error('[RequiredPayment Mobile] Error:', e);
+            Alert.alert("Error", `${isPremiumUser ? 'Premium subscription' : 'Payment method'} setup failed: ${e.message}`);
+        } finally {
+            setIsStripeActionActive(false);
+        }
+    };
+
+    return (
+        <TouchableOpacity
+            style={[styles.button, isStripeActionActive && styles.buttonDisabled]}
+            onPress={handleMobilePayment}
+            disabled={isStripeActionActive}
+        >
+            {isStripeActionActive ? (
+                <ActivityIndicator color="#FFFFFF" />
+            ) : (
+                <Text style={styles.buttonText}>
+                    {isPremiumUser ? 'Complete Premium Subscription' : 'Add Payment Method'}
+                </Text>
+            )}
+        </TouchableOpacity>
+    );
+};
+
+// Platform-agnostic wrapper that renders the appropriate component
+const PaymentHandler = (props: {
+    paymentParams: PaymentParams | null;
+    isPremiumUser: boolean;
+    handlePremiumSetupSuccess: (setupIntentId: string, paymentMethodId?: string) => Promise<void>;
+    handleCardSavedSuccessfully: (paymentMethodId?: string) => Promise<void>;
+}) => {
+    return Platform.OS === 'web' 
+        ? <WebPaymentHandler {...props} /> 
+        : <NativePaymentHandlerImpl {...props} />;
+};
+
 const RequiredPaymentScreen: React.FC = () => {
     const navigation = useNavigation<RequiredPaymentNavigationProp>();
     const { session, loading: authLoading, refreshUserProfile, musicLoverProfile, organizerProfile, updatePremiumStatus } = useAuth();
-    const { initPaymentSheet, presentPaymentSheet } = useNativeStripe();
 
     const userId = session?.user?.id;
     const userEmail = session?.user?.email;
@@ -599,7 +745,7 @@ const RequiredPaymentScreen: React.FC = () => {
                     const { error, paymentIntent } = await stripe.confirmPayment({
                         clientSecret: billingData.client_secret,
                         confirmParams: {
-                            return_url: `${window.location.origin}/payment-confirmation`,
+                            return_url: `${window.location.origin}/organizer/dashboard?stripe_onboarding_complete=true`,
                         },
                         redirect: 'if_required',
                     });
@@ -616,34 +762,44 @@ const RequiredPaymentScreen: React.FC = () => {
                     // For mobile, use PaymentSheet for 3D Secure
                     console.log('[RequiredPaymentScreen] Mobile - using PaymentSheet for authentication...');
                     
-                    setIsStripeActionActive(true);
-                    const { error: initError } = await initPaymentSheet({
-                        merchantDisplayName: 'VYBR Premium',
-                        customerId: billingData.customerId || paymentParams?.setupIntent?.customerId,
-                        customerEphemeralKeySecret: billingData.ephemeralKey,
-                        paymentIntentClientSecret: billingData.client_secret,
-                        allowsDelayedPaymentMethods: true,
-                        returnURL: `vybr://stripe-redirect-premium-auth`,
-                    });
-                    
-                    if (initError) {
-                        throw new Error(`Init Error: ${initError.message} (Code: ${initError.code})`);
-                    }
+                    // For mobile, we need to use the platform-specific Stripe hooks
+                    if (Platform.OS === 'ios' || Platform.OS === 'android') {
+                        const { initPaymentSheet, presentPaymentSheet } = usePlatformStripe();
+                        if (!initPaymentSheet || !presentPaymentSheet) {
+                            throw new Error('Payment system not available');
+                        }
+                        
+                        setIsStripeActionActive(true);
+                        const { error: initError } = await initPaymentSheet({
+                            merchantDisplayName: 'VYBR Premium',
+                            customerId: billingData.customerId || paymentParams?.setupIntent?.customerId,
+                            customerEphemeralKeySecret: billingData.ephemeralKey,
+                            paymentIntentClientSecret: billingData.client_secret,
+                            allowsDelayedPaymentMethods: true,
+                            returnURL: `vybr://stripe-redirect-premium-auth`,
+                        });
+                        
+                        if (initError) {
+                            throw new Error(`Init Error: ${initError.message} (Code: ${initError.code})`);
+                        }
 
-                    const result = await presentPaymentSheet();
-                    console.log('[RequiredPaymentScreen] Mobile auth presentPaymentSheet Response:', JSON.stringify(result));
+                        const result = await presentPaymentSheet();
+                        console.log('[RequiredPaymentScreen] Mobile auth presentPaymentSheet Response:', JSON.stringify(result));
 
-                    if (result.error) {
-                        if (result.error.code !== 'Canceled') {
-                            throw new Error(`Present Error: ${result.error.message} (Code: ${result.error.code})`);
+                        if (result.error) {
+                            if (result.error.code !== 'Canceled') {
+                                throw new Error(`Present Error: ${result.error.message} (Code: ${result.error.code})`);
+                            } else {
+                                Alert.alert("Canceled", "Premium subscription authentication canceled.");
+                                return;
+                            }
                         } else {
-                            Alert.alert("Canceled", "Premium subscription authentication canceled.");
-                            return;
+                            // Success case - authentication completed successfully
+                            console.log('[RequiredPaymentScreen] Mobile authentication completed successfully');
+                            await handlePaymentSuccess();
                         }
                     } else {
-                        // Success case - authentication completed successfully
-                        console.log('[RequiredPaymentScreen] Mobile authentication completed successfully');
-                        await handlePaymentSuccess();
+                        throw new Error('Mobile payment sheet not available on web platform');
                     }
                 }
             } else {
@@ -713,64 +869,6 @@ const RequiredPaymentScreen: React.FC = () => {
             console.error('[RequiredPaymentScreen] Error in handleCardSavedSuccessfully:', error);
             setError(error.message || 'Failed to save payment method. Please try again.');
             setIsLoadingData(false); // Stop loading on error
-        }
-    };
-
-    const handleMobilePayment = async () => {
-        const setupIntentParams = paymentParams?.setupIntent;
-        
-        if (!setupIntentParams) {
-            Alert.alert("Error", "Payment details not available. Please try refreshing.");
-            return;
-        }
-
-        if (!setupIntentParams.clientSecret || !setupIntentParams.customerId || !setupIntentParams.ephemeralKey) {
-            Alert.alert("Error", "Payment setup details are not ready. Please try refreshing.");
-            return;
-        }
-        
-        setIsStripeActionActive(true);
-        try {
-            const merchantName = isPremiumUser ? 'VYBR Premium' : (isOrganizer ? 'VYBR Organizer' : 'VYBR');
-            const { error: initError } = await initPaymentSheet({
-                merchantDisplayName: merchantName,
-                customerId: setupIntentParams.customerId,
-                customerEphemeralKeySecret: setupIntentParams.ephemeralKey,
-                setupIntentClientSecret: setupIntentParams.clientSecret,
-                allowsDelayedPaymentMethods: true,
-                returnURL: `vybr://stripe-redirect-payment-setup`,
-            });
-            
-            if (initError) {
-                throw new Error(`Init Error: ${initError.message} (Code: ${initError.code})`);
-            }
-
-            const result = await presentPaymentSheet();
-            console.log('[RequiredPayment Mobile] presentPaymentSheet Response:', JSON.stringify(result));
-
-            if (result.error) {
-                if (result.error.code !== 'Canceled') {
-                    throw new Error(`Present Error: ${result.error.message} (Code: ${result.error.code})`);
-                } else {
-                    Alert.alert("Canceled", `${isPremiumUser ? 'Premium subscription' : 'Payment method'} setup canceled.`);
-                }
-            } else {
-                // Success case - payment sheet completed successfully
-                console.log('[RequiredPayment Mobile] Payment method setup completed successfully, processing...');
-                
-                if (isPremiumUser) {
-                    // For premium users, this will trigger billing after card save
-                    await handlePremiumSetupSuccess('mobile_setup_success'); // No setup intent ID available on mobile
-                } else {
-                    // For organizers, just save the card
-                    await handleCardSavedSuccessfully(); // No payment method ID available on mobile
-                }
-            }
-        } catch (e: any) {
-            console.error('[RequiredPayment Mobile] Error:', e);
-            Alert.alert("Error", `${isPremiumUser ? 'Premium subscription' : 'Payment method'} setup failed: ${e.message}`);
-        } finally {
-            setIsStripeActionActive(false);
         }
     };
 
@@ -867,48 +965,12 @@ const RequiredPaymentScreen: React.FC = () => {
                     {/* Payment Form (hide if showing connect step) */}
                     {!showConnectOnboarding && paymentParams && paymentParams.setupIntent && !isLoadingData && (
                         <View style={styles.formSection}>
-                            {Platform.OS === 'web' ? (
-                                stripePromiseWeb ? (
-                                    <Elements stripe={stripePromiseWeb} options={{ 
-                                        clientSecret: paymentParams.setupIntent.clientSecret, 
-                                        appearance: { theme: 'stripe' } 
-                                    }}>
-                                        <StripeSetupFormWebRequired
-                                            clientSecret={paymentParams.setupIntent.clientSecret}
-                                            onSetupSuccess={(setupIntentId: string, paymentMethodId?: string) => {
-                                                console.log('[RequiredPayment] Web form success:', { setupIntentId, paymentMethodId });
-                                                if (isPremiumUser) {
-                                                    handlePremiumSetupSuccess(setupIntentId, paymentMethodId);
-                                                } else {
-                                                    handleCardSavedSuccessfully(paymentMethodId);
-                                                }
-                                            }}
-                                            onSetupError={(errMsg) => {
-                                                Alert.alert("Setup Error", `Failed to setup payment: ${errMsg}. Please check details or try another card.`);
-                                            }}
-                                        />
-                                    </Elements>
-                                ) : (
-                                    <View style={styles.centeredMessage}>
-                                        <ActivityIndicator />
-                                        <Text style={styles.loadingTextUi}>Loading web payment form...</Text>
-                                    </View>
-                                )
-                            ) : (
-                                <TouchableOpacity
-                                    style={[styles.button, (isStripeActionActive || isLoadingData) && styles.buttonDisabled]}
-                                    onPress={handleMobilePayment}
-                                    disabled={isStripeActionActive || isLoadingData}
-                                >
-                                    {(isStripeActionActive || isLoadingData) ? (
-                                        <ActivityIndicator color="#FFFFFF" />
-                                    ) : (
-                                        <Text style={styles.buttonText}>
-                                            {isPremiumUser ? 'Complete Premium Subscription' : 'Add Payment Method'}
-                                        </Text>
-                                    )}
-                                </TouchableOpacity>
-                            )}
+                            <PaymentHandler
+                                paymentParams={paymentParams}
+                                isPremiumUser={isPremiumUser}
+                                handlePremiumSetupSuccess={handlePremiumSetupSuccess}
+                                handleCardSavedSuccessfully={handleCardSavedSuccessfully}
+                            />
                             <Text style={styles.securityText}>
                                 🔒 Your payment information is securely processed by Stripe and encrypted end-to-end.
                             </Text>

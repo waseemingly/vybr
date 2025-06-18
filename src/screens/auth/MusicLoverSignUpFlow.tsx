@@ -13,6 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/useAuth'; // Adjust import path as needed
 import { useSpotifyAuth } from '@/hooks/useSpotifyAuth'; // Spotify auth hook
 import { APP_CONSTANTS } from '@/config/constants'; // Assuming path is correct
+import { supabase } from '@/lib/supabase'; // Add supabase import
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser'; // Add WebBrowser for opening URLs in new tabs
@@ -27,7 +28,7 @@ import ImageCropper from '@/components/ImageCropper'; // Add ImageCropper
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator'; // Import stack param lists
 
 // Step types
-type Step = 'account-details' | 'profile-details' | 'streaming-service' | 'subscription' | 'payment';
+type Step = 'username' | 'profile-details' | 'streaming-service' | 'subscription' | 'account-details' | 'payment';
 type SubscriptionTier = 'free' | 'premium' | '';
 type StreamingServiceId = 'spotify' | 'apple_music' | 'youtubemusic' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | ''; // Updated 'youtube_music' to 'youtubemusic'
 
@@ -46,9 +47,6 @@ const STREAMING_SERVICES = [
 
 // --- Update the type for form data ---
 interface MusicLoverFormData {
-    email: string;
-    password: string;
-    confirmPassword: string;
     firstName: string;
     lastName: string;
     username: string;
@@ -143,7 +141,10 @@ const MusicLoverSignUpFlow = () => {
         loading: authLoading, // Hook's loading state
         checkUsernameExists, // Use these real functions from useAuth
         checkEmailExists,     // Use these real functions from useAuth 
-        verifyEmailIsReal,    // Added new function
+        // verifyEmailIsReal,    // Removed email verification function
+        signInWithGoogle,     // Add Google Sign-In function
+        verifyGoogleAuthCompleted, // Add new function
+        updateUserMetadata,   // Add function to update user metadata
     } = useAuth();
     
     // Spotify auth hook
@@ -158,13 +159,14 @@ const MusicLoverSignUpFlow = () => {
     
     // --- Update initial state ---
     const [formData, setFormData] = useState<MusicLoverFormData>({
-        email: '', password: '', confirmPassword: '', firstName: '', lastName: '',
-        username: '', termsAccepted: false,
+        firstName: '',
+        lastName: '',
+        username: '',
+        termsAccepted: false,
         profilePictureUri: '',
         profilePicturePreview: '',
-        profilePictureMimeType: null, // <<< Initialize mimeType
-        age: '', 
-        // Initialize location fields
+        profilePictureMimeType: null,
+        age: '',
         countryCode: '',
         country: '',
         stateCode: '',
@@ -177,11 +179,14 @@ const MusicLoverSignUpFlow = () => {
     });
 
     // State variables
-    const [currentStep, setCurrentStep] = useState<Step>('account-details');
+    const [currentStep, setCurrentStep] = useState<Step>('username');
     const [isTermsModalVisible, setIsTermsModalVisible] = useState(false);
     const [isLoading, setIsLoading] = useState(false); // Component-level loading (e.g., payment sim)
     const [error, setError] = useState('');
     const slideAnim = useRef(new Animated.Value(0)).current; // Animation value
+
+    // Add state to hold Google User ID
+    const [googleUserId, setGoogleUserId] = useState<string | null>(null);
 
     // Web cropping state
     const [showCropper, setShowCropper] = useState(false);
@@ -190,15 +195,10 @@ const MusicLoverSignUpFlow = () => {
     // Input Refs for focus management
     const lastNameInputRef = useRef<TextInput>(null);
     const usernameInputRef = useRef<TextInput>(null);
-    const emailInputRef = useRef<TextInput>(null);
-    const passwordInputRef = useRef<TextInput>(null);
-    const confirmPasswordInputRef = useRef<TextInput>(null);
 
     // Username and Email validation state
     const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'error'>('idle');
     const [usernameFeedback, setUsernameFeedback] = useState('');
-    const [emailStatus, setEmailStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'error'>('idle');
-    const [emailFeedback, setEmailFeedback] = useState('');
 
     // Location data lists
     const [countries, setCountries] = useState<any[]>([]);
@@ -214,10 +214,6 @@ const MusicLoverSignUpFlow = () => {
         if (field === 'username') {
             setUsernameStatus('idle');
             setUsernameFeedback('');
-        }
-        if (field === 'email') {
-            setEmailStatus('idle');
-            setEmailFeedback('');
         }
 
         if (field.startsWith('bio.')) {
@@ -302,67 +298,46 @@ const MusicLoverSignUpFlow = () => {
     };
 
     // --- Validation Functions ---
-    const validateAccountDetailsStep = (): boolean => {
-        console.log('[MusicLoverSignUpFlow] Validating Account Details Step...');
+    const validateUsernameStep = (): boolean => {
+        console.log('[MusicLoverSignUpFlow] Validating Username Step...');
         
+        // First name check
         if (!formData.firstName.trim()) return false;
+        // Last name check  
         if (!formData.lastName.trim()) return false;
-        
         // Username checks
         if (!formData.username.trim()) return false;
         if (/\s/.test(formData.username.trim())) return false;
         if (formData.username.trim().length < 3) return false;
-        if (usernameStatus !== 'valid') return false; // Crucial: must be checked and valid
-
-        // Email checks
-        if (!formData.email.trim()) return false;
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(formData.email.trim())) return false;
-        if (emailStatus !== 'valid') return false; // Crucial: must be checked and valid
-        
-        if (!formData.password) return false;
-        if (formData.password.length < 8) return false;
-        if (formData.password !== formData.confirmPassword) return false;
+        if (usernameStatus !== 'valid') return false; // Must be checked and valid
         if (!formData.termsAccepted) return false;
         
-        console.log('[MusicLoverSignUpFlow] Account Details Step Validation PASSED.');
+        console.log('[MusicLoverSignUpFlow] Username Step Validation PASSED.');
+        return true;
+    };
+    
+    // Get error message for username step
+    const getUsernameError = (): string => {
+        if (!formData.firstName.trim()) return 'Please enter your first name';
+        if (!formData.lastName.trim()) return 'Please enter your last name';
+        if (!formData.username.trim()) return 'Please enter a username';
+        if (/\s/.test(formData.username.trim())) return 'Username cannot contain spaces';
+        if (formData.username.trim().length < 3) return 'Username must be at least 3 characters';
+        if (usernameStatus === 'error') return usernameFeedback;
+        if (!formData.termsAccepted) return 'Please accept the Terms and Conditions';
+        return '';
+    };
+
+    const validateAccountDetailsStep = (): boolean => {
+        console.log('[MusicLoverSignUpFlow] Validating Account Details Step...');
+        // No fields to validate in this step anymore as it's only Google Sign-In
         return true;
     };
 
     // Get error message for general errors, not username/email specific feedback
     const getAccountDetailsError = (): string => {
-        if (!formData.firstName.trim()) return 'Please enter your first name';
-        if (!formData.lastName.trim()) return 'Please enter your last name';
-        
-        // Username format errors (if not caught by blur, or for initial submit click)
-        // These are now primarily handled by inline feedback.
-        // But if user clicks submit before blur, these can provide general error.
-        if (!formData.username.trim()) return 'Please enter a username';
-        if (/\s/.test(formData.username.trim())) return 'Username cannot contain spaces';
-        if (formData.username.trim().length < 3) return 'Username must be at least 3 characters';
-        // Do not return "Username taken" here, rely on inline feedback and validateAccountDetailsStep
-
-        // Email format errors (similar to username)
-        if (!formData.email.trim()) return 'Please enter your email';
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(formData.email.trim())) return 'Please enter a valid email address';
-        // Do not return "Email taken" here
-
-        if (!formData.password) return 'Please enter a password';
-        if (formData.password.length < 8) return 'Password must be at least 8 characters long';
-        if (formData.password !== formData.confirmPassword) return 'Passwords do not match';
-        if (!formData.termsAccepted) return 'Please accept the Terms and Conditions';
-        
-        // If username/email status is invalid but feedback is already shown,
-        // we might not need a general error message for them.
-        // If status is 'idle' or 'checking', validateAccountDetailsStep handles it.
-        if (usernameStatus === 'invalid' && usernameFeedback) return ''; // Let inline feedback show
-        if (emailStatus === 'invalid' && emailFeedback) return ''; // Let inline feedback show
-        if (usernameStatus === 'error') return usernameFeedback; // Show error from check
-        if (emailStatus === 'error') return emailFeedback; // Show error from check
-
-
-        return ''; // All good or errors handled by inline feedback
+        // No fields to validate, so no errors to return
+        return '';
     };
 
     const validateProfileDetailsStep = (): boolean => {
@@ -376,7 +351,7 @@ const MusicLoverSignUpFlow = () => {
         console.log('[MusicLoverSignUpFlow] Profile Details Step Validation PASSED.');
         return true;
     };
-
+    
     // Get error message without setting state
     const getProfileDetailsError = (): string => {
         if (formData.age && (!/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 1 || parseInt(formData.age, 10) > 120)) {
@@ -396,7 +371,7 @@ const MusicLoverSignUpFlow = () => {
         console.log('[MusicLoverSignUpFlow] Streaming Service Step Validation PASSED.');
         return true;
     };
-
+    
     // Get error message without setting state
     const getStreamingServiceError = (): string => {
         if (!formData.selectedStreamingService) {
@@ -416,7 +391,7 @@ const MusicLoverSignUpFlow = () => {
         console.log('[MusicLoverSignUpFlow] Subscription Step Validation PASSED.');
         return true;
     };
-
+    
     // Get error message without setting state
     const getSubscriptionError = (): string => {
         if (!formData.subscriptionTier) {
@@ -561,13 +536,25 @@ const MusicLoverSignUpFlow = () => {
     // --- Signup Logic ---
 
     // Helper to consolidate profile data creation before calling the hook
-    const prepareProfileData = (userId: string): CreateMusicLoverProfileData => {
+    const prepareProfileData = async (userId: string): Promise<CreateMusicLoverProfileData> => {
         // Validate age input
         const age = formData.age ? parseInt(formData.age) : null;
-        // Age validation is now primarily in validateProfileDetailsStep, but good to have a fallback
-        if (formData.age && (age === null || isNaN(age) || age < 1 || age > 120)) { // Stricter check if age is provided
+        if (formData.age && (age === null || isNaN(age) || age < 1 || age > 120)) {
              Alert.alert('Invalid Age', 'Please enter a valid age between 1 and 120, or leave it blank.');
              throw new Error('Invalid age provided.');
+        }
+
+        // Get email from the authenticated user session
+        let email = '';
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.user?.email) {
+            email = sessionData.session.user.email;
+            console.log('[MusicLoverSignUpFlow] Got email from authenticated session:', email);
+        }
+
+        if (!email) {
+            console.error('[MusicLoverSignUpFlow] Could not retrieve email from session.');
+            throw new Error('Could not retrieve email from your Google account.');
         }
 
         // Create a basic profile data object with known properties
@@ -576,7 +563,7 @@ const MusicLoverSignUpFlow = () => {
             firstName: formData.firstName.trim(),
             lastName: formData.lastName.trim(),
             username: formData.username.trim(),
-            email: formData.email.trim(),
+            email: email,
             age,
             bio: {
                 firstSong: formData.bio.firstSong?.trim() || '',
@@ -592,125 +579,51 @@ const MusicLoverSignUpFlow = () => {
         };
 
         // Add only the location text fields needed for the database
-        // The codes (countryCode, stateCode) are only used for UI functionality
         profileData.country = formData.country || undefined;
         profileData.state = formData.state || undefined;
         profileData.city = formData.cityName || undefined;
 
-        console.log('[MusicLoverSignUpFlow] Prepared profile data with location:', {
-            country: profileData.country,
-            state: profileData.state,
-            city: profileData.city
+        console.log('[MusicLoverSignUpFlow] Prepared profile data:', {
+            email: profileData.email,
+            username: profileData.username,
         });
 
         return profileData as CreateMusicLoverProfileData;
     };
 
-    // Creates Auth user AND DB profile record
-    const handleAccountAndProfileCreation = async (): Promise<string | null> => {
-        console.log('[MusicLoverSignUpFlow] handleAccountAndProfileCreation called.');
-        setError('');
-        setIsLoading(true);
-        let userId: string | null = null;
-
-        try {
-            // 1. Sign up Auth User
-            console.log('[MusicLoverSignUpFlow] Calling signUp hook with email:', formData.email);
-            const signUpResult = await signUp({
-                email: formData.email.trim(),
-                password: formData.password,
-                userType: 'music_lover',
-            });
-
-            console.log('[MusicLoverSignUpFlow] SignUp result:', signUpResult);
-
-            if ('error' in signUpResult && signUpResult.error) {
-                console.error('[MusicLoverSignUpFlow] SignUp error:', signUpResult.error);
-                throw new Error(signUpResult.error.message || 'Sign up failed');
-            }
-
-            if (!('user' in signUpResult) || !signUpResult.user?.id) {
-                console.error('[MusicLoverSignUpFlow] No user ID in signUp result');
-                throw new Error('Failed to create user account');
-            }
-
-            userId = signUpResult.user.id;
-            console.log('[MusicLoverSignUpFlow] User account created successfully:', userId);
-
-            // 2. Create Profile
-            if (!userId) {
-                throw new Error('User ID is missing');
-            }
-
-            const profileData = prepareProfileData(userId);
-            console.log('[MusicLoverSignUpFlow] Creating profile with data:', profileData);
-
-            const profileResult = await createMusicLoverProfile(profileData);
-            console.log('[MusicLoverSignUpFlow] Profile creation result:', profileResult);
-            
-            if ('error' in profileResult && profileResult.error) {
-                console.error('[MusicLoverSignUpFlow] Profile creation error:', profileResult.error);
-                throw new Error(profileResult.error.message || 'Failed to create profile');
-            }
-
-            console.log('[MusicLoverSignUpFlow] Profile created successfully');
-            return userId;
-
-        } catch (err: any) {
-            console.error('[MusicLoverSignUpFlow] Error in account/profile creation:', err);
-            const errorMessage = err.message || 'Failed to create account and profile';
-            setError(errorMessage);
-            Alert.alert('Signup Error', errorMessage);
-            return null;
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    // Completes signup for FREE tier - MODIFIED NAVIGATION
+    // Completes signup for FREE tier - MODIFIED for Google OAuth
     const handleFreeSignupCompletion = async () => {
         try {
             console.log('[MusicLoverSignUpFlow] Starting free signup completion...');
             setIsLoading(true);
             setError('');
 
-            // Create user account and profile
-            const userId = await handleAccountAndProfileCreation();
+            const { data: { session } } = await supabase.auth.getSession();
+            const userId = session?.user?.id;
+
             if (!userId) {
-                throw new Error("Failed to create account and profile");
+                throw new Error("Could not determine user ID from session. Please sign in again.");
+            }
+
+            // Create the profile for Google OAuth user
+            const profileData = await prepareProfileData(userId);
+            console.log('[MusicLoverSignUpFlow] Creating profile with data:', profileData);
+            const profileResult = await createMusicLoverProfile(profileData);
+            
+            if ('error' in profileResult && profileResult.error) {
+                console.error('[MusicLoverSignUpFlow] Profile creation error:', profileResult.error);
+                throw new Error(profileResult.error.message || 'Failed to create profile');
             }
 
             // Set premium status to false
-            try {
-                const premiumResult = await updatePremiumStatus(userId, false);
-                if ('error' in premiumResult && premiumResult.error) {
-                    console.error('[MusicLoverSignUpFlow] Error updating premium status:', premiumResult.error);
-                }
-            } catch (premiumError) {
-                console.error('[MusicLoverSignUpFlow] Error updating premium status:', premiumError);
-                // Don't throw here, as the account is already created
+            await updatePremiumStatus(userId, false);
+
+            // Fetch streaming data if applicable
+            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None' && isSpotifyLoggedIn) {
+                 await forceFetchAndSaveSpotifyData(userId, false);
             }
 
-            // Only try to fetch streaming data if a service is selected and connected
-            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None') {
-                if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
-                    try {
-                        await forceFetchAndSaveSpotifyData(userId, false);
-                    } catch (spotifyError) {
-                        console.error('[MusicLoverSignUpFlow] Error fetching Spotify data:', spotifyError);
-                    }
-                }
-                
-                if (formData.selectedStreamingService === 'youtubemusic' && isSpotifyLoggedIn) {
-                    try {
-                        await forceFetchAndSaveSpotifyData(userId, false);
-                    } catch (spotifyError) {
-                        console.error('[MusicLoverSignUpFlow] Error fetching Spotify data:', spotifyError);
-                    }
-                }
-            }
-
-            // Success - navigate to home/dashboard (free users don't need payment method)
+            // Success - navigate to home/dashboard
             console.log('[MusicLoverSignUpFlow] Free signup completed successfully, navigating to home.');
             navigation.reset({
                 index: 0,
@@ -719,79 +632,56 @@ const MusicLoverSignUpFlow = () => {
 
         } catch (error: any) {
             console.error('[MusicLoverSignUpFlow] Error in free signup completion:', error);
-            const errorMessage = error.message || 'An error occurred during signup';
-            setError(errorMessage);
-            Alert.alert('Signup Error', errorMessage);
+            setError(error.message || 'An error occurred during signup');
+            Alert.alert('Signup Error', error.message || 'An error occurred during signup');
         } finally {
             setIsLoading(false);
         }
     };
 
-    // Completes signup for PREMIUM tier - REDIRECT TO PAYMENT SCREEN
+    // Completes signup for PREMIUM tier - MODIFIED for Google OAuth
     const handlePremiumSignupCompletion = async () => {
         console.log('[handlePremiumSignupCompletion] Function START');
         try {
             setIsLoading(true);
             setError('');
-            console.log('[handlePremiumSignupCompletion] isLoading set to true, error cleared');
-    
-            // --- Section 1: Account and Profile Creation ---
-            console.log('[handlePremiumSignupCompletion] Attempting handleAccountAndProfileCreation...');
-            const userId = await handleAccountAndProfileCreation();
-            console.log('[handlePremiumSignupCompletion] handleAccountAndProfileCreation returned userId:', userId);
-    
-            if (!userId) {
-                console.error('[handlePremiumSignupCompletion] userId is null or undefined. THROWING ERROR.');
-                throw new Error("Failed to create account and profile");
-            }
-            console.log('[handlePremiumSignupCompletion] userId is valid:', userId);
-    
-            // --- Section 2: Update Premium Status ---
-            console.log('[handlePremiumSignupCompletion] Attempting updatePremiumStatus for userId:', userId);
-            const premiumResult = await updatePremiumStatus(userId, true);
-            console.log('[handlePremiumSignupCompletion] updatePremiumStatus returned:', premiumResult);
-            if ('error' in premiumResult && premiumResult.error) {
-                console.error('[handlePremiumSignupCompletion] Error in premiumResult:', premiumResult.error);
-                // Not throwing, but logging the error
-            }
-    
-            // --- Section 3: Streaming Service Data Fetch (if applicable) ---
-            console.log('[handlePremiumSignupCompletion] Checking selectedStreamingService:', formData.selectedStreamingService);
-            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None') {
-                if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
-                    console.log('[handlePremiumSignupCompletion] Attempting forceFetchAndSaveSpotifyData for Spotify, userId:', userId);
-                    try {
-                        await forceFetchAndSaveSpotifyData(userId, true);
-                        console.log('[handlePremiumSignupCompletion] forceFetchAndSaveSpotifyData for Spotify COMPLETED.');
-                    } catch (spotifyError) {
-                        console.error('[handlePremiumSignupCompletion] Error fetching Spotify data:', spotifyError);
-                    }
-                }
-                // Add similar logging for 'youtubemusic' if needed
-            }
-            console.log('[handlePremiumSignupCompletion] Streaming service data fetch section COMPLETED.');
-    
-            // --- Section 4: Navigation - Redirect to RequiredPaymentScreen ---
-            console.log('[handlePremiumSignupCompletion] Premium signup completed successfully. The app will automatically redirect to payment setup.');
-            // The AppNavigator will automatically detect that this is a premium user without a payment method
-            // and redirect to RequiredPaymentScreen. No manual navigation needed here.
             
-            // Force a re-render by resetting to MainApp, which will trigger the payment check
+            const { data: { session } } = await supabase.auth.getSession();
+            const userId = session?.user?.id;
+
+            if (!userId) {
+                throw new Error("Could not determine user ID from session. Please sign in again.");
+            }
+            
+            // Create the profile for the Google user
+            const profileData = await prepareProfileData(userId);
+            const profileResult = await createMusicLoverProfile(profileData);
+
+            if ('error' in profileResult && profileResult.error) {
+                console.error('[handlePremiumSignupCompletion] Profile creation error:', profileResult.error);
+                throw new Error(profileResult.error.message || 'Failed to create profile for Google user');
+            }
+    
+            // Update Premium Status
+            await updatePremiumStatus(userId, true);
+    
+            // Fetch streaming data if applicable
+            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None' && isSpotifyLoggedIn) {
+                await forceFetchAndSaveSpotifyData(userId, true);
+            }
+    
+            // Navigate to payment screen
+            console.log('[handlePremiumSignupCompletion] Premium signup completed. The app will redirect to payment setup.');
             navigation.reset({
                 index: 0,
                 routes: [{ name: 'MainApp' }],
             });
     
         } catch (error: any) {
-            // --- Section 5: Catch Block ---
-            console.error('[handlePremiumSignupCompletion] >>> CATCH BLOCK EXECUTED <<<');
             console.error('[handlePremiumSignupCompletion] Error message:', error.message);
-            console.error('[handlePremiumSignupCompletion] Full error object:', error);
             setError(error.message || 'An error occurred during signup');
             Alert.alert('Signup Error', error.message || 'An error occurred during signup');
         } finally {
-            // --- Section 6: Finally Block ---
-            console.log('[handlePremiumSignupCompletion] FINALLY BLOCK EXECUTED. Setting isLoading to false.');
             setIsLoading(false);
         }
     };
@@ -804,28 +694,13 @@ const MusicLoverSignUpFlow = () => {
         let stepErrorMessage = '';
 
         switch (currentStep) {
-            case 'account-details':
-                // Trigger blur handlers if fields are filled but not yet validated (e.g., user clicks "Continue" quickly)
+            case 'username':
                 if (formData.username.trim() && usernameStatus === 'idle') {
                     await handleUsernameBlur(); // await to ensure status updates
                 }
-                if (formData.email.trim() && emailStatus === 'idle') {
-                    await handleEmailBlur(); // await to ensure status updates
-                }
-
-                currentStepIsValid = validateAccountDetailsStep();
+                currentStepIsValid = validateUsernameStep();
                 if (!currentStepIsValid) {
-                    // Prioritize inline feedback for username/email if status is invalid/error
-                    if (usernameStatus === 'invalid' || usernameStatus === 'error') {
-                        // Inline feedback is already visible, general error not needed for this
-                    } else if (emailStatus === 'invalid' || emailStatus === 'error') {
-                        // Inline feedback is already visible
-                    } else {
-                         stepErrorMessage = getAccountDetailsError(); // Get other errors
-                    }
-                    // If status is 'checking', button should be disabled anyway.
-                    // If 'idle' but field is filled, we've triggered blur above.
-                    // If 'idle' and field empty, getAccountDetailsError will catch it.
+                    stepErrorMessage = getUsernameError();
                 }
                 break;
             case 'profile-details':
@@ -846,6 +721,12 @@ const MusicLoverSignUpFlow = () => {
                     stepErrorMessage = getSubscriptionError();
                 }
                 break;
+            case 'account-details':
+                // This step is now just for showing the Google Sign-In button.
+                // The actual sign-in is handled by `handleGoogleSignIn`, not this submit function.
+                // So, no validation is needed here. We can assume the user will click the Google button.
+                currentStepIsValid = true; 
+                break;
             case 'payment':
                 currentStepIsValid = validatePaymentStep();
                 if (!currentStepIsValid) {
@@ -859,9 +740,8 @@ const MusicLoverSignUpFlow = () => {
         
         // Only proceed if no errors AND current step specific validation passed
         if (stepErrorMessage || !currentStepIsValid) {
-            if (!stepErrorMessage && !currentStepIsValid && (usernameStatus === 'invalid' || emailStatus === 'invalid')) {
-                // This case means validation failed due to username/email, and inline feedback is shown.
-                // No need to set a general error message.
+            if (!stepErrorMessage && !currentStepIsValid && (usernameStatus === 'invalid')) {
+                // This case means validation failed due to username, and inline feedback is shown.
             } else if (!stepErrorMessage && !currentStepIsValid) {
                  setError("Please complete all required fields and correct any errors."); // Generic fallback
             }
@@ -869,7 +749,7 @@ const MusicLoverSignUpFlow = () => {
         }
 
         switch (currentStep) {
-            case 'account-details':
+            case 'username':
                 goToNextStep('profile-details');
                 break;
             case 'profile-details':
@@ -879,11 +759,12 @@ const MusicLoverSignUpFlow = () => {
                 goToNextStep('subscription');
                 break;
             case 'subscription':
-                if (formData.subscriptionTier === 'free') {
-                    handleFreeSignupCompletion();
-                } else if (formData.subscriptionTier === 'premium') {
-                    handlePremiumSignupCompletion();
-                }
+                goToNextStep('account-details');
+                break;
+            case 'account-details':
+                // The user needs to click the Google button. This continue button shouldn't do anything
+                // for this step, or it should be hidden.
+                // The actual completion logic is in `handleGoogleSignIn`.
                 break;
             case 'payment':
                  await handlePremiumSignupCompletion();
@@ -893,9 +774,11 @@ const MusicLoverSignUpFlow = () => {
 
     // --- Render Functions for Steps ---
 
-    const renderAccountDetailsStep = () => (
+    const renderUsernameStep = () => (
         <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Create Your Account</Text>
+            <Text style={styles.stepTitle}>Tell Us About You</Text>
+            <Text style={styles.stepDescription}>Let's start with your basic information</Text>
+            
             {/* First/Last Name Row */}
             <View style={styles.rowContainer}>
                 <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
@@ -926,6 +809,7 @@ const MusicLoverSignUpFlow = () => {
                     />
                 </View>
             </View>
+            
             {/* Username */}
             <View style={styles.inputContainer}>
                 <View style={styles.labelRow}>
@@ -944,9 +828,7 @@ const MusicLoverSignUpFlow = () => {
                     onChangeText={(text) => handleChange('username', text.replace(/\s/g, ''))} 
                     autoCapitalize="none" 
                     autoCorrect={false} 
-                    returnKeyType="next" 
-                    blurOnSubmit={false} 
-                    onSubmitEditing={() => emailInputRef.current?.focus()}
+                    returnKeyType="done" 
                     onBlur={handleUsernameBlur}
                 />
                 {usernameFeedback ? <Text style={[
@@ -955,74 +837,7 @@ const MusicLoverSignUpFlow = () => {
                     (usernameStatus === 'invalid' || usernameStatus === 'error') && styles.feedbackTextError,
                 ]}>{usernameFeedback}</Text> : null}
             </View>
-            {/* Email */}
-            <View style={styles.inputContainer}>
-                <View style={styles.labelRow}>
-                    <Text style={styles.inputLabel}>Email *</Text>
-                    {emailStatus === 'checking' && <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={styles.inlineLoader} />}
-                </View>
-                <TextInput 
-                    ref={emailInputRef}
-                    style={[
-                        styles.input,
-                        emailStatus === 'invalid' && styles.inputError,
-                        emailStatus === 'valid' && styles.inputValid,
-                    ]}
-                    placeholder="Enter your email address" 
-                    value={formData.email} 
-                    onChangeText={(text) => handleChange('email', text)} 
-                    keyboardType="email-address" 
-                    autoCapitalize="none" 
-                    returnKeyType="next" 
-                    blurOnSubmit={false} 
-                    onSubmitEditing={() => passwordInputRef.current?.focus()}
-                    onBlur={handleEmailBlur}
-                />
-                 {emailFeedback ? <Text style={[
-                    styles.feedbackText, 
-                    emailStatus === 'valid' && styles.feedbackTextValid,
-                    (emailStatus === 'invalid' || emailStatus === 'error') && styles.feedbackTextError,
-                ]}>{emailFeedback}</Text> : null}
-            </View>
-            {/* Password */}
-            <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Password *</Text>
-                <TextInput 
-                    ref={passwordInputRef}
-                    style={styles.input} 
-                    placeholder="Create a password (min. 8 characters)" 
-                    value={formData.password} 
-                    onChangeText={(text) => handleChange('password', text)} 
-                    secureTextEntry 
-                    autoCapitalize="none" 
-                    returnKeyType="next" 
-                    blurOnSubmit={false} 
-                    onSubmitEditing={() => confirmPasswordInputRef.current?.focus()}
-                />
-            </View>
-            {/* Confirm Password */}
-            <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Confirm Password *</Text>
-                <TextInput 
-                    ref={confirmPasswordInputRef}
-                    style={styles.input} 
-                    placeholder="Confirm your password" 
-                    value={formData.confirmPassword} 
-                    onChangeText={(text) => handleChange('confirmPassword', text)} 
-                    secureTextEntry 
-                    autoCapitalize="none" 
-                    returnKeyType="done" 
-                    onSubmitEditing={() => {
-                        // Before submitting, ensure keyboard is dismissed to trigger any pending blur events
-                        Keyboard.dismiss();
-                        // A short timeout can help ensure blur events are processed if Keyboard.dismiss() is not enough
-                        setTimeout(() => {
-                            handleStepSubmit();
-                        }, 100);
-                    }}
-                />
-            </View>
-            {/* Terms */}
+
             <View style={styles.termsContainer}>
                 <TouchableOpacity
                     style={[styles.checkbox, formData.termsAccepted && styles.checkboxChecked]}
@@ -1038,8 +853,35 @@ const MusicLoverSignUpFlow = () => {
                     </Text> *
                 </Text>
             </View>
+            
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
             <Text style={styles.requiredText}>* Required fields</Text>
+        </View>
+    );
+
+    const renderAccountDetailsStep = () => (
+        <View style={styles.stepContent}>
+            <Text style={styles.stepTitle}>Complete Your Profile</Text>
+            <Text style={styles.stepDescription}>Sign in with Google to securely create your account.</Text>
+
+            {/* Google Sign-In Button */}
+            <TouchableOpacity 
+                style={styles.googleSignInButton}
+                onPress={handleGoogleSignIn}
+                disabled={isLoading || authLoading}
+            >
+                <View style={styles.googleButtonContent}>
+                    {/* Use appropriate Google icon here */}
+                    <Feather name="lock" size={20} color="#4285F4" style={styles.googleIcon} />
+                    <Text style={styles.googleSignInText}>Continue with Google</Text>
+                </View>
+            </TouchableOpacity>
+
+            <Text style={styles.secureNote}>
+                By continuing, you link your Google account to Vybr. We will use your email to create and manage your account.
+            </Text>
+
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
         </View>
     );
 
@@ -1366,45 +1208,51 @@ const MusicLoverSignUpFlow = () => {
     };
 
     const handleEmailBlur = async () => {
-        const email = formData.email.trim();
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!email) {
-            setEmailStatus('invalid');
-            setEmailFeedback('Email is required.');
-            return;
-        }
-        if (!emailRegex.test(email)) {
-            setEmailStatus('invalid');
-            setEmailFeedback('Please enter a valid email address.');
-            return;
-        }
+        // This function is no longer needed as email is handled by Google OAuth
+    };
 
-        setEmailStatus('checking');
-        setEmailFeedback('Checking availability...');
+    // --- Handle Google Sign-In ---
+    const handleGoogleSignIn = async () => {
         try {
-            // First verify if the email is real
-            const verifyResult = await verifyEmailIsReal(email);
-            if (!verifyResult.isValid) {
-                setEmailStatus('invalid');
-                setEmailFeedback(verifyResult.error || 'Please enter a real email address.');
+            setIsLoading(true);
+            setError('');
+            
+            console.log('[MusicLoverSignUpFlow] Starting Google Sign-In...');
+            const result = await signInWithGoogle();
+
+            if ('error' in result) {
+                if ((result.error as any)?.cancelled) {
+                    console.log('[MusicLoverSignUpFlow] Google Sign-In was cancelled by the user.');
+                    return; 
+                }
+                console.error('[MusicLoverSignUpFlow] Google Sign-In error:', result.error);
+                setError(result.error.message || 'Failed to sign in with Google');
                 return;
             }
-
-            // Then check if email exists in our system
-            const result = await checkEmailExists(email);
-            if (result.exists) {
-                setEmailStatus('invalid');
-                setEmailFeedback(result.error || 'This email is already registered.');
-            } else if (result.error) {
-                setEmailStatus('error');
-                setEmailFeedback(result.error);
-            } else {
-                setEmailStatus('valid');
-                setEmailFeedback('Email available!');
+            
+            if ('user' in result && result.user) {
+                console.log('[MusicLoverSignUpFlow] Google Sign-In successful, proceeding with signup...');
+                
+                // Ensure user type is set to music_lover
+                await updateUserMetadata('music_lover');
+                
+                // Complete the signup process directly based on subscription tier
+                if (formData.subscriptionTier === 'free') {
+                    console.log('[MusicLoverSignUpFlow] Completing free signup...');
+                    await handleFreeSignupCompletion();
+                } else if (formData.subscriptionTier === 'premium') {
+                    console.log('[MusicLoverSignUpFlow] Completing premium signup...');
+                    await handlePremiumSignupCompletion();
+                } else {
+                    console.error('[MusicLoverSignUpFlow] No subscription tier selected when Google sign-in completed');
+                    setError('Please select a subscription tier first');
+                }
             }
-        } catch (e: any) {
-            setEmailStatus('error');
-            setEmailFeedback('Error checking email.');
+        } catch (error: any) {
+            console.error('[MusicLoverSignUpFlow] Google sign-in error:', error);
+            setError(error.message || 'Failed to sign in with Google');
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -1617,17 +1465,9 @@ const MusicLoverSignUpFlow = () => {
                         styles.primaryButton,
                         (!formData.subscriptionTier || isLoading) && styles.primaryButtonDisabled
                     ]}
-                    onPress={async () => {
-                        try {
-                            if (formData.subscriptionTier === 'free') {
-                                await handleFreeSignupCompletion();
-                            } else if (formData.subscriptionTier === 'premium') {
-                                await handlePremiumSignupCompletion();
-                            }
-                        } catch (error: any) {
-                            console.error('[MusicLoverSignUpFlow] Error in subscription step:', error);
-                            setError(error.message || 'An error occurred during signup');
-                            Alert.alert('Signup Error', error.message || 'An error occurred during signup');
+                    onPress={() => {
+                        if (formData.subscriptionTier) {
+                            goToNextStep('account-details');
                         }
                     }}
                     disabled={!formData.subscriptionTier || isLoading}
@@ -1636,7 +1476,7 @@ const MusicLoverSignUpFlow = () => {
                         <ActivityIndicator color="white" />
                     ) : (
                         <Text style={styles.primaryButtonText}>
-                            {formData.subscriptionTier === 'premium' ? 'Complete Premium Sign Up' : 'Create Account'}
+                            Continue to Account Setup
                         </Text>
                     )}
                 </TouchableOpacity>
@@ -1680,18 +1520,19 @@ const MusicLoverSignUpFlow = () => {
     const renderCurrentStep = () => {
         const isButtonDisabled = isLoading || authLoading || isSpotifyLoading || 
             (currentStep === 'subscription' && !formData.subscriptionTier) ||
-            (currentStep === 'account-details' && (
-                usernameStatus === 'checking' || emailStatus === 'checking'
-            ));
+            (currentStep === 'username' && usernameStatus !== 'valid');
 
         // Compute button text based on current step
         let buttonText = 'Continue';
-        if (currentStep === 'profile-details') buttonText = 'Select Music Service';
+        if (currentStep === 'username') buttonText = 'Continue';
+        if (currentStep === 'profile-details') buttonText = 'Continue';
         if (currentStep === 'streaming-service') buttonText = 'Choose Subscription';
-        if (currentStep === 'subscription') buttonText = formData.subscriptionTier === 'free' ? 'Complete Free Sign Up' : 'Continue to Payment';
+        if (currentStep === 'subscription') buttonText = 'Continue to Account Setup';
+        if (currentStep === 'account-details') buttonText = 'Complete Setup';
         if (currentStep === 'payment') buttonText = 'Complete Premium Sign Up';
 
         // Pre-compute validation states
+        const isUsernameValid = currentStep === 'username' ? validateUsernameStep() : true;
         const isAccountValid = currentStep === 'account-details' ? validateAccountDetailsStep() : true;
         const isProfileValid = currentStep === 'profile-details' ? validateProfileDetailsStep() : true;
         const isPaymentValid = currentStep === 'payment' ? validatePaymentStep() : true;
@@ -1699,43 +1540,40 @@ const MusicLoverSignUpFlow = () => {
         return (
             <View style={styles.stepContainer}>
                 <Animated.View style={[styles.animatedContainer, { transform: [{ translateX: slideAnim }] }]} >
-                    {currentStep === 'account-details' && renderAccountDetailsStep()}
+                    {currentStep === 'username' && renderUsernameStep()}
                     {currentStep === 'profile-details' && renderProfileDetailsStep()}
                     {currentStep === 'streaming-service' && renderStreamingServiceStep()}
                     {currentStep === 'subscription' && renderSubscriptionStep()}
+                    {currentStep === 'account-details' && renderAccountDetailsStep()}
                     {currentStep === 'payment' && renderPaymentStep()}
                 </Animated.View>
 
                 {/* Action Button - Show for steps that need it */}
-                {!(currentStep === 'streaming-service') && ( 
+                {currentStep !== 'streaming-service' && currentStep !== 'subscription' && ( 
                     <View style={styles.stickyButtonContainer}>
                         <TouchableOpacity
                             style={[
                                 styles.continueButton, 
                                 (isLoading || authLoading || isSpotifyLoading || 
-                                (currentStep === 'account-details' && !isAccountValid) ||
+                                (currentStep === 'username' && !isUsernameValid) ||
                                 (currentStep === 'profile-details' && !isProfileValid) ||
-                                (currentStep === 'subscription' && !formData.subscriptionTier) ||
                                 (currentStep === 'payment' && !isPaymentValid) ||
-                                (currentStep === 'account-details' && (usernameStatus === 'checking' || emailStatus === 'checking' || usernameStatus === 'invalid' || emailStatus === 'invalid'))
+                                (currentStep === 'username' && (usernameStatus === 'checking' || usernameStatus === 'invalid'))
                                 ) && styles.continueButtonDisabled
                             ]}
-                            onPress={async () => { // Make onPress async for account-details
-                                if (currentStep === 'account-details') {
-                                    // Ensure keyboard is dismissed to trigger any pending blur events
+                            onPress={async () => { 
+                                if (currentStep === 'username') {
                                     Keyboard.dismiss();
-                                    // A short timeout can help ensure blur events are processed
                                     await new Promise(resolve => setTimeout(resolve, 100)); 
                                 }
                                 handleStepSubmit();
                             }}
                             disabled={
                                 isLoading || authLoading || isSpotifyLoading ||
-                                (currentStep === 'account-details' && !isAccountValid) ||
+                                (currentStep === 'username' && !isUsernameValid) ||
                                 (currentStep === 'profile-details' && !isProfileValid) ||
-                                (currentStep === 'subscription' && !formData.subscriptionTier) ||
                                 (currentStep === 'payment' && !isPaymentValid) ||
-                                (currentStep === 'account-details' && (usernameStatus === 'checking' || emailStatus === 'checking' || usernameStatus === 'invalid' || emailStatus === 'invalid'))
+                                (currentStep === 'username' && (usernameStatus === 'checking' || usernameStatus === 'invalid'))
                             }
                             activeOpacity={0.8}
                         >
@@ -1763,12 +1601,12 @@ const MusicLoverSignUpFlow = () => {
                     <TouchableOpacity
                         style={styles.backButton}
                         onPress={() => {
-                            if (currentStep === 'account-details') {
+                            if (currentStep === 'username') {
                                 // Navigate back to landing page from first step
                                 navigation.goBack(); // Use goBack instead of navigate
                             } else {
                                 // For other steps, go to previous step
-                                const steps: Step[] = ['account-details', 'profile-details', 'streaming-service', 'subscription', 'payment'];
+                                const steps: Step[] = ['username', 'profile-details', 'streaming-service', 'subscription', 'account-details', 'payment'];
                                 const currentIndex = steps.indexOf(currentStep);
                                 if (currentIndex > 0) {
                                     goToPreviousStep(steps[currentIndex - 1]);
@@ -1781,25 +1619,31 @@ const MusicLoverSignUpFlow = () => {
                     <View style={styles.stepIndicatorContainer}>
                         <View style={[
                             styles.stepIndicator, 
-                            currentStep === 'account-details' ? styles.stepIndicatorCurrent : 
+                            currentStep === 'username' ? styles.stepIndicatorCurrent : 
                             (currentStep === 'profile-details' || currentStep === 'streaming-service' || 
-                            currentStep === 'subscription' || currentStep === 'payment') ? styles.stepIndicatorActive : {}
+                            currentStep === 'subscription' || currentStep === 'account-details' || currentStep === 'payment') ? styles.stepIndicatorActive : {}
                         ]} />
                         <View style={[
                             styles.stepIndicator, 
                             currentStep === 'profile-details' ? styles.stepIndicatorCurrent : 
                             (currentStep === 'streaming-service' || currentStep === 'subscription' || 
-                            currentStep === 'payment') ? styles.stepIndicatorActive : {}
+                            currentStep === 'account-details' || currentStep === 'payment') ? styles.stepIndicatorActive : {}
                         ]} />
                         <View style={[
                             styles.stepIndicator, 
                             currentStep === 'streaming-service' ? styles.stepIndicatorCurrent : 
-                            (currentStep === 'subscription' || currentStep === 'payment') ? 
-                            styles.stepIndicatorActive : {}
+                            (currentStep === 'subscription' || currentStep === 'account-details' || 
+                            currentStep === 'payment') ? styles.stepIndicatorActive : {}
                         ]} />
                         <View style={[
                             styles.stepIndicator, 
                             currentStep === 'subscription' ? styles.stepIndicatorCurrent : 
+                            (currentStep === 'account-details' || currentStep === 'payment') ? 
+                            styles.stepIndicatorActive : {}
+                        ]} />
+                        <View style={[
+                            styles.stepIndicator, 
+                            currentStep === 'account-details' ? styles.stepIndicatorCurrent : 
                             currentStep === 'payment' ? styles.stepIndicatorActive : {}
                         ]} />
                         <View style={[
@@ -1856,7 +1700,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         flex: 1
     },
-    stepIndicator: { width: 10, height: 10, borderRadius: 5, backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT, marginHorizontal: 5 },
+    stepIndicator: { width: 10, height: 10, borderRadius: 5, backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT, marginHorizontal: 4 },
     stepIndicatorActive: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT },
     stepIndicatorCurrent: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, width: 12, height: 12, borderRadius: 6 },
     scrollContent: { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40 },
@@ -2224,6 +2068,56 @@ const styles = StyleSheet.create({
     },
     stepsSlider: {
         width: '100%',
+    },
+    googleSignInButton: {
+        backgroundColor: '#FFFFFF',
+        paddingVertical: 14,
+        paddingHorizontal: 20,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginVertical: 20,
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 1.5,
+        borderWidth: 1,
+        borderColor: '#ddd',
+    },
+    googleButtonContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    googleIcon: {
+        marginRight: 10,
+    },
+    googleSignInText: {
+        color: '#444',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    orDivider: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginVertical: 20,
+    },
+    dividerLine: {
+        flex: 1,
+        height: 1,
+        backgroundColor: APP_CONSTANTS.COLORS.BORDER,
+    },
+    orText: {
+        marginHorizontal: 15,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        fontWeight: '600',
+    },
+    secureNote: {
+        fontSize: 12,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        marginTop: 10,
+        textAlign: 'center',
     },
 });
 
