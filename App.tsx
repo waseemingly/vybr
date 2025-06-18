@@ -60,6 +60,35 @@ const linking = {
 };
 
 export default function App() {
+  const [isReady, setIsReady] = React.useState(false);
+  const [initialState, setInitialState] = React.useState();
+
+  React.useEffect(() => {
+    const restoreState = async () => {
+      try {
+        // Only restore state on web platform
+        if (Platform.OS === 'web') {
+          const savedStateString = localStorage.getItem('NAVIGATION_STATE_V1');
+          const state = savedStateString ? JSON.parse(savedStateString) : undefined;
+
+          if (state !== undefined) {
+            setInitialState(state);
+          }
+        }
+      } finally {
+        setIsReady(true);
+      }
+    };
+
+    if (!isReady) {
+      restoreState();
+    }
+  }, [isReady]);
+
+  if (!isReady) {
+    return null;
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <CustomStripeProvider
@@ -71,6 +100,13 @@ export default function App() {
               <NavigationContainer 
                 ref={navigationRef}
                 linking={Platform.OS === 'web' ? linking : undefined}
+                initialState={initialState}
+                onStateChange={(state) => {
+                  // Save navigation state to localStorage on web
+                  if (Platform.OS === 'web') {
+                    localStorage.setItem('NAVIGATION_STATE_V1', JSON.stringify(state));
+                  }
+                }}
               >
                 <AppNavigator />
                 <StatusBar style="auto" />
