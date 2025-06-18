@@ -209,62 +209,23 @@ const OrganizerSettingsScreen: React.FC = () => {
                     isWeb: Platform.OS === 'web'
                 });
                 
-                // 1. Delete the user's auth account using Edge function (must be done while still authenticated)
-                console.log("Invoking Supabase Edge function 'delete-user-account'...");
+                // 1. Delete the user's auth account using Edge function
                 const { data, error: functionError } = await supabase.functions.invoke('delete-user-account');
                 
-                console.log("[OrganizerSettingsScreen] Edge function delete-user-account response:", {
-                    data,
-                    error: functionError,
-                    platform: Platform.OS,
-                    userId
-                });
-                
                 if (functionError) {
-                    console.error("[OrganizerSettingsScreen] Error calling delete function:", {
-                        error: functionError,
-                        platform: Platform.OS,
-                        userId
-                    });
                     throw new Error(`Failed to delete account: ${functionError.message}`);
                 }
-
-                // Check if the Edge function returned an error in the data
-                if (data && typeof data === 'object' && data.error) {
-                    console.error("[OrganizerSettingsScreen] Edge function returned error:", data);
-                    throw new Error(`Account deletion failed: ${data.error || data.message || 'Unknown error from deletion function'}`);
+    
+                if (data && typeof data === 'object' && (data as any).error) {
+                    throw new Error(`Account deletion failed: ${(data as any).error || (data as any).message || 'Unknown error from deletion function'}`);
                 }
-
-                console.log("[OrganizerSettingsScreen] Account deletion successful", {
-                    platform: Platform.OS,
-                    userId,
-                    functionResponse: data
-                });
-
-                // 2. Sign out after successful deletion
-                const { error: signOutError } = await supabase.auth.signOut();
-                if (signOutError) {
-                    console.error("[OrganizerSettingsScreen] Error signing out after deletion:", signOutError);
-                    // Don't throw here, as the account is already deleted
-                }
-
-                // 3. Force logout to clear local state
+    
+                // 2. Sign out & force clear state
                 await logout();
-
-            } catch (error: any) {
-                console.error("[OrganizerSettingsScreen] Error in account deletion process:", {
-                    error,
-                    platform: Platform.OS,
-                    userId
-                });
-                if (Platform.OS === 'web') {
-                    window.alert(`Could not delete your account: ${error.message || 'Please try again later or contact support.'}`);
-                } else {
-                    Alert.alert(
-                        "Deletion Failed", 
-                        `Could not delete your account: ${error.message || 'Please try again later or contact support.'}`
-                    );
-                }
+    
+            } catch (err: any) {
+                console.error("[OrganizerSettingsScreen] Account deletion failed:", err);
+                Alert.alert("Deletion Failed", err.message || "An unexpected error occurred. Please try again or contact support.");
                 setIsDeleting(false);
             }
         };
@@ -409,48 +370,7 @@ const OrganizerSettingsScreen: React.FC = () => {
                     <SettingsItem
                         label="Delete Account"
                         icon="trash-2"
-                        onPress={() => {
-                            const confirmDelete = async () => {
-                                if (!userId) return;
-                                setIsDeleting(true);
-                                try {
-                                    console.log("[OrganizerSettingsScreen] Starting account deletion process...", {
-                                        platform: Platform.OS,
-                                        userId,
-                                        isWeb: Platform.OS === 'web'
-                                    });
-                                    
-                                    // 1. Delete the user's auth account using Edge function
-                                    const { data, error: functionError } = await supabase.functions.invoke('delete-user-account');
-                                    
-                                    if (functionError) {
-                                        throw new Error(`Failed to delete account: ${functionError.message}`);
-                                    }
-                        
-                                    if (data && typeof data === 'object' && (data as any).error) {
-                                        throw new Error(`Account deletion failed: ${(data as any).error || (data as any).message || 'Unknown error from deletion function'}`);
-                                    }
-                        
-                                    // 2. Sign out & force clear state
-                                    await logout();
-                        
-                                } catch (err: any) {
-                                    console.error("[OrganizerSettingsScreen] Account deletion failed:", err);
-                                    Alert.alert("Deletion Failed", err.message || "An unexpected error occurred. Please try again or contact support.");
-                                } finally {
-                                    setIsDeleting(false);
-                                }
-                            };
-
-                            Alert.alert(
-                                'Delete Account',
-                                'This is irreversible and will permanently delete all your data. Are you sure?',
-                                [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Delete', style: 'destructive', onPress: confirmDelete }
-                                ]
-                            );
-                        }}
+                        onPress={handleDeleteAccount}
                         isDestructive={true}
                         disabled={isDeleting}
                         isUpdating={isDeleting} // Show loader when deleting

@@ -64,7 +64,6 @@ import LoginScreen from "@/screens/auth/LoginScreen";
 import SignUpScreen from '@/screens/auth/SignUpScreen';
 import MusicLoverSignUpFlow from '@/screens/auth/MusicLoverSignUpFlow';
 import OrganizerSignUpFlow from "@/screens/auth/OrganizerSignUpFlow";
-// import ForgotPasswordScreen from '@/screens/auth/ForgotPasswordScreen'; // Commented out - file doesn't exist
 import PremiumSignupScreen from '@/screens/auth/PremiumSignupScreen';
 import PaymentSuccessScreen from '@/screens/auth/PaymentSuccessScreen';
 import PaymentConfirmationScreen from '@/screens/auth/PaymentConfirmationScreen';
