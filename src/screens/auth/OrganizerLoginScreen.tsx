@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -8,32 +8,39 @@ import { useAuth } from '@/hooks/useAuth';
 
 const OrganizerLoginScreen = () => {
   const navigation = useNavigation();
-  const { login } = useAuth();
+  const { signInWithGoogle, updateUserMetadata } = useAuth();
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-
+  const handleGoogleSignIn = async () => {
     try {
       setIsLoading(true);
-      const result = await login({
-        email,
-        password,
-        userType: 'organizer'
-      });
+      setError('');
       
-      if ('error' in result && result.error) {
-        Alert.alert('Login Failed', result.error.message);
+      console.log('[OrganizerLoginScreen] Starting Google Sign-In...');
+      const result = await signInWithGoogle();
+      
+      if ('error' in result) {
+        // Check for cancellation
+        if ((result.error as any)?.cancelled) {
+          console.log('[OrganizerLoginScreen] Google Sign-In was cancelled by the user.');
+          return;
+        }
+        console.error('[OrganizerLoginScreen] Google Sign-In error:', result.error);
+        setError(result.error.message || 'Failed to sign in with Google');
+        Alert.alert('Sign-In Failed', result.error.message || 'Failed to sign in with Google');
+        return;
+      }
+      
+      if ('user' in result && result.user) {
+        // Ensure user type is set to organizer
+        await updateUserMetadata('organizer');
+        console.log('[OrganizerLoginScreen] Google Sign-In successful, user type set to organizer');
       }
     } catch (err) {
       console.error('Login error:', err);
+      setError('An unexpected error occurred. Please try again.');
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     } finally {
       setIsLoading(false);
@@ -63,63 +70,33 @@ const OrganizerLoginScreen = () => {
           </View>
 
           <View style={styles.formContainer}>
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Company Email</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your company email"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={email}
-                onChangeText={setEmail}
-              />
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Password</Text>
-              <View style={styles.passwordContainer}>
-                <TextInput
-                  style={styles.passwordInput}
-                  placeholder="Enter your password"
-                  secureTextEntry={!isPasswordVisible}
-                  value={password}
-                  onChangeText={setPassword}
-                />
-                <TouchableOpacity
-                  onPress={() => setIsPasswordVisible(!isPasswordVisible)}
-                  style={styles.visibilityIcon}
-                >
-                  <Feather
-                    name={isPasswordVisible ? "eye-off" : "eye"}
-                    size={20}
-                    color="#64748B"
-                  />
-                </TouchableOpacity>
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            
+            <TouchableOpacity
+              style={styles.googleSignInButton}
+              onPress={handleGoogleSignIn}
+              disabled={isLoading}
+            >
+              <View style={styles.googleButtonContent}>
+                <Feather name="mail" size={20} color="#4285F4" style={styles.googleIcon} />
+                <Text style={styles.googleSignInText}>Sign in with Google</Text>
               </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.forgotPasswordContainer}
-              onPress={() => { /* Handle forgot password */ }}
-            >
-              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.loginButton, (!email || !password) && styles.loginButtonDisabled]}
-              onPress={handleLogin}
-              disabled={isLoading || !email || !password}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <Text style={styles.loginButtonText}>Log In</Text>
-              )}
-            </TouchableOpacity>
+            
+            <Text style={styles.infoText}>
+              We use Google for secure authentication. Your email will be used to create your account and for important notifications.
+            </Text>
+            
+            {isLoading && (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#3B82F6" />
+                <Text style={styles.loadingText}>Signing in...</Text>
+              </View>
+            )}
 
             <View style={styles.signupContainer}>
               <Text style={styles.signupText}>Don't have an account? </Text>
-              <TouchableOpacity onPress={() => navigation.navigate('OrganizerSignUp' as never)}>
+              <TouchableOpacity onPress={() => navigation.navigate('OrganizerSignUpFlow' as never)}>
                 <Text style={styles.signupLink}>Sign Up</Text>
               </TouchableOpacity>
             </View>
@@ -166,70 +143,66 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     width: '100%',
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#0F172A',
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: 'white',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  passwordContainer: {
-    flexDirection: 'row',
-    position: 'relative',
-  },
-  passwordInput: {
-    backgroundColor: 'white',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    flex: 1,
-  },
-  visibilityIcon: {
-    position: 'absolute',
-    right: 16,
-    top: 14,
-  },
-  forgotPasswordContainer: {
-    alignSelf: 'flex-end',
-    marginBottom: 28,
-  },
-  forgotPasswordText: {
-    color: '#3B82F6',
-    fontWeight: '500',
-  },
-  loginButton: {
-    backgroundColor: '#3B82F6',
-    paddingVertical: 16,
-    borderRadius: 12,
     alignItems: 'center',
-    marginBottom: 24,
   },
-  loginButtonDisabled: {
-    backgroundColor: '#94A3B8',
+  errorText: {
+    color: '#EF4444',
+    marginBottom: 16,
+    textAlign: 'center',
   },
-  loginButtonText: {
-    color: 'white',
+  googleSignInButton: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 20,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.5,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    width: '100%',
+  },
+  googleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  googleIcon: {
+    marginRight: 10,
+  },
+  googleSignInText: {
+    color: '#444',
     fontSize: 16,
     fontWeight: '600',
+  },
+  infoText: {
+    color: '#64748B',
+    fontSize: 14,
+    marginTop: 10,
+    marginBottom: 20,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 20,
+  },
+  loadingText: {
+    color: '#64748B',
+    fontSize: 14,
+    marginLeft: 10,
   },
   signupContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
+    marginTop: 24,
   },
   signupText: {
     color: '#64748B',
