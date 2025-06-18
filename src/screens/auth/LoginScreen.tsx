@@ -1,17 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/useAuth';
 import { APP_CONSTANTS } from '@/config/constants';
-
-// Type for login form data
-interface LoginFormData {
-  emailOrUsername: string;
-  password: string;
-}
 
 // Props for login screen - can be music lover or organizer
 interface LoginScreenProps {
@@ -20,46 +14,36 @@ interface LoginScreenProps {
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
   const navigation = useNavigation();
-  const { login } = useAuth();
-  
-  // Form state
-  const [formData, setFormData] = useState<LoginFormData>({
-    emailOrUsername: '',
-    password: '',
-  });
+  const { signInWithGoogle, updateUserMetadata } = useAuth();
   
   // UI state
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   
-  // Handle form field changes
-  const handleChange = (field: keyof LoginFormData, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-  
-  // Handle form submission
-  const handleSubmit = async () => {
+  // Handle Google Sign-In
+  const handleGoogleSignIn = async () => {
     try {
       setError('');
       setIsLoading(true);
       
-      // Validate form
-      if (!formData.emailOrUsername || !formData.password) {
-        setError('Please enter both email/username and password');
-        setIsLoading(false);
+      console.log(`[LoginScreen] Starting Google Sign-In for ${userType}...`);
+      const result = await signInWithGoogle();
+      
+      if ('error' in result) {
+        // Check for cancellation
+        if ((result.error as any)?.cancelled) {
+          console.log('[LoginScreen] Google Sign-In was cancelled by the user.');
+          return;
+        }
+        console.error('[LoginScreen] Google Sign-In error:', result.error);
+        setError(result.error.message || 'Failed to sign in with Google');
         return;
       }
       
-      // Attempt login with Supabase
-      const result = await login({
-        email: formData.emailOrUsername,
-        username: formData.emailOrUsername,
-        password: formData.password,
-        userType,
-      });
-      
-      if ('error' in result && result.error) {
-        setError(result.error.message || 'Login failed. Please check your credentials.');
+      if ('user' in result && result.user) {
+        // Ensure user type is set correctly
+        await updateUserMetadata(userType);
+        console.log(`[LoginScreen] Google Sign-In successful, user type set to ${userType}`);
       }
     } catch (err) {
       console.error('Login error:', err);
@@ -69,38 +53,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
     }
   };
   
-  // Handle forgot password
-  const handleForgotPassword = () => {
-    Alert.alert(
-      'Reset Password',
-      'Enter your email address to receive a password reset link',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Send Reset Link',
-          onPress: () => {
-            if (!formData.emailOrUsername) {
-              Alert.alert('Email Required', 'Please enter your email address first');
-              return;
-            }
-            
-            // TODO: Implement password reset
-            Alert.alert('Password Reset', `A password reset link has been sent to ${formData.emailOrUsername}`);
-          },
-        },
-      ],
-    );
-  };
-  
   const getTitle = () => {
     return userType === 'music_lover' ? 'Music Lover Login' : 'Organizer Login';
-  };
-
-  const getEmailLabel = () => {
-    return userType === 'music_lover' ? 'Username or Email Address' : 'Company Email Address';
   };
   
   return (
@@ -130,53 +84,29 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
             <Text style={styles.title}>{getTitle()}</Text>
             
             <View style={styles.formContainer}>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>{getEmailLabel()}</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={`Enter your ${userType === 'music_lover' ? 'username or email' : 'company email'}`}
-                  value={formData.emailOrUsername}
-                  onChangeText={(text) => handleChange('emailOrUsername', text)}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                />
-              </View>
-              
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Password</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter your password"
-                  value={formData.password}
-                  onChangeText={(text) => handleChange('password', text)}
-                  secureTextEntry
-                  autoCapitalize="none"
-                />
-                <TouchableOpacity
-                  style={styles.forgotPasswordButton}
-                  onPress={handleForgotPassword}
-                >
-                  <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-                </TouchableOpacity>
-              </View>
-              
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
               
               <TouchableOpacity
-                style={[
-                  styles.loginButton,
-                  (!formData.emailOrUsername || !formData.password || isLoading) && styles.loginButtonDisabled
-                ]}
-                onPress={handleSubmit}
-                disabled={!formData.emailOrUsername || !formData.password || isLoading}
+                style={styles.googleSignInButton}
+                onPress={handleGoogleSignIn}
+                disabled={isLoading}
               >
-                {isLoading ? (
-                  <ActivityIndicator color="white" />
-                ) : (
-                  <Text style={styles.loginButtonText}>Log In</Text>
-                )}
+                <View style={styles.googleButtonContent}>
+                  <Feather name="mail" size={20} color="#4285F4" style={styles.googleIcon} />
+                  <Text style={styles.googleSignInText}>Sign in with Google</Text>
+                </View>
               </TouchableOpacity>
+              
+              <Text style={styles.infoText}>
+                We use Google for secure authentication. Your email will be used to create your account and for important notifications.
+              </Text>
+              
+              {isLoading && (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+                  <Text style={styles.loadingText}>Signing in...</Text>
+                </View>
+              )}
               
               <View style={styles.signupContainer}>
                 <Text style={styles.signupText}>Don't have an account? </Text>
@@ -245,53 +175,61 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     width: '100%',
-  },
-  inputContainer: {
-    marginBottom: 24,
-  },
-  inputLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: 'white',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: APP_CONSTANTS.COLORS.BORDER,
-    color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-  },
-  forgotPasswordButton: {
-    alignSelf: 'flex-end',
-    marginTop: 8,
-  },
-  forgotPasswordText: {
-    color: APP_CONSTANTS.COLORS.PRIMARY,
-    fontSize: 14,
-    fontWeight: '500',
+    alignItems: 'center',
   },
   errorText: {
     color: APP_CONSTANTS.COLORS.ERROR,
     marginBottom: 16,
+    textAlign: 'center',
   },
-  loginButton: {
-    backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-    paddingVertical: 16,
-    borderRadius: 12,
+  googleSignInButton: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 10,
     alignItems: 'center',
-    marginTop: 16,
+    justifyContent: 'center',
+    marginVertical: 20,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.5,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    width: '100%',
   },
-  loginButtonDisabled: {
-    backgroundColor: APP_CONSTANTS.COLORS.DISABLED,
+  googleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  loginButtonText: {
-    color: 'white',
+  googleIcon: {
+    marginRight: 10,
+  },
+  googleSignInText: {
+    color: '#444',
     fontSize: 16,
     fontWeight: '600',
+  },
+  infoText: {
+    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+    fontSize: 14,
+    marginTop: 10,
+    marginBottom: 20,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 20,
+  },
+  loadingText: {
+    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+    fontSize: 14,
+    marginLeft: 10,
   },
   signupContainer: {
     flexDirection: 'row',
