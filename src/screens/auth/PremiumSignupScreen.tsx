@@ -6,7 +6,7 @@ import { usePlatformStripe } from '@/hooks/useStripe';
 
 // WEB Stripe
 import { loadStripe, StripeElementsOptions, Appearance } from '@stripe/stripe-js';
-import { Elements, PaymentElement } from '@stripe/react-stripe-js';
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
 import { useNavigation, useRoute, NavigationProp, RouteProp } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase'; // Assuming this is your initialized Supabase client
@@ -39,7 +39,8 @@ const StripeSetupFormWeb = ({ clientSecret, onSetupSuccess, onSetupError }: {
     onSetupSuccess: (setupIntentId: string, paymentMethodId?: string) => void;
     onSetupError: (errorMsg: string) => void;
 }) => {
-    const { stripe, elements } = usePlatformStripe();
+    const stripe = useStripe(); // Use direct Stripe hook instead of usePlatformStripe
+    const elements = useElements(); // Use direct Elements hook instead of usePlatformStripe
     const [isPaymentElementReady, setIsPaymentElementReady] = useState(false);
     const [isProcessingWebPayment, setIsProcessingWebPayment] = useState(false);
     const [errorMessageWeb, setErrorMessageWeb] = useState<string | null>(null);

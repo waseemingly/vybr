@@ -204,13 +204,14 @@ const UpcomingEventsListScreen: React.FC = () => {
 
         try {
             const now = new Date().toISOString();
+            console.log(`[UpcomingEventsListScreen] Filtering for events after: ${now}`);
             const { data: eventData, error: eventsError } = await supabase
                 .from("events")
                 .select(`
                     id, title, description, event_datetime, location_text, poster_urls,
                     tags_genres, tags_artists, tags_songs, organizer_id,
                     event_type, booking_type, ticket_price, pass_fee_to_user,
-                    max_tickets, max_reservations
+                    max_tickets, max_reservations, country, state, city
                 `)
                 .eq('organizer_id', organizerId)
                 .gt('event_datetime', now)
@@ -233,6 +234,8 @@ const UpcomingEventsListScreen: React.FC = () => {
                     images: event.poster_urls?.length > 0 ? event.poster_urls : [DEFAULT_EVENT_IMAGE],
                     date: date, time: time,
                     venue: event.location_text ?? "N/A",
+                    country: event.country,
+                    city: event.city,
                     genres: event.tags_genres ?? [], artists: event.tags_artists ?? [], songs: event.tags_songs ?? [],
                     description: event.description ?? "No description.",
                     booking_type: event.booking_type,

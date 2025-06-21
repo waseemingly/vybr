@@ -130,8 +130,7 @@ const OrganizerPostsScreen = () => {
       let query = supabase
         .from("events")
         .select("id, title, event_datetime, location_text, poster_urls, booking_type")
-        .eq("organizer_id", userId) // FIX: Use the stable userId variable.
-        .neq("booking_type", 'RESERVATION'); // Exclude automated reservation posts
+        .eq("organizer_id", userId); // FIX: Use the stable userId variable.
 
       const now = new Date().toISOString();
       if (tabIndex === 1) { // "Upcoming" tab
