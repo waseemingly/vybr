@@ -466,7 +466,7 @@ const BookingConfirmationScreen: React.FC = () => {
     // --- Function to fetch payment intent client secret ---
     const fetchPaymentIntentClientSecret = async (): Promise<string | null> => {
         try {
-            const { data, error } = await supabase.functions.invoke('create-payment-intent', {
+            const { data, error } = await supabase.functions.invoke('create-payment-intent-for-booking', {
                 body: JSON.stringify({
                     eventId,
                     quantity,
