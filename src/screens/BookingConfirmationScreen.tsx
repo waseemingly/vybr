@@ -22,7 +22,7 @@ import { usePlatformStripe } from '../hooks/useStripe';
 // --- Stripe Web Imports ---
 import { PaymentElement } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
-import { Elements } from '@stripe/react-stripe-js';
+import { Elements, useStripe, useElements } from '@stripe/react-stripe-js';
 
 // Define Param List for the stack that includes this screen
 // Assuming it's in the MainStack or a dedicated BookingStack
@@ -80,7 +80,8 @@ type WebPaymentFormProps = {
 };
 
 const WebPaymentForm: React.FC<WebPaymentFormProps> = ({ onPaymentSuccess, onPaymentError, totalPriceDisplay }) => {
-    const { stripe, elements } = usePlatformStripe();
+    const stripe = useStripe(); // Use direct Stripe hook instead of usePlatformStripe
+    const elements = useElements(); // Use direct Elements hook instead of usePlatformStripe
     const [isProcessing, setIsProcessing] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -317,7 +318,7 @@ const BookingConfirmationScreen: React.FC = () => {
                 if ('code' in error && error.code === 'Canceled') {
                     showAlert('Canceled', 'The payment was canceled.');
                 } else {
-                    showAlert('Payment Error', error.message);
+                    showAlert('Payment Error', error.message || 'Payment failed');
                 }
             } else {
                 // 4. Create booking record on success
@@ -407,6 +408,88 @@ const BookingConfirmationScreen: React.FC = () => {
         }
     };
 
+    // --- Payment success handler ---
+    const handlePaymentSuccess = async () => {
+        try {
+            await createBookingRecord();
+            const actionTextLower = bookingType === 'TICKETED' ? 'ticket' : 'reservation';
+            showAlert(
+                'Payment Successful!',
+                `Your ${actionTextLower}(s) for "${eventTitle}" are confirmed! Check your profile for details.`,
+                [{ text: 'OK', onPress: navigateToMyBookings }]
+            );
+        } catch (e: any) {
+            console.error('Error finalizing booking:', e);
+            showAlert('Booking Creation Failed', e.message);
+        }
+    };
+
+    // --- Payment error handler ---
+    const handlePaymentError = (message: string) => {
+        showAlert('Payment Failed', message);
+    };
+
+    // --- Render booking summary ---
+    const renderSummary = () => {
+        const actionTextProper = bookingType === 'TICKETED' ? 'Ticket' : 'Reservation';
+        
+        return (
+            <View style={styles.summaryBox}>
+                <Text style={styles.summaryTitle}>Booking Summary</Text>
+                <View style={styles.summaryItem}>
+                    <Text style={styles.summaryLabel}>Event</Text>
+                    <Text style={styles.summaryValue}>{eventTitle}</Text>
+                </View>
+                <View style={styles.summaryItem}>
+                    <Text style={styles.summaryLabel}>Quantity</Text>
+                    <Text style={styles.summaryValue}>{quantity} {actionTextProper}(s)</Text>
+                </View>
+                <View style={styles.summaryItem}>
+                    <Text style={styles.summaryLabel}>Price per {actionTextProper}</Text>
+                    <Text style={styles.summaryValue}>{pricePerItemDisplay}</Text>
+                </View>
+                {rawFeePaid && rawFeePaid > 0 && (
+                    <View style={styles.summaryItem}>
+                        <Text style={styles.summaryLabel}>Booking Fee</Text>
+                        <Text style={styles.summaryValue}>${rawFeePaid.toFixed(2)}</Text>
+                    </View>
+                )}
+                <View style={styles.divider} />
+                <View style={[styles.summaryItem, styles.totalItem]}>
+                    <Text style={styles.summaryLabelTotal}>Total</Text>
+                    <Text style={styles.summaryValueTotal}>{totalPriceDisplay}</Text>
+                </View>
+            </View>
+        );
+    };
+
+    // --- Function to fetch payment intent client secret ---
+    const fetchPaymentIntentClientSecret = async (): Promise<string | null> => {
+        try {
+            const { data, error } = await supabase.functions.invoke('create-payment-intent', {
+                body: JSON.stringify({
+                    eventId,
+                    quantity,
+                    userId: session?.user?.id,
+                }),
+            });
+
+            if (error) throw error;
+            if (data?.error) throw new Error(data.error);
+            if (!data?.clientSecret) throw new Error('No client secret received');
+
+            if (Platform.OS === 'web') {
+                setWebClientSecret(data.clientSecret);
+            }
+
+            return data.clientSecret;
+        } catch (e: any) {
+            console.error('Error fetching payment intent:', e);
+            showAlert('Payment Error', `Failed to initialize payment: ${e.message}`);
+            return null;
+        }
+    };
+
     const renderContent = () => {
         if (isConfirming && Platform.OS !== 'web') {
             return (
@@ -485,6 +568,10 @@ const BookingConfirmationScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
+    safeArea: {
+        flex: 1,
+        backgroundColor: '#F9FAFB',
+    },
     container: {
         flex: 1,
         backgroundColor: '#F9FAFB', // Light background
@@ -599,6 +686,44 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         marginTop: 10,
         marginBottom: 10,
+    },
+    centered: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 40,
+    },
+    loadingText: {
+        marginTop: 16,
+        fontSize: 16,
+        color: '#6B7280',
+        textAlign: 'center',
+    },
+    paymentHeader: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: 16,
+        marginTop: 8,
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 16,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    backButton: {
+        padding: 8,
+        marginRight: 12,
+    },
+    headerTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#111827',
+        flex: 1,
     },
 });
 

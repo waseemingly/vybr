@@ -13,7 +13,7 @@ import { supabase } from '../../lib/supabase';
 // --- Stripe Imports ---
 import { usePlatformStripe } from '../../hooks/useStripe';
 import { loadStripe, StripeElementsOptions, Appearance } from '@stripe/stripe-js';
-import { Elements, PaymentElement } from '@stripe/react-stripe-js';
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 
@@ -31,7 +31,8 @@ const StripeSetupFormWebManage = ({ clientSecret, onSetupSuccess, onSetupError, 
     onSetupError: (errorMsg: string) => void;
     currentCardExists: boolean;
 }) => {
-    const { stripe, elements } = usePlatformStripe();
+    const stripe = useStripe();
+    const elements = useElements();
     const [isProcessingWebPayment, setIsProcessingWebPayment] = useState(false);
     const [errorMessageWeb, setErrorMessageWeb] = useState<string | null>(null);
     const [isPaymentElementReady, setIsPaymentElementReady] = useState(false);

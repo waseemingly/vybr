@@ -288,12 +288,14 @@ const OrganizerSettingsScreen: React.FC = () => {
                         onPress={navigateToEditProfile}
                         disabled={authLoading}
                     />
-                    <SettingsItem
-                        label="Availability"
-                        icon="calendar"
-                        onPress={navigateToSetAvailability}
-                        disabled={authLoading}
-                    />
+                    {organizerProfile?.business_type === 'F&B' && (
+                        <SettingsItem
+                            label="Availability"
+                            icon="calendar"
+                            onPress={navigateToSetAvailability}
+                            disabled={authLoading}
+                        />
+                    )}
                     <SettingsItem
                         label="Manage Plan"
                         icon="credit-card"
