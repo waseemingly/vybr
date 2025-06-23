@@ -1,0 +1,38 @@
+{
+  "cli": {
+    "version": ">= 12.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "gradleCommand": ":app:assembleDebug",
+        "buildType": "apk",
+        "env": {
+          "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr"
+        }
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "env": {
+          "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr"
+        }
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle",
+        "env": {
+          "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr"
+        }
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
