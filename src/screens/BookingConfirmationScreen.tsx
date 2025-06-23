@@ -18,6 +18,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase'; // Adjust path if needed
 import { useAuth } from '../hooks/useAuth'; // Adjust path if needed
 import { usePlatformStripe } from '../hooks/useStripe';
+import { getEventCurrency } from '../utils/currencyUtils'; // Add currency utilities
 
 // --- Stripe Web Imports ---
 import { PaymentElement } from '@stripe/react-stripe-js';
@@ -43,6 +44,9 @@ type MainStackParamList = {
         // Needed for availability check
         maxTickets: number | null;
         maxReservations: number | null;
+        // Add currency information
+        eventCurrency?: string;
+        eventCountry?: string;
     };
     // ... other screens from AppNavigator
 };
@@ -77,9 +81,10 @@ type WebPaymentFormProps = {
     onPaymentSuccess: () => void;
     onPaymentError: (message: string) => void;
     totalPriceDisplay: string;
+    eventCurrency: string; // Add currency prop
 };
 
-const WebPaymentForm: React.FC<WebPaymentFormProps> = ({ onPaymentSuccess, onPaymentError, totalPriceDisplay }) => {
+const WebPaymentForm: React.FC<WebPaymentFormProps> = ({ onPaymentSuccess, onPaymentError, totalPriceDisplay, eventCurrency }) => {
     const stripe = useStripe(); // Use direct Stripe hook instead of usePlatformStripe
     const elements = useElements(); // Use direct Elements hook instead of usePlatformStripe
     const [isProcessing, setIsProcessing] = useState(false);
@@ -149,6 +154,7 @@ const BookingConfirmationScreen: React.FC = () => {
     const { session } = useAuth();
     const [isConfirming, setIsConfirming] = useState(false);
     const [webClientSecret, setWebClientSecret] = useState<string | null>(null); // New state for web
+    const [eventCurrency, setEventCurrency] = useState<string>('USD');
     const { initPaymentSheet, presentPaymentSheet } = usePlatformStripe(); // This is for mobile
 
     const {
@@ -162,8 +168,27 @@ const BookingConfirmationScreen: React.FC = () => {
         rawTotalPrice,
         rawFeePaid,
         maxTickets,
-        maxReservations
+        maxReservations,
+        eventCurrency: passedEventCurrency,
+        eventCountry
     } = route.params;
+
+    // Initialize currency on mount
+    useEffect(() => {
+        const initializeCurrency = async () => {
+            try {
+                let currency = passedEventCurrency;
+                if (!currency) {
+                    currency = await getEventCurrency(eventId);
+                }
+                setEventCurrency(currency);
+            } catch (error) {
+                console.error('Error initializing currency:', error);
+                setEventCurrency('USD'); // Fallback
+            }
+        };
+        initializeCurrency();
+    }, [eventId, passedEventCurrency]);
 
     const navigateToMyBookings = () => {
         navigation.dispatch(
@@ -183,16 +208,23 @@ const BookingConfirmationScreen: React.FC = () => {
 
         console.log(`[createBookingRecord] Creating booking for event ${eventId}, user ${session.user.id}`);
 
+        // Generate a unique 6-digit booking code
+        const bookingCode = Math.floor(100000 + Math.random() * 900000).toString();
+
         const { data: newBooking, error: bookingError } = await supabase
             .from('event_bookings')
             .insert({
                 event_id: eventId,
                 user_id: session.user.id,
                 quantity: quantity,
-                price_paid_per_item: rawPricePerItem,
-                total_price_paid: rawTotalPrice,
-                booking_fee_paid: rawFeePaid,
-                status: 'CONFIRMED'
+                price_paid_per_item: rawPricePerItem || 0,
+                total_price_paid: rawTotalPrice || 0,
+                booking_fee_paid: rawFeePaid || 0,
+                status: 'CONFIRMED',
+                booking_code: bookingCode,
+                checked_in: false,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
             })
             .select('id, booking_code')
             .single();
@@ -448,6 +480,12 @@ const BookingConfirmationScreen: React.FC = () => {
                     <Text style={styles.summaryLabel}>Price per {actionTextProper}</Text>
                     <Text style={styles.summaryValue}>{pricePerItemDisplay}</Text>
                 </View>
+                {eventCountry && (
+                    <View style={styles.summaryItem}>
+                        <Text style={styles.summaryLabel}>Location</Text>
+                        <Text style={styles.summaryValue}>{eventCountry}</Text>
+                    </View>
+                )}
                 {rawFeePaid && rawFeePaid > 0 && (
                     <View style={styles.summaryItem}>
                         <Text style={styles.summaryLabel}>Booking Fee</Text>
@@ -467,11 +505,13 @@ const BookingConfirmationScreen: React.FC = () => {
     const fetchPaymentIntentClientSecret = async (): Promise<string | null> => {
         try {
             const { data, error } = await supabase.functions.invoke('create-payment-intent-for-booking', {
-                body: JSON.stringify({
+                body: {
                     eventId,
                     quantity,
+                    currency: eventCurrency, // Pass the event currency
+                    totalAmount: rawTotalPrice, // Pass the raw amount in event currency
                     userId: session?.user?.id,
-                }),
+                },
             });
 
             if (error) throw error;
@@ -511,6 +551,7 @@ const BookingConfirmationScreen: React.FC = () => {
                             onPaymentSuccess={handlePaymentSuccess}
                             onPaymentError={handlePaymentError}
                             totalPriceDisplay={totalPriceDisplay}
+                            eventCurrency={eventCurrency}
                         />
                     </Elements>
                 </View>
