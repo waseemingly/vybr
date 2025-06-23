@@ -174,32 +174,33 @@ import {
     ActivityIndicator,
     RefreshControl,
     Platform,
+    Alert,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native'; // Import useFocusEffect
+import { useFocusEffect } from '@react-navigation/native';
 
 // --- Adjust Imports ---
-import ChatCard from './ChatCard'; // Assuming ChatCard is in the same directory
+import ChatCard from './ChatCard';
 // Import type for individual chat items (can be defined here or imported)
 export interface IndividualChatListItem {
     partner_user_id: string;
     last_message_content: string | null;
     last_message_created_at: string;
-    last_message_sender_id?: string; // ID of who sent the last message
-    last_message_sender_name?: string; // Name of who sent the last message
+    last_message_sender_id?: string;
+    last_message_sender_name?: string;
     partner_first_name: string | null;
     partner_last_name: string | null;
     partner_profile_picture: string | null;
-    current_user_sent_any_message: boolean; // New field
-    partner_sent_any_message: boolean; // New field
-    partner_profile_id?: string; // Optional
-    unread?: number; // Optional unread count
-    isPinned?: boolean; // Optional pinned status
+    current_user_sent_any_message: boolean;
+    partner_sent_any_message: boolean;
+    partner_profile_id?: string;
+    unread_count?: number; // Updated to unread_count for consistency
+    isPinned?: boolean;
 }
-import { supabase } from '@/lib/supabase'; // Adjust path
-import { useAuth } from '@/hooks/useAuth'; // Adjust path
-import { APP_CONSTANTS } from '@/config/constants'; // Adjust path
-import type { IndividualSubTab } from '@/screens/ChatsScreen'; // Import the type
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
+import { APP_CONSTANTS } from '@/config/constants';
+import type { IndividualSubTab } from '@/screens/ChatsScreen';
 // --- End Adjustments ---
 
 // Define structure for Group Chat List Item (from RPC get_group_chat_list)
@@ -209,13 +210,13 @@ export interface GroupChatListItem {
     group_image: string | null;
     last_message_content: string | null;
     last_message_created_at: string | null;
-    last_message_sender_id?: string; // ID of who sent the last message
-    last_message_sender_name?: string; // Name of who sent the last message
-    current_user_sent_any_message?: boolean; // New field for interaction status
+    last_message_sender_id?: string;
+    last_message_sender_name?: string;
+    current_user_sent_any_message?: boolean;
     member_count?: number;
     other_members_preview?: { user_id: string; name: string }[];
-    unread?: number; // Placeholder
-    isPinned?: boolean; // Placeholder
+    unread_count?: number; // Updated to unread_count for consistency
+    isPinned?: boolean;
 }
 
 // Combined Chat Item Type passed to FlatList and handlers
@@ -227,11 +228,11 @@ export type ChatItem =
 interface ChatsTabsProps {
     activeTab: 'individual' | 'groups';
     setActiveTab: (tab: 'individual' | 'groups') => void;
-    individualSubTab?: IndividualSubTab; // Add new prop
-    setIndividualSubTab?: (subTab: IndividualSubTab) => void; // Add new prop
-    onChatOpen: (item: ChatItem) => void; // Handler to navigate to chat
-    onProfileOpen?: (item: ChatItem) => void; // Optional handler to open profile
-    searchQuery?: string; // Receive search query from parent
+    individualSubTab?: IndividualSubTab;
+    setIndividualSubTab?: (subTab: IndividualSubTab) => void;
+    onChatOpen: (item: ChatItem) => void;
+    onProfileOpen?: (item: ChatItem) => void;
+    searchQuery?: string;
 }
 
 // Helper function to format timestamps
@@ -250,7 +251,6 @@ const formatTimestamp = (timestamp: string | null): string => {
         if (diffHours < 24) return `${diffHours}h`;
         if (diffDays < 7) return `${diffDays}d`;
         
-        // For older messages, show the date
         return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
     } catch {
         return '';
@@ -262,39 +262,68 @@ const formatLastMessageForPreview = (
     messageContent: string | null, 
     senderId: string | undefined, 
     currentUserId: string | undefined, 
-    senderName: string | undefined, // Now this comes from the database
+    senderName: string | undefined,
     isGroupChat: boolean = false
 ): string => {
     if (!messageContent) return '';
     
-    // Check if it's a shared event message
     if (messageContent.startsWith('SHARED_EVENT:')) {
-        // Always check if current user sent it first
         if (senderId === currentUserId) {
             return 'You shared an event';
         } else {
-            // For non-current-user messages, use the actual sender name from database
             if (senderName) {
                 return `${senderName} shared an event`;
             } else {
-                // Fallback if sender name is not available
                 return 'Someone shared an event';
             }
         }
     }
     
-    // Return original message content for non-shared-event messages
     return messageContent;
+};
+
+// Function to delete individual chat
+const deleteIndividualChat = async (partnerId: string, currentUserId: string): Promise<boolean> => {
+    try {
+        // Delete all messages between the two users
+        const { error } = await supabase.rpc('delete_individual_chat', {
+            partner_user_id: partnerId,
+            current_user_id: currentUserId
+        });
+        
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('Error deleting individual chat:', error);
+        return false;
+    }
+};
+
+// Function to delete/leave group chat
+const deleteGroupChat = async (groupId: string, currentUserId: string): Promise<boolean> => {
+    try {
+        // Remove user from group
+        const { error } = await supabase.rpc('leave_group_chat', {
+            group_id_input: groupId,
+            user_id_input: currentUserId
+        });
+        
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('Error leaving group chat:', error);
+        return false;
+    }
 };
 
 const ChatsTabs: React.FC<ChatsTabsProps> = ({
     activeTab,
     setActiveTab,
-    individualSubTab, // Destructure new prop
-    setIndividualSubTab, // Destructure new prop
+    individualSubTab,
+    setIndividualSubTab,
     onChatOpen,
     onProfileOpen,
-    searchQuery = '', // Default to empty string
+    searchQuery = '',
 }) => {
     const { session } = useAuth();
     const [individualList, setIndividualList] = useState<IndividualChatListItem[]>([]);
@@ -303,21 +332,25 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Fetch data function (fetches both lists)
+    // Fetch data function (fetches both lists with unread counts)
     const fetchData = useCallback(async (refreshing = false) => {
         if (!session?.user?.id) {
-            setError("Not logged in."); setIsLoading(false); setIsRefreshing(false); return;
+            setError("Not logged in."); 
+            setIsLoading(false); 
+            setIsRefreshing(false); 
+            return;
         }
-        if (!refreshing && !isLoading) setIsLoading(true); // Set loading true only if not already loading and not a refresh
-        else if (refreshing) setIsRefreshing(true); // Set refreshing if it is a refresh call
+        
+        if (!refreshing && !isLoading) setIsLoading(true);
+        else if (refreshing) setIsRefreshing(true);
         
         setError(null);
-        console.log("ChatsTabs: Fetching data...");
+        console.log("ChatsTabs: Fetching data with unread counts...");
 
         try {
             const [individualResult, groupResult] = await Promise.all([
-                supabase.rpc('get_chat_list'),
-                supabase.rpc('get_group_chat_list')
+                supabase.rpc('get_chat_list_with_unread'),
+                supabase.rpc('get_group_chat_list_with_unread')
             ]);
 
             if (individualResult.error) throw new Error(`Individual chats: ${individualResult.error.message}`);
@@ -331,34 +364,279 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         } catch (err: any) {
             console.error("ChatsTabs: Error fetching chat lists:", err);
             setError("Failed to load chats.");
-            setIndividualList([]); setGroupList([]);
+            setIndividualList([]); 
+            setGroupList([]);
         } finally {
-            setIsLoading(false); setIsRefreshing(false);
+            setIsLoading(false); 
+            setIsRefreshing(false);
         }
-    }, [session?.user?.id, isLoading]); // Added isLoading to dependencies of fetchData
+    }, [session?.user?.id, isLoading]);
 
-    // Fetch on mount and when session changes (initial load)
+    // Fetch on mount and when session changes
     useEffect(() => {
-        // Only fetch if not already loading to prevent redundant calls from focus + mount
         if (!isLoading) {
             fetchData();
         }
-    }, [session?.user?.id]); // Keep session dependency for initial load on auth change
+    }, [session?.user?.id]);
+
+    // Real-time subscriptions for new messages and updates
+    useEffect(() => {
+        if (!session?.user?.id) return;
+
+        console.log("ChatsTabs: Setting up real-time subscriptions");
+
+        // Subscribe to individual message updates
+        const individualMessageChannel = supabase
+            .channel('individual_messages_updates')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'messages',
+                    filter: `receiver_id=eq.${session.user.id}`
+                },
+                () => {
+                    console.log("New individual message received, refreshing data");
+                    fetchData();
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'messages',
+                    filter: `sender_id=eq.${session.user.id}`
+                },
+                () => {
+                    console.log("New individual message sent, refreshing data");
+                    fetchData();
+                }
+            )
+            .subscribe();
+
+        // Subscribe to group message updates
+        const groupMessageChannel = supabase
+            .channel('group_messages_updates')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'group_chat_messages'
+                },
+                (payload) => {
+                    console.log("New group message received, refreshing data");
+                    fetchData();
+                }
+            )
+            .subscribe();
+
+        // Subscribe to group membership changes
+        const groupMembershipChannel = supabase
+            .channel('group_membership_updates')
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'group_chat_members',
+                    filter: `user_id=eq.${session.user.id}`
+                },
+                () => {
+                    console.log("Group membership changed, refreshing data");
+                    fetchData();
+                }
+            )
+            .subscribe();
+
+        return () => {
+            console.log("ChatsTabs: Cleaning up real-time subscriptions");
+            supabase.removeChannel(individualMessageChannel);
+            supabase.removeChannel(groupMessageChannel);
+            supabase.removeChannel(groupMembershipChannel);
+        };
+    }, [session?.user?.id, fetchData]);
 
     // Fetch data when the screen comes into focus
     useFocusEffect(
         useCallback(() => {
             console.log("ChatsTabs: Screen focused, fetching data.");
-            // Call fetchData directly. It will handle its own loading/refreshing state.
-            fetchData(); 
-            // No cleanup needed for this fetchData call
-        }, [fetchData]) // fetchData is memoized
+            fetchData();
+            
+            // Also add a small delay to catch any pending database updates
+            const timeoutId = setTimeout(() => {
+                console.log("ChatsTabs: Secondary fetch after focus delay.");
+                fetchData();
+            }, 1500);
+            
+            return () => {
+                clearTimeout(timeoutId);
+            };
+        }, [fetchData])
     );
 
     // Handle pull-to-refresh
     const onRefresh = useCallback(() => {
-        fetchData(true); // Pass true to indicate it's a refresh
+        fetchData(true);
     }, [fetchData]);
+
+    // Handle long press to delete chat
+    const handleChatLongPress = useCallback((chatItem: ChatItem) => {
+        const isIndividual = chatItem.type === 'individual';
+        const chatName = isIndividual 
+            ? `${(chatItem.data as IndividualChatListItem).partner_first_name || ''} ${(chatItem.data as IndividualChatListItem).partner_last_name || ''}`.trim() || 'User'
+            : (chatItem.data as GroupChatListItem).group_name || 'Group';
+
+        Alert.alert(
+            `Delete ${isIndividual ? 'Chat' : 'Group'}`,
+            isIndividual 
+                ? `Are you sure you want to delete your conversation with ${chatName}? This action cannot be undone.`
+                : `Are you sure you want to leave ${chatName}? You can be re-added by other members.`,
+            [
+                {
+                    text: 'Cancel',
+                    style: 'cancel',
+                },
+                {
+                    text: isIndividual ? 'Delete' : 'Leave',
+                    style: 'destructive',
+                    onPress: async () => {
+                        const success = isIndividual
+                            ? await deleteIndividualChat(
+                                (chatItem.data as IndividualChatListItem).partner_user_id,
+                                session?.user?.id || ''
+                            )
+                            : await deleteGroupChat(
+                                (chatItem.data as GroupChatListItem).group_id,
+                                session?.user?.id || ''
+                            );
+
+                        if (success) {
+                            // Remove from local state
+                            if (isIndividual) {
+                                setIndividualList(prev => prev.filter(
+                                    item => item.partner_user_id !== (chatItem.data as IndividualChatListItem).partner_user_id
+                                ));
+                            } else {
+                                setGroupList(prev => prev.filter(
+                                    item => item.group_id !== (chatItem.data as GroupChatListItem).group_id
+                                ));
+                            }
+                        } else {
+                            Alert.alert(
+                                'Error',
+                                `Failed to ${isIndividual ? 'delete chat' : 'leave group'}. Please try again.`
+                            );
+                        }
+                    },
+                },
+            ]
+        );
+    }, [session?.user?.id]);
+
+    // Function to mark all messages as seen for a specific chat
+    const markChatMessagesAsSeen = useCallback(async (chatItem: ChatItem) => {
+        if (!session?.user?.id) return;
+
+        const currentUserId = session.user.id; // Store in a variable to avoid repeated null checks
+
+        try {
+            if (chatItem.type === 'individual') {
+                const partnerId = (chatItem.data as IndividualChatListItem).partner_user_id;
+                console.log(`ChatsTabs: Marking individual messages as seen from partner ${partnerId}`);
+                
+                // Use a simpler approach - get all messages from partner and mark them as seen
+                const { data: allMessages, error: fetchError } = await supabase
+                    .from('messages')
+                    .select('id')
+                    .eq('sender_id', partnerId)
+                    .eq('receiver_id', currentUserId);
+
+                if (fetchError) {
+                    console.error('Error fetching messages from partner:', fetchError);
+                    return;
+                }
+
+                if (!allMessages || allMessages.length === 0) {
+                    console.log(`ChatsTabs: No messages found from partner ${partnerId}`);
+                    return;
+                }
+
+                // Try to mark messages as seen using the database function
+                for (const message of allMessages) {
+                    try {
+                        const { error } = await supabase.rpc('mark_message_seen', { 
+                            message_id_input: message.id 
+                        });
+                        if (error) {
+                            console.warn(`Error marking message ${message.id} as seen:`, error.message);
+                        }
+                    } catch (e) {
+                        console.warn(`Exception marking message ${message.id} as seen:`, e);
+                    }
+                }
+
+                console.log(`ChatsTabs: Marked ${allMessages.length} individual messages as seen`);
+            } else {
+                // Group chat
+                const groupId = (chatItem.data as GroupChatListItem).group_id;
+                console.log(`ChatsTabs: Marking group messages as seen for group ${groupId}`);
+                
+                // Get all messages from this group (excluding own messages)
+                const { data: allGroupMessages, error: fetchError } = await supabase
+                    .from('group_chat_messages')
+                    .select('id')
+                    .eq('group_id', groupId)
+                    .neq('sender_id', currentUserId);
+
+                if (fetchError) {
+                    console.error('Error fetching group messages:', fetchError);
+                    return;
+                }
+
+                if (!allGroupMessages || allGroupMessages.length === 0) {
+                    console.log(`ChatsTabs: No messages found in group ${groupId}`);
+                    return;
+                }
+
+                // Try to mark group messages as seen using the database function
+                for (const message of allGroupMessages) {
+                    try {
+                        const { error } = await supabase.rpc('mark_group_message_seen', { 
+                            message_id_input: message.id,
+                            user_id_input: currentUserId
+                        });
+                        if (error) {
+                            console.warn(`Error marking group message ${message.id} as seen:`, error.message);
+                        }
+                    } catch (e) {
+                        console.warn(`Exception marking group message ${message.id} as seen:`, e);
+                    }
+                }
+
+                console.log(`ChatsTabs: Marked ${allGroupMessages.length} group messages as seen`);
+            }
+        } catch (error) {
+            console.error('Error in markChatMessagesAsSeen:', error);
+        }
+    }, [session?.user?.id]);
+
+    // Enhanced onChatOpen handler that marks messages as seen
+    const handleChatOpen = useCallback(async (chatItem: ChatItem) => {
+        // Mark messages as seen when opening the chat
+        await markChatMessagesAsSeen(chatItem);
+        
+        // Call the original onChatOpen handler
+        onChatOpen(chatItem);
+        
+        // Refresh the data after a short delay to show updated unread counts
+        setTimeout(() => {
+            console.log("ChatsTabs: Refreshing data after opening chat");
+            fetchData();
+        }, 1500);
+    }, [markChatMessagesAsSeen, onChatOpen, fetchData]);
 
     // Filter data based on search query and active tab
     const filteredListData = useMemo((): ChatItem[] => {
@@ -367,46 +645,100 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         if (activeTab === 'individual') {
             const filtered = individualList.filter(item => {
                 const name = `${item.partner_first_name || ''} ${item.partner_last_name || ''}`.trim().toLowerCase();
-                // Optional: filter by message content
-                // const message = item.last_message_content?.toLowerCase() || '';
-                return name.includes(lowerCaseQuery); // || message.includes(lowerCaseQuery);
+                return name.includes(lowerCaseQuery);
             });
             return filtered.map(item => ({ type: 'individual', data: item }));
-        } else { // activeTab === 'groups'
+        } else {
             const filtered = groupList.filter(item => {
                 const name = item.group_name?.toLowerCase() || '';
-                // Optional: filter by message content or member names
                 return name.includes(lowerCaseQuery);
             });
             return filtered.map(item => ({ type: 'group', data: item }));
         }
-    }, [activeTab, individualList, groupList, searchQuery]); // Depend on search query
+    }, [activeTab, individualList, groupList, searchQuery]);
+
+    // Debug function to check unread counts manually
+    const debugUnreadCounts = useCallback(async () => {
+        if (!session?.user?.id) return;
+        
+        try {
+            console.log("=== DEBUG: Checking unread counts ===");
+            
+            // Test individual chat unread counts
+            const { data: individualData, error: individualError } = await supabase.rpc('get_chat_list_with_unread');
+            if (individualError) {
+                console.error("DEBUG: Error calling get_chat_list_with_unread:", individualError);
+            } else {
+                console.log("DEBUG: Individual chats with unread:", individualData);
+            }
+            
+            // Test group chat unread counts  
+            const { data: groupData, error: groupError } = await supabase.rpc('get_group_chat_list_with_unread');
+            if (groupError) {
+                console.error("DEBUG: Error calling get_group_chat_list_with_unread:", groupError);
+            } else {
+                console.log("DEBUG: Group chats with unread:", groupData);
+            }
+            
+            // Check message_status table directly
+            const { data: statusData, error: statusError } = await supabase
+                .from('message_status')
+                .select('*')
+                .limit(10);
+            if (statusError) {
+                console.error("DEBUG: Error checking message_status:", statusError);
+            } else {
+                console.log("DEBUG: Sample message_status entries:", statusData);
+            }
+            
+            // Check group_message_status table directly
+            const { data: groupStatusData, error: groupStatusError } = await supabase
+                .from('group_message_status')
+                .select('*')
+                .eq('user_id', session.user.id)
+                .limit(10);
+            if (groupStatusError) {
+                console.error("DEBUG: Error checking group_message_status:", groupStatusError);
+            } else {
+                console.log("DEBUG: Sample group_message_status entries:", groupStatusData);
+            }
+            
+            console.log("=== END DEBUG ===");
+        } catch (error) {
+            console.error("DEBUG: Exception during debug check:", error);
+        }
+    }, [session?.user?.id]);
+
+    // Add debug button (temporary - remove in production)
+    useEffect(() => {
+        if (__DEV__) {
+            // Expose debug function globally for testing
+            (global as any).debugUnreadCounts = debugUnreadCounts;
+        }
+    }, [debugUnreadCounts]);
 
     // --- Renders the Individual Chat List ---
     const renderIndividualList = () => {
-        // First, get only individual chats from the main filtered list
         const individualChats: IndividualChatListItem[] = filteredListData
             .filter(item => item.type === 'individual')
             .map(item => item.data as IndividualChatListItem);
 
-        // Determine which list to show based on individualSubTab
         let listToShow: IndividualChatListItem[] = [];
         if (individualSubTab === 'pending') {
             listToShow = individualChats.filter(data => {
-                // Show in pending if: Current user sent AND partner hasn't OR partner sent AND current user hasn't
                 return (data.current_user_sent_any_message && !data.partner_sent_any_message) || 
                        (!data.current_user_sent_any_message && data.partner_sent_any_message);
             });
-        } else { // 'chats' subTab
+        } else {
             listToShow = individualChats.filter(data => {
-                // Show in chats if: Both have sent messages
                 return data.current_user_sent_any_message && data.partner_sent_any_message;
             });
         }
 
-        if (isLoading && activeTab === 'individual' && !isRefreshing && listToShow.length === 0) { // Check listToShow.length here too
+        if (isLoading && activeTab === 'individual' && !isRefreshing && listToShow.length === 0) {
             return ( <View style={styles.centered}><ActivityIndicator size="small" color="#6B7280" /></View> );
         }
+        
         if (!isLoading && activeTab === 'individual' && listToShow.length === 0) {
             const emptyMessage = individualSubTab === 'pending' 
                 ? (searchQuery ? "No pending chats match your search." : "No pending chats right now.")
@@ -421,7 +753,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
 
         return (
             <FlatList
-                data={listToShow} // Use the sub-tab filtered list of IndividualChatListItem
+                data={listToShow}
                 keyExtractor={(item) => item.partner_user_id}
                 renderItem={({ item }) => (
                     <ChatCard
@@ -430,22 +762,23 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                         image={item.partner_profile_picture}
                         lastMessage={formatLastMessageForPreview(item.last_message_content, item.last_message_sender_id, session?.user?.id, item.last_message_sender_name, false)}
                         time={formatTimestamp(item.last_message_created_at)}
-                        unread={item.unread || 0}
+                        unread={item.unread_count || 0}
                         isPinned={item.isPinned || false}
-                        type='individual' // Explicitly set type for ChatCard if it needs it
-                        onChatOpen={() => onChatOpen({ type: 'individual', data: item })}
+                        type='individual'
+                        onChatOpen={() => handleChatOpen({ type: 'individual', data: item })}
                         onProfileOpen={(onProfileOpen) ? () => onProfileOpen({ type: 'individual', data: item }) : undefined}
+                        onLongPress={() => handleChatLongPress({ type: 'individual', data: item })}
                     />
                 )}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.listContent}
-                ListEmptyComponent={ // This might be redundant now due to the check above, but can be a fallback
+                ListEmptyComponent={
                     <View style={styles.centered}>
                         <Text style={styles.emptyText}>
                             {searchQuery ? 'No results found.' : (individualSubTab === 'pending' ? "No pending chats." : "No active chats.")}
                         </Text>
                     </View>
-                 }
+                }
                 refreshControl={
                     <RefreshControl
                         refreshing={isRefreshing}
@@ -453,11 +786,10 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                         tintColor={APP_CONSTANTS.COLORS.PRIMARY}
                     />
                 }
-                // Optimization: Remove items that are not visible
-                removeClippedSubviews={Platform.OS === 'android'} // Can cause issues on iOS sometimes
-                initialNumToRender={10} // Render initial batch
-                maxToRenderPerBatch={10} // Render next batch size
-                windowSize={11} // Render items in viewport + buffer
+                removeClippedSubviews={Platform.OS === 'android'}
+                initialNumToRender={10}
+                maxToRenderPerBatch={10}
+                windowSize={11}
             />
         );
     };
@@ -501,7 +833,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                             true
                         )}
                         time={formatTimestamp(item.last_message_created_at)}
-                        unread={item.unread || 0}
+                        unread={item.unread_count || 0}
                         isPinned={item.isPinned || false}
                         type='group'
                         membersPreview={
@@ -509,13 +841,13 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                                 ? item.other_members_preview.map(member => member.name).join(', ')
                                 : undefined
                         }
-                        onChatOpen={() => onChatOpen({ type: 'group', data: item })}
-                        // No profile open for groups
+                        onChatOpen={() => handleChatOpen({ type: 'group', data: item })}
+                        onLongPress={() => handleChatLongPress({ type: 'group', data: item })}
                     />
                 )}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.listContent}
-                ListEmptyComponent={ // Fallback, though covered above
+                ListEmptyComponent={
                     <View style={styles.centered}>
                         <Text style={styles.emptyText}>
                             {searchQuery ? 'No results found.' : 'No group chats yet.'}
@@ -540,7 +872,6 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     // --- Render Component ---
     return (
         <View style={styles.container}>
-            {/* Tab Navigation Buttons */}
             <View style={styles.tabsContainer}>
                 <TouchableOpacity
                     style={[ styles.tabButton, activeTab === "individual" && styles.activeTabButton ]}
@@ -560,7 +891,6 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 </TouchableOpacity>
             </View>
 
-            {/* Individual Sub-Tabs (shown only if activeTab is 'individual') */}
             {activeTab === 'individual' && setIndividualSubTab && (
                 <View style={styles.subTabsContainer}>
                     <TouchableOpacity
@@ -578,7 +908,6 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 </View>
             )}
 
-            {/* Tab Content Area - Render the correct list based on activeTab */}
             <View style={styles.tabContent}>
                 {isLoading ? (
                     <View style={styles.centered}><ActivityIndicator color={APP_CONSTANTS.COLORS.PRIMARY} /></View>
@@ -606,18 +935,17 @@ const styles = StyleSheet.create({
     retryButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, paddingVertical: 8, paddingHorizontal: 15, borderRadius: 6, },
     retryButtonText: { color: 'white', fontWeight: '500', fontSize: 14, marginLeft: 6, },
     emptyText: { textAlign: 'center', color: '#6B7280', marginTop: 40, fontSize: 15, },
-    tabsContainer: { flexDirection: 'row', backgroundColor: 'rgba(59, 130, 246, 0.05)', borderRadius: 10, padding: 4, marginBottom: 8, }, // Adjusted margin
+    tabsContainer: { flexDirection: 'row', backgroundColor: 'rgba(59, 130, 246, 0.05)', borderRadius: 10, padding: 4, marginBottom: 8, },
     tabButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8, },
     activeTabButton: { backgroundColor: "white", shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2, },
     tabIcon: { marginRight: 6, },
     tabText: { fontSize: 14, color: "#6B7280", fontWeight: '500' },
     activeTabText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontWeight: "600", },
-    // Sub-tab styles
     subTabsContainer: {
         flexDirection: 'row',
         justifyContent: 'space-around',
-        marginBottom: 12, // Space before the list
-        paddingHorizontal: 16, // Match overall screen padding if needed
+        marginBottom: 12,
+        paddingHorizontal: 16,
     },
     subTabButton: {
         paddingVertical: 8,
@@ -640,7 +968,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
     tabContent: { flex: 1, },
-    listContent: { paddingTop: 4, paddingBottom: 16, }, // Adjust padding as needed
+    listContent: { paddingTop: 4, paddingBottom: 16, },
 });
 
 export default ChatsTabs;

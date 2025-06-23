@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, StyleSheet, FlatList, TouchableOpacity,
-    Image, ActivityIndicator, RefreshControl, ScrollView, Alert // Added ScrollView and Alert
+    Image, ActivityIndicator, RefreshControl, ScrollView, Alert, Dimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -33,18 +33,22 @@ const FriendsListScreen: React.FC = () => {
     const navigation = useNavigation<FriendsListNavigationProp>();
     const { session } = useAuth();
     const [friends, setFriends] = useState<Friend[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [friendRequests, setFriendRequests] = useState<Friend[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<ActiveTab>('friends');
+    const [acceptingRequests, setAcceptingRequests] = useState<Set<string>>(new Set());
+    const [decliningRequests, setDecliningRequests] = useState<Set<string>>(new Set());
 
     const currentUserId = session?.user?.id;
 
-    const fetchFriendsAndRequests = useCallback(async (refreshing = false) => {
+    const fetchFriendsAndRequests = useCallback(async (isRefresh = false) => {
         if (!currentUserId) {
-            setError("Not logged in"); setIsLoading(false); setIsRefreshing(false); return;
+            setError("Not logged in"); setLoading(false); setRefreshing(false); return;
         }
-        if (!refreshing) setIsLoading(true); else setIsRefreshing(true);
+        if (isRefresh) setRefreshing(true);
+        else setLoading(true);
         setError(null);
         console.log(`[FriendsListScreen] Fetching for tab: ${activeTab}...`);
 
@@ -86,10 +90,10 @@ const FriendsListScreen: React.FC = () => {
                     .eq('status', 'pending');
 
                 if (requestError) throw requestError;
-                if (!requestRelations || requestRelations.length === 0) { setFriends([]); console.log("[FriendsListScreen] No pending friend requests found."); return; }
+                if (!requestRelations || requestRelations.length === 0) { setFriendRequests([]); console.log("[FriendsListScreen] No pending friend requests found."); return; }
 
                 const requesterUserIds = requestRelations.map(req => req.user_id_1).filter(id => !!id);
-                if (requesterUserIds.length === 0) { setFriends([]); console.log("[FriendsListScreen] No valid requester IDs extracted."); return; }
+                if (requesterUserIds.length === 0) { setFriendRequests([]); console.log("[FriendsListScreen] No valid requester IDs extracted."); return; }
                 console.log("[FriendsListScreen] Found requester IDs:", requesterUserIds);
 
                 const { data: requesterProfiles, error: profileError } = await supabase
@@ -107,10 +111,10 @@ const FriendsListScreen: React.FC = () => {
                     status: 'pending' as 'pending'
                 })) ?? [];
                 console.log(`[FriendsListScreen] Fetched ${requestData.length} friend requests.`);
-                setFriends(requestData);
+                setFriendRequests(requestData);
             }
-        } catch (err: any) { console.error(`[FriendsListScreen] Error fetching for tab ${activeTab}:`, err); setError(`Could not load ${activeTab}.`); setFriends([]); }
-        finally { setIsLoading(false); setIsRefreshing(false); }
+        } catch (err: any) { console.error(`[FriendsListScreen] Error fetching for tab ${activeTab}:`, err); setError(`Could not load ${activeTab}.`); setFriends([]); setFriendRequests([]); }
+        finally { setLoading(false); setRefreshing(false); }
     }, [currentUserId, activeTab]);
 
     useEffect(() => {
@@ -122,41 +126,56 @@ const FriendsListScreen: React.FC = () => {
     const onRefresh = () => { fetchFriendsAndRequests(true); };
 
     const handleAcceptRequest = async (requesterId: string) => {
-        if (!currentUserId) return;
-        console.log(`[FriendsListScreen] Accepting request from ${requesterId}`);
+        if (!currentUserId || acceptingRequests.has(requesterId)) return;
+
+        setAcceptingRequests(prev => new Set(prev).add(requesterId));
+
         try {
-            const { error } = await supabase
-                .from('friends')
-                .update({ status: 'accepted', requester_id: currentUserId })
-                .eq('user_id_1', requesterId)
-                .eq('user_id_2', currentUserId)
-                .eq('status', 'pending');
+            const { error } = await supabase.rpc('accept_friend_request', {
+                requester_id: requesterId,
+                current_user_id: currentUserId
+            });
+
             if (error) throw error;
-            Alert.alert("Request Accepted");
-            fetchFriendsAndRequests(true);
-        } catch (err: any) {
-            console.error("[FriendsListScreen] Error accepting request:", err);
-            Alert.alert("Error", "Could not accept request.");
+
+            // Real-time subscription will handle UI updates automatically
+            console.log('[FriendsListScreen] Friend request accepted successfully');
+        } catch (error: any) {
+            console.error('Error accepting friend request:', error);
+            Alert.alert('Error', 'Failed to accept friend request. Please try again.');
+        } finally {
+            setAcceptingRequests(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(requesterId);
+                return newSet;
+            });
         }
     };
 
     const handleDeclineRequest = async (requesterId: string) => {
-        if (!currentUserId) return;
-        console.log(`[FriendsListScreen] Declining request from ${requesterId}`);
+        if (!currentUserId || decliningRequests.has(requesterId)) return;
+
+        setDecliningRequests(prev => new Set(prev).add(requesterId));
+
         try {
-            const { error } = await supabase
-                .from('friends')
-                .delete()
-                .eq('user_id_1', requesterId)
-                .eq('user_id_2', currentUserId)
-                .eq('status', 'pending');
-            
+            const { error } = await supabase.rpc('decline_friend_request', {
+                requester_id: requesterId,
+                current_user_id: currentUserId
+            });
+
             if (error) throw error;
-            Alert.alert("Request Declined");
-            fetchFriendsAndRequests(true);
-        } catch (err: any) {
-            console.error("[FriendsListScreen] Error declining request:", err);
-            Alert.alert("Error", "Could not decline request.");
+
+            // Real-time subscription will handle UI updates automatically
+            console.log('[FriendsListScreen] Friend request declined successfully');
+        } catch (error: any) {
+            console.error('Error declining friend request:', error);
+            Alert.alert('Error', 'Failed to decline friend request. Please try again.');
+        } finally {
+            setDecliningRequests(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(requesterId);
+                return newSet;
+            });
         }
     };
 
@@ -189,9 +208,9 @@ const FriendsListScreen: React.FC = () => {
     );
 
     const renderContent = () => {
-        if (isLoading && !isRefreshing) { return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} /></View>; }
+        if (loading && !refreshing) { return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} /></View>; }
         if (error) { return <View style={styles.centered}><Text style={styles.errorText}>{error}</Text></View>; }
-        if (friends.length === 0) {
+        if (friends.length === 0 && friendRequests.length === 0) {
             const emptyMessage = activeTab === 'friends' 
                 ? "No friends yet. Find matches and start connecting!" 
                 : "No pending friend requests.";
@@ -200,7 +219,7 @@ const FriendsListScreen: React.FC = () => {
             return (
                 <ScrollView 
                     contentContainerStyle={styles.emptyContainer} 
-                    refreshControl={ <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} /> } 
+                    refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} /> } 
                 >
                     <Feather name={activeTab === 'friends' ? "users" : "user-plus"} size={60} color={APP_CONSTANTS.COLORS.DISABLED} />
                     <Text style={styles.emptyText}>{emptyMessage}</Text>
@@ -209,7 +228,7 @@ const FriendsListScreen: React.FC = () => {
             );
         }
         return (
-            <FlatList data={friends} renderItem={renderFriendItem} keyExtractor={(item) => item.userId} style={styles.list} ItemSeparatorComponent={() => <View style={styles.separator} />} refreshControl={ <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} tintColor={APP_CONSTANTS.COLORS.PRIMARY} /> } />
+            <FlatList data={activeTab === 'friends' ? friends : friendRequests} renderItem={renderFriendItem} keyExtractor={(item) => item.userId} style={styles.list} ItemSeparatorComponent={() => <View style={styles.separator} />} refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} tintColor={APP_CONSTANTS.COLORS.PRIMARY} /> } />
         );
     }
 
@@ -239,6 +258,8 @@ const FriendsListScreen: React.FC = () => {
         </SafeAreaView>
     );
 };
+
+const { width } = Dimensions.get('window');
 
 // --- Styles ---
 const styles = StyleSheet.create({
