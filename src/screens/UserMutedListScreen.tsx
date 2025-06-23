@@ -47,7 +47,10 @@ const UserMutedListScreen: React.FC = () => {
             try {
                 const { data: mutes, error: muteError } = await supabase
                     .from('muted_users')
-                    .select('muted_id')
+                    .select(`
+                        muted_id,
+                        created_at
+                    `)
                     .eq('muter_id', currentUserId);
                 if (muteError) throw muteError;
                 const mutedIds = (mutes || []).map((m: any) => m.muted_id);

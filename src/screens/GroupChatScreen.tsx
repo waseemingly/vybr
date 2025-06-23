@@ -165,6 +165,11 @@ interface DbGroupMessage {
     is_deleted?: boolean;
     deleted_at?: string | null;
     reply_to_message_id?: string | null;
+    // Add message status fields for group messages
+    is_delivered?: boolean;
+    delivered_at?: string | null;
+    is_seen?: boolean;
+    seen_at?: string | null;
 }
 interface ChatMessage { 
     _id: string; 
@@ -192,6 +197,11 @@ interface ChatMessage {
         senderName?: string | null;
         image?: string | null;
     } | null;
+    // Add message status fields for group messages
+    isDelivered?: boolean;
+    deliveredAt?: Date | null;
+    isSeen?: boolean;
+    seenAt?: Date | null;
 }
 interface UserProfileInfo { user_id: string; first_name: string | null; last_name: string | null; profile_picture: string | null; }
 interface DbGroupChat { id: string; group_name: string; group_image: string | null; can_members_add_others?: boolean; can_members_edit_info?: boolean; }
@@ -316,6 +326,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                     </View>
                     <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
+                        {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
                     </Text>
                 </View>
             </View>
@@ -414,6 +425,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                             {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
                             <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
                                 {formatTime(message.createdAt)}
+                                {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />} 
                             </Text>
                         </View>
                     </View>
@@ -489,6 +501,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                     </TouchableOpacity>
                     <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
+                        {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
                     </Text>
                 </View>
             </TouchableOpacity>
@@ -547,6 +560,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                             {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
                             <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
                                 {formatTime(message.createdAt)}
+                                {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />} 
                             </Text>
                          </View>
                     </View>
@@ -808,6 +822,10 @@ const GroupChatScreen: React.FC = () => {
             isDeleted: dbMessage.is_deleted,
             deletedAt: dbMessage.deleted_at ? new Date(dbMessage.deleted_at) : null,
             replyToMessageId: dbMessage.reply_to_message_id,
+            isDelivered: dbMessage.is_delivered,
+            deliveredAt: dbMessage.delivered_at ? new Date(dbMessage.delivered_at) : null,
+            isSeen: dbMessage.is_seen,
+            seenAt: dbMessage.seen_at ? new Date(dbMessage.seen_at) : null,
         }; 
     }, [currentUserId]);
 
@@ -879,7 +897,7 @@ const GroupChatScreen: React.FC = () => {
     }, []);
 
     // Fetch Initial Data
-    const fetchInitialData = useCallback(async () => { if (!currentUserId || !groupId) { setLoadError("Auth/Group ID missing."); setLoading(false); return; } setLoading(true); setLoadError(null); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); try { const { data: groupInfoData, error: groupInfoError } = await supabase.rpc('get_group_info', { group_id_input: groupId }); if (groupInfoError) throw groupInfoError; if (!groupInfoData?.group_details || !groupInfoData?.participants) throw new Error("Incomplete group data."); const groupDetails = groupInfoData.group_details; const participantsRaw: { user_id: string, is_admin: boolean }[] = groupInfoData.participants; const currentUserParticipant = participantsRaw.find(p => p.user_id === currentUserId); setIsCurrentUserAdmin(currentUserParticipant?.is_admin ?? false); setCanMembersAddOthers(groupDetails.can_members_add_others ?? false); setCanMembersEditInfo(groupDetails.can_members_edit_info ?? false); setCurrentGroupName(groupDetails.group_name); setCurrentGroupImage(groupDetails.group_image ?? null); const { data: messagesData, error: messagesError } = await supabase.from('group_chat_messages').select('id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id').eq('group_id', groupId).order('created_at', { ascending: true }); if (messagesError) throw messagesError; if (!messagesData || messagesData.length === 0) { setMessages([]); } else { const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id); const senderIds = Array.from(new Set(visibleMessages.filter(msg => msg.sender_id).map(msg => msg.sender_id))); const profilesMap = new Map<string, UserProfileInfo>(); if (senderIds.length > 0) { const idsToFetch = senderIds.filter(id => !userProfileCache[id]); if (idsToFetch.length > 0) { const { data: profilesData, error: profilesError } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').in('user_id', idsToFetch); if (profilesError) { console.error("Err fetch profiles:", profilesError); } else if (profilesData) { profilesData.forEach((p: UserProfileInfo) => { profilesMap.set(p.user_id, p); const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; const a = p.profile_picture||undefined; userProfileCache[p.user_id] = { name: n, avatar: a }; }); } } senderIds.forEach(id => { if (userProfileCache[id] && !profilesMap.has(id)) { profilesMap.set(id, { user_id: id, first_name: userProfileCache[id].name?.split(' ')[0]||null, last_name: userProfileCache[id].name?.split(' ')[1]||null, profile_picture: userProfileCache[id].avatar||null }); } }); } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You' }; const mappedMessages = visibleMessages.map(dbMsg => mapDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap)); setMessages(mappedMessages); } } catch (err: any) { console.error("Error fetching initial data:", err); if (err.message?.includes("User is not a member")) { Alert.alert("Access Denied", "Not member.", [{ text: "OK", onPress: () => navigation.goBack() }]); setLoadError("Not a member."); } else { setLoadError(`Load fail: ${err.message || 'Unknown'}`); } setMessages([]); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); } finally { setLoading(false); } }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
+    const fetchInitialData = useCallback(async () => { if (!currentUserId || !groupId) { setLoadError("Auth/Group ID missing."); setLoading(false); return; } setLoading(true); setLoadError(null); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); try { const { data: groupInfoData, error: groupInfoError } = await supabase.rpc('get_group_info', { group_id_input: groupId }); if (groupInfoError) throw groupInfoError; if (!groupInfoData?.group_details || !groupInfoData?.participants) throw new Error("Incomplete group data."); const groupDetails = groupInfoData.group_details; const participantsRaw: { user_id: string, is_admin: boolean }[] = groupInfoData.participants; const currentUserParticipant = participantsRaw.find(p => p.user_id === currentUserId); setIsCurrentUserAdmin(currentUserParticipant?.is_admin ?? false); setCanMembersAddOthers(groupDetails.can_members_add_others ?? false); setCanMembersEditInfo(groupDetails.can_members_edit_info ?? false); setCurrentGroupName(groupDetails.group_name); setCurrentGroupImage(groupDetails.group_image ?? null); const { data: messagesData, error: messagesError } = await supabase.from('group_chat_messages').select('id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id, is_delivered, delivered_at, is_seen, seen_at').eq('group_id', groupId).order('created_at', { ascending: true }); if (messagesError) throw messagesError; if (!messagesData || messagesData.length === 0) { setMessages([]); } else { const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id); const senderIds = Array.from(new Set(visibleMessages.filter(msg => msg.sender_id).map(msg => msg.sender_id))); const profilesMap = new Map<string, UserProfileInfo>(); if (senderIds.length > 0) { const idsToFetch = senderIds.filter(id => !userProfileCache[id]); if (idsToFetch.length > 0) { const { data: profilesData, error: profilesError } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').in('user_id', idsToFetch); if (profilesError) { console.error("Err fetch profiles:", profilesError); } else if (profilesData) { profilesData.forEach((p: UserProfileInfo) => { profilesMap.set(p.user_id, p); const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; const a = p.profile_picture||undefined; userProfileCache[p.user_id] = { name: n, avatar: a }; }); } } senderIds.forEach(id => { if (userProfileCache[id] && !profilesMap.has(id)) { profilesMap.set(id, { user_id: id, first_name: userProfileCache[id].name?.split(' ')[0]||null, last_name: userProfileCache[id].name?.split(' ')[1]||null, profile_picture: userProfileCache[id].avatar||null }); } }); } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You' }; const mappedMessages = visibleMessages.map(dbMsg => mapDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap)); setMessages(mappedMessages); } } catch (err: any) { console.error("Error fetching initial data:", err); if (err.message?.includes("User is not a member")) { Alert.alert("Access Denied", "Not member.", [{ text: "OK", onPress: () => navigation.goBack() }]); setLoadError("Not a member."); } else { setLoadError(`Load fail: ${err.message || 'Unknown'}`); } setMessages([]); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); } finally { setLoading(false); } }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
 
     // Send Text Message
     const sendTextMessage = useCallback(async (text: string) => { 
@@ -911,6 +929,10 @@ const GroupChatScreen: React.FC = () => {
             isSystemMessage: false,
             replyToMessageId: replyingToMessage?._id || null,
             replyToMessagePreview: replyingToMessagePreview,
+            isDelivered: false,
+            deliveredAt: null,
+            isSeen: false,
+            seenAt: null,
         }; 
         
         setMessages(previousMessages => [...previousMessages, optimisticMessage]); 
@@ -929,6 +951,10 @@ const GroupChatScreen: React.FC = () => {
                 image_url: null, 
                 is_system_message: false,
                 reply_to_message_id: replyToId || null,
+                is_delivered: false,
+                delivered_at: null,
+                is_seen: false,
+                seen_at: null,
             };
             
             // If there's a shared event, add it as metadata
@@ -1007,6 +1033,10 @@ const GroupChatScreen: React.FC = () => {
             },
             replyToMessageId: replyingToMessage?._id || null,
             replyToMessagePreview: replyingToMessagePreview,
+            isDelivered: false,
+            deliveredAt: null,
+            isSeen: false,
+            seenAt: null,
         };
 
         setMessages(prevMessages => [...prevMessages, optimisticMessage]);
@@ -1180,6 +1210,10 @@ const GroupChatScreen: React.FC = () => {
                 isSystemMessage: false,
                 replyToMessageId: replyingToMessage?._id || null,
                 replyToMessagePreview: replyingToMessagePreview,
+                isDelivered: false,
+                deliveredAt: null,
+                isSeen: false,
+                seenAt: null,
             };
 
             setMessages(prev => [...prev, optimisticMessage]);
@@ -1245,6 +1279,10 @@ const GroupChatScreen: React.FC = () => {
                     image_url: urlData.publicUrl,
                     is_system_message: false,
                     reply_to_message_id: replyToId || null,
+                    is_delivered: false,
+                    delivered_at: null,
+                    is_seen: false,
+                    seen_at: null,
                 })
                 .select('id, created_at, image_url')
                 .single();
@@ -1277,6 +1315,66 @@ const GroupChatScreen: React.FC = () => {
             setIsUploading(false);
         }
     };
+
+    // Add message status tracking functions for GroupChatScreen
+    const markMessageDelivered = useCallback(async (messageId: string) => {
+        if (!currentUserId) return;
+        try {
+            const { error } = await supabase.rpc('mark_group_message_delivered', { 
+                message_id_input: messageId,
+                user_id_input: currentUserId 
+            });
+            if (error) console.error('Error marking group message delivered:', error);
+            else {
+                console.log(`Group message ${messageId} marked as delivered for user ${currentUserId}.`);
+                // Optimistically update UI
+                setMessages(prev => prev.map(m => m._id === messageId ? {...m, isDelivered: true, deliveredAt: new Date()} : m));
+            }
+        } catch (e) {
+            console.error('Exception marking group message delivered:', e);
+        }
+    }, [currentUserId]);
+
+    // Function to mark messages as seen when the chat screen is focused or messages are visible
+    const markMessagesAsSeen = useCallback(async () => {
+        if (!currentUserId || !groupId || messages.length === 0) return;
+
+        const unseenMessagesFromOthers = messages.filter(
+            msg => msg.user._id !== currentUserId && !msg.isSeen && !msg.isSystemMessage
+        );
+
+        if (unseenMessagesFromOthers.length === 0) return;
+
+        console.log(`[GroupChatScreen] Marking ${unseenMessagesFromOthers.length} messages as seen in group ${groupId}`);
+
+        for (const message of unseenMessagesFromOthers) {
+            try {
+                const { error } = await supabase.rpc('mark_group_message_seen', { 
+                    message_id_input: message._id,
+                    user_id_input: currentUserId 
+                });
+                if (error) {
+                    console.error(`Error marking group message ${message._id} as seen:`, error.message);
+                } else {
+                    // Optimistically update UI
+                    setMessages(prev => prev.map(m => m._id === message._id ? {...m, isSeen: true, seenAt: new Date()} : m));
+                }
+            } catch (e: any) {
+                console.error(`Exception marking group message ${message._id} as seen:`, e.message);
+            }
+        }
+    }, [currentUserId, groupId, messages]);
+
+    // Call markMessagesAsSeen when the screen focuses and when new messages arrive from others
+    useFocusEffect(
+        useCallback(() => {
+            markMessagesAsSeen();
+        }, [markMessagesAsSeen])
+    );
+    useEffect(() => {
+        // Also mark as seen if new messages arrive while screen is focused
+        markMessagesAsSeen();
+    }, [messages, markMessagesAsSeen]);
 
     //real time subscriptions
     useEffect(() => { if (!groupId || !currentUserId) return; const messageChannel = supabase.channel(`group_chat_messages_${groupId}`).on<DbGroupMessage>( 'postgres_changes',{ event: 'INSERT', schema: 'public', table: 'group_chat_messages', filter: `group_id=eq.${groupId}` }, async (payload) => { const newMessageDb = payload.new as DbGroupMessage; 
@@ -1381,6 +1479,15 @@ const GroupChatScreen: React.FC = () => {
                     })();
                 }
                 setMessages(prev => [...prev, finalReceivedMessage]);
+
+                // If the message is for the current user, mark as delivered
+                if (finalReceivedMessage.user._id !== currentUserId && currentUserId) { // Message from other user to current user
+                    try {
+                        await markMessageDelivered(finalReceivedMessage._id);
+                    } catch (deliveredErr) {
+                        console.warn("Error marking group message as delivered:", deliveredErr);
+                    }
+                }
             })();
         }
        
@@ -1476,9 +1583,40 @@ const GroupChatScreen: React.FC = () => {
                 setEditText("");
             }
         }
-    )
-    .subscribe(); 
-    const infoChannel = supabase.channel(`group_info_${groupId}`).on<DbGroupChat>('postgres_changes',{ event: 'UPDATE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },(payload) => { const d=payload.new; if(d.group_name!==currentGroupName){setCurrentGroupName(d.group_name);} if(d.group_image!==currentGroupImage){setCurrentGroupImage(d.group_image);} if(d.can_members_add_others!==undefined){setCanMembersAddOthers(d.can_members_add_others);} if(d.can_members_edit_info!==undefined){setCanMembersEditInfo(d.can_members_edit_info);} }).on<any>('postgres_changes',{ event: 'DELETE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },(payload) => { Alert.alert("Group Deleted", "This group no longer exists.", [{ text: "OK", onPress: () => navigation.popToTop() }]); }).subscribe(); return () => { supabase.removeChannel(messageChannel); supabase.removeChannel(infoChannel); }; }, [groupId, currentUserId, mapDbMessageToChatMessage, navigation, currentGroupName, currentGroupImage, canMembersAddOthers, canMembersEditInfo, editingMessage, messages]);
+    ).subscribe();
+
+    // Subscription for group message_status updates
+    const messageStatusChannelName = `group_message_status_updates_${groupId}`;
+    const statusChannel = supabase
+        .channel(messageStatusChannelName)
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'group_message_status',
+              filter: `message_id=in.(SELECT id FROM group_chat_messages WHERE group_id = '${groupId}')`
+            },
+            (payload: any) => {
+                const statusUpdate = payload.new as {message_id: string; user_id: string; is_delivered: boolean; delivered_at: string; is_seen: boolean; seen_at: string;};
+                if (statusUpdate && statusUpdate.message_id && statusUpdate.user_id === currentUserId) {
+                    setMessages(prevMessages => 
+                        prevMessages.map(msg => {
+                            if (msg._id === statusUpdate.message_id) {
+                                return {
+                                    ...msg,
+                                    isDelivered: statusUpdate.is_delivered,
+                                    deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : null,
+                                    isSeen: statusUpdate.is_seen,
+                                    seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : null,
+                                };
+                            }
+                            return msg;
+                        })
+                    );
+                }
+            }
+        )
+        .subscribe();
+
+    const infoChannel = supabase.channel(`group_info_${groupId}`).on<DbGroupChat>('postgres_changes',{ event: 'UPDATE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },(payload) => { const d=payload.new; if(d.group_name!==currentGroupName){setCurrentGroupName(d.group_name);} if(d.group_image!==currentGroupImage){setCurrentGroupImage(d.group_image);} if(d.can_members_add_others!==undefined){setCanMembersAddOthers(d.can_members_add_others);} if(d.can_members_edit_info!==undefined){setCanMembersEditInfo(d.can_members_edit_info);} }).on<any>('postgres_changes',{ event: 'DELETE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },(payload) => { Alert.alert("Group Deleted", "This group no longer exists.", [{ text: "OK", onPress: () => navigation.popToTop() }]); }).subscribe(); return () => { supabase.removeChannel(messageChannel); supabase.removeChannel(statusChannel); supabase.removeChannel(infoChannel); }; }, [groupId, currentUserId, mapDbMessageToChatMessage, navigation, currentGroupName, currentGroupImage, canMembersAddOthers, canMembersEditInfo, editingMessage, messages, markMessageDelivered]);
 
     // Navigation and Header
     const navigateToGroupInfo = () => { if (!groupId || !currentGroupName) return; navigation.navigate('GroupInfoScreen', { groupId, groupName: currentGroupName ?? 'Group', groupImage: currentGroupImage ?? null }); };
@@ -1635,17 +1773,66 @@ const GroupChatScreen: React.FC = () => {
         setLoadingMessageInfo(true);
         setMessageInfoVisible(true);
         try {
-            const { data, error } = await supabase.rpc('get_group_message_status', {
-                message_id_input: selectedMessageForAction._id
+            // Get group member count and message status information
+            const [memberCountResult, statusResult] = await Promise.all([
+                // Get total group member count
+                supabase
+                    .from('group_chat_members')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('group_id', groupId),
+                
+                // Get message status for all members
+                supabase
+                    .from('group_message_status')
+                    .select('user_id, is_seen, seen_at, is_delivered, delivered_at')
+                    .eq('message_id', selectedMessageForAction._id)
+            ]);
+
+            if (memberCountResult.error) {
+                throw memberCountResult.error;
+            }
+            
+            if (statusResult.error) {
+                throw statusResult.error;
+            }
+
+            const totalMembers = memberCountResult.count || 0;
+            const statusData = statusResult.data || [];
+            
+            // Count delivered and seen
+            const deliveredCount = statusData.filter(s => s.is_delivered).length;
+            const seenCount = statusData.filter(s => s.is_seen).length;
+            
+            // Get seen details for display
+            const seenUsers = statusData
+                .filter(s => s.is_seen && s.seen_at)
+                .map(s => ({
+                    user_id: s.user_id,
+                    seen_at: s.seen_at
+                }));
+
+            setMessageInfoData({
+                message_id: selectedMessageForAction._id,
+                sent_at: selectedMessageForAction.createdAt.toISOString(),
+                total_members: totalMembers,
+                delivered_count: deliveredCount,
+                seen_count: seenCount,
+                seen_users: seenUsers
             });
-            if (error) throw error;
-            setMessageInfoData(data);
         } catch (err: any) {
-            Alert.alert("Error", `Failed to get message info: ${err.message}`);
-            setMessageInfoVisible(false); // Close if error
+            console.error("Error fetching group message info:", err);
+            // Fallback to basic message data
+            setMessageInfoData({
+                message_id: selectedMessageForAction._id,
+                sent_at: selectedMessageForAction.createdAt.toISOString(),
+                total_members: 0,
+                delivered_count: 0,
+                seen_count: 0,
+                seen_users: []
+            });
         } finally {
             setLoadingMessageInfo(false);
-            setSelectedMessageForAction(null); // Clear selection after action
+            setSelectedMessageForAction(null);
         }
     };
 
@@ -1667,7 +1854,7 @@ const GroupChatScreen: React.FC = () => {
         try {
             const { data: dbMessage, error } = await supabase
                 .from('group_chat_messages')
-                .select('id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id')
+                .select('id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id, is_delivered, delivered_at, is_seen, seen_at')
                 .eq('id', messageId)
                 .maybeSingle(); // Changed from .single() to .maybeSingle()
                 
@@ -2053,21 +2240,23 @@ const GroupChatScreen: React.FC = () => {
                         <ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
                     ) : messageInfoData ? (
                         <ScrollView>
-                            <Text style={styles.messageInfoSectionTitle}>Sent at: {messageInfoData.message_id ? formatTime(new Date(messages.find(m=>m._id === messageInfoData.message_id)?.createdAt || Date.now())) : 'N/A'}</Text>
-                             {/* Add more details based on messageInfoData structure from get_group_message_status */}
-                            <Text style={styles.messageInfoSectionTitle}>Delivered: {messageInfoData.delivered_count} / {messageInfoData.total_members}</Text>
+                            <Text style={styles.messageInfoSectionTitle}>Sent at: {formatTime(new Date(messageInfoData.sent_at))}</Text>
                             <Text style={styles.messageInfoSectionTitle}>Seen by: {messageInfoData.seen_count} / {messageInfoData.total_members}</Text>
-                            {messageInfoData.members && messageInfoData.members.map((member: any, index: number) => (
-                                <View key={member.user_id || index} style={styles.messageInfoMemberRow}>
-                                    <Image source={{uri: member.profile_picture || DEFAULT_PROFILE_PIC}} style={styles.messageInfoMemberImage} />
-                                    <View style={styles.messageInfoMemberInfo}>
-                                        <Text style={styles.messageInfoMemberName}>{member.first_name || 'User'} {member.last_name || ''}</Text>
-                                        {member.is_seen && member.seen_at && <Text style={styles.messageInfoStatusText}>Seen: {formatTime(new Date(member.seen_at))}</Text>}
-                                        {!member.is_seen && member.is_delivered && member.delivered_at && <Text style={styles.messageInfoStatusText}>Delivered: {formatTime(new Date(member.delivered_at))}</Text>}
-                                        {!member.is_seen && !member.is_delivered && <Text style={styles.messageInfoStatusText}>Sent</Text>}
-                                    </View>
+                            
+                            {messageInfoData.seen_users && messageInfoData.seen_users.length > 0 && (
+                                <View style={{ marginTop: 16 }}>
+                                    <Text style={styles.messageInfoSectionTitle}>Seen by:</Text>
+                                    {messageInfoData.seen_users.map((seenUser: any, index: number) => (
+                                        <Text key={index} style={styles.messageInfoDetailText}>
+                                            • User at {formatTime(new Date(seenUser.seen_at))}
+                                        </Text>
+                                    ))}
                                 </View>
-                            ))}
+                            )}
+                            
+                            {messageInfoData.seen_count === 0 && (
+                                <Text style={styles.messageInfoDetailText}>No one has seen this message yet</Text>
+                            )}
                         </ScrollView>
                     ) : (
                         <Text>No information available.</Text>
@@ -2880,6 +3069,11 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#6B7280',
         marginBottom: 1,
+    },
+    messageInfoDetailText: {
+        fontSize: 14,
+        color: '#6B7280',
+        marginTop: 4,
     },
 });
 

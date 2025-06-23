@@ -303,7 +303,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                     <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
                         {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
-                        {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="#A0AEC0" style={{ marginLeft: 4 }} />} 
                     </Text>
                 </View>
             </View>
@@ -389,7 +388,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                             <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
                                 {formatTime(message.createdAt)}
                                 {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />} 
-                                {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />} 
                             </Text>
                         </View>
                     </View>
@@ -449,7 +447,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                     <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
                         {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
-                        {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="#A0AEC0" style={{ marginLeft: 4 }} />} 
                     </Text>
                 </View>
             </TouchableOpacity>
@@ -491,7 +488,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                         <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
                             {formatTime(message.createdAt)}
                             {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />} 
-                            {isCurrentUser && message.isDelivered && !message.isSeen && <Feather name="check" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />} 
                         </Text>
                     </View>
                 </View>
@@ -862,7 +858,7 @@ const IndividualChatScreen: React.FC = () => {
         try {
             // Check if current user muted the match user
             const { count: muteCount, error: muteError } = await supabase
-                .from('mutes')
+                .from('muted_users')
                 .select('*', { count: 'exact', head: true }) // Use count directly
                 .eq('muter_id', currentUserId)
                 .eq('muted_id', matchUserId);
@@ -1392,14 +1388,8 @@ const IndividualChatScreen: React.FC = () => {
                     } catch (mutualErr) {
                         console.warn("Error checking mutual initiation:", mutualErr);
                     }
-                     // If the message is for the current user, mark as delivered
-                    if (receivedMessage.user._id === matchUserId && currentUserId) { // Message from other user to me
-                        try {
-                            await markMessageDelivered(receivedMessage._id);
-                        } catch (deliveredErr) {
-                            console.warn("Error marking message as delivered:", deliveredErr);
-                        }
-                    }
+                     // If the message is for the current user, no need to mark as delivered since we're removing that feature
+                    // Just let the real-time subscription handle the message display
                 }
             )
             .on<DbMessage>(
@@ -1936,25 +1926,52 @@ const IndividualChatScreen: React.FC = () => {
 
     const handleShowMessageInfo = async () => {
         if (!selectedMessageForAction || selectedMessageForAction.user._id !== currentUserId) {
-            // For individual chats, info is usually only relevant for own messages (sent, delivered, seen)
-            // Or, if we want to show when the *other* user's message was delivered/seen by *us* - this needs clarification
-             Alert.alert("Info", "Message status is shown with checkmarks.");
-             setMessageActionModalVisible(false);
-             setSelectedMessageForAction(null);
+            Alert.alert("Info", "Message status is shown with checkmarks.");
+            setMessageActionModalVisible(false);
+            setSelectedMessageForAction(null);
             return;
         }
         setMessageActionModalVisible(false);
         setLoadingMessageInfo(true);
         setMessageInfoVisible(true);
         try {
-            const { data, error } = await supabase.rpc('get_individual_message_status', {
-                message_id_input: selectedMessageForAction._id
-            });
-            if (error) throw error;
-            setMessageInfoData(data);
+            // Query the message_status table directly for this specific message
+            const { data: statusData, error } = await supabase
+                .from('message_status')
+                .select('is_seen, seen_at')
+                .eq('message_id', selectedMessageForAction._id)
+                .maybeSingle();
+
+            if (error) {
+                console.warn('Error fetching message status:', error);
+                // If no status record exists, the message hasn't been seen yet
+                setMessageInfoData({
+                    sent_at: selectedMessageForAction.createdAt.toISOString(),
+                    is_seen: false,
+                    seen_at: null
+                });
+            } else if (statusData) {
+                setMessageInfoData({
+                    sent_at: selectedMessageForAction.createdAt.toISOString(),
+                    is_seen: statusData.is_seen,
+                    seen_at: statusData.seen_at
+                });
+            } else {
+                // No status record found - message not seen yet
+                setMessageInfoData({
+                    sent_at: selectedMessageForAction.createdAt.toISOString(),
+                    is_seen: false,
+                    seen_at: null
+                });
+            }
         } catch (err: any) {
-            Alert.alert("Error", `Failed to get message info: ${err.message}`);
-            setMessageInfoVisible(false); 
+            console.error("Error fetching message info:", err);
+            // Fallback to message data we already have
+            setMessageInfoData({
+                sent_at: selectedMessageForAction.createdAt.toISOString(),
+                is_seen: selectedMessageForAction.isSeen || false,
+                seen_at: selectedMessageForAction.seenAt?.toISOString() || null
+            });
         } finally {
             setLoadingMessageInfo(false);
             setSelectedMessageForAction(null); 
@@ -1971,22 +1988,6 @@ const IndividualChatScreen: React.FC = () => {
             };
         }
         return null;
-    };
-
-    // Function to mark a message as delivered (called when a message is received by this user)
-    const markMessageDelivered = async (messageId: string) => {
-        if (!currentUserId) return;
-        try {
-            const { error } = await supabase.rpc('mark_message_delivered', { message_id_input: messageId });
-            if (error) console.error('Error marking message delivered:', error);
-            else {
-                console.log(`Message ${messageId} marked as delivered.`);
-                 // Optimistically update UI or rely on subscription to message_status table
-                setMessages(prev => prev.map(m => m._id === messageId ? {...m, isDelivered: true, deliveredAt: new Date()} : m));
-            }
-        } catch (e) {
-            console.error('Exception marking message delivered:', e);
-        }
     };
 
     // Function to mark messages as seen when the chat screen is focused or messages are visible
@@ -2007,7 +2008,8 @@ const IndividualChatScreen: React.FC = () => {
                 if (error) {
                     console.error(`Error marking message ${message._id} as seen:`, error.message);
                 } else {
-                    // Optimistically update UI or rely on subscription
+                    console.log(`Message ${message._id} marked as seen.`);
+                     // Optimistically update UI or rely on subscription to message_status table
                     setMessages(prev => prev.map(m => m._id === message._id ? {...m, isSeen: true, seenAt: new Date()} : m));
                 }
             } catch (e: any) {
@@ -2340,17 +2342,12 @@ const IndividualChatScreen: React.FC = () => {
                     ) : messageInfoData ? (
                         <View>
                             <Text style={styles.messageInfoText}>Status for your message:</Text>
-                            <Text style={styles.messageInfoDetailText}>Sent: {formatTime(new Date(messageInfoData.sent_at || Date.now()))}</Text>
-                            {messageInfoData.is_delivered && messageInfoData.delivered_at && 
-                                <Text style={styles.messageInfoDetailText}>Delivered: {formatTime(new Date(messageInfoData.delivered_at))}</Text>}
-                            {!messageInfoData.is_delivered && 
-                                <Text style={styles.messageInfoDetailText}>Delivered: Not yet</Text>}
-                            {messageInfoData.is_seen && messageInfoData.seen_at && 
-                                <Text style={styles.messageInfoDetailText}>Seen: {formatTime(new Date(messageInfoData.seen_at))}</Text>}
-                            {!messageInfoData.is_seen && 
-                                <Text style={styles.messageInfoDetailText}>Seen: Not yet</Text>}
-                            {messageInfoData.is_edited && messageInfoData.edited_at && 
-                                <Text style={styles.messageInfoDetailText}>Edited: {formatTime(new Date(messageInfoData.edited_at))}</Text>}
+                            <Text style={styles.messageInfoDetailText}>Sent: {formatTime(new Date(messageInfoData.sent_at))}</Text>
+                            {messageInfoData.is_seen && messageInfoData.seen_at ? (
+                                <Text style={styles.messageInfoDetailText}>Seen: {formatTime(new Date(messageInfoData.seen_at))}</Text>
+                            ) : (
+                                <Text style={styles.messageInfoDetailText}>Seen: Not yet</Text>
+                            )}
                         </View>
                     ) : (
                         <Text>No information available.</Text>

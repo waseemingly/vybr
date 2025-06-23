@@ -129,27 +129,13 @@ const OtherUserProfileScreen: React.FC = () => {
         try {
             const { data: profile, error: profileError } = await supabase
                 .from('music_lover_profiles')
-                .select('id, user_id, first_name, last_name, username, profile_picture, age, city, country, is_premium, bio, music_data, favorite_artists, favorite_albums, favorite_songs')
+                .select('id, user_id, first_name, last_name, username, profile_picture, email, age, city, country, is_premium, bio, music_data, favorite_artists, favorite_albums, favorite_songs, selected_streaming_service, terms_accepted, secondary_streaming_services, stripe_customer_id')
                 .eq('user_id', profileUserId)
                 .single();
 
-            if (profileError && profileError.code === 'PGRST116') {
-                console.log(`[OtherUserProfileScreen] Profile not found for user ${profileUserId}.`);
-                setError("Profile not found.");
-                setProfileData(null);
-                return;
-            } else if (profileError) {
-                throw profileError;
-            }
+            if (profileError) throw profileError;
+            if (!profile) throw new Error("Profile not found");
 
-            if (!profile) {
-                 console.log(`[OtherUserProfileScreen] Profile data is null for user ${profileUserId}.`);
-                 setError("Profile not found.");
-                 setProfileData(null);
-                 return;
-            }
-
-            console.log(`[OtherUserProfileScreen] Retrieved profile successfully.`);
             setProfileData({
                 id: profile.id,
                 userId: profile.user_id,
@@ -157,7 +143,7 @@ const OtherUserProfileScreen: React.FC = () => {
                 lastName: profile.last_name,
                 username: profile.username,
                 profilePicture: profile.profile_picture,
-                email: session?.user?.email ?? 'N/A',
+                email: profile.email || session?.user?.email || '',
                 age: profile.age,
                 city: profile.city,
                 country: profile.country,
@@ -167,6 +153,10 @@ const OtherUserProfileScreen: React.FC = () => {
                 favorite_artists: profile.favorite_artists,
                 favorite_albums: profile.favorite_albums,
                 favorite_songs: profile.favorite_songs,
+                selectedStreamingService: profile.selected_streaming_service || null,
+                termsAccepted: profile.terms_accepted || false,
+                secondary_streaming_services: profile.secondary_streaming_services || [],
+                stripe_customer_id: profile.stripe_customer_id || null,
             });
             await fetchFriendsCount();
 
@@ -392,7 +382,7 @@ const OtherUserProfileScreen: React.FC = () => {
 
     // --- Action Handlers ---
 
-    // handleAddFriendDirectly - remains unchanged
+    // handleAddFriendDirectly - Updated to use RPC for real-time functionality
     const handleAddFriendDirectly = async () => {
         if (!currentUserId || !profileUserId || friendshipStatus !== 'not_friends' || isLoading) {
             console.log("[OtherUserProfileScreen] Add friend conditions not met:", { currentUserIdPresent: !!currentUserId, profileUserIdPresent: !!profileUserId, status: friendshipStatus, isLoading });
@@ -401,33 +391,26 @@ const OtherUserProfileScreen: React.FC = () => {
         console.log(`[OtherUserProfileScreen] Initiating 'Send Friend Request' action for: ${profileUserId}`);
         setFriendshipStatus('loading');
 
-        // user_id_1 is sender, user_id_2 is receiver for 'pending'
-        // requester_id is also sender for 'pending'
         try {
-            const { error: insertError } = await supabase
-                .from('friends')
-                .insert({
-                    user_id_1: currentUserId, // Sender
-                    user_id_2: profileUserId, // Receiver
-                    status: 'pending',
-                    requester_id: currentUserId // Sender is the requester of 'pending' state
-                });
+            const { error: sendError } = await supabase.rpc('send_friend_request', {
+                sender_id: currentUserId,
+                receiver_id: profileUserId
+            });
 
-            if (insertError) {
-                if (insertError.message?.toLowerCase().includes('rls') || insertError.message?.toLowerCase().includes('policy')) {
-                   throw new Error(`Permission denied: ${insertError.message}`);
-                } else if (insertError.code === '23505') { // Unique violation
+            if (sendError) {
+                if (sendError.message?.toLowerCase().includes('rls') || sendError.message?.toLowerCase().includes('policy')) {
+                   throw new Error(`Permission denied: ${sendError.message}`);
+                } else if (sendError.message?.toLowerCase().includes('already exists') || sendError.code === '23505') {
                     console.warn("[OtherUserProfileScreen] Attempted to send request but a relationship already exists. Fetching latest status.");
                     await fetchInteractionStatus(); // Refresh status to reflect existing relation
                     return;
                 }
                 else {
-                   throw new Error(`Failed to send friend request: ${insertError.message}`);
+                   throw new Error(`Failed to send friend request: ${sendError.message}`);
                 }
             }
             console.log("[OtherUserProfileScreen] Successfully sent friend request.");
             setFriendshipStatus('pending_sent'); // Update UI to reflect sent request
-            // fetchFriendsCount(); // No need to fetch count for pending requests generally
 
         } catch (err: any) {
             console.error("[OtherUserProfileScreen] Error caught during 'Send Friend Request' action:", err);
@@ -531,13 +514,10 @@ const OtherUserProfileScreen: React.FC = () => {
         console.log(`[OtherUserProfileScreen] Cancelling friend request to: ${profileUserId}`);
         setFriendshipStatus('loading');
         try {
-            // Delete the 'pending' request where current user is user_id_1 (sender)
-            const { error } = await supabase
-                .from('friends')
-                .delete()
-                .eq('user_id_1', currentUserId)
-                .eq('user_id_2', profileUserId)
-                .eq('status', 'pending');
+            const { error } = await supabase.rpc('cancel_friend_request', {
+                sender_id: currentUserId,
+                receiver_id: profileUserId
+            });
             if (error) throw error;
             console.log("[OtherUserProfileScreen] Friend request cancelled.");
             setFriendshipStatus('not_friends');
@@ -553,14 +533,10 @@ const OtherUserProfileScreen: React.FC = () => {
         console.log(`[OtherUserProfileScreen] Accepting friend request from: ${profileUserId}`);
         setFriendshipStatus('loading');
         try {
-            // Update the 'pending' request where current user is user_id_2 (receiver)
-            // and profileUser is user_id_1 (sender)
-            const { error } = await supabase
-                .from('friends')
-                .update({ status: 'accepted', requester_id: currentUserId /* Current user is accepting */ })
-                .eq('user_id_1', profileUserId) // Original sender
-                .eq('user_id_2', currentUserId) // Original receiver (current user)
-                .eq('status', 'pending');
+            const { error } = await supabase.rpc('accept_friend_request', {
+                requester_id: profileUserId,
+                current_user_id: currentUserId
+            });
             if (error) throw error;
             console.log("[OtherUserProfileScreen] Friend request accepted.");
             setFriendshipStatus('friends');
@@ -577,25 +553,13 @@ const OtherUserProfileScreen: React.FC = () => {
         console.log(`[OtherUserProfileScreen] Declining friend request from: ${profileUserId}`);
         setFriendshipStatus('loading');
         try {
-            // Option 1: Update status to 'rejected'
-            const { error } = await supabase
-                .from('friends')
-                .update({ status: 'rejected', requester_id: currentUserId /* Current user is declining */ })
-                .eq('user_id_1', profileUserId) // Original sender
-                .eq('user_id_2', currentUserId) // Original receiver (current user)
-                .eq('status', 'pending');
-
-            // Option 2: Delete the request row entirely (simpler, less state to manage for 'rejected')
-            // const { error } = await supabase
-            //     .from('friends')
-            //     .delete()
-            //     .eq('user_id_1', profileUserId)
-            //     .eq('user_id_2', currentUserId)
-            //     .eq('status', 'pending');
-
+            const { error } = await supabase.rpc('decline_friend_request', {
+                requester_id: profileUserId,
+                current_user_id: currentUserId
+            });
             if (error) throw error;
             console.log("[OtherUserProfileScreen] Friend request declined.");
-            setFriendshipStatus('rejected_by_you'); // Or 'not_friends' if deleting
+            setFriendshipStatus('rejected_by_you');
         } catch (err: any) {
             console.error("[OtherUserProfileScreen] Error declining friend request:", err);
             Alert.alert("Error", "Could not decline friend request.");

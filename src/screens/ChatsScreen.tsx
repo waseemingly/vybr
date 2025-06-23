@@ -68,11 +68,11 @@ const ChatsScreen = () => {
               // Example navigation:
               // navigation.navigate('OtherUserProfileScreen', { userId: itemData.partner_user_id });
          }
-     }, [navigation]); // Add navigation dependency
+     }, []);
 
     // Handler to set active tab AND clear search when tab changes
     const handleSetTab = useCallback((tab: 'individual' | 'groups') => {
-        if (tab !== activeTab) { // Prevent unnecessary state updates/clearing
+        if (tab !== activeTab) {
             console.log(`Switching tab to: ${tab}`);
             setSearchQuery(''); // Clear search when switching tabs
             Keyboard.dismiss();
@@ -82,16 +82,12 @@ const ChatsScreen = () => {
             }
         }
         setActiveTab(tab);
-    }, [activeTab]); // Depend on activeTab
+    }, [activeTab]);
 
     // Handler for individual sub-tab change
     const handleSetIndividualSubTab = useCallback((subTab: IndividualSubTab) => {
         if (subTab !== individualSubTab) {
             console.log(`Switching individual sub-tab to: ${subTab}`);
-            // We might not need to clear search query when switching sub-tabs, 
-            // as the search might still be relevant. This can be a UX decision.
-            // setSearchQuery(''); 
-            // Keyboard.dismiss();
             setIndividualSubTab(subTab);
         }
     }, [individualSubTab]);
@@ -152,8 +148,8 @@ const ChatsScreen = () => {
                     // Pass state and handlers down
                     activeTab={activeTab}
                     setActiveTab={handleSetTab}
-                    individualSubTab={individualSubTab} // Pass new state
-                    setIndividualSubTab={handleSetIndividualSubTab} // Pass new handler
+                    individualSubTab={individualSubTab}
+                    setIndividualSubTab={handleSetIndividualSubTab}
                     onChatOpen={handleChatOpen}
                     onProfileOpen={handleProfileOpen}
                     searchQuery={searchQuery}

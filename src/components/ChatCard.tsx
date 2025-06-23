@@ -362,6 +362,7 @@ interface ChatCardProps {
     membersPreview?: string; // Optional: For group chats, e.g., "You, John, +3 others"
     onChatOpen: () => void; // Called when the card body is pressed
     onProfileOpen?: () => void; // Called ONLY when avatar is pressed (for individual)
+    onLongPress?: () => void; // Called when the card is long pressed
 }
 
 // Define default images - consider adding actual assets to your project
@@ -370,16 +371,22 @@ const DEFAULT_PROFILE_PIC_URL = 'https://via.placeholder.com/150/CCCCCC/808080?t
 
 const ChatCard: React.FC<ChatCardProps> = ({
     id, name, image, lastMessage, time, unread, isPinned, type, membersPreview,
-    onChatOpen, onProfileOpen
+    onChatOpen, onProfileOpen, onLongPress
 }) => {
     // Determine the image source or fallback
     const imageSourceUri = image ?? (type === 'group' ? DEFAULT_GROUP_PIC_URL : DEFAULT_PROFILE_PIC_URL);
 
     return (
         <TouchableOpacity
-            style={[styles.container, isPinned && styles.pinned, unread > 0 && styles.unread]}
-            activeOpacity={0.8} // Slightly more feedback on press
-            onPress={onChatOpen} // Navigate to chat on main card press
+            style={[
+                styles.container, 
+                isPinned && styles.pinned, 
+                unread > 0 && styles.unread
+            ]}
+            activeOpacity={0.8}
+            onPress={onChatOpen}
+            onLongPress={onLongPress}
+            delayLongPress={500} // 500ms long press delay
         >
             <View style={styles.content}>
                 {/* Avatar Area - Tappable only for individual profiles */}
@@ -392,16 +399,32 @@ const ChatCard: React.FC<ChatCardProps> = ({
                 >
                     {/* Use Image component - consider adding placeholder/error handling later */}
                     <Image source={{ uri: imageSourceUri }} style={styles.avatar} />
-                    {/* You could add an online indicator dot here later */}
+                    {/* Online indicator or other status indicators can be added here */}
+                    {unread > 0 && (
+                        <View style={styles.onlineIndicator} />
+                    )}
                 </TouchableOpacity>
 
                 {/* Chat Info Area */}
                 <View style={styles.chatInfo}>
                     <View style={styles.nameTimeRow}>
-                        <Text style={[styles.name, unread > 0 && styles.nameUnread]} numberOfLines={1}>{name}</Text>
-                        <Text style={styles.time}>{time}</Text>
+                        <Text style={[
+                            styles.name, 
+                            unread > 0 && styles.nameUnread
+                        ]} numberOfLines={1}>
+                            {name}
+                        </Text>
+                        <Text style={[
+                            styles.time,
+                            unread > 0 && styles.timeUnread
+                        ]}>
+                            {time}
+                        </Text>
                     </View>
-                    <Text style={[styles.message, unread > 0 && styles.messageUnread]} numberOfLines={1}>
+                    <Text style={[
+                        styles.message, 
+                        unread > 0 && styles.messageUnread
+                    ]} numberOfLines={1}>
                         {lastMessage}
                     </Text>
                     {/* Show members preview only for groups */}
@@ -412,20 +435,16 @@ const ChatCard: React.FC<ChatCardProps> = ({
                     )}
                 </View>
 
-                {/* Unread Badge */}
-                {unread > 0 && (
-                    <View style={styles.badgeContainer}>
+                {/* Unread Badge or Pinned Icon */}
+                <View style={styles.badgeContainer}>
+                    {unread > 0 ? (
                         <View style={styles.badge}>
-                           <Text style={styles.badgeText}>{unread > 9 ? '9+' : unread}</Text>
+                           <Text style={styles.badgeText}>{unread > 99 ? '99+' : unread}</Text>
                         </View>
-                    </View>
-                )}
-                 {/* Pinned Icon (Optional) */}
-                 {isPinned && !unread && ( // Show pin only if not unread (badge takes precedence)
-                     <View style={styles.badgeContainer}>
-                         <Feather name="map-pin" size={16} color="#A0AEC0" style={styles.pinIcon} />
-                    </View>
-                 )}
+                    ) : isPinned ? (
+                        <Feather name="bookmark" size={16} color="#A0AEC0" style={styles.pinIcon} />
+                    ) : null}
+                </View>
             </View>
         </TouchableOpacity>
     );
@@ -436,20 +455,18 @@ const styles = StyleSheet.create({
     container: {
         backgroundColor: "white",
         borderRadius: 12,
-        overflow: "hidden", // Changed from hidden to visible if badge needs overflow
+        overflow: "hidden",
         marginBottom: 8,
-        // Removed shadows for a flatter look, add back if desired
-        borderWidth: StyleSheet.hairlineWidth, // Use hairline for subtle border
-        borderColor: "#E5E7EB", // Lighter border
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: "#E5E7EB",
     },
     pinned: {
-        borderLeftWidth: 3, // Slightly thinner pinned border
-        borderLeftColor: "#60A5FA",
-        // backgroundColor: '#F0F9FF' // Optional subtle background for pinned
+        borderLeftWidth: 3,
+        borderLeftColor: "#F59E0B", // Amber color for pinned
     },
     unread: {
-        // Keep subtle background or remove if badge is enough
-         backgroundColor: "rgba(59, 130, 246, 0.03)",
+        backgroundColor: "rgba(59, 130, 246, 0.02)", // Very subtle background for unread
+        borderColor: "rgba(59, 130, 246, 0.1)",
     },
     content: {
         flexDirection: "row",
@@ -459,79 +476,93 @@ const styles = StyleSheet.create({
     },
     avatarContainer: {
         marginRight: 12,
-        position: 'relative', // For potential online indicator
+        position: 'relative',
     },
     avatar: {
-        width: 52, // Slightly larger avatar
+        width: 52,
         height: 52,
         borderRadius: 26,
-        backgroundColor: '#E5E7EB', // Background color while loading
+        backgroundColor: '#E5E7EB',
     },
-    // Removed avatarFallback styles - handled by Image component's default source or background
+    onlineIndicator: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+        backgroundColor: '#10B981', // Green color for unread indicator
+        borderWidth: 2,
+        borderColor: 'white',
+    },
     chatInfo: {
         flex: 1,
-        justifyContent: 'center', // Vertically center text lines
+        justifyContent: 'center',
     },
     nameTimeRow: {
         flexDirection: "row",
         justifyContent: "space-between",
-        alignItems: 'center', // Align name and time vertically
-        marginBottom: 3, // Reduced space
+        alignItems: 'center',
+        marginBottom: 3,
     },
     name: {
         fontWeight: "600",
-        fontSize: 15, // Slightly smaller name
+        fontSize: 15,
         color: "#1F2937",
-        flexShrink: 1, // Allow name to shrink if time is long
+        flexShrink: 1,
         marginRight: 5,
     },
     nameUnread: {
-         fontWeight: "bold", // Make name bold if unread
-         color: "#111827",
+        fontWeight: "bold", // Make name bold if unread
+        color: "#111827",
     },
     time: {
         fontSize: 12,
         color: "#6B7280",
-        marginLeft: 'auto', // Push time to the right
+        marginLeft: 'auto',
+    },
+    timeUnread: {
+        color: "#374151", // Darker time text if unread
+        fontWeight: "500",
     },
     message: {
         fontSize: 14,
         color: "#4B5563",
     },
-     messageUnread: {
-         color: "#1F2937", // Darker message text if unread
-         fontWeight: "500",
+    messageUnread: {
+        color: "#1F2937", // Darker message text if unread
+        fontWeight: "500",
     },
     membersRow: {
-        marginTop: 3, // Reduced space
+        marginTop: 3,
     },
     members: {
         fontSize: 12,
-        color: "#9CA3AF", // Lighter grey for members
+        color: "#9CA3AF",
         fontStyle: 'italic',
     },
-     badgeContainer: {
-         marginLeft: 8, // Space before badge/pin
-         width: 24, // Fixed width container for alignment
-         alignItems: 'center',
-         justifyContent: 'center',
+    badgeContainer: {
+        marginLeft: 8,
+        width: 28, // Fixed width container for alignment
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     badge: {
-        backgroundColor: "#3B82F6", // Use primary color
-        borderRadius: 10,
-        minWidth: 20, // Min width for badge
-        height: 20,
+        backgroundColor: "#3B82F6",
+        borderRadius: 12,
+        minWidth: 24,
+        height: 24,
         alignItems: "center",
         justifyContent: "center",
-        paddingHorizontal: 5, // Dynamic padding based on text
+        paddingHorizontal: 6,
     },
     badgeText: {
         color: "white",
-        fontSize: 11, // Smaller badge text
+        fontSize: 11,
         fontWeight: "bold",
     },
-     pinIcon: {
-        // Style for pin icon if needed
+    pinIcon: {
+        opacity: 0.6,
     }
 });
 
