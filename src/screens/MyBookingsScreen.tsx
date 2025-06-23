@@ -40,14 +40,31 @@ const MyBookingsScreen = () => {
     setError(null);
 
     try {
-      // We only want to show bookings for events that haven't happened yet.
+      console.log('[MyBookingsScreen] Fetching bookings for user:', session.user.id);
+      
+      // First, let's get all bookings for this user to debug
+      const { data: allBookings, error: allBookingsError } = await supabase
+        .from('event_bookings')
+        .select('*')
+        .eq('user_id', session.user.id);
+        
+      console.log('[MyBookingsScreen] All bookings for user:', allBookings);
+      
+      if (allBookingsError) {
+        console.error('[MyBookingsScreen] Error fetching all bookings:', allBookingsError);
+      }
+
+      // Now get bookings with event details - using a simpler approach
       const { data, error: fetchError } = await supabase
         .from('event_bookings')
         .select(`
           id,
           booking_code,
           quantity,
-          event:events!inner(
+          status,
+          created_at,
+          event_id,
+          events (
             id,
             title,
             event_datetime,
@@ -56,10 +73,10 @@ const MyBookingsScreen = () => {
         `)
         .eq('user_id', session.user.id)
         .eq('status', 'CONFIRMED')
-        .gt('events.event_datetime', new Date().toISOString())
-        .order('event_datetime', { foreignTable: 'events', ascending: true });
+        .order('created_at', { ascending: false }); // Show newest bookings first
 
       if (fetchError) {
+        console.error('[MyBookingsScreen] Error fetching bookings with events:', fetchError);
         throw fetchError;
       }
 
@@ -67,18 +84,49 @@ const MyBookingsScreen = () => {
       console.log('[MyBookingsScreen] Raw booking data from Supabase:', JSON.stringify(data, null, 2));
       // --- END DEBUG LOG ---
 
-      const mappedBookings: UserBooking[] = data.map((b: any) => ({
-        booking_id: b.id,
-        booking_code: b.booking_code,
-        event_id: b.event.id,
-        event_title: b.event.title,
-        event_datetime: b.event.event_datetime,
-        event_poster: b.event.poster_urls?.[0] || DEFAULT_EVENT_IMAGE,
-        quantity: b.quantity,
-      }));
+      if (!data || data.length === 0) {
+        console.log('[MyBookingsScreen] No bookings found for user');
+        setBookings([]);
+        return;
+      }
 
-      // Robust client-side sorting to guarantee order
-      mappedBookings.sort((a, b) => new Date(a.event_datetime).getTime() - new Date(b.event_datetime).getTime());
+      const mappedBookings: UserBooking[] = data
+        .filter((b: any) => b.events) // Only include bookings where event data was found
+        .map((b: any) => ({
+          booking_id: b.id,
+          booking_code: b.booking_code || 'N/A',
+          event_id: b.event_id,
+          event_title: b.events.title,
+          event_datetime: b.events.event_datetime,
+          event_poster: b.events.poster_urls?.[0] || DEFAULT_EVENT_IMAGE,
+          quantity: b.quantity,
+        }));
+
+      console.log('[MyBookingsScreen] Mapped bookings:', mappedBookings);
+
+      // Sort by event date (upcoming events first, then past events)
+      mappedBookings.sort((a, b) => {
+        const dateA = new Date(a.event_datetime).getTime();
+        const dateB = new Date(b.event_datetime).getTime();
+        const now = new Date().getTime();
+        
+        // If both are future events, sort by date (earliest first)
+        if (dateA > now && dateB > now) {
+          return dateA - dateB;
+        }
+        // If both are past events, sort by date (most recent first)
+        if (dateA <= now && dateB <= now) {
+          return dateB - dateA;
+        }
+        // Future events come before past events
+        if (dateA > now && dateB <= now) {
+          return -1;
+        }
+        if (dateA <= now && dateB > now) {
+          return 1;
+        }
+        return 0;
+      });
 
       setBookings(mappedBookings);
 
@@ -115,11 +163,19 @@ const MyBookingsScreen = () => {
 
   const renderBookingItem = ({ item }: { item: UserBooking }) => {
     const { date, time } = formatDateTime(item.event_datetime);
+    const isUpcoming = new Date(item.event_datetime) > new Date();
 
     return (
       <View style={styles.bookingCard}>
           <View style={styles.cardHeader}>
-              <Text style={styles.eventTitle} numberOfLines={2}>{item.event_title}</Text>
+              <View style={styles.titleRow}>
+                  <Text style={styles.eventTitle} numberOfLines={2}>{item.event_title}</Text>
+                  <View style={[styles.statusBadge, isUpcoming ? styles.upcomingBadge : styles.pastBadge]}>
+                      <Text style={[styles.statusText, isUpcoming ? styles.upcomingText : styles.pastText]}>
+                          {isUpcoming ? 'Upcoming' : 'Past'}
+                      </Text>
+                  </View>
+              </View>
           </View>
           <View style={styles.cardBody}>
               <View style={styles.bookingDetails}>
@@ -242,10 +298,17 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: '#F3F4F6',
     },
+    titleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
     eventTitle: {
         fontSize: 18,
         fontWeight: '600',
         color: '#1F2937',
+        flex: 1,
+        marginRight: 12,
     },
     cardBody: {
         flexDirection: 'row',
@@ -283,6 +346,29 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         color: APP_CONSTANTS.COLORS.PRIMARY,
         letterSpacing: 2,
+    },
+    statusBadge: {
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        borderRadius: 8,
+        backgroundColor: '#E5E7EB',
+    },
+    statusText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#4B5563',
+    },
+    upcomingBadge: {
+        backgroundColor: '#E0F2FE',
+    },
+    upcomingText: {
+        color: '#0369A1',
+    },
+    pastBadge: {
+        backgroundColor: '#FEF3C7',
+    },
+    pastText: {
+        color: '#92400E',
     },
     centeredContainer: {
         flex: 1,

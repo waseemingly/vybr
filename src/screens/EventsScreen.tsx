@@ -19,6 +19,8 @@ import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNav
 import ImageSwiper from '@/components/ImageSwiper'; // <-- Import the new component
 import { TextInput } from 'react-native';
 import { Calendar, DateData } from 'react-native-calendars';
+import { LinearGradient } from "expo-linear-gradient";
+import { getCurrencyForCountry, getCurrencySymbol, formatPriceWithCurrency } from '../utils/currencyUtils'; // Add currency utilities
 
 // Define navigation prop using imported types
 // Add openEventId to EventsScreen params in RootStackParamList
@@ -135,18 +137,18 @@ const calculateFinalPricePerItem = (basePrice: number | null, passFee: boolean):
     return passFee ? basePrice + TRANSACTION_FEE : basePrice;
 };
 
-const formatDisplayPricePerItem = (basePrice: number | null, passFee: boolean): string => {
+const formatDisplayPricePerItem = (basePrice: number | null, passFee: boolean, currency: string = 'USD'): string => {
     if (basePrice === null || basePrice < 0) return "N/A";
     if (basePrice === 0) return "Free";
     const finalPrice = calculateFinalPricePerItem(basePrice, passFee);
-    return `$${finalPrice.toFixed(2)} each`;
+    return `${formatPriceWithCurrency(finalPrice, currency)} each`;
 };
 
-const formatDisplayTotalPrice = (basePrice: number | null, passFee: boolean, quantity: number): string => {
+const formatDisplayTotalPrice = (basePrice: number | null, passFee: boolean, quantity: number, currency: string = 'USD'): string => {
      if (basePrice === null || basePrice < 0) return "N/A";
-     if (basePrice === 0) return "$0.00";
+     if (basePrice === 0) return formatPriceWithCurrency(0, currency);
      const finalPricePerItem = calculateFinalPricePerItem(basePrice, passFee);
-     return `$${(finalPricePerItem * quantity).toFixed(2)}`;
+     return formatPriceWithCurrency(finalPricePerItem * quantity, currency);
 };
 
 // --- Event Detail Modal Component ---
@@ -222,11 +224,11 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
      }
      const basePrice = event.ticket_price;
      const pricePerItemDisplay = event.booking_type === 'TICKETED'
-                                ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user)
+                                ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user, event.country ? getCurrencyForCountry(event.country) : 'USD')
                                 : "Free";
      const totalPriceDisplay = event.booking_type === 'TICKETED'
-                               ? formatDisplayTotalPrice(basePrice, event.pass_fee_to_user, quantity)
-                               : "$0.00";
+                               ? formatDisplayTotalPrice(basePrice, event.pass_fee_to_user, quantity, event.country ? getCurrencyForCountry(event.country) : 'USD')
+                               : formatPriceWithCurrency(0, event.country ? getCurrencyForCountry(event.country) : 'USD');
 
      let buttonText = "View Details";
      let buttonIcon: React.ComponentProps<typeof Feather>['name'] = "info";
@@ -265,6 +267,8 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
             rawPricePerItem: rawPricePerItemValue, rawTotalPrice: rawTotalPriceValue,
             rawFeePaid: rawFeePaidValue, maxTickets: event.max_tickets,
             maxReservations: event.max_reservations,
+            eventCurrency: event.country ? getCurrencyForCountry(event.country) : 'USD', // Pass event currency
+            eventCountry: event.country, // Pass event country
         } as any); // Use type assertion as parameters might not match perfectly
         onClose();
     };
@@ -510,7 +514,7 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress 
      }
      const basePrice = event.ticket_price;
      const priceText = event.booking_type === 'TICKETED'
-                      ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user)
+                      ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user, event.country ? getCurrencyForCountry(event.country) : 'USD')
                       : event.booking_type === 'RESERVATION' ? "Reservation" : "";
      let buttonText = "View";
      let buttonIcon: React.ComponentProps<typeof Feather>['name'] = "info";
@@ -521,8 +525,8 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress 
     const handleBookPressOnCard = (e: GestureResponderEvent) => {
         e.stopPropagation();
         if (event && (event.booking_type === 'TICKETED' || event.booking_type === 'RESERVATION')) {
-             const pricePerItemDisplayCard = event.booking_type === 'TICKETED' ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user) : "Free";
-             const totalPriceDisplayCard = event.booking_type === 'TICKETED' ? formatDisplayTotalPrice(basePrice, event.pass_fee_to_user, 1) : "$0.00";
+             const pricePerItemDisplayCard = event.booking_type === 'TICKETED' ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user, event.country ? getCurrencyForCountry(event.country) : 'USD') : "Free";
+             const totalPriceDisplayCard = event.booking_type === 'TICKETED' ? formatDisplayTotalPrice(basePrice, event.pass_fee_to_user, 1, event.country ? getCurrencyForCountry(event.country) : 'USD') : formatPriceWithCurrency(0, event.country ? getCurrencyForCountry(event.country) : 'USD');
              let rawPricePerItemValueCard: number | null = null;
              let rawTotalPriceValueCard: number | null = null;
              let rawFeePaidValueCard: number | null = null;
@@ -538,6 +542,8 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress 
                 rawPricePerItem: rawPricePerItemValueCard, rawTotalPrice: rawTotalPriceValueCard,
                 rawFeePaid: rawFeePaidValueCard, maxTickets: event.max_tickets,
                 maxReservations: event.max_reservations,
+                eventCurrency: event.country ? getCurrencyForCountry(event.country) : 'USD', // Pass event currency
+                eventCountry: event.country, // Pass event country
             } as any); // Use type assertion
         } else {
             onPress(); // Open modal if not directly bookable
@@ -2070,13 +2076,15 @@ const ReservationModal: React.FC<ReservationModalProps> = ({ visible, onClose, o
                 eventTitle: event.title,
                 quantity: quantity,
                 pricePerItemDisplay: "Free",
-                totalPriceDisplay: "$0.00",
+                totalPriceDisplay: formatPriceWithCurrency(0, event.country ? getCurrencyForCountry(event.country) : 'USD'),
                 bookingType: 'RESERVATION',
                 rawPricePerItem: 0,
                 rawTotalPrice: 0,
                 rawFeePaid: 0,
                 maxTickets: null,
                 maxReservations: event.max_reservations,
+                eventCurrency: event.country ? getCurrencyForCountry(event.country) : 'USD', // Pass event currency
+                eventCountry: event.country, // Pass event country
             } as any);
             onClose();
 
