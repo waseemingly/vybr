@@ -126,7 +126,7 @@
   "devDependencies": {
     "@babel/core": "^7.20.0",
     "@capacitor/cli": "^5.5.0",
-    "@expo/webpack-config": "~18.0.1",
+    "@expo/webpack-config": "^19.0.1",
     "@react-native-community/cli": "latest",
     "@types/base-64": "^1.0.2",
     "@types/react": "~19.0.10",
