@@ -197,16 +197,10 @@ const PastEventsListScreen: React.FC = () => {
 
     const onRefresh = () => { fetchPastEvents(true); };
 
-    // Use effect to set header title (add isOrganizerViewingOwnEvents to dependencies)
-    useEffect(() => {
-        const screenTitle = isOrganizerViewingOwnEvents
-            ? "My Past Events"
-            : `${organizerName ?? 'Organizer'}'s Past Events`;
-        navigation.setOptions({ 
-            title: screenTitle, 
-            headerBackVisible: true,
-        });
-    }, [navigation, organizerName, isOrganizerViewingOwnEvents]);
+    // Get screen title
+    const screenTitle = isOrganizerViewingOwnEvents
+        ? "My Past Events"
+        : `${organizerName ?? 'Organizer'}'s Past Events`;
 
     // --- Modal State --- (Only needed for non-organizer view)
     const [selectedEvent, setSelectedEvent] = useState<MappedEvent | null>(null);
@@ -261,6 +255,12 @@ const PastEventsListScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                    <Feather name="chevron-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>{screenTitle}</Text>
+            </View>
             {renderContent()}
             {/* Only render modal if NOT organizer view */}
              {!isOrganizerViewingOwnEvents && (
@@ -278,6 +278,25 @@ const PastEventsListScreen: React.FC = () => {
 // --- Styles (Same as UpcomingEventsListScreen) ---
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#F9FAFB' },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    backButton: {
+        padding: 8,
+        marginRight: 8,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#1F2937',
+        flex: 1,
+    },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
     errorText: { color: APP_CONSTANTS.COLORS.ERROR, fontSize: 16, textAlign: 'center' },
     list: { flex: 1, },

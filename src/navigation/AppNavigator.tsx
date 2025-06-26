@@ -1,6 +1,6 @@
 // navigation/AppNavigator.tsx
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, StyleSheet, Platform } from "react-native";
+import { View, ActivityIndicator, StyleSheet, Platform, Text, TouchableOpacity } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
@@ -10,7 +10,7 @@ import { APP_CONSTANTS } from "@/config/constants";
 import { NavigationContainer, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { useNavigation, NavigationProp } from '@react-navigation/native';
+import { useNavigation, NavigationProp, useNavigationState, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 
 // --- Import ALL your screens ---
@@ -302,8 +302,539 @@ const PaymentRequiredStack = () => (
   </PaymentRequiredStackNav.Navigator>
 );
 
-const UserTabs = () => ( <UserTabNav.Navigator screenOptions={({ route }) => ({ tabBarIcon: ({ focused, color, size }) => { let iconName: keyof typeof Feather.glyphMap = "help-circle"; if (route.name === "Matches") iconName = "heart"; else if (route.name === "Chats") iconName = "message-square"; else if (route.name === "Search") iconName = "search"; else if (route.name === "Events") iconName = "calendar"; else if (route.name === "Profile") iconName = "user"; return <Feather name={iconName} size={size} color={color} />; }, tabBarActiveTintColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', tabBarInactiveTintColor: APP_CONSTANTS?.COLORS?.DISABLED || '#9CA3AF', tabBarStyle: styles.tabBarStyle, headerShown: false, tabBarShowLabel: true, })}><UserTabNav.Screen name="Matches" component={MatchesScreen} /><UserTabNav.Screen name="Chats" component={ChatsScreen} /><UserTabNav.Screen name="Search" component={SearchScreen} /><UserTabNav.Screen name="Events" component={EventsScreen} /><UserTabNav.Screen name="Profile" component={ProfileScreen} /></UserTabNav.Navigator> );
-const OrganizerTabs = () => ( <OrganizerTabNav.Navigator screenOptions={({ route }) => ({ tabBarIcon: ({ focused, color, size }) => { let iconName: keyof typeof Feather.glyphMap = "help-circle"; if (route.name === "Posts") iconName = "layout"; else if (route.name === "Create") iconName = "plus-circle"; else if (route.name === "OrganizerProfile") iconName = "briefcase"; return <Feather name={iconName} size={size} color={color} />; }, tabBarActiveTintColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', tabBarInactiveTintColor: APP_CONSTANTS?.COLORS?.DISABLED || '#9CA3AF', tabBarStyle: styles.tabBarStyle, headerShown: false, tabBarShowLabel: true, })}><OrganizerTabNav.Screen name="Posts" component={OrganizerPostsScreen} options={{ title: "Events" }} /><OrganizerTabNav.Screen name="Create" component={CreateEventScreen} options={{ title: "Create" }} /><OrganizerTabNav.Screen name="OrganizerProfile" component={OrganizerProfileScreen} options={{ title: "Profile" }} /></OrganizerTabNav.Navigator> );
+// NEW: Web-specific vertical tab layout components
+const WebVerticalTabsUser = () => {
+  const navigation = useNavigation();
+  
+  // Get current navigation state to determine active tab
+  const currentRouteName = useNavigationState(state => {
+    // Correctly find the deepest route name
+    let route = state?.routes[state.index];
+    while (route?.state) {
+      route = route.state.routes[route.state.index];
+    }
+    return route?.name;
+  });
+
+  // Tab configuration for users
+  const userTabs = [
+    { name: 'Matches', icon: 'heart', label: 'Discover Vybs' },
+    { name: 'Events', icon: 'calendar', label: 'Events' },
+    { name: 'Chats', icon: 'message-square', label: 'Chats' },
+    { name: 'Search', icon: 'search', label: 'Search' },
+    { name: 'Profile', icon: 'user', label: 'Profile' },
+  ];
+
+  // Determine the active tab based on current route
+  const getActiveTab = () => {
+    if (userTabs.some(tab => tab.name === currentRouteName)) {
+      return currentRouteName;
+    }
+    return null; // Don't fallback to a default tab
+  };
+
+  const activeTab = getActiveTab();
+
+  console.log('[WebVerticalTabsUser] Current route:', currentRouteName, 'Active tab:', activeTab);
+
+  const handleTabPress = (tabName: string) => {
+    console.log(`[WebVerticalTabsUser] Tab pressed: ${tabName}`);
+    
+    try {
+      // CRITICAL: Use reset for global navigation from any screen
+      const userTabs = ['Matches', 'Events', 'Chats', 'Search', 'Profile'];
+      const resetAction = {
+        index: 0,
+        routes: [
+          {
+            name: 'MainApp',
+            state: {
+              index: 0,
+              routes: [
+                {
+                  name: 'UserTabs',
+                  state: {
+                    index: userTabs.indexOf(tabName),
+                    routes: userTabs.map(tab => ({ name: tab })),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      };
+      
+      (navigation as any).reset(resetAction);
+    } catch (error) {
+      console.warn('[WebVerticalTabsUser] Reset navigation failed, trying fallback:', error);
+      // Fallback navigation
+      try {
+        (navigation as any).navigate('UserTabs', { screen: tabName });
+      } catch (fallbackError) {
+        console.error('[WebVerticalTabsUser] All navigation failed:', fallbackError);
+      }
+    }
+  };
+
+  const handleSettingsPress = () => {
+    try {
+      (navigation as any).navigate('UserSettingsScreen');
+    } catch (error) {
+      console.warn('[WebVerticalTabsUser] Settings navigation error:', error);
+    }
+  };
+
+  return (
+    <View style={styles.webContainer}>
+      {/* Vertical Sidebar */}
+      <View style={styles.webSidebar}>
+        <View style={styles.webSidebarHeader}>
+          <View style={styles.webLogo}>
+            <Text style={styles.webLogoText}>vybr</Text>
+            <Text style={styles.webLogoBadge}>WEB</Text>
+          </View>
+        </View>
+        
+        <View style={styles.webTabList}>
+          {userTabs.map((tab) => {
+            const isActive = activeTab === tab.name;
+            const iconName = tab.icon as keyof typeof Feather.glyphMap;
+            
+            return (
+              <TouchableOpacity
+                key={tab.name}
+                style={[
+                  styles.webTabButton,
+                  isActive ? styles.webTabButtonActive : styles.webTabButtonInactive
+                ]}
+                onPress={() => handleTabPress(tab.name)}
+              >
+                <Feather 
+                  name={iconName} 
+                  size={22} 
+                  color={isActive ? '#1E40AF' : '#64748B'} 
+                />
+                <Text style={[
+                  styles.webTabLabel,
+                  isActive ? styles.webTabLabelActive : styles.webTabLabelInactive
+                ]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        
+        {/* Settings at bottom */}
+        <View style={styles.webSidebarFooter}>
+          <TouchableOpacity
+            style={styles.webSettingsButton}
+            onPress={handleSettingsPress}
+          >
+            <Feather name="settings" size={22} color="#64748B" />
+            <Text style={styles.webSettingsLabel}>Settings</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Main Content Area - Use actual tab navigator */}
+      <View style={styles.webContent}>
+        <UserTabNav.Navigator
+          screenOptions={({ route }) => ({
+            tabBarStyle: { display: 'none' }, // Hide the bottom tab bar on web
+            headerShown: false,
+          })}
+        >
+          <UserTabNav.Screen name="Matches" component={MatchesScreen} />
+          <UserTabNav.Screen name="Chats" component={ChatsScreen} />
+          <UserTabNav.Screen name="Search" component={SearchScreen} />
+          <UserTabNav.Screen name="Events" component={EventsScreen} />
+          <UserTabNav.Screen name="Profile" component={ProfileScreen} />
+        </UserTabNav.Navigator>
+      </View>
+    </View>
+  );
+};
+
+const WebVerticalTabsOrganizer = () => {
+  const navigation = useNavigation();
+  
+  // Get current navigation state to determine active tab
+  const currentRouteName = useNavigationState(state => {
+    // Correctly find the deepest route name
+    let route = state?.routes[state.index];
+    while (route?.state) {
+      route = route.state.routes[route.state.index];
+    }
+    return route?.name;
+  });
+
+  // Tab configuration for organizers
+  const organizerTabs = [
+    { name: 'Posts', icon: 'layout', label: 'Events' },
+    { name: 'Create', icon: 'plus-circle', label: 'Create' },
+    { name: 'OrganizerProfile', icon: 'briefcase', label: 'Profile' },
+  ];
+
+  // Determine the active tab based on current route
+  const getActiveTab = () => {
+    if (organizerTabs.some(tab => tab.name === currentRouteName)) {
+      return currentRouteName;
+    }
+    return null; // Don't fallback to a default tab
+  };
+
+  const activeTab = getActiveTab();
+
+  console.log('[WebVerticalTabsOrganizer] Current route:', currentRouteName, 'Active tab:', activeTab);
+
+  const handleTabPress = (tabName: string) => {
+    console.log(`[WebVerticalTabsOrganizer] Tab pressed: ${tabName}`);
+    
+    try {
+      // CRITICAL: Use reset for global navigation from any screen
+      const organizerTabs = ['Posts', 'Create', 'OrganizerProfile'];
+      const resetAction = {
+        index: 0,
+        routes: [
+          {
+            name: 'MainApp',
+            state: {
+              index: 0,
+              routes: [
+                {
+                  name: 'OrganizerTabs',
+                  state: {
+                    index: organizerTabs.indexOf(tabName),
+                    routes: organizerTabs.map(tab => ({ name: tab })),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      };
+      
+      (navigation as any).reset(resetAction);
+    } catch (error) {
+      console.warn('[WebVerticalTabsOrganizer] Reset navigation failed, trying fallback:', error);
+      // Fallback navigation
+      try {
+        (navigation as any).navigate('OrganizerTabs', { screen: tabName });
+      } catch (fallbackError) {
+        console.error('[WebVerticalTabsOrganizer] All navigation failed:', fallbackError);
+      }
+    }
+  };
+
+  const handleSettingsPress = () => {
+    try {
+      (navigation as any).navigate('OrganizerSettingsScreen');
+    } catch (error) {
+      console.warn('[WebVerticalTabsOrganizer] Settings navigation error:', error);
+    }
+  };
+
+  return (
+    <View style={styles.webContainer}>
+      {/* Vertical Sidebar */}
+      <View style={styles.webSidebar}>
+        <View style={styles.webSidebarHeader}>
+          <View style={styles.webLogo}>
+            <Text style={styles.webLogoText}>vybr</Text>
+            <Text style={styles.webLogoBadge}>WEB</Text>
+          </View>
+        </View>
+        
+        <View style={styles.webTabList}>
+          {organizerTabs.map((tab) => {
+            const isActive = activeTab === tab.name;
+            const iconName = tab.icon as keyof typeof Feather.glyphMap;
+            
+            return (
+              <TouchableOpacity
+                key={tab.name}
+                style={[
+                  styles.webTabButton,
+                  isActive ? styles.webTabButtonActive : styles.webTabButtonInactive
+                ]}
+                onPress={() => handleTabPress(tab.name)}
+              >
+                <Feather 
+                  name={iconName} 
+                  size={22} 
+                  color={isActive ? '#1E40AF' : '#64748B'} 
+                />
+                <Text style={[
+                  styles.webTabLabel,
+                  isActive ? styles.webTabLabelActive : styles.webTabLabelInactive
+                ]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        
+        {/* Settings at bottom */}
+        <View style={styles.webSidebarFooter}>
+          <TouchableOpacity
+            style={styles.webSettingsButton}
+            onPress={handleSettingsPress}
+          >
+            <Feather name="settings" size={22} color="#64748B" />
+            <Text style={styles.webSettingsLabel}>Settings</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Main Content Area - Use actual tab navigator */}
+      <View style={styles.webContent}>
+        <OrganizerTabNav.Navigator
+          screenOptions={({ route }) => ({
+            tabBarStyle: { display: 'none' }, // Hide the bottom tab bar on web
+            headerShown: false,
+          })}
+        >
+          <OrganizerTabNav.Screen name="Posts" component={OrganizerPostsScreen} options={{ title: "Events" }} />
+          <OrganizerTabNav.Screen name="Create" component={CreateEventScreen} options={{ title: "Create" }} />
+          <OrganizerTabNav.Screen name="OrganizerProfile" component={OrganizerProfileScreen} options={{ title: "Profile" }} />
+        </OrganizerTabNav.Navigator>
+      </View>
+    </View>
+  );
+};
+
+// ORIGINAL: Mobile bottom tab components (unchanged for mobile compatibility)
+const MobileUserTabs = () => ( 
+  <UserTabNav.Navigator screenOptions={({ route }) => ({ 
+    tabBarIcon: ({ focused, color, size }) => { 
+      let iconName: keyof typeof Feather.glyphMap = "help-circle"; 
+      if (route.name === "Matches") iconName = "heart"; 
+      else if (route.name === "Chats") iconName = "message-square"; 
+      else if (route.name === "Search") iconName = "search"; 
+      else if (route.name === "Events") iconName = "calendar"; 
+      else if (route.name === "Profile") iconName = "user"; 
+      return <Feather name={iconName} size={size} color={color} />; 
+    }, 
+    tabBarActiveTintColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', 
+    tabBarInactiveTintColor: APP_CONSTANTS?.COLORS?.DISABLED || '#9CA3AF', 
+    tabBarStyle: styles.tabBarStyle, 
+    headerShown: false, 
+    tabBarShowLabel: true, 
+  })}>
+    <UserTabNav.Screen name="Matches" component={MatchesScreen} />
+    <UserTabNav.Screen name="Chats" component={ChatsScreen} />
+    <UserTabNav.Screen name="Search" component={SearchScreen} />
+    <UserTabNav.Screen name="Events" component={EventsScreen} />
+    <UserTabNav.Screen name="Profile" component={ProfileScreen} />
+  </UserTabNav.Navigator> 
+);
+
+const MobileOrganizerTabs = () => ( 
+  <OrganizerTabNav.Navigator screenOptions={({ route }) => ({ 
+    tabBarIcon: ({ focused, color, size }) => { 
+      let iconName: keyof typeof Feather.glyphMap = "help-circle"; 
+      if (route.name === "Posts") iconName = "layout"; 
+      else if (route.name === "Create") iconName = "plus-circle"; 
+      else if (route.name === "OrganizerProfile") iconName = "briefcase"; 
+      return <Feather name={iconName} size={size} color={color} />; 
+    }, 
+    tabBarActiveTintColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', 
+    tabBarInactiveTintColor: APP_CONSTANTS?.COLORS?.DISABLED || '#9CA3AF', 
+    tabBarStyle: styles.tabBarStyle, 
+    headerShown: false, 
+    tabBarShowLabel: true, 
+  })}>
+    <OrganizerTabNav.Screen name="Posts" component={OrganizerPostsScreen} options={{ title: "Events" }} />
+    <OrganizerTabNav.Screen name="Create" component={CreateEventScreen} options={{ title: "Create" }} />
+    <OrganizerTabNav.Screen name="OrganizerProfile" component={OrganizerProfileScreen} options={{ title: "Profile" }} />
+  </OrganizerTabNav.Navigator> 
+);
+
+// NEW: Web Layout Wrapper - provides sidebar for all screens on web
+const WebLayoutWrapper = ({ children, isOrganizerMode = false }: { children: React.ReactNode, isOrganizerMode?: boolean }) => {
+  const navigation = useNavigation();
+  
+  // Get current navigation state to determine active tab
+  const currentRouteName = useNavigationState(state => {
+    // Correctly find the deepest route name
+    let route = state?.routes[state.index];
+    while (route?.state) {
+      route = route.state.routes[route.state.index];
+    }
+    return route?.name;
+  });
+
+  // Tab configurations
+  const userTabs = [
+    { name: 'Matches', icon: 'heart', label: 'Discover Vybs' },
+    { name: 'Events', icon: 'calendar', label: 'Events' },
+    { name: 'Chats', icon: 'message-square', label: 'Chats' },
+    { name: 'Search', icon: 'search', label: 'Search' },
+    { name: 'Profile', icon: 'user', label: 'Profile' },
+  ];
+
+  const organizerTabs = [
+    { name: 'Posts', icon: 'layout', label: 'Events' },
+    { name: 'Create', icon: 'plus-circle', label: 'Create' },
+    { name: 'OrganizerProfile', icon: 'briefcase', label: 'Profile' },
+  ];
+
+  const tabs = isOrganizerMode ? organizerTabs : userTabs;
+
+  // Determine the active tab based on current route
+  const getActiveTab = () => {
+    if (tabs.some(tab => tab.name === currentRouteName)) {
+      return currentRouteName;
+    }
+    return null; // Return null if no tab is active
+  };
+
+  const activeTab = getActiveTab();
+
+  console.log('[WebLayoutWrapper] Current route:', currentRouteName, 'Active tab:', activeTab, 'isOrganizerMode:', isOrganizerMode);
+
+  const handleTabPress = (tabName: string) => {
+    console.log(`[WebLayoutWrapper] Tab pressed: ${tabName} (isOrganizerMode: ${isOrganizerMode})`);
+    
+    try {
+      // CRITICAL: Use reset to ensure clean navigation state
+      // This prevents stacking and ensures instant navigation from any screen
+      const resetAction = {
+        index: 0,
+        routes: [
+          {
+            name: 'MainApp',
+            state: {
+              index: 0,
+              routes: [
+                {
+                  name: isOrganizerMode ? 'OrganizerTabs' : 'UserTabs',
+                  state: {
+                    index: tabs.findIndex(tab => tab.name === tabName) || 0,
+                    routes: tabs.map(tab => ({ name: tab.name })),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      };
+      
+      (navigation as any).reset(resetAction);
+    } catch (error) {
+      console.warn(`[WebLayoutWrapper] Reset navigation failed, trying direct navigate:`, error);
+      // Fallback: Direct navigation
+      try {
+        if (isOrganizerMode) {
+          (navigation as any).navigate('OrganizerTabs', { screen: tabName });
+        } else {
+          (navigation as any).navigate('UserTabs', { screen: tabName });
+        }
+      } catch (fallbackError) {
+        console.error(`[WebLayoutWrapper] All navigation attempts failed:`, fallbackError);
+        // Last resort: navigate to root and then tab
+        (navigation as any).navigate('MainApp');
+        setTimeout(() => {
+          if (isOrganizerMode) {
+            (navigation as any).navigate('OrganizerTabs', { screen: tabName });
+          } else {
+            (navigation as any).navigate('UserTabs', { screen: tabName });
+          }
+        }, 100);
+      }
+    }
+  };
+
+  const handleSettingsPress = () => {
+    console.log(`[WebLayoutWrapper] Settings pressed (isOrganizerMode: ${isOrganizerMode})`);
+    try {
+      if (isOrganizerMode) {
+        (navigation as any).navigate('OrganizerSettingsScreen');
+      } else {
+        (navigation as any).navigate('UserSettingsScreen');
+      }
+    } catch (error) {
+      console.error(`[WebLayoutWrapper] Settings navigation failed:`, error);
+    }
+  };
+
+  return (
+    <View style={styles.webContainer}>
+      {/* Vertical Sidebar */}
+      <View style={styles.webSidebar}>
+        <View style={styles.webSidebarHeader}>
+          <View style={styles.webLogo}>
+            <Text style={styles.webLogoText}>vybr</Text>
+            <Text style={styles.webLogoBadge}>WEB</Text>
+          </View>
+        </View>
+        
+        <View style={styles.webTabList}>
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab.name;
+            const iconName = tab.icon as keyof typeof Feather.glyphMap;
+            
+            return (
+              <TouchableOpacity
+                key={tab.name}
+                style={[
+                  styles.webTabButton,
+                  isActive ? styles.webTabButtonActive : styles.webTabButtonInactive
+                ]}
+                onPress={() => handleTabPress(tab.name)}
+              >
+                <Feather 
+                  name={iconName} 
+                  size={22} 
+                  color={isActive ? '#1E40AF' : '#64748B'} 
+                />
+                <Text style={[
+                  styles.webTabLabel,
+                  isActive ? styles.webTabLabelActive : styles.webTabLabelInactive
+                ]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        
+        {/* Settings at bottom */}
+        <View style={styles.webSidebarFooter}>
+          <TouchableOpacity
+            style={styles.webSettingsButton}
+            onPress={handleSettingsPress}
+          >
+            <Feather name="settings" size={22} color="#64748B" />
+            <Text style={styles.webSettingsLabel}>Settings</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Main Content Area */}
+      <View style={styles.webContent}>
+        {children}
+      </View>
+    </View>
+  );
+};
+
+// Platform-aware tab components
+const UserTabs = () => {
+  if (Platform.OS === 'web') {
+    return <WebVerticalTabsUser />;
+  }
+  return <MobileUserTabs />;
+};
+
+const OrganizerTabs = () => {
+  if (Platform.OS === 'web') {
+    return <WebVerticalTabsOrganizer />;
+  }
+  return <MobileOrganizerTabs />;
+};
 
 // --- Enhanced Payment Requirement Logic with Real Payment Method Validation ---
 const usePaymentRequirementCheck = () => {
@@ -416,6 +947,20 @@ const usePaymentRequirementCheck = () => {
   };
 };
 
+// Helper function to wrap screen components with sidebar on web
+const wrapScreenForWeb = (ScreenComponent: React.ComponentType<any>, isOrganizerMode: boolean) => {
+  return (props: any) => {
+    if (Platform.OS === 'web') {
+      return (
+        <WebLayoutWrapper isOrganizerMode={isOrganizerMode}>
+          <ScreenComponent {...props} />
+        </WebLayoutWrapper>
+      );
+    }
+    return <ScreenComponent {...props} />;
+  };
+};
+
 // --- Main App Stack Component (NO PaymentGuard here anymore) ---
 const MainAppStack = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
@@ -428,52 +973,52 @@ const MainAppStack = () => {
           {isOrganizerMode ? (
                <>
                    <MainStack.Screen name="OrganizerTabs" component={OrganizerTabs} options={{ headerShown: false }} />
-                   <MainStack.Screen name="EventDetail" component={EventDetailScreen} options={{ title: 'Event Details' }}/>
-                   <MainStack.Screen name="EditEvent" component={EditEventScreen} options={{ title: 'Edit Event' }}/>
-                   <MainStack.Screen name="ViewBookings" component={ViewBookingsScreen} options={{ title: 'Event Bookings' }}/>
-                   <MainStack.Screen name="OrganizerSettingsScreen" component={OrganizerSettingsScreen} options={{ title: 'Settings' }}/>
-                   <MainStack.Screen name="SetAvailabilityScreen" component={SetAvailabilityScreen} options={{ title: 'Set Availability' }}/>
-                   <MainStack.Screen name="EditOrganizerProfileScreen" component={EditOrganizerProfileScreen} options={{ title: 'Edit Profile' }}/>
-                   <MainStack.Screen name="ManagePlanScreen" component={ManagePlanScreen} options={{ title: 'Manage Plan' }}/>
-                   <MainStack.Screen name="OrgBillingHistoryScreen" component={OrgBillingHistoryScreen} options={{ title: 'Billing History' }}/>
-                   <MainStack.Screen name="UserListScreen" component={UserListScreen} options={{ title: 'Followers' }}/>
-                   <MainStack.Screen name="OverallAnalyticsScreen" component={OverallAnalyticsScreen} options={{ title: 'Overall Analytics' }}/>
-                   <MainStack.Screen name="ShareEventScreen" component={ShareEventScreen} options={{ title: 'Share Event' }}/>
-                   <MainStack.Screen name="OrganizerReservationsScreen" component={OrganizerReservationsScreen} options={{ title: 'Organizer Reservations' }}/>
+                   <MainStack.Screen name="EventDetail" component={wrapScreenForWeb(EventDetailScreen, true)} options={{ title: 'Event Details' }}/>
+                   <MainStack.Screen name="EditEvent" component={wrapScreenForWeb(EditEventScreen, true)} options={{ title: 'Edit Event' }}/>
+                   <MainStack.Screen name="ViewBookings" component={wrapScreenForWeb(ViewBookingsScreen, true)} options={{ title: 'Event Bookings' }}/>
+                   <MainStack.Screen name="OrganizerSettingsScreen" component={wrapScreenForWeb(OrganizerSettingsScreen, true)} options={{ title: 'Settings' }}/>
+                   <MainStack.Screen name="SetAvailabilityScreen" component={wrapScreenForWeb(SetAvailabilityScreen, true)} options={{ title: 'Set Availability' }}/>
+                   <MainStack.Screen name="EditOrganizerProfileScreen" component={wrapScreenForWeb(EditOrganizerProfileScreen, true)} options={{ title: 'Edit Profile' }}/>
+                   <MainStack.Screen name="ManagePlanScreen" component={wrapScreenForWeb(ManagePlanScreen, true)} options={{ title: 'Manage Plan' }}/>
+                   <MainStack.Screen name="OrgBillingHistoryScreen" component={wrapScreenForWeb(OrgBillingHistoryScreen, true)} options={{ title: 'Billing History' }}/>
+                   <MainStack.Screen name="UserListScreen" component={wrapScreenForWeb(UserListScreen, true)} options={{ title: 'Followers' }}/>
+                   <MainStack.Screen name="OverallAnalyticsScreen" component={wrapScreenForWeb(OverallAnalyticsScreen, true)} options={{ title: 'Overall Analytics' }}/>
+                   <MainStack.Screen name="ShareEventScreen" component={wrapScreenForWeb(ShareEventScreen, true)} options={{ title: 'Share Event' }}/>
+                   <MainStack.Screen name="OrganizerReservationsScreen" component={wrapScreenForWeb(OrganizerReservationsScreen, true)} options={{ title: 'Organizer Reservations' }}/>
                </>
           ) : (
                <>
                    <MainStack.Screen name="UserTabs" component={UserTabs} options={{ headerShown: false }}/>
-                   <MainStack.Screen name="UserSettingsScreen" component={UserSettingsScreen} options={{ title: 'Settings' }} />
-                   <MainStack.Screen name="EditUserProfileScreen" component={EditUserProfileScreen} options={{ title: 'Edit Profile' }} />
-                   <MainStack.Screen name="UserManageSubscriptionScreen" component={UserManageSubscriptionScreen} options={{ title: 'Subscription' }} />
-                   <MainStack.Screen name="ManagePlan" component={ManagePlanScreen} options={{ title: 'Manage Plan' }} />
-                   <MainStack.Screen name="UserMutedListScreen" component={UserMutedListScreen} options={{ title: 'Muted Users' }} />
-                   <MainStack.Screen name="UserBlockedListScreen" component={UserBlockedListScreen} options={{ title: 'Blocked Users' }} />
-                   <MainStack.Screen name="FriendsListScreen" component={FriendsListScreen} options={{ title: 'Friends' }} />
-                   <MainStack.Screen name="OrganizerListScreen" component={OrganizerListScreen} options={{ title: 'Following' }}/>
-                   <MainStack.Screen name="UpgradeScreen" component={UpgradeScreen} options={{ title: 'Go Premium' }} />
-                   <MainStack.Screen name="AttendedEventsScreen" component={AttendedEventsScreen} options={{ title: 'Attended Events' }} />
-                   <MainStack.Screen name="UserBillingHistoryScreen" component={UserBillingHistoryScreen} options={{ title: 'Billing History' }} />
-                   <MainStack.Screen name="UpdateMusicFavoritesScreen" component={UpdateMusicFavoritesScreen} options={{ title: 'Music Favorites' }} />
-                   <MainStack.Screen name="LinkMusicServicesScreen" component={LinkMusicServicesScreen} options={{ title: 'Link Music Services' }} />
-                   <MainStack.Screen name="MyBookingsScreen" component={MyBookingsScreen} />
-                   <MainStack.Screen name="PremiumSignupScreen" component={PremiumSignupScreen} options={{ title: 'Payment' }} />
-                   <MainStack.Screen name="PaymentConfirmationScreen" component={PaymentConfirmationScreen} options={{ title: 'Payment Confirmation' }} />
-                   <MainStack.Screen name="PaymentSuccessScreen" component={PaymentSuccessScreen} />
-                   <MainStack.Screen name="ShareEventScreen" component={ShareEventScreen} options={{ title: 'Share Event' }}/>
+                   <MainStack.Screen name="UserSettingsScreen" component={wrapScreenForWeb(UserSettingsScreen, false)} options={{ title: 'Settings' }} />
+                   <MainStack.Screen name="EditUserProfileScreen" component={wrapScreenForWeb(EditUserProfileScreen, false)} options={{ title: 'Edit Profile' }} />
+                   <MainStack.Screen name="UserManageSubscriptionScreen" component={wrapScreenForWeb(UserManageSubscriptionScreen, false)} options={{ title: 'Subscription' }} />
+                   <MainStack.Screen name="ManagePlan" component={wrapScreenForWeb(ManagePlanScreen, false)} options={{ title: 'Manage Plan' }} />
+                   <MainStack.Screen name="UserMutedListScreen" component={wrapScreenForWeb(UserMutedListScreen, false)} options={{ title: 'Muted Users' }} />
+                   <MainStack.Screen name="UserBlockedListScreen" component={wrapScreenForWeb(UserBlockedListScreen, false)} options={{ title: 'Blocked Users' }} />
+                   <MainStack.Screen name="FriendsListScreen" component={wrapScreenForWeb(FriendsListScreen, false)} options={{ title: 'Friends' }} />
+                   <MainStack.Screen name="OrganizerListScreen" component={wrapScreenForWeb(OrganizerListScreen, false)} options={{ title: 'Following' }}/>
+                   <MainStack.Screen name="UpgradeScreen" component={wrapScreenForWeb(UpgradeScreen, false)} options={{ title: 'Go Premium' }} />
+                   <MainStack.Screen name="AttendedEventsScreen" component={wrapScreenForWeb(AttendedEventsScreen, false)} options={{ title: 'Attended Events' }} />
+                   <MainStack.Screen name="UserBillingHistoryScreen" component={wrapScreenForWeb(UserBillingHistoryScreen, false)} options={{ title: 'Billing History' }} />
+                   <MainStack.Screen name="UpdateMusicFavoritesScreen" component={wrapScreenForWeb(UpdateMusicFavoritesScreen, false)} options={{ title: 'Music Favorites' }} />
+                   <MainStack.Screen name="LinkMusicServicesScreen" component={wrapScreenForWeb(LinkMusicServicesScreen, false)} options={{ title: 'Link Music Services' }} />
+                   <MainStack.Screen name="MyBookingsScreen" component={wrapScreenForWeb(MyBookingsScreen, false)} />
+                   <MainStack.Screen name="PremiumSignupScreen" component={wrapScreenForWeb(PremiumSignupScreen, false)} options={{ title: 'Payment' }} />
+                   <MainStack.Screen name="PaymentConfirmationScreen" component={wrapScreenForWeb(PaymentConfirmationScreen, false)} options={{ title: 'Payment Confirmation' }} />
+                   <MainStack.Screen name="PaymentSuccessScreen" component={wrapScreenForWeb(PaymentSuccessScreen, false)} />
+                   <MainStack.Screen name="ShareEventScreen" component={wrapScreenForWeb(ShareEventScreen, false)} options={{ title: 'Share Event' }}/>
                </>
           )}
           {/* Screens accessible by both modes */}
-          <MainStack.Screen name="CreateEventScreen" component={CreateEventScreen} options={{title: "Create Event"}} />
-          <MainStack.Screen name="OtherUserProfileScreen" component={OtherUserProfileScreen} options={{title: "Profile"}} />
-          <MainStack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} options={{ title: 'Booking Confirmed' }} />
-          <MainStack.Screen name="UpcomingEventsListScreen" component={UpcomingEventsListScreen} />
-          <MainStack.Screen name="PastEventsListScreen" component={PastEventsListScreen} />
+          <MainStack.Screen name="CreateEventScreen" component={wrapScreenForWeb(CreateEventScreen, isOrganizerMode)} options={{title: "Create Event"}} />
+          <MainStack.Screen name="OtherUserProfileScreen" component={wrapScreenForWeb(OtherUserProfileScreen, isOrganizerMode)} options={{title: "Profile"}} />
+          <MainStack.Screen name="BookingConfirmation" component={wrapScreenForWeb(BookingConfirmationScreen, isOrganizerMode)} options={{ title: 'Booking Confirmed' }} />
+          <MainStack.Screen name="UpcomingEventsListScreen" component={wrapScreenForWeb(UpcomingEventsListScreen, isOrganizerMode)} />
+          <MainStack.Screen name="PastEventsListScreen" component={wrapScreenForWeb(PastEventsListScreen, isOrganizerMode)} />
           {/* *** ViewOrganizerProfileScreen now registered in Main Stack *** */}
-          <MainStack.Screen name="ViewOrganizerProfileScreen" component={ViewOrganizerProfileScreen} />
+          <MainStack.Screen name="ViewOrganizerProfileScreen" component={wrapScreenForWeb(ViewOrganizerProfileScreen, isOrganizerMode)} />
           {/* *** END Move *** */}
-          <MainStack.Screen name="NotFoundMain" component={NotFoundScreen} options={{ title: 'Oops!' }} />
+          <MainStack.Screen name="NotFoundMain" component={wrapScreenForWeb(NotFoundScreen, isOrganizerMode)} options={{ title: 'Oops!' }} />
       </MainStack.Navigator>
   );
 }
@@ -579,6 +1124,124 @@ const styles = StyleSheet.create({
     },
     cardStyle: {
         backgroundColor: '#FFFFFF',
+    },
+    // NEW: Web-specific styles for vertical tab layout
+    webContainer: {
+        flexDirection: 'row',
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+        height: '100%',
+    },
+    webSidebar: {
+        width: 300,
+        backgroundColor: '#FAFBFC',
+        borderRightWidth: 1,
+        borderRightColor: '#E2E8F0',
+        flexDirection: 'column',
+        paddingVertical: 32,
+        paddingHorizontal: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+        elevation: 3,
+    },
+    webSidebarHeader: {
+        marginBottom: 40,
+        alignItems: 'center',
+        paddingBottom: 24,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E2E8F0',
+    },
+    webLogo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    webLogoText: {
+        fontSize: 32,
+        fontWeight: '700',
+        color: '#3B82F6',
+        fontFamily: Platform.OS === 'web' ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' : 'System',
+    },
+    webLogoBadge: {
+        fontSize: 9,
+        fontWeight: '700',
+        color: '#64748B',
+        backgroundColor: '#F1F5F9',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6,
+        marginLeft: 12,
+        fontFamily: Platform.OS === 'web' ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' : 'System',
+    },
+    webTabList: {
+        flex: 1,
+        paddingVertical: 12,
+    },
+    webTabButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        width: '100%',
+        paddingHorizontal: 20,
+        paddingVertical: 18,
+        borderRadius: 12,
+        marginBottom: 6,
+    },
+    webTabButtonActive: {
+        backgroundColor: '#EEF2FF',
+        borderWidth: 1,
+        borderColor: '#C7D2FE',
+        shadowColor: '#3730A3',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.12,
+        shadowRadius: 6,
+        elevation: 2,
+    },
+    webTabButtonInactive: {
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        borderColor: 'transparent',
+    },
+    webTabLabel: {
+        marginLeft: 16,
+        fontWeight: '600',
+        fontSize: 15,
+        fontFamily: Platform.OS === 'web' ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' : 'System',
+    },
+    webTabLabelActive: {
+        color: '#1E40AF',
+        fontWeight: '600',
+    },
+    webTabLabelInactive: {
+        color: '#64748B',
+        fontWeight: '500',
+    },
+    webSettingsButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderRadius: 8,
+        backgroundColor: 'transparent',
+    },
+    webSettingsLabel: {
+        marginLeft: 12,
+        fontSize: 14,
+        fontWeight: '500',
+        color: '#64748B',
+        fontFamily: Platform.OS === 'web' ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' : 'System',
+    },
+    webSidebarFooter: {
+        marginTop: 32,
+        paddingTop: 24,
+        borderTopWidth: 1,
+        borderTopColor: '#E2E8F0',
+    },
+    webContent: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+        overflow: 'hidden',
     },
 });
 
