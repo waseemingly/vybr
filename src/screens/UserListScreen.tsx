@@ -163,6 +163,12 @@ const UserListScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                    <Feather name="chevron-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Followers</Text>
+            </View>
             {renderContent()}
         </SafeAreaView>
     );
@@ -171,6 +177,25 @@ const UserListScreen: React.FC = () => {
 // --- Styles (Adapted from FriendsListScreen) ---
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#F9FAFB' },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    backButton: {
+        padding: 8,
+        marginRight: 8,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#1F2937',
+        flex: 1,
+    },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
     errorText: { color: APP_CONSTANTS.COLORS.ERROR, fontSize: 16, textAlign: 'center' },
     list: { flex: 1, backgroundColor: 'white' },
