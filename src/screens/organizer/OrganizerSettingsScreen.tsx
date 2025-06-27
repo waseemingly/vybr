@@ -210,22 +210,97 @@ const OrganizerSettingsScreen: React.FC = () => {
                 });
                 
                 // 1. Delete the user's auth account using Edge function
-                const { data, error: functionError } = await supabase.functions.invoke('delete-user-account');
+                console.log("Invoking Supabase Edge function 'delete-user-account'...");
+                
+                // Add request body logging - some functions might expect user_id or other params
+                const requestBody = { user_id: userId };
+                console.log("[OrganizerSettingsScreen] Request body:", requestBody);
+                
+                const { data, error: functionError } = await supabase.functions.invoke('delete-user-account', {
+                    body: requestBody
+                });
+                
+                console.log("[OrganizerSettingsScreen] Edge function delete-user-account response:", {
+                    data,
+                    error: functionError,
+                    platform: Platform.OS,
+                    userId
+                });
                 
                 if (functionError) {
-                    throw new Error(`Failed to delete account: ${functionError.message}`);
+                    // Enhanced error logging to capture all possible error details
+                    console.error("[OrganizerSettingsScreen] Error calling delete function:", {
+                        error: functionError,
+                        errorMessage: functionError.message,
+                        errorName: functionError.name,
+                        errorStack: functionError.stack,
+                        errorContext: (functionError as any).context,
+                        platform: Platform.OS,
+                        userId
+                    });
+                    
+                    // Try to extract more specific error information
+                    let errorMessage = functionError.message || 'Unknown function error';
+                    
+                    // Check if there's additional context in the error
+                    if ((functionError as any).context?.body) {
+                        const contextBody = (functionError as any).context.body;
+                        console.error("[OrganizerSettingsScreen] Function error context body:", contextBody);
+                        if (typeof contextBody === 'string') {
+                            try {
+                                const parsedError = JSON.parse(contextBody);
+                                errorMessage += ` - ${parsedError.error || parsedError.message || contextBody}`;
+                            } catch {
+                                errorMessage += ` - ${contextBody}`;
+                            }
+                        } else if (contextBody.error || contextBody.message) {
+                            errorMessage += ` - ${contextBody.error || contextBody.message}`;
+                        }
+                    }
+                    
+                    throw new Error(`Failed to delete account: ${errorMessage}`);
                 }
-    
+
+                // Check if the Edge function returned an error in the data
                 if (data && typeof data === 'object' && (data as any).error) {
+                    console.error("[OrganizerSettingsScreen] Edge function returned error:", data);
                     throw new Error(`Account deletion failed: ${(data as any).error || (data as any).message || 'Unknown error from deletion function'}`);
                 }
-    
+
+                // Log successful response for debugging
+                console.log("[OrganizerSettingsScreen] Account deletion successful", {
+                    platform: Platform.OS,
+                    userId,
+                    functionResponse: data
+                });
+
                 // 2. Sign out & force clear state
                 await logout();
-    
+
             } catch (err: any) {
-                console.error("[OrganizerSettingsScreen] Account deletion failed:", err);
-                Alert.alert("Deletion Failed", err.message || "An unexpected error occurred. Please try again or contact support.");
+                console.error("[OrganizerSettingsScreen] Error in account deletion process:", {
+                    error: err,
+                    errorMessage: err.message,
+                    errorName: err.name,
+                    errorStack: err.stack,
+                    platform: Platform.OS,
+                    userId
+                });
+                
+                let userFriendlyMessage = err.message || 'An unexpected error occurred. Please try again or contact support.';
+                
+                // Add specific guidance for common issues
+                if (err.message?.includes('500') || err.message?.includes('Internal Server Error')) {
+                    userFriendlyMessage += ' (Server error - this may be a temporary issue. Please try again in a few minutes.)';
+                } else if (err.message?.includes('network') || err.message?.includes('fetch')) {
+                    userFriendlyMessage += ' (Network error - please check your connection and try again.)';
+                }
+                
+                if (Platform.OS === 'web') {
+                    window.alert(`Could not delete your account: ${userFriendlyMessage}`);
+                } else {
+                    Alert.alert("Deletion Failed", userFriendlyMessage);
+                }
                 setIsDeleting(false);
             }
         };

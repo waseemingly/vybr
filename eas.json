@@ -10,7 +10,8 @@
         "gradleCommand": ":app:assembleDebug",
         "buildType": "apk",
         "env": {
-          "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr"
+          "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr",
+          "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
         }
       }
     },
@@ -19,7 +20,8 @@
       "android": {
         "buildType": "apk",
         "env": {
-          "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr"
+          "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr",
+          "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
         }
       }
     },
@@ -27,7 +29,8 @@
       "android": {
         "buildType": "app-bundle",
         "env": {
-          "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr"
+          "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr",
+          "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
         }
       }
     }
