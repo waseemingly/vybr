@@ -4,19 +4,12 @@ import {
   TouchableOpacity, RefreshControl, Dimensions, Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BarChart, LineChart } from 'react-native-chart-kit';
+import { BarChart } from 'react-native-chart-kit';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { APP_CONSTANTS } from '../../config/constants';
-import { shouldUseSGD, getOrganizerPrimaryCurrency, convertOrganizerCosts, formatPriceWithCurrency } from '../../utils/currencyUtils'; // Add currency utilities
-import { LinearGradient } from 'expo-linear-gradient';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { getCurrencyForCountry, convertCurrency } from '../../utils/currencyUtils';
-
-// Navigation types
-type NavigationProp = NativeStackNavigationProp<any>;
 
 // Types for various analytics data
 interface MonthlyExpenditure {
@@ -24,11 +17,6 @@ interface MonthlyExpenditure {
   impressionCost: number;
   bookingCost: number;
   totalCost: number;
-  currency: string; // Add currency info
-  originalCosts?: { // For tracking original currencies
-    impressionCost: { amount: number; currency: string };
-    bookingCost: { amount: number; currency: string };
-  };
 }
 
 interface EventRevenue {
@@ -37,14 +25,11 @@ interface EventRevenue {
   revenue: number;
   attendeeCount: number;
   bookingType: 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null;
-  currency: string; // Add currency info
-  originalRevenue?: { amount: number; currency: string }; // For tracking original currency
 }
 
 interface MonthlyRevenue {
   month: string;
   revenue: number;
-  currency: string; // Add currency info
 }
 
 interface EventRating {
@@ -65,7 +50,6 @@ interface AnalyticsSummary {
   avgAttendeesPerEvent: number;
   avgImpressionsPerEvent: number;
   popularTags: PopularTag[];
-  currency: string; // Add currency info
 }
 
 // New interface for separated booking counts
@@ -97,17 +81,84 @@ interface MonthlyTrendData {
 
 // Define chart configs
 const screenWidth = Dimensions.get('window').width;
-const chartWidth = screenWidth - 40; // Accounting for padding
-const chartConfig = {
+const chartWidth = Math.min(screenWidth - 90, 700); // Wider chart for better visibility
+const chartHeight = 260; // Increased height for better visibility
+
+const baseChartConfig = {
   backgroundColor: '#FFFFFF',
   backgroundGradientFrom: '#FFFFFF',
-  backgroundGradientTo: '#FFFFFF',
-  decimalPlaces: 2,
-  color: (opacity = 1) => `rgba(59, 130, 246, ${opacity})`,
-  labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-  style: { borderRadius: 16 },
-  propsForLabels: { fontSize: 10 },
-  barPercentage: 0.7,
+  backgroundGradientTo: '#FAFBFF',
+  decimalPlaces: 0,
+  color: (opacity = 1) => `rgba(99, 102, 241, ${opacity})`,
+  labelColor: (opacity = 1) => `rgba(51, 65, 85, ${opacity})`,
+  style: { 
+    borderRadius: 20,
+    paddingRight: 35, // Increased to prevent right label cutoff
+    paddingLeft: 15,  // Added padding to prevent left label cutoff
+  },
+  propsForLabels: { 
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  propsForBackgroundLines: {
+    strokeWidth: 1,
+    stroke: '#F1F5F9',
+    strokeDasharray: '3,3',
+  },
+  barPercentage: 0.65,
+  fillShadowGradientFrom: '#EEF2FF',
+  fillShadowGradientFromOpacity: 0.8,
+  fillShadowGradientTo: '#FAFBFF',
+  fillShadowGradientToOpacity: 0.2,
+  strokeWidth: 2,
+  useShadowColorFromDataset: false,
+};
+
+// Enhanced color palette with gradients
+const chartColors = {
+  revenue: {
+    primary: (opacity = 1) => `rgba(16, 185, 129, ${opacity})`, // Emerald
+    gradient: ['#10B981', '#059669'],
+    background: '#ECFDF5',
+    light: '#D1FAE5',
+  },
+  tickets: {
+    primary: (opacity = 1) => `rgba(99, 102, 241, ${opacity})`, // Indigo
+    gradient: ['#6366F1', '#4F46E5'],
+    background: '#EEF2FF',
+    light: '#E0E7FF',
+  },
+  reservations: {
+    primary: (opacity = 1) => `rgba(236, 72, 153, ${opacity})`, // Pink
+    gradient: ['#EC4899', '#DB2777'],
+    background: '#FDF2F8',
+    light: '#FCE7F3',
+  },
+  impressions: {
+    primary: (opacity = 1) => `rgba(59, 130, 246, ${opacity})`, // Blue
+    gradient: ['#3B82F6', '#2563EB'],
+    background: '#EFF6FF',
+    light: '#DBEAFE',
+  },
+  costs: {
+    primary: (opacity = 1) => `rgba(239, 68, 68, ${opacity})`, // Red
+    gradient: ['#EF4444', '#DC2626'],
+    background: '#FEF2F2',
+    light: '#FECACA',
+  },
+  ratings: {
+    primary: (opacity = 1) => `rgba(245, 158, 11, ${opacity})`, // Amber
+    gradient: ['#F59E0B', '#D97706'],
+    background: '#FFFBEB',
+    light: '#FEF3C7',
+  },
+  combined: {
+    primary: (opacity = 1) => `rgba(139, 92, 246, ${opacity})`, // Purple
+    gradient: ['#8B5CF6', '#7C3AED'],
+    background: '#F5F3FF',
+    light: '#E0E7FF',
+  },
 };
 
 // Helper components
@@ -134,86 +185,52 @@ const Section: React.FC<SectionProps> = ({ title, icon, children, loading = fals
 );
 
 const OverallAnalyticsScreen: React.FC = () => {
-  const navigation = useNavigation<NavigationProp>();
   const { session } = useAuth();
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
-  const [displayCurrency, setDisplayCurrency] = useState('SGD');
+  const navigation = useNavigation();
+  const organizerId = session?.user?.id;
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
-  // Loading states
-  const [loadingExpenditures, setLoadingExpenditures] = useState(false);
-  const [loadingRevenues, setLoadingRevenues] = useState(false);
-  const [loadingRatings, setLoadingRatings] = useState(false);
-  const [loadingTicketsReservations, setLoadingTicketsReservations] = useState(false);
-  const [loadingImpressions, setLoadingImpressions] = useState(false);
-  const [loadingTrends, setLoadingTrends] = useState(false);
-  const [loadingSummary, setLoadingSummary] = useState(false);
-  
-  // Data states
+  // States for different analytics sections
   const [monthlyExpenditures, setMonthlyExpenditures] = useState<MonthlyExpenditure[]>([]);
   const [eventRevenues, setEventRevenues] = useState<EventRevenue[]>([]);
-  const [monthlyRevenues, setMonthlyRevenues] = useState<MonthlyRevenue[]>([]);
-  const [eventRatings, setEventRatings] = useState<EventRating[]>([]);
-  const [ticketsReservations, setTicketsReservations] = useState<TicketsReservationsData>({
+  const [ticketsReservationsData, setTicketsReservationsData] = useState<TicketsReservationsData>({
     ticketedEvents: [],
     reservationEvents: []
   });
-  const [eventImpressions, setEventImpressions] = useState<EventImpressionData[]>([]);
-  const [monthlyTrends, setMonthlyTrends] = useState<MonthlyTrendData[]>([]);
-  const [analyticsSummary, setAnalyticsSummary] = useState<AnalyticsSummary>({
-    avgCostPerEvent: 0,
-    avgRevenuePerEvent: 0,
-    avgAttendeesPerEvent: 0,
-    avgImpressionsPerEvent: 0,
-    popularTags: [],
-    currency: 'SGD'
-  });
+  const [impressionsData, setImpressionsData] = useState<EventImpressionData[]>([]);
+  const [monthlyRevenues, setMonthlyRevenues] = useState<MonthlyRevenue[]>([]);
+  const [eventRatings, setEventRatings] = useState<EventRating[]>([]);
+  const [analyticsSummary, setAnalyticsSummary] = useState<AnalyticsSummary | null>(null);
 
-  const organizerId = session?.user?.id;
+  // New state variables for monthly trends
+  const [monthlyImpressions, setMonthlyImpressions] = useState<MonthlyTrendData[]>([]);
+  const [monthlyTicketSales, setMonthlyTicketSales] = useState<MonthlyTrendData[]>([]);
+  const [monthlyReservations, setMonthlyReservations] = useState<MonthlyTrendData[]>([]);
 
-  useEffect(() => {
-    if (session?.user?.id) {
-      initializeCurrency();
-      fetchAllData();
-    }
-  }, [session]);
+  // Loading states for sections
+  const [loadingExpenses, setLoadingExpenses] = useState(true);
+  const [loadingRevenues, setLoadingRevenues] = useState(true);
+  const [loadingAttendees, setLoadingAttendees] = useState(true);
+  const [loadingRatings, setLoadingRatings] = useState(true);
+  const [loadingSummary, setLoadingSummary] = useState(true);
 
-  const initializeCurrency = async () => {
-    if (!session?.user?.id) return;
-    
+  // Loading states for new sections (can reuse or add new ones if specific timing is needed)
+  const [loadingMonthlyTrends, setLoadingMonthlyTrends] = useState(true);
+
+  // Error states
+  const [hasError, setHasError] = useState(false);
+  
+  // Function to fetch monthly expenditures (impression costs and booking costs)
+  const fetchMonthlyExpenditures = useCallback(async () => {
+    if (!organizerId) return;
+
     try {
-      const currency = await getOrganizerPrimaryCurrency(session.user.id);
-      setDisplayCurrency(currency);
-    } catch (error) {
-      console.error('Error initializing currency:', error);
-      setDisplayCurrency('SGD');
-    }
-  };
-
-  const fetchAllData = async () => {
-    if (!session?.user?.id) return;
-
-    await Promise.all([
-      fetchMonthlyExpenditure(),
-      fetchEventRevenue(),
-      fetchMonthlyRevenue(),
-      fetchEventRatings(),
-      fetchTicketsReservations(),
-      fetchEventImpressions(),
-      fetchMonthlyTrends(),
-      fetchAnalyticsSummary(),
-    ]);
-  };
-
-  const fetchMonthlyExpenditure = async () => {
-    if (!session?.user?.id) return;
-    
-    setLoadingExpenditures(true);
-    try {
+      setLoadingExpenses(true);
       setHasError(false);
 
-      // Generate all 12 months including the current month (matching original logic)
+      // Generate all 12 months including the current month
       const today = new Date();
+      // Add one month to make May the last month instead of April
       today.setMonth(today.getMonth() + 1);
       const last12Months = Array.from({ length: 12 }).map((_, i) => {
         const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
@@ -229,21 +246,21 @@ const OverallAnalyticsScreen: React.FC = () => {
       const lastMonthToConsider = lastMonthToConsiderDate.toISOString();
 
       // Initialize empty data for all 12 months
-      const expendituresMap: { [monthKey: string]: { impressionCost: number; bookingCost: number; totalCost: number; countries: Set<string> } } = {};
+      const expendituresMap: { [monthKey: string]: MonthlyExpenditure } = {};
       last12Months.forEach(dateInfo => {
         expendituresMap[dateInfo.monthKey] = {
+          month: dateInfo.monthKey,
           impressionCost: 0,
           bookingCost: 0,
           totalCost: 0,
-          countries: new Set()
         };
       });
 
-      // 1. Fetch all events for the organizer to map event_id to its date and country
+      // 1. Fetch all events for the organizer to map event_id to its date
       const { data: allEventsData, error: alleventsError } = await supabase
         .from('events')
-        .select('id, event_datetime, country')
-        .eq('organizer_id', session.user.id);
+        .select('id, event_datetime')
+        .eq('organizer_id', organizerId);
 
       if (alleventsError) {
         console.error("Error fetching events for expenditures:", alleventsError);
@@ -251,11 +268,8 @@ const OverallAnalyticsScreen: React.FC = () => {
       }
       
       if (allEventsData && allEventsData.length > 0) {
-        const eventIdToInfoMap = new Map<string, { date: string; country: string }>();
-        allEventsData.forEach(event => eventIdToInfoMap.set(event.id, { 
-          date: event.event_datetime, 
-          country: event.country || 'Singapore' 
-        }));
+        const eventIdToDateMap = new Map<string, string>();
+        allEventsData.forEach(event => eventIdToDateMap.set(event.id, event.event_datetime));
 
         // 2. Fetch relevant event_impressions for the last 12 months
         const { data: impressionData, error: impressionError } = await supabase
@@ -267,6 +281,7 @@ const OverallAnalyticsScreen: React.FC = () => {
 
         if (impressionError) {
           console.error("Error fetching impression data:", impressionError);
+          // Decide if partial data is acceptable or throw
         }
 
         // 3. Fetch relevant event_bookings for these events
@@ -278,16 +293,15 @@ const OverallAnalyticsScreen: React.FC = () => {
 
         if (bookingError) {
           console.error("Error fetching booking data:", bookingError);
+          // Decide if partial data is acceptable or throw
         }
 
         // Process impressions
         if (impressionData) {
           impressionData.forEach(imp => {
             const viewMonthKey = new Date(imp.viewed_at).toISOString().substring(0, 7);
-            const eventInfo = eventIdToInfoMap.get(imp.event_id);
-            if (expendituresMap[viewMonthKey] && eventInfo) {
+            if (expendituresMap[viewMonthKey]) {
               expendituresMap[viewMonthKey].impressionCost += 0.0075;
-              expendituresMap[viewMonthKey].countries.add(eventInfo.country);
             }
           });
         }
@@ -295,15 +309,14 @@ const OverallAnalyticsScreen: React.FC = () => {
         // Process bookings
         if (bookingData) {
           bookingData.forEach(booking => {
-            const eventInfo = eventIdToInfoMap.get(booking.event_id);
-            if (eventInfo) {
-              const eventDate = new Date(eventInfo.date);
+            const eventDateStr = eventIdToDateMap.get(booking.event_id);
+            if (eventDateStr) {
+              const eventDate = new Date(eventDateStr);
               // Check if event_datetime is within our 12 month window
               if (eventDate.toISOString() >= firstMonthToConsider && eventDate.toISOString() <= lastMonthToConsider) {
                 const eventMonthKey = eventDate.toISOString().substring(0, 7);
                 if (expendituresMap[eventMonthKey]) {
                   expendituresMap[eventMonthKey].bookingCost += (booking.quantity || 0) * 0.50;
-                  expendituresMap[eventMonthKey].countries.add(eventInfo.country);
                 }
               }
             }
@@ -311,43 +324,22 @@ const OverallAnalyticsScreen: React.FC = () => {
         }
       }
       
-      // Convert to target currency and format for state
-      const monthlyExpenditureData: MonthlyExpenditure[] = [];
-      for (const [month, data] of Object.entries(expendituresMap)) {
-        const shouldUseSGD = data.countries.size > 1;
-        const targetCurrency = shouldUseSGD ? 'SGD' : displayCurrency;
-        
-        let impressionCost = data.impressionCost;
-        let bookingCost = data.bookingCost;
-        
-        // Convert from SGD to target currency if needed
-        if (targetCurrency !== 'SGD') {
-          const convertedImpression = await convertCurrency(data.impressionCost, 'SGD', targetCurrency);
-          const convertedBooking = await convertCurrency(data.bookingCost, 'SGD', targetCurrency);
-          impressionCost = convertedImpression || data.impressionCost;
-          bookingCost = convertedBooking || data.bookingCost;
-        }
+      // Calculate total costs and format for state
+      const result = Object.values(expendituresMap).map(exp => ({
+        month: exp.month,
+        impressionCost: exp.impressionCost, // Keep exact value
+        bookingCost: exp.bookingCost, // Keep exact value  
+        totalCost: exp.impressionCost + exp.bookingCost, // Keep exact value
+      }));
 
-        monthlyExpenditureData.push({
-        month,
-          impressionCost,
-          bookingCost,
-          totalCost: impressionCost + bookingCost,
-          currency: targetCurrency,
-          originalCosts: {
-            impressionCost: { amount: data.impressionCost, currency: 'SGD' },
-            bookingCost: { amount: data.bookingCost, currency: 'SGD' }
-          }
-        });
-      }
-
-      setMonthlyExpenditures(monthlyExpenditureData.sort((a, b) => a.month.localeCompare(b.month)));
+      setMonthlyExpenditures(result);
     } catch (error) {
-      console.error("Error in fetchMonthlyExpenditure:", error);
+      console.error("Error in fetchMonthlyExpenditures:", error);
       setHasError(true);
       
-      // Even on error, provide empty data for all 12 months (matching original logic)
+      // Even on error, provide empty data for all 12 months
       const today = new Date();
+      // Add one month to make May the last month instead of April
       today.setMonth(today.getMonth() + 1);
       const last12Months = Array.from({ length: 12 }).map((_, i) => {
         const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
@@ -358,207 +350,26 @@ const OverallAnalyticsScreen: React.FC = () => {
         month,
         impressionCost: 0,
         bookingCost: 0,
-        totalCost: 0,
-        currency: displayCurrency,
-        originalCosts: {
-          impressionCost: { amount: 0, currency: 'SGD' },
-          bookingCost: { amount: 0, currency: 'SGD' }
-        }
+        totalCost: 0
       }));
       
       setMonthlyExpenditures(emptyData);
     } finally {
-      setLoadingExpenditures(false);
+      setLoadingExpenses(false);
     }
-  };
+  }, [organizerId]);
+  
+  // Function to fetch monthly revenues
+  const fetchMonthlyRevenues = useCallback(async () => {
+    if (!organizerId) return;
 
-  const fetchEventRevenue = async () => {
-    if (!session?.user?.id) return;
-
-    setLoadingRevenues(true);
     try {
-      setHasError(false);
-
-      const today = new Date();
-      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
-      const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
-
-      // 1. Fetch events for the organizer within the current month with booking_type
-      const { data: currentMonthEvents, error: eventsError } = await supabase
-        .from('events')
-        .select('id, title, booking_type, event_datetime, country')
-        .eq('organizer_id', session.user.id)
-        .gte('event_datetime', firstDayOfMonth)
-        .lte('event_datetime', lastDayOfMonth);
-
-      if (eventsError) {
-        console.error("Error fetching events for event revenues:", eventsError);
-        throw eventsError;
-      }
-
-      if (!currentMonthEvents || currentMonthEvents.length === 0) {
-        setEventRevenues([]);
-        setTicketsReservations({ ticketedEvents: [], reservationEvents: [] });
-        setEventImpressions([]);
-        return;
-      }
-
-      // Initialize data structures for the events
-      const eventIds = currentMonthEvents.map(event => event.id);
-      
-      interface EventRevenueMapItem {
-        eventId: string;
-        eventName: string;
-        revenue: number;
-        attendeeCount: number;
-        bookingType: 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null;
-        impressionCount: number;
-        country: string;
-        eventCurrency: string;
-      }
-      
-      const eventRevenueMap: Record<string, EventRevenueMapItem> = {};
-
-      // Process and categorize events by booking type
-      currentMonthEvents.forEach(event => {
-        const eventCurrency = getCurrencyForCountry(event.country || 'Singapore');
-        eventRevenueMap[event.id] = { 
-          eventId: event.id,
-          eventName: event.title, 
-          revenue: 0, 
-          attendeeCount: 0,
-          bookingType: event.booking_type,
-          impressionCount: 0,
-          country: event.country || 'Singapore',
-          eventCurrency: eventCurrency
-        };
-      });
-
-      // 2. Fetch ALL confirmed bookings for these events
-      const { data: bookingsData, error: bookingsError } = await supabase
-        .from('event_bookings')
-        .select('event_id, quantity, total_price_paid, status')
-        .in('event_id', eventIds)
-        .eq('status', 'CONFIRMED');
-
-      if (bookingsError) {
-        console.error("Error fetching bookings for event revenues:", bookingsError);
-        throw bookingsError;
-      }
-
-      // 3. Fetch impressions for these events
-      const { data: impressionsData, error: impressionsError } = await supabase
-        .from('event_impressions')
-        .select('event_id, id')
-        .in('event_id', eventIds);
-
-      if (impressionsError) {
-        console.error("Error fetching impressions:", impressionsError);
-      } else {
-        // Count impressions per event
-        if (impressionsData && impressionsData.length > 0) {
-          impressionsData.forEach(impression => {
-            if (eventRevenueMap[impression.event_id]) {
-              eventRevenueMap[impression.event_id].impressionCount += 1;
-            }
-          });
-        }
-      }
-
-      // Process each booking to aggregate revenue and attendance counts
-      if (bookingsData && bookingsData.length > 0) {
-        bookingsData.forEach(booking => {
-          if (eventRevenueMap[booking.event_id]) {
-            // Revenue is already in the correct currency (stored in event's local currency)
-            eventRevenueMap[booking.event_id].revenue += (booking.total_price_paid || 0);
-            
-            // Add to attendee count regardless of payment
-            eventRevenueMap[booking.event_id].attendeeCount += (booking.quantity || 0);
-          }
-        });
-      }
-
-      // Determine display currency for analytics
-      const countries = new Set(Object.values(eventRevenueMap).map(e => e.country));
-      const shouldUseSGD = countries.size > 1;
-      const targetDisplayCurrency = shouldUseSGD ? 'SGD' : displayCurrency;
-
-      // Convert revenue to display currency and create final arrays
-      const eventRevenueData: EventRevenue[] = [];
-      const ticketedEvents: { eventId: string; eventName: string; ticketCount: number }[] = [];
-      const reservationEvents: { eventId: string; eventName: string; reservationCount: number }[] = [];
-      const impressionEvents: { eventId: string; eventName: string; impressionCount: number }[] = [];
-
-      for (const event of Object.values(eventRevenueMap)) {
-        let displayRevenue = event.revenue;
-        
-        // Only convert if the event's currency is different from our target display currency
-        if (event.revenue > 0 && event.eventCurrency !== targetDisplayCurrency) {
-          const converted = await convertCurrency(event.revenue, event.eventCurrency, targetDisplayCurrency);
-          displayRevenue = converted || event.revenue;
-        }
-
-        if (displayRevenue > 0) {
-          eventRevenueData.push({
-            eventId: event.eventId,
-            eventName: event.eventName,
-            revenue: displayRevenue,
-            attendeeCount: event.attendeeCount,
-            bookingType: event.bookingType,
-            currency: targetDisplayCurrency,
-            originalRevenue: { amount: event.revenue, currency: event.eventCurrency }
-          });
-        }
-
-        if (event.bookingType === 'TICKETED' && event.attendeeCount > 0) {
-          ticketedEvents.push({
-            eventId: event.eventId,
-            eventName: event.eventName,
-            ticketCount: event.attendeeCount
-          });
-        } else if (event.bookingType === 'RESERVATION' && event.attendeeCount > 0) {
-          reservationEvents.push({
-            eventId: event.eventId,
-            eventName: event.eventName,
-            reservationCount: event.attendeeCount
-          });
-        }
-
-        if (event.impressionCount > 0) {
-          impressionEvents.push({
-            eventId: event.eventId,
-            eventName: event.eventName,
-            impressionCount: event.impressionCount
-          });
-        }
-      }
-
-      // Sort arrays
-      eventRevenueData.sort((a, b) => b.revenue - a.revenue);
-      ticketedEvents.sort((a, b) => b.ticketCount - a.ticketCount);
-      reservationEvents.sort((a, b) => b.reservationCount - a.reservationCount);
-      impressionEvents.sort((a, b) => b.impressionCount - a.impressionCount);
-
-      setEventRevenues(eventRevenueData);
-      setTicketsReservations({ ticketedEvents, reservationEvents });
-      setEventImpressions(impressionEvents);
-    } catch (error) {
-      console.error("Error in fetchEventRevenue:", error);
-      setHasError(true);
-    } finally {
-      setLoadingRevenues(false);
-    }
-  };
-
-  const fetchMonthlyRevenue = async () => {
-    if (!session?.user?.id) return;
-    
       setLoadingRevenues(true);
-    try {
       setHasError(false);
 
-      // Generate all 12 months including the current month (matching original logic)
+      // Generate all 12 months including the current month
       const today = new Date();
+      // Add one month to make May the last month instead of April
       today.setMonth(today.getMonth() + 1);
       const last12Months = Array.from({ length: 12 }).map((_, i) => {
         const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
@@ -566,9 +377,9 @@ const OverallAnalyticsScreen: React.FC = () => {
       }).reverse(); // Oldest first
       
       // Initialize empty revenue data for all months
-      const revenuesByMonth: { [month: string]: { revenue: number; countries: Set<string>; eventCurrencies: Map<string, number> } } = {};
+      const revenuesByMonth: { [month: string]: number } = {};
       last12Months.forEach(month => {
-        revenuesByMonth[month] = { revenue: 0, countries: new Set(), eventCurrencies: new Map() };
+        revenuesByMonth[month] = 0;
       });
 
       const twelveMonthsAgo = new Date();
@@ -578,8 +389,8 @@ const OverallAnalyticsScreen: React.FC = () => {
       // 1. Fetch all events for the organizer
       const { data: eventsData, error: eventsError } = await supabase
         .from('events')
-        .select('id, event_datetime, country')
-        .eq('organizer_id', session.user.id);
+        .select('id, event_datetime')
+        .eq('organizer_id', organizerId);
 
       if (eventsError) {
         console.error("Error fetching events for monthly revenue:", eventsError);
@@ -587,15 +398,9 @@ const OverallAnalyticsScreen: React.FC = () => {
       }
 
       if (eventsData && eventsData.length > 0) {
-        const eventIdToInfoMap = new Map<string, { date: string; country: string; currency: string }>();
+        const eventIdToDateMap = new Map<string, string>();
         const eventIds = eventsData.map(event => {
-          const country = event.country || 'Singapore';
-          const currency = getCurrencyForCountry(country);
-          eventIdToInfoMap.set(event.id, { 
-            date: event.event_datetime, 
-            country: country,
-            currency: currency
-          });
+          eventIdToDateMap.set(event.id, event.event_datetime);
           return event.id;
         });
 
@@ -614,20 +419,13 @@ const OverallAnalyticsScreen: React.FC = () => {
 
         if (bookingsData) {
           bookingsData.forEach(booking => {
-            const eventInfo = eventIdToInfoMap.get(booking.event_id);
-            if (eventInfo) {
-              const eventDate = new Date(eventInfo.date);
+            const eventDateStr = eventIdToDateMap.get(booking.event_id);
+            if (eventDateStr) {
+              const eventDate = new Date(eventDateStr);
               if (eventDate >= twelveMonthsAgo) {
                 const monthYear = eventDate.toISOString().substring(0, 7); // YYYY-MM
                 if (revenuesByMonth[monthYear] !== undefined) {
-                  // Revenue is already in the event's local currency
-                  const revenueAmount = booking.total_price_paid || 0;
-                  revenuesByMonth[monthYear].revenue += revenueAmount;
-                  revenuesByMonth[monthYear].countries.add(eventInfo.country);
-                  
-                  // Track revenue by currency for proper conversion
-                  const existingAmount = revenuesByMonth[monthYear].eventCurrencies.get(eventInfo.currency) || 0;
-                  revenuesByMonth[monthYear].eventCurrencies.set(eventInfo.currency, existingAmount + revenueAmount);
+                  revenuesByMonth[monthYear] = (revenuesByMonth[monthYear] || 0) + (booking.total_price_paid || 0);
                 }
               }
             }
@@ -635,190 +433,872 @@ const OverallAnalyticsScreen: React.FC = () => {
         }
       }
 
-      // Convert revenues to appropriate display currency
-      const monthlyRevenueData: MonthlyRevenue[] = [];
-      for (const [month, data] of Object.entries(revenuesByMonth)) {
-        const shouldUseSGD = data.countries.size > 1;
-        const targetCurrency = shouldUseSGD ? 'SGD' : displayCurrency;
-        
-        let convertedRevenue = 0;
-        
-        // Convert each currency amount to target currency
-        for (const [eventCurrency, amount] of data.eventCurrencies.entries()) {
-          if (eventCurrency === targetCurrency) {
-            convertedRevenue += amount;
-          } else {
-            const converted = await convertCurrency(amount, eventCurrency, targetCurrency);
-            convertedRevenue += (converted || amount);
-          }
-        }
+      const formattedData = Object.entries(revenuesByMonth)
+        .map(([month, revenue]) => ({ month, revenue }))
+        .sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
 
-        monthlyRevenueData.push({
-          month,
-          revenue: convertedRevenue,
-          currency: targetCurrency
-        });
-      }
-
-      setMonthlyRevenues(monthlyRevenueData.sort((a, b) => a.month.localeCompare(b.month)));
+      setMonthlyRevenues(formattedData);
     } catch (error) {
-      console.error("Error in fetchMonthlyRevenue:", error);
+      console.error("Error in fetchMonthlyRevenues:", error);
       setHasError(true);
       
       // Even on error, provide empty data for all 12 months
       const today = new Date();
+      // Add one month to make May the last month instead of April
       today.setMonth(today.getMonth() + 1);
       const last12Months = Array.from({ length: 12 }).map((_, i) => {
         const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
         return d.toISOString().substring(0, 7);
       }).reverse();
       
-      const emptyData = last12Months.map(month => ({ 
-        month, 
-        revenue: 0, 
-        currency: displayCurrency 
-      }));
+      const emptyData = last12Months.map(month => ({ month, revenue: 0 }));
       setMonthlyRevenues(emptyData);
     } finally {
       setLoadingRevenues(false);
     }
-  };
-
-  const fetchEventRatings = async () => {
-    if (!session?.user?.id) return;
-
-      setLoadingRatings(true);
+  }, [organizerId]);
+  
+  // Function to fetch total monthly impressions
+  const fetchMonthlyImpressions = useCallback(async () => {
+    if (!organizerId) return;
+    console.log("Fetching monthly impressions...");
     try {
-      // Fetch event ratings
-      const { data, error } = await supabase
+      setLoadingMonthlyTrends(true); // Use a shared loading state or create specific ones
+
+      // Generate all 12 months including the current month
+      const today = new Date();
+      // Add one month to make May the last month instead of April
+      today.setMonth(today.getMonth() + 1);
+      const last12Months = Array.from({ length: 12 }).map((_, i) => {
+        const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        return d.toISOString().substring(0, 7); // YYYY-MM format
+      }).reverse(); // Oldest first
+      
+      // Initialize empty impression data for all months
+      const impressionsByMonth: { [month: string]: number } = {};
+      last12Months.forEach(month => {
+        impressionsByMonth[month] = 0;
+      });
+
+      const twelveMonthsAgo = new Date();
+      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+      const twelveMonthsAgoISO = twelveMonthsAgo.toISOString();
+
+      const { data: organizerEvents, error: eventsError } = await supabase
         .from('events')
-        .select(`
-          id, title,
-          event_ratings(rating)
-        `)
-        .eq('organizer_id', session.user.id);
+        .select('id')
+        .eq('organizer_id', organizerId);
 
-      if (error) {
-        console.error('Error fetching event ratings:', error);
-        setEventRatings([]);
-      } else {
-        const ratingsData = (data || []).map(event => {
-          const ratings = event.event_ratings || [];
-          const averageRating = ratings.length > 0 
-            ? ratings.reduce((sum: number, r: any) => sum + r.rating, 0) / ratings.length 
-            : 0;
-          
-          return {
-            eventId: event.id,
-            eventName: event.title,
-            averageRating,
-            numberOfRatings: ratings.length
-          };
-        });
-        setEventRatings(ratingsData);
+      if (eventsError) throw eventsError;
+      
+      if (organizerEvents && organizerEvents.length > 0) {
+        const eventIds = organizerEvents.map(e => e.id);
+
+        const { data: impressions, error: impressionsError } = await supabase
+          .from('event_impressions')
+          .select('viewed_at')
+          .in('event_id', eventIds)
+          .gte('viewed_at', twelveMonthsAgoISO);
+
+        if (impressionsError) throw impressionsError;
+
+        if (impressions && impressions.length > 0) {
+          impressions.forEach(imp => {
+            const monthYear = new Date(imp.viewed_at).toISOString().substring(0, 7);
+            if (impressionsByMonth[monthYear] !== undefined) {
+              impressionsByMonth[monthYear] += 1;
+            }
+          });
+        }
       }
+      
+      const formattedData = Object.entries(impressionsByMonth)
+        .map(([month, count]) => ({ month, count }))
+        .sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
+        
+      setMonthlyImpressions(formattedData);
+      console.log("Monthly impressions data (including zero months):", formattedData.length);
     } catch (error) {
-      console.error('Error in fetchEventRatings:', error);
-        setEventRatings([]);
-    } finally {
-        setLoadingRatings(false);
+      console.error("Error in fetchMonthlyImpressions:", error);
+      
+      // Even on error, provide empty data for all 12 months
+      const today = new Date();
+      // Add one month to make May the last month instead of April
+      today.setMonth(today.getMonth() + 1);
+      const last12Months = Array.from({ length: 12 }).map((_, i) => {
+        const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        return d.toISOString().substring(0, 7);
+      }).reverse();
+      
+      const emptyData = last12Months.map(month => ({ month, count: 0 }));
+      setMonthlyImpressions(emptyData);
     }
+    // No longer need to set loading to false here since it's handled in refreshAllData
+  }, [organizerId]);
+
+  // Function to fetch total monthly ticket sales
+  const fetchMonthlyTicketSales = useCallback(async () => {
+    if (!organizerId) return;
+    console.log("Fetching monthly ticket sales...");
+    try {
+      setLoadingMonthlyTrends(true);
+      
+      // Generate all 12 months including the current month
+      const today = new Date();
+      // Add one month to make May the last month instead of April
+      today.setMonth(today.getMonth() + 1);
+      const last12Months = Array.from({ length: 12 }).map((_, i) => {
+        const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        return d.toISOString().substring(0, 7); // YYYY-MM format
+      }).reverse(); // Oldest first
+      
+      // Initialize empty ticket sales data for all months
+      const salesByMonth: { [month: string]: number } = {};
+      last12Months.forEach(month => {
+        salesByMonth[month] = 0;
+      });
+
+      const twelveMonthsAgo = new Date();
+      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+      const twelveMonthsAgoISO = twelveMonthsAgo.toISOString();
+
+      // Fetch event_ids for TICKETED events by the organizer
+      const { data: ticketedEvents, error: eventsError } = await supabase
+        .from('events')
+        .select('id')
+        .eq('organizer_id', organizerId)
+        .eq('booking_type', 'TICKETED');
+
+      if (eventsError) throw eventsError;
+      
+      if (ticketedEvents && ticketedEvents.length > 0) {
+        const eventIds = ticketedEvents.map(e => e.id);
+
+        const { data: bookings, error: bookingsError } = await supabase
+          .from('event_bookings')
+          .select('created_at, quantity')
+          .in('event_id', eventIds)
+          .eq('status', 'CONFIRMED')
+          .gte('created_at', twelveMonthsAgoISO);
+
+        if (bookingsError) throw bookingsError;
+
+        if (bookings && bookings.length > 0) {
+          bookings.forEach(booking => {
+            const monthYear = new Date(booking.created_at).toISOString().substring(0, 7);
+            if (salesByMonth[monthYear] !== undefined) {
+              salesByMonth[monthYear] += (booking.quantity || 0);
+            }
+          });
+        }
+      }
+      
+      const formattedData = Object.entries(salesByMonth)
+        .map(([month, count]) => ({ month, count }))
+        .sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
+        
+      setMonthlyTicketSales(formattedData);
+      console.log("Monthly ticket sales data (including zero months):", formattedData.length);
+    } catch (error) {
+      console.error("Error in fetchMonthlyTicketSales:", error);
+      
+      // Even on error, provide empty data for all 12 months
+      const today = new Date();
+      // Add one month to make May the last month instead of April
+      today.setMonth(today.getMonth() + 1);
+      const last12Months = Array.from({ length: 12 }).map((_, i) => {
+        const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        return d.toISOString().substring(0, 7);
+      }).reverse();
+      
+      const emptyData = last12Months.map(month => ({ month, count: 0 }));
+      setMonthlyTicketSales(emptyData);
+    }
+    // No longer need to set loading to false here since it's handled in refreshAllData
+  }, [organizerId]);
+
+  // Function to fetch monthly reservation counts
+  const fetchMonthlyReservations = useCallback(async () => {
+    if (!organizerId) return;
+    console.log("Fetching monthly reservations...");
+    try {
+      setLoadingMonthlyTrends(true);
+      
+      // Generate all 12 months including the current month
+      const today = new Date();
+      // Add one month to make May the last month instead of April
+      today.setMonth(today.getMonth() + 1);
+      const last12Months = Array.from({ length: 12 }).map((_, i) => {
+        const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        return d.toISOString().substring(0, 7); // YYYY-MM format
+      }).reverse(); // Oldest first
+      
+      // Initialize empty reservations data for all months
+      const reservationsByMonth: { [month: string]: number } = {};
+      last12Months.forEach(month => {
+        reservationsByMonth[month] = 0;
+      });
+
+      const twelveMonthsAgo = new Date();
+      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+      const twelveMonthsAgoISO = twelveMonthsAgo.toISOString();
+
+      // Fetch event_ids for RESERVATION events by the organizer
+      const { data: reservationEvents, error: eventsError } = await supabase
+        .from('events')
+        .select('id')
+        .eq('organizer_id', organizerId)
+        .eq('booking_type', 'RESERVATION');
+
+      if (eventsError) throw eventsError;
+      
+      if (reservationEvents && reservationEvents.length > 0) {
+        const eventIds = reservationEvents.map(e => e.id);
+
+        const { data: bookings, error: bookingsError } = await supabase
+          .from('event_bookings')
+          .select('created_at, quantity')
+          .in('event_id', eventIds)
+          .eq('status', 'CONFIRMED')
+          .gte('created_at', twelveMonthsAgoISO);
+
+        if (bookingsError) throw bookingsError;
+
+        if (bookings && bookings.length > 0) {
+          bookings.forEach(booking => {
+            const monthYear = new Date(booking.created_at).toISOString().substring(0, 7);
+            if (reservationsByMonth[monthYear] !== undefined) {
+              reservationsByMonth[monthYear] += (booking.quantity || 0);
+            }
+          });
+        }
+      }
+      
+      const formattedData = Object.entries(reservationsByMonth)
+        .map(([month, count]) => ({ month, count }))
+        .sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
+        
+      setMonthlyReservations(formattedData);
+    } catch (error) {
+      console.error("Error in fetchMonthlyReservations:", error);
+      
+      // Even on error, provide empty data for all 12 months
+      const today = new Date();
+      // Add one month to make May the last month instead of April
+      today.setMonth(today.getMonth() + 1);
+      const last12Months = Array.from({ length: 12 }).map((_, i) => {
+        const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        return d.toISOString().substring(0, 7);
+      }).reverse();
+      
+      const emptyData = last12Months.map(month => ({ month, count: 0 }));
+      setMonthlyReservations(emptyData);
+    } 
+    // No longer need to set loading to false here since it's handled in refreshAllData
+  }, [organizerId]);
+
+  // Function to refresh all data
+  const refreshAllData = useCallback(async () => {
+    if (!organizerId) {
+      setIsRefreshing(false);
+      return;
+    }
+    setIsRefreshing(true);
+    setHasError(false);
+    setLoadingMonthlyTrends(true); // Set loading true for the group of new charts
+
+    // Divide into separate try/catch blocks to allow partial success
+    try {
+      await Promise.all([
+        fetchMonthlyExpenditures(),
+        fetchMonthlyRevenues(),
+        fetchMonthlyImpressions(),
+        fetchMonthlyTicketSales(),
+        fetchMonthlyReservations(),
+      ]);
+    } catch (error) {
+      console.error("Error refreshing monthly data:", error);
+      setHasError(true);
+    }
+
+    try {
+      // Call these functions separately to avoid circular dependencies
+      await fetchEventRevenues();
+    } catch (error) {
+      console.error("Error refreshing event revenues:", error);
+      setHasError(true);
+    }
+
+    try {
+      await fetchEventRatings();
+    } catch (error) {
+      console.error("Error refreshing event ratings:", error);
+      setHasError(true);
+    }
+
+    try {
+      await fetchAnalyticsSummary();
+    } catch (error) {
+      console.error("Error refreshing analytics summary:", error);
+      setHasError(true);
+    }
+
+    setLoadingMonthlyTrends(false);
+    setIsRefreshing(false);
+  }, [
+    organizerId,
+    fetchMonthlyExpenditures,
+    fetchMonthlyRevenues,
+    fetchMonthlyImpressions, 
+    fetchMonthlyTicketSales, 
+    fetchMonthlyReservations,
+    // These are now called separately to avoid circular dependencies
+    // fetchEventRevenues,
+    // fetchEventRatings,
+    // fetchAnalyticsSummary,
+  ]);
+  
+  // Load all data when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      if (organizerId) {
+        refreshAllData();
+      }
+    }, [organizerId, refreshAllData])
+  );
+  
+  // Function to format month labels with better formatting
+  const formatMonthLabel = (monthStr: string) => {
+    const date = new Date(monthStr);
+    return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  };
+  
+  // Function to truncate event names for charts with better handling
+  const truncateEventName = (name: string, maxLength = 10) => {
+    if (name.length <= maxLength) return name;
+    return name.substring(0, maxLength - 1) + '…';
   };
 
-  const fetchTicketsReservations = async () => {
-    if (!session?.user?.id) return;
-    
-    setLoadingTicketsReservations(true);
-    try {
-      // This data is now set by fetchEventRevenue, so we don't need separate fetching
-      // The tickets and reservations data is already populated
-    } catch (error) {
-      console.error('Error fetching tickets/reservations:', error);
-    } finally {
-      setLoadingTicketsReservations(false);
-    }
+  // Enhanced helper function to format currency values
+  const formatCurrency = (value: number) => {
+    if (value === 0) return '$0';
+    if (value < 0.01) return `$${value.toFixed(4)}`;
+    if (value < 1) return `$${value.toFixed(3)}`;
+    if (value < 100) return `$${value.toFixed(2)}`;
+    if (value < 1000) return `$${Math.round(value)}`;
+    if (value < 1000000) return `$${(value / 1000).toFixed(1)}k`;
+    return `$${(value / 1000000).toFixed(1)}M`;
   };
 
-  const fetchEventImpressions = async () => {
-    if (!session?.user?.id) return;
-    
-    setLoadingImpressions(true);
+  // Enhanced helper function to format numbers with proper scaling
+  const formatNumber = (value: number) => {
+    if (value === 0) return '0';
+    if (value < 1000) return Math.round(value).toString();
+    if (value < 1000000) return `${(value / 1000).toFixed(1)}k`;
+    return `${(value / 1000000).toFixed(1)}M`;
+  };
+
+  // Enhanced chart data preparation with better formatting
+  const createChartConfig = (colorScheme: any, decimalPlaces = 0) => ({
+    ...baseChartConfig,
+    color: colorScheme.primary,
+    fillShadowGradientFrom: colorScheme.light,
+    fillShadowGradientTo: colorScheme.background,
+    decimalPlaces,
+  });
+
+  // Prepare chart data with enhanced formatting
+  const impressionCostData = {
+    labels: monthlyExpenditures.map(item => formatMonthLabel(item.month)),
+    datasets: [
+      {
+        data: monthlyExpenditures.map(item => Math.max(item.impressionCost, 0.001)),
+        colors: monthlyExpenditures.map(() => chartColors.costs.primary),
+      }
+    ],
+  };
+  
+  const bookingCostData = {
+    labels: monthlyExpenditures.map(item => formatMonthLabel(item.month)),
+    datasets: [
+      {
+        data: monthlyExpenditures.map(item => Math.max(item.bookingCost, 0.001)),
+        colors: monthlyExpenditures.map(() => chartColors.ratings.primary),
+      }
+    ],
+  };
+  
+  const totalCostData = {
+    labels: monthlyExpenditures.map(item => formatMonthLabel(item.month)),
+    datasets: [
+      {
+        data: monthlyExpenditures.map(item => Math.max(item.totalCost, 0.001)),
+        colors: monthlyExpenditures.map(() => chartColors.combined.primary),
+      }
+    ],
+  };
+  
+  const eventRevenueData = {
+    labels: eventRevenues.slice(0, 6).map(item => truncateEventName(item.eventName, 8)), // Reduced to 6 for better readability
+    datasets: [
+      {
+        data: eventRevenues.slice(0, 6).map(item => Math.max(item.revenue, 0.01)),
+        colors: eventRevenues.slice(0, 6).map(() => chartColors.revenue.primary),
+      }
+    ],
+  };
+  
+  const ticketsData = {
+    labels: ticketsReservationsData.ticketedEvents.slice(0, 6).map(item => truncateEventName(item.eventName, 8)),
+    datasets: [
+      {
+        data: ticketsReservationsData.ticketedEvents.slice(0, 6).map(item => Math.max(item.ticketCount, 1)),
+        colors: ticketsReservationsData.ticketedEvents.slice(0, 6).map(() => chartColors.tickets.primary),
+      }
+    ],
+  };
+
+  const reservationsData = {
+    labels: ticketsReservationsData.reservationEvents.slice(0, 6).map(item => truncateEventName(item.eventName, 8)),
+    datasets: [
+      {
+        data: ticketsReservationsData.reservationEvents.slice(0, 6).map(item => Math.max(item.reservationCount, 1)),
+        colors: ticketsReservationsData.reservationEvents.slice(0, 6).map(() => chartColors.reservations.primary),
+      }
+    ],
+  };
+  
+  const monthlyRevenueData = {
+    labels: monthlyRevenues.map(item => formatMonthLabel(item.month)),
+    datasets: [
+      {
+        data: monthlyRevenues.map(item => Math.max(item.revenue, 0.01)),
+        colors: monthlyRevenues.map(() => chartColors.revenue.primary),
+      }
+    ],
+  };
+  
+  const eventRatingData = {
+    labels: eventRatings.slice(0, 6).map(item => truncateEventName(item.eventName, 8)),
+    datasets: [
+      {
+        data: eventRatings.slice(0, 6).map(item => Math.max(item.averageRating, 0.1)),
+        colors: eventRatings.slice(0, 6).map(() => chartColors.ratings.primary),
+      }
+    ],
+  };
+
+  // Prepare new chart data for impressions
+  const impressionsChartData = {
+    labels: impressionsData.slice(0, 6).map(item => truncateEventName(item.eventName, 8)),
+    datasets: [
+      {
+        data: impressionsData.slice(0, 6).map(item => Math.max(item.impressionCount, 1)),
+        colors: impressionsData.slice(0, 6).map(() => chartColors.impressions.primary),
+      }
+    ],
+  };
+
+  // Prepare chart data for monthly trends
+  const monthlyImpressionsChartData = {
+    labels: monthlyImpressions.map(item => formatMonthLabel(item.month)),
+    datasets: [{ 
+      data: monthlyImpressions.map(item => Math.max(item.count, 0)),
+      colors: monthlyImpressions.map(() => chartColors.impressions.primary),
+    }],
+  };
+
+  const monthlyTicketSalesChartData = {
+    labels: monthlyTicketSales.map(item => formatMonthLabel(item.month)),
+    datasets: [{ 
+      data: monthlyTicketSales.map(item => Math.max(item.count, 0)),
+      colors: monthlyTicketSales.map(() => chartColors.tickets.primary),
+    }],
+  };
+
+  const monthlyReservationsChartData = {
+    labels: monthlyReservations.map(item => formatMonthLabel(item.month)),
+    datasets: [{ 
+      data: monthlyReservations.map(item => Math.max(item.count, 0)),
+      colors: monthlyReservations.map(() => chartColors.reservations.primary),
+    }],
+  };
+
+  // Enhanced BarChart component wrapper for ratings
+  const RatingsBarChart = ({ data, width, height, ...props }: any) => {
+    const maxRating = 5;
+    const chartData = {
+      ...data,
+      datasets: data.datasets.map((dataset: any) => ({
+        ...dataset,
+        data: dataset.data.map((value: number) => Math.min(Math.max(value, 0.1), maxRating))
+      }))
+    };
+
+    return (
+      <View style={styles.ratingChartContainer}>
+        <View style={styles.chartGradientOverlay} />
+        <BarChart 
+          data={chartData}
+          width={width}
+          height={height}
+          yAxisLabel=""
+          yAxisSuffix="★"
+          chartConfig={createChartConfig(chartColors.ratings, 1)}
+          verticalLabelRotation={30}
+          showValuesOnTopOfBars
+          withInnerLines={true}
+          fromZero
+          segments={5}
+          style={styles.enhancedChart}
+          {...props}
+        />
+        <View style={styles.ratingLegendContainer}>
+          <Text style={styles.legendTitle}>Event Ratings Details</Text>
+          {eventRatings.slice(0, 6).map((item, index) => (
+            <View key={index} style={styles.ratingLegendItem}>
+              <View style={styles.legendDot} />
+              <Text style={styles.ratingLegendName}>{truncateEventName(item.eventName, 25)}</Text>
+              <View style={styles.ratingLegendRating}>
+                <Text style={styles.ratingLegendValue}>{item.averageRating.toFixed(1)}★</Text>
+                <Text style={styles.ratingLegendCount}>({item.numberOfRatings})</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
+  // Updated function to fetch event revenues and impressions for the current month
+  const fetchEventRevenues = useCallback(async () => {
+    if (!organizerId) return;
+
     try {
-      // For now, use a simplified approach since event_impressions table structure is uncertain
-      const { data, error } = await supabase
+      setLoadingRevenues(true);
+      setHasError(false);
+
+      const today = new Date();
+      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
+      const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
+
+      console.log(`Fetching events from ${firstDayOfMonth} to ${lastDayOfMonth}`);
+
+      // 1. Fetch events for the organizer within the current month with booking_type
+      const { data: currentMonthEvents, error: eventsError } = await supabase
+        .from('events')
+        .select('id, title, booking_type, event_datetime')
+        .eq('organizer_id', organizerId)
+        .gte('event_datetime', firstDayOfMonth)
+        .lte('event_datetime', lastDayOfMonth);
+
+      if (eventsError) {
+        console.error("Error fetching events for event revenues:", eventsError);
+        throw eventsError;
+      }
+
+      console.log("Current month events:", currentMonthEvents?.length || 0);
+
+      if (!currentMonthEvents || currentMonthEvents.length === 0) {
+        console.log("No events found for current month");
+        setEventRevenues([]);
+        setTicketsReservationsData({ ticketedEvents: [], reservationEvents: [] });
+        setImpressionsData([]);
+        setLoadingRevenues(false);
+        return;
+      }
+
+      // Initialize data structures for the events
+      const eventIds = currentMonthEvents.map(event => event.id);
+      
+      interface EventRevenueMapItem {
+        eventId: string;
+        eventName: string;
+        revenue: number;
+        attendeeCount: number;
+        bookingType: 'TICKETED' | 'RESERVATION' | 'INFO_ONLY' | null;
+        impressionCount: number; // Add this to track impressions
+      }
+      
+      const eventRevenueMap: Record<string, EventRevenueMapItem> = {};
+      const ticketedEvents: {
+        eventId: string;
+        eventName: string;
+        ticketCount: number;
+      }[] = [];
+      
+      const reservationEvents: {
+        eventId: string;
+        eventName: string;
+        reservationCount: number;
+      }[] = [];
+
+      // Process and categorize events by booking type
+      currentMonthEvents.forEach(event => {
+        eventRevenueMap[event.id] = { 
+          eventId: event.id,
+          eventName: event.title, 
+          revenue: 0, 
+          attendeeCount: 0,
+          bookingType: event.booking_type,
+          impressionCount: 0 // Initialize impression count
+        };
+      });
+
+      // 2. Fetch ALL confirmed bookings for these events
+      console.log("Fetching bookings for events:", eventIds);
+      const { data: bookingsData, error: bookingsError } = await supabase
+        .from('event_bookings')
+        .select('event_id, quantity, total_price_paid, status')
+        .in('event_id', eventIds)
+        .eq('status', 'CONFIRMED');
+
+      if (bookingsError) {
+        console.error("Error fetching bookings for event revenues:", bookingsError);
+        throw bookingsError;
+      }
+
+      console.log("Bookings found:", bookingsData?.length || 0);
+
+      // 3. Fetch impressions for these events
+      console.log("Fetching impressions for events:", eventIds);
+      const { data: impressionsData, error: impressionsError } = await supabase
+        .from('event_impressions')
+        .select('event_id, id')
+        .in('event_id', eventIds);
+
+      if (impressionsError) {
+        console.error("Error fetching impressions:", impressionsError);
+        // Continue with available data even if impressions fetch fails
+      } else {
+        console.log("Impressions found:", impressionsData?.length || 0);
+        
+        // Count impressions per event
+        if (impressionsData && impressionsData.length > 0) {
+          impressionsData.forEach(impression => {
+            if (eventRevenueMap[impression.event_id]) {
+              eventRevenueMap[impression.event_id].impressionCount += 1;
+            }
+          });
+        }
+      }
+
+      // Process each booking to aggregate revenue and attendance counts
+      if (bookingsData && bookingsData.length > 0) {
+        bookingsData.forEach(booking => {
+          if (eventRevenueMap[booking.event_id]) {
+            // Add revenue if this is a paid booking
+            eventRevenueMap[booking.event_id].revenue += (booking.total_price_paid || 0);
+            
+            // Add to attendee count regardless of payment
+            eventRevenueMap[booking.event_id].attendeeCount += (booking.quantity || 0);
+          }
+        });
+      }
+
+      // Classify events into ticketed and reservation events
+      Object.values(eventRevenueMap).forEach((event: EventRevenueMapItem) => {
+        if (event.bookingType === 'TICKETED' && event.attendeeCount > 0) {
+          ticketedEvents.push({
+            eventId: event.eventId,
+            eventName: event.eventName,
+            ticketCount: event.attendeeCount
+          });
+        } else if (event.bookingType === 'RESERVATION' && event.attendeeCount > 0) {
+          reservationEvents.push({
+            eventId: event.eventId,
+            eventName: event.eventName,
+            reservationCount: event.attendeeCount
+          });
+        }
+      });
+
+      // Sort both lists by count (highest first)
+      ticketedEvents.sort((a, b) => b.ticketCount - a.ticketCount);
+      reservationEvents.sort((a, b) => b.reservationCount - a.reservationCount);
+
+      // Create a filtered array of events with revenue for the revenue chart
+      const formattedEventRevenues = Object.values(eventRevenueMap)
+        .filter((event: EventRevenueMapItem) => event.revenue > 0)
+        .sort((a, b) => b.revenue - a.revenue) as EventRevenue[];
+      
+      // Create array of events with impressions
+      const formattedImpressions = Object.values(eventRevenueMap)
+        .filter((event: EventRevenueMapItem) => event.impressionCount > 0)
+        .map(event => ({
+          eventId: event.eventId,
+          eventName: event.eventName,
+          impressionCount: event.impressionCount
+        }))
+        .sort((a, b) => b.impressionCount - a.impressionCount);
+
+      console.log("Tickets events:", ticketedEvents.length);
+      console.log("Reservation events:", reservationEvents.length);
+      console.log("Revenue events:", formattedEventRevenues.length);
+      console.log("Impression events:", formattedImpressions.length);
+
+      setEventRevenues(formattedEventRevenues);
+      setTicketsReservationsData({
+        ticketedEvents,
+        reservationEvents
+      });
+      setImpressionsData(formattedImpressions);
+    } catch (error) {
+      console.error("Error in fetchEventRevenues:", error);
+      setHasError(true);
+    } finally {
+      setLoadingRevenues(false);
+    }
+  }, [organizerId]);
+
+  // Function to fetch event attendee counts for the current month
+  const fetchEventAttendees = useCallback(async () => {
+    if (!organizerId) return;
+
+    // This function now depends on eventRevenues state being populated by fetchEventRevenues
+    // for the list of current month's events.
+    const currentEventsForAttendeeCount = eventRevenues.map(er => er.eventId);
+    if (currentEventsForAttendeeCount.length === 0) {
+      // No current month events found by fetchEventRevenues, so nothing to do here.
+      // Or, if eventRevenues is not yet populated, this might run prematurely.
+      // Consider if initial call order matters or if eventRevenues should be passed.
+      setLoadingAttendees(false);
+      return;
+    }
+
+    try {
+      setLoadingAttendees(true);
+      setHasError(false);
+
+      // Fetch confirmed bookings for the already identified current month events
+      const { data: bookingsData, error: bookingsError } = await supabase
+        .from('event_bookings')
+        .select('event_id, quantity')
+        .in('event_id', currentEventsForAttendeeCount)
+        .eq('status', 'CONFIRMED');
+
+      if (bookingsError) {
+        console.error("Error fetching bookings for event attendees:", bookingsError);
+        throw bookingsError;
+      }
+
+      const attendeeCountMap: { [eventId: string]: number } = {};
+      if (bookingsData) {
+        bookingsData.forEach(booking => {
+          attendeeCountMap[booking.event_id] = (attendeeCountMap[booking.event_id] || 0) + (booking.quantity || 0);
+        });
+      }
+
+      // Update the eventRevenues state with attendee counts
+      setEventRevenues(prevEventRevenues => 
+        prevEventRevenues.map(eventRev => ({
+          ...eventRev,
+          attendeeCount: attendeeCountMap[eventRev.eventId] || eventRev.attendeeCount || 0,
+        }))
+      );
+
+    } catch (error) {
+      console.error("Error in fetchEventAttendees:", error);
+      // Avoid overwriting a general error from another function if possible
+      // setHasError(true); 
+    } finally {
+      setLoadingAttendees(false);
+    }
+  // Depend on eventRevenues to ensure it has the event IDs, this creates a potential dependency cycle if not handled carefully in useEffect
+  // For now, keeping organizerId, but the logic relies on eventRevenues being somewhat up-to-date.
+  }, [organizerId, eventRevenues]); // Added eventRevenues to dependency array
+
+  // Function to fetch average event ratings
+  const fetchEventRatings = useCallback(async () => {
+    if (!organizerId) return;
+
+    try {
+      setLoadingRatings(true);
+      setHasError(false);
+
+      const now = new Date().toISOString();
+
+      // 1. Fetch latest 5 completed events for the organizer
+      const { data: recentCompletedEvents, error: eventsError } = await supabase
         .from('events')
         .select('id, title')
-        .eq('organizer_id', session.user.id);
+        .eq('organizer_id', organizerId)
+        .lt('event_datetime', now) // Event datetime is in the past
+        .order('event_datetime', { ascending: false })
+        .limit(5);
 
-      if (error) {
-        console.error('Error fetching event impressions:', error);
-        setEventImpressions([]);
-      } else {
-        // Create placeholder impression data
-        const processedData = (data || []).map(event => ({
+      if (eventsError) {
+        console.error("Error fetching recent completed events:", eventsError);
+        throw eventsError;
+      }
+
+      if (!recentCompletedEvents || recentCompletedEvents.length === 0) {
+        setEventRatings([]);
+        setLoadingRatings(false);
+        return;
+      }
+
+      const eventIdsToFetchRatings = recentCompletedEvents.map(event => event.id);
+
+      // 2. Fetch ratings for these specific events
+      const { data: ratingsData, error: ratingsError } = await supabase
+        .from('event_ratings')
+        .select('event_id, rating')
+        .in('event_id', eventIdsToFetchRatings);
+
+      if (ratingsError) {
+        console.error("Error fetching event ratings data:", ratingsError);
+        // Potentially set partial data or throw, for now, continue if possible
+      }
+
+      const ratingsMap: { [eventId: string]: { totalRating: number; count: number } } = {};
+      if (ratingsData) {
+        ratingsData.forEach(ratingEntry => {
+          if (!ratingsMap[ratingEntry.event_id]) {
+            ratingsMap[ratingEntry.event_id] = { totalRating: 0, count: 0 };
+          }
+          ratingsMap[ratingEntry.event_id].totalRating += ratingEntry.rating;
+          ratingsMap[ratingEntry.event_id].count += 1;
+        });
+      }
+
+      const formattedEventRatings: EventRating[] = recentCompletedEvents.map(event => {
+        const DBratingInfo = ratingsMap[event.id];
+        const averageRating = (DBratingInfo && DBratingInfo.count > 0) 
+                              ? parseFloat((DBratingInfo.totalRating / DBratingInfo.count).toFixed(1))
+                              : 0;
+        const numberOfRatings = DBratingInfo?.count || 0;
+        return {
           eventId: event.id,
           eventName: event.title,
-          impressionCount: Math.floor(Math.random() * 1000) + 100 // Placeholder data
-        }));
-        setEventImpressions(processedData);
-      }
+          averageRating: averageRating,
+          numberOfRatings: numberOfRatings,
+        };
+      });
+
+      setEventRatings(formattedEventRatings);
     } catch (error) {
-      console.error('Error in fetchEventImpressions:', error);
-      setEventImpressions([]);
+      console.error("Error in fetchEventRatings:", error);
+      setHasError(true);
+      setEventRatings([]);
     } finally {
-      setLoadingImpressions(false);
+      setLoadingRatings(false);
     }
-  };
+  }, [organizerId]);
 
-  const fetchMonthlyTrends = async () => {
-    if (!session?.user?.id) return;
-    
-    setLoadingTrends(true);
+  // Update the fetchAnalyticsSummary function to include avgImpressionsPerEvent
+  const fetchAnalyticsSummary = useCallback(async () => {
+    if (!organizerId) return;
+
     try {
-      // Fetch monthly trends data
-      const { data, error } = await supabase
-        .from('events')
-        .select('created_at')
-        .eq('organizer_id', session.user.id);
-
-      if (error) {
-        console.error('Error fetching monthly trends:', error);
-        setMonthlyTrends([]);
-      } else {
-        // Process the data to match the expected structure
-        const monthlyData: { [key: string]: number } = {};
-        (data || []).forEach(event => {
-          const month = event.created_at.substring(0, 7); // YYYY-MM
-          monthlyData[month] = (monthlyData[month] || 0) + 1;
-        });
-
-        const trendsData = Object.entries(monthlyData).map(([month, count]) => ({
-          month,
-          count
-        }));
-
-        setMonthlyTrends(trendsData.sort((a, b) => a.month.localeCompare(b.month)));
-      }
-    } catch (error) {
-      console.error('Error in fetchMonthlyTrends:', error);
-      setMonthlyTrends([]);
-    } finally {
-      setLoadingTrends(false);
-    }
-  };
-
-  const fetchAnalyticsSummary = async () => {
-    if (!session?.user?.id) return;
-
-    setLoadingSummary(true);
-    try {
+      setLoadingSummary(true);
       setHasError(false);
 
       // 1. Fetch all events for the organizer
       const { data: allEvents, error: eventsError } = await supabase
         .from('events')
-        .select('id, tags_genres, tags_artists, tags_songs, country') // Select tags for popularity and country for currency
-        .eq('organizer_id', session.user.id);
+        .select('id, tags_genres, tags_artists, tags_songs') // Select tags for popularity
+        .eq('organizer_id', organizerId);
 
       if (eventsError) {
         console.error("Error fetching events for summary:", eventsError);
@@ -826,6 +1306,7 @@ const OverallAnalyticsScreen: React.FC = () => {
       }
       
       const numberOfEvents = allEvents?.length || 0;
+      console.log(`Total events found for analytics: ${numberOfEvents}`);
       
       if (numberOfEvents === 0) {
         setAnalyticsSummary({
@@ -834,35 +1315,28 @@ const OverallAnalyticsScreen: React.FC = () => {
           avgAttendeesPerEvent: 0,
           avgImpressionsPerEvent: 0,
           popularTags: [],
-          currency: displayCurrency
         });
+        setLoadingSummary(false);
         return;
       }
-      
       const eventIds = allEvents!.map(e => e.id);
-      const countries = new Set(allEvents!.map(e => e.country || 'Singapore'));
-
-      // Create event currency mapping
-      const eventCurrencyMap = new Map<string, string>();
-      allEvents!.forEach(event => {
-        const currency = getCurrencyForCountry(event.country || 'Singapore');
-        eventCurrencyMap.set(event.id, currency);
-      });
 
       // 2. Fetch all confirmed bookings for these events
       const { data: allBookings, error: bookingsError } = await supabase
         .from('event_bookings')
-        .select('event_id, quantity, total_price_paid')
+        .select('quantity, total_price_paid')
         .in('event_id', eventIds)
         .eq('status', 'CONFIRMED');
 
       if (bookingsError) {
         console.error("Error fetching bookings for summary:", bookingsError);
+        // Continue with potentially partial data or throw
       }
 
-      // 3. Fetch impressions count
+      // 3. Fetch impressions count with a more robust approach
       let totalImpressionCount = 0;
       
+      // First try with count query
       const { count: countResult, error: countError } = await supabase
         .from('event_impressions')
         .select('id', { count: 'exact', head: true })
@@ -871,76 +1345,56 @@ const OverallAnalyticsScreen: React.FC = () => {
       if (countError || countResult === null) {
         console.warn("Count query failed, fetching all impressions to count manually:", countError);
         
+        // Fallback: fetch all impressions and count them
         const { data: impressionsData, error: impressionsDataError } = await supabase
           .from('event_impressions')
-        .select('id')
+          .select('id')
           .in('event_id', eventIds);
           
         if (impressionsDataError) {
           console.error("Error fetching impressions data:", impressionsDataError);
         } else {
           totalImpressionCount = impressionsData?.length || 0;
+          console.log(`Counted impressions manually: ${totalImpressionCount}`);
         }
       } else {
         totalImpressionCount = countResult;
+        console.log(`Got impression count from API: ${totalImpressionCount}`);
       }
 
       // 4. Calculate totals
+      let totalRevenue = 0;
       let totalAttendees = 0;
-      let totalBookingTransactions = 0;
-      
-      // Group revenue by currency for proper conversion
-      const revenueByCurrency = new Map<string, number>();
+      let totalBookingTransactions = 0; // To calculate booking cost
 
       if (allBookings) {
         allBookings.forEach(booking => {
-          const eventCurrency = eventCurrencyMap.get(booking.event_id) || 'USD';
-          const revenue = booking.total_price_paid || 0;
-          
-          // Group revenue by currency
-          const existingRevenue = revenueByCurrency.get(eventCurrency) || 0;
-          revenueByCurrency.set(eventCurrency, existingRevenue + revenue);
-          
+          totalRevenue += booking.total_price_paid || 0;
           totalAttendees += booking.quantity || 0;
-          totalBookingTransactions += (booking.quantity || 0);
+          totalBookingTransactions += (booking.quantity || 0); // Each item in quantity is a transaction for cost purposes
         });
       }
 
-      // Calculate costs (always in SGD)
       const totalImpressionCost = totalImpressionCount * 0.0075;
       const totalBookingCost = totalBookingTransactions * 0.50;
       const totalOverallCost = totalImpressionCost + totalBookingCost;
 
-      // 5. Determine display currency and convert revenues
-      const shouldUseSGD = countries.size > 1;
-      const targetCurrency = shouldUseSGD ? 'SGD' : displayCurrency;
-      
-      let totalConvertedRevenue = 0;
-      
-      // Convert each currency's revenue to target currency
-      for (const [currency, amount] of revenueByCurrency.entries()) {
-        if (currency === targetCurrency) {
-          totalConvertedRevenue += amount;
-        } else {
-          const converted = await convertCurrency(amount, currency, targetCurrency);
-          totalConvertedRevenue += (converted || amount);
-        }
-      }
-
-      // Convert costs from SGD to target currency if needed
-      let convertedTotalCost = totalOverallCost;
-      if (targetCurrency !== 'SGD') {
-        const converted = await convertCurrency(totalOverallCost, 'SGD', targetCurrency);
-        convertedTotalCost = converted || totalOverallCost;
-      }
-
-      // 6. Calculate averages
-      const avgCostPerEvent = numberOfEvents > 0 ? convertedTotalCost / numberOfEvents : 0;
-      const avgRevenuePerEvent = numberOfEvents > 0 ? totalConvertedRevenue / numberOfEvents : 0;
+      // 5. Calculate averages
+      const avgCostPerEvent = numberOfEvents > 0 ? totalOverallCost / numberOfEvents : 0;
+      const avgRevenuePerEvent = numberOfEvents > 0 ? totalRevenue / numberOfEvents : 0;
       const avgAttendeesPerEvent = numberOfEvents > 0 ? totalAttendees / numberOfEvents : 0;
       const avgImpressionsPerEvent = numberOfEvents > 0 ? totalImpressionCount / numberOfEvents : 0;
+      
+      console.log("Analytics calculation results:");
+      console.log(`Total events: ${numberOfEvents}`);
+      console.log(`Total impressions: ${totalImpressionCount}`);
+      console.log(`Avg impressions per event: ${avgImpressionsPerEvent}`);
+      console.log(`Total revenue: $${totalRevenue}`);
+      console.log(`Avg revenue per event: $${avgRevenuePerEvent}`);
+      console.log(`Total attendees: ${totalAttendees}`);
+      console.log(`Avg attendees per event: ${avgAttendeesPerEvent}`);
 
-      // 7. Aggregate and count tags
+      // 6. Aggregate and count tags
       const tagCounts: { [tag: string]: number } = {};
       if (allEvents) {
         allEvents.forEach(event => {
@@ -955,204 +1409,21 @@ const OverallAnalyticsScreen: React.FC = () => {
         .map(([tag, count]) => ({ tag, count }));
 
       setAnalyticsSummary({
-        avgCostPerEvent: avgCostPerEvent,
-        avgRevenuePerEvent: avgRevenuePerEvent,
-        avgAttendeesPerEvent: avgAttendeesPerEvent,
-        avgImpressionsPerEvent: avgImpressionsPerEvent,
+        avgCostPerEvent: avgCostPerEvent, // Keep exact value
+        avgRevenuePerEvent: avgRevenuePerEvent, // Keep exact value  
+        avgAttendeesPerEvent: avgAttendeesPerEvent, // Keep exact value
+        avgImpressionsPerEvent: avgImpressionsPerEvent, // Keep exact value
         popularTags,
-        currency: targetCurrency
       });
 
     } catch (error) {
       console.error("Error in fetchAnalyticsSummary:", error);
       setHasError(true);
-      setAnalyticsSummary({
-        avgCostPerEvent: 0,
-        avgRevenuePerEvent: 0,
-        avgAttendeesPerEvent: 0,
-        avgImpressionsPerEvent: 0,
-        popularTags: [],
-        currency: displayCurrency
-      });
+      setAnalyticsSummary(null); // Clear or set to a default error state
     } finally {
       setLoadingSummary(false);
     }
-  };
-
-  const formatMonthLabel = (monthStr: string) => {
-    const [year, month] = monthStr.split('-');
-    return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
-  };
-
-  const truncateEventName = (name: string, maxLength = 12) => {
-    return name.length > maxLength ? `${name.substring(0, maxLength)}...` : name;
-  };
-
-  const refreshData = async () => {
-    setIsLoading(true);
-    setHasError(false);
-    try {
-      await Promise.all([
-        fetchMonthlyExpenditure(),
-        fetchMonthlyRevenue(),
-        fetchEventRevenue(),
-        fetchEventRatings(),
-        fetchTicketsReservations(),
-        fetchEventImpressions(),
-        fetchMonthlyTrends(),
-      ]);
-      await fetchAnalyticsSummary();
-    } catch (error) {
-      console.error("Error refreshing data:", error);
-      setHasError(true);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-      if (organizerId) {
-      refreshData();
-    }
   }, [organizerId]);
-
-  // Prepare chart data with currency formatting
-  const getCurrencySymbol = (currency: string) => {
-    const symbols: { [key: string]: string } = {
-      'USD': '$', 'EUR': '€', 'GBP': '£', 'JPY': '¥', 'CAD': 'C$',
-      'AUD': 'A$', 'CHF': 'CHF', 'SGD': 'S$', 'CNY': '¥', 'INR': '₹'
-    };
-    return symbols[currency] || currency;
-  };
-
-  const impressionCostData = {
-    labels: monthlyExpenditures.map(item => formatMonthLabel(item.month)),
-    datasets: [
-      {
-        data: monthlyExpenditures.map(item => item.impressionCost),
-      }
-    ],
-  };
-  
-  const bookingCostData = {
-    labels: monthlyExpenditures.map(item => formatMonthLabel(item.month)),
-    datasets: [
-      {
-        data: monthlyExpenditures.map(item => item.bookingCost),
-      }
-    ],
-  };
-  
-  const totalCostData = {
-    labels: monthlyExpenditures.map(item => formatMonthLabel(item.month)),
-    datasets: [
-      {
-        data: monthlyExpenditures.map(item => item.totalCost),
-      }
-    ],
-  };
-  
-  const eventRevenueData = {
-    labels: eventRevenues.map(item => truncateEventName(item.eventName)),
-    datasets: [
-      {
-        data: eventRevenues.map(item => item.revenue),
-      }
-    ],
-  };
-  
-  const ticketsData = {
-    labels: ticketsReservations.ticketedEvents.map(item => truncateEventName(item.eventName)),
-    datasets: [
-      {
-        data: ticketsReservations.ticketedEvents.map(item => item.ticketCount),
-      }
-    ],
-  };
-
-  const reservationsData = {
-    labels: ticketsReservations.reservationEvents.map(item => truncateEventName(item.eventName)),
-    datasets: [
-      {
-        data: ticketsReservations.reservationEvents.map(item => item.reservationCount),
-      }
-    ],
-  };
-  
-  const monthlyRevenueData = {
-    labels: monthlyRevenues.map(item => formatMonthLabel(item.month)),
-    datasets: [
-      {
-        data: monthlyRevenues.map(item => item.revenue),
-      }
-    ],
-  };
-  
-  const eventRatingData = {
-    labels: eventRatings.map(item => truncateEventName(item.eventName, 12)),
-    datasets: [
-      {
-        data: eventRatings.map(item => item.averageRating),
-      }
-    ],
-  };
-
-  // Prepare new chart data for impressions
-  const impressionsChartData = {
-    labels: eventImpressions.map(item => truncateEventName(item.eventName)),
-    datasets: [
-      {
-        data: eventImpressions.map(item => item.impressionCount),
-      }
-    ],
-  };
-
-  // Prepare chart data for monthly trends
-  const monthlyImpressionsChartData = {
-    labels: monthlyTrends.map(item => formatMonthLabel(item.month)),
-    datasets: [{ data: monthlyTrends.map(item => item.count) }],
-  };
-
-  const monthlyTicketSalesChartData = {
-    labels: monthlyTrends.map(item => formatMonthLabel(item.month)),
-    datasets: [{ data: monthlyTrends.map(item => item.count) }],
-  };
-
-  // Create a custom BarChart component wrapper for ratings
-  const RatingsBarChart = ({ data, width, height, ...props }: any) => {
-    return (
-      <View>
-        <BarChart 
-          data={data}
-          width={width}
-          height={height}
-          yAxisLabel=""
-          yAxisSuffix="★"
-          chartConfig={{
-            ...chartConfig,
-            color: (opacity = 1) => `rgba(245, 158, 11, ${opacity})`, // Amber color for ratings
-          }}
-          verticalLabelRotation={30}
-          showValuesOnTopOfBars
-          withInnerLines={false}
-          fromZero
-          style={styles.chart}
-          {...props}
-        />
-        <View style={styles.ratingLegendContainer}>
-          {eventRatings.map((item, index) => (
-            <View key={index} style={styles.ratingLegendItem}>
-              <Text style={styles.ratingLegendName}>{truncateEventName(item.eventName, 15)}</Text>
-              <View style={styles.ratingLegendRating}>
-                <Text style={styles.ratingLegendValue}>{item.averageRating.toFixed(1)}★</Text>
-                <Text style={styles.ratingLegendCount}>({item.numberOfRatings} {item.numberOfRatings === 1 ? 'rating' : 'ratings'})</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      </View>
-    );
-  };
   
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -1168,8 +1439,8 @@ const OverallAnalyticsScreen: React.FC = () => {
         contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
-            refreshing={isLoading}
-            onRefresh={refreshData}
+            refreshing={isRefreshing}
+            onRefresh={refreshAllData}
             colors={[APP_CONSTANTS.COLORS.PRIMARY]}
           />
         }
@@ -1183,472 +1454,619 @@ const OverallAnalyticsScreen: React.FC = () => {
           </View>
         )}
         
-        {/* 1. Event Revenue Section - Moved higher for immediate relevance */}
+        {/* 1. Event Revenue Section - Enhanced */}
         <Section 
-          title="Event Revenue (Current Month)" 
+          title="💰 Event Revenue (Current Month)" 
           icon="dollar-sign"
           loading={loadingRevenues}
         >
           {loadingRevenues && eventRevenues.length === 0 ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+              <View style={styles.loadingSpinner}>
+                <ActivityIndicator size="large" color={chartColors.revenue.primary()} />
+              </View>
               <Text style={styles.placeholderText}>Loading revenue data...</Text>
             </View>
           ) : eventRevenues.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Feather name="dollar-sign" size={32} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No revenue data available for current month</Text>
-              <Text style={styles.emptySubText}>
-                This could be because:
-              </Text>
-              <View style={styles.bulletPointContainer}>
-                <Text style={styles.bulletPoint}>• No events were scheduled this month</Text>
-                <Text style={styles.bulletPoint}>• No tickets were sold for this month's events</Text>
-                <Text style={styles.bulletPoint}>• Your events are free (no revenue to track)</Text>
+              <View style={[styles.emptyIconContainer, { backgroundColor: chartColors.revenue.background }]}>
+                <Feather name="dollar-sign" size={40} color={chartColors.revenue.primary()} />
+              </View>
+              <Text style={styles.emptyTitle}>No Revenue Data</Text>
+              <Text style={styles.emptyText}>No revenue generated this month</Text>
+              <View style={styles.emptyDetailsContainer}>
+                <Text style={styles.emptySubText}>This could be because:</Text>
+                <View style={styles.bulletPointContainer}>
+                  <Text style={styles.bulletPoint}>• No events were scheduled this month</Text>
+                  <Text style={styles.bulletPoint}>• No tickets were sold for this month's events</Text>
+                  <Text style={styles.bulletPoint}>• Your events are free (no revenue to track)</Text>
+                </View>
               </View>
             </View>
           ) : (
-            <View style={styles.chartContainer}>
-              <BarChart
-                data={eventRevenueData}
-                width={chartWidth}
-                height={220}
-                yAxisLabel={eventRevenues.length > 0 ? getCurrencySymbol(eventRevenues[0].currency) : "$"}
-                yAxisSuffix=""
-                chartConfig={{
-                  ...chartConfig,
-                  color: (opacity = 1) => `rgba(16, 185, 129, ${opacity})`, // Green color
-                }}
-                verticalLabelRotation={30}
-                showValuesOnTopOfBars
-                withInnerLines={false}
-                fromZero
-                style={styles.chart}
-              />
+            <View style={styles.enhancedChartContainer}>
+              <View style={styles.chartHeaderContainer}>
+                <Text style={styles.chartMetricValue}>
+                  ${eventRevenues.reduce((sum, event) => sum + event.revenue, 0).toFixed(2)}
+                </Text>
+                <Text style={styles.chartMetricLabel}>Total Revenue This Month</Text>
+              </View>
+              <View style={styles.chartWrapper}>
+                <BarChart
+                  data={eventRevenueData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  yAxisLabel="$"
+                  yAxisSuffix=""
+                  chartConfig={createChartConfig(chartColors.revenue)}
+                  verticalLabelRotation={30}
+                  showValuesOnTopOfBars
+                  withInnerLines={false}
+                  fromZero
+                  style={styles.enhancedChart}
+                />
+              </View>
               <Text style={styles.chartDescription}>
                 Revenue by event for the current month
               </Text>
+              {eventRevenues.length > 6 && (
+                <Text style={styles.chartNote}>
+                  Showing top 6 events • {eventRevenues.length} total events
+                </Text>
+              )}
             </View>
           )}
         </Section>
         
-        {/* 2. Tickets Sold Section */}
+        {/* 2. Tickets Sold Section - Enhanced */}
         <Section 
-          title="Tickets Sold (Current Month)" 
+          title="🎫 Tickets Sold (Current Month)" 
           icon="tag"
           loading={loadingRevenues}
         >
-          {loadingRevenues && ticketsReservations.ticketedEvents.length === 0 ? (
+          {loadingRevenues && ticketsReservationsData.ticketedEvents.length === 0 ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+              <View style={styles.loadingSpinner}>
+                <ActivityIndicator size="large" color={chartColors.tickets.primary()} />
+              </View>
               <Text style={styles.placeholderText}>Loading ticket data...</Text>
             </View>
-          ) : ticketsReservations.ticketedEvents.length === 0 ? (
+          ) : ticketsReservationsData.ticketedEvents.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Feather name="tag" size={32} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No ticket data available for current month</Text>
-              <Text style={styles.emptySubText}>
-                This could be because:
-              </Text>
-              <View style={styles.bulletPointContainer}>
-                <Text style={styles.bulletPoint}>• No ticketed events were scheduled this month</Text>
-                <Text style={styles.bulletPoint}>• No tickets have been sold yet</Text>
-                <Text style={styles.bulletPoint}>• Your events use reservations instead of tickets</Text>
+              <View style={[styles.emptyIconContainer, { backgroundColor: chartColors.tickets.background }]}>
+                <Feather name="tag" size={40} color={chartColors.tickets.primary()} />
+              </View>
+              <Text style={styles.emptyTitle}>No Ticket Sales</Text>
+              <Text style={styles.emptyText}>No tickets sold this month</Text>
+              <View style={styles.emptyDetailsContainer}>
+                <Text style={styles.emptySubText}>This could be because:</Text>
+                <View style={styles.bulletPointContainer}>
+                  <Text style={styles.bulletPoint}>• No ticketed events were scheduled this month</Text>
+                  <Text style={styles.bulletPoint}>• No tickets have been sold yet</Text>
+                  <Text style={styles.bulletPoint}>• Your events use reservations instead of tickets</Text>
+                </View>
               </View>
             </View>
           ) : (
-            <View style={styles.chartContainer}>
-              <BarChart
-                data={ticketsData}
-                width={chartWidth}
-                height={220}
-                yAxisLabel=""
-                yAxisSuffix=" tix"
-                chartConfig={{
-                  ...chartConfig,
-                  color: (opacity = 1) => `rgba(79, 70, 229, ${opacity})`, // Indigo color
-                }}
-                verticalLabelRotation={30}
-                showValuesOnTopOfBars
-                withInnerLines={false}
-                fromZero
-                style={styles.chart}
-              />
+            <View style={styles.enhancedChartContainer}>
+              <View style={styles.chartHeaderContainer}>
+                <Text style={styles.chartMetricValue}>
+                  {ticketsReservationsData.ticketedEvents.reduce((sum, event) => sum + event.ticketCount, 0)}
+                </Text>
+                <Text style={styles.chartMetricLabel}>Total Tickets Sold</Text>
+              </View>
+              <View style={styles.chartWrapper}>
+                <BarChart
+                  data={ticketsData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  yAxisLabel=""
+                  yAxisSuffix=" tix"
+                  chartConfig={createChartConfig(chartColors.tickets)}
+                  verticalLabelRotation={30}
+                  showValuesOnTopOfBars
+                  withInnerLines={false}
+                  fromZero
+                  style={styles.enhancedChart}
+                />
+              </View>
               <Text style={styles.chartDescription}>
                 Tickets sold by event for the current month
               </Text>
+              {ticketsReservationsData.ticketedEvents.length > 6 && (
+                <Text style={styles.chartNote}>
+                  Showing top 6 events • {ticketsReservationsData.ticketedEvents.length} total events
+                </Text>
+              )}
             </View>
           )}
         </Section>
         
-        {/* 3. Reservations Section */}
+        {/* 3. Reservations Section - Enhanced */}
         <Section 
-          title="Reservations Made (Current Month)" 
+          title="📋 Reservations Made (Current Month)" 
           icon="bookmark"
           loading={loadingRevenues}
         >
-          {loadingRevenues && ticketsReservations.reservationEvents.length === 0 ? (
+          {loadingRevenues && ticketsReservationsData.reservationEvents.length === 0 ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+              <View style={styles.loadingSpinner}>
+                <ActivityIndicator size="large" color={chartColors.reservations.primary()} />
+              </View>
               <Text style={styles.placeholderText}>Loading reservation data...</Text>
             </View>
-          ) : ticketsReservations.reservationEvents.length === 0 ? (
+          ) : ticketsReservationsData.reservationEvents.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Feather name="bookmark" size={32} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No reservation data available for current month</Text>
-              <Text style={styles.emptySubText}>
-                This could be because:
-              </Text>
-              <View style={styles.bulletPointContainer}>
-                <Text style={styles.bulletPoint}>• No reservation-based events this month</Text>
-                <Text style={styles.bulletPoint}>• No reservations have been made yet</Text>
-                <Text style={styles.bulletPoint}>• Your events use tickets instead of reservations</Text>
+              <View style={[styles.emptyIconContainer, { backgroundColor: chartColors.reservations.background }]}>
+                <Feather name="bookmark" size={40} color={chartColors.reservations.primary()} />
+              </View>
+              <Text style={styles.emptyTitle}>No Reservations</Text>
+              <Text style={styles.emptyText}>No reservations made this month</Text>
+              <View style={styles.emptyDetailsContainer}>
+                <Text style={styles.emptySubText}>This could be because:</Text>
+                <View style={styles.bulletPointContainer}>
+                  <Text style={styles.bulletPoint}>• No reservation-based events this month</Text>
+                  <Text style={styles.bulletPoint}>• No reservations have been made yet</Text>
+                  <Text style={styles.bulletPoint}>• Your events use tickets instead of reservations</Text>
+                </View>
               </View>
             </View>
           ) : (
-            <View style={styles.chartContainer}>
-              <BarChart
-                data={reservationsData}
-                width={chartWidth}
-                height={220}
-                yAxisLabel=""
-                yAxisSuffix=""
-                chartConfig={{
-                  ...chartConfig,
-                  color: (opacity = 1) => `rgba(236, 72, 153, ${opacity})`, // Pink color
-                }}
-                verticalLabelRotation={30}
-                showValuesOnTopOfBars
-                withInnerLines={false}
-                fromZero
-                style={styles.chart}
-              />
+            <View style={styles.enhancedChartContainer}>
+              <View style={styles.chartHeaderContainer}>
+                <Text style={styles.chartMetricValue}>
+                  {ticketsReservationsData.reservationEvents.reduce((sum, event) => sum + event.reservationCount, 0)}
+                </Text>
+                <Text style={styles.chartMetricLabel}>Total Reservations Made</Text>
+              </View>
+              <View style={styles.chartWrapper}>
+                <BarChart
+                  data={reservationsData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  yAxisLabel=""
+                  yAxisSuffix=""
+                  chartConfig={createChartConfig(chartColors.reservations)}
+                  verticalLabelRotation={30}
+                  showValuesOnTopOfBars
+                  withInnerLines={false}
+                  fromZero
+                  style={styles.enhancedChart}
+                />
+              </View>
               <Text style={styles.chartDescription}>
                 Reservations made by event for the current month
               </Text>
+              {ticketsReservationsData.reservationEvents.length > 6 && (
+                <Text style={styles.chartNote}>
+                  Showing top 6 events • {ticketsReservationsData.reservationEvents.length} total events
+                </Text>
+              )}
             </View>
           )}
         </Section>
 
-        {/* 4. Event Impressions Section */}
+        {/* 4. Event Impressions Section - Enhanced */}
         <Section 
-          title="Event Impressions (Current Month)" 
+          title="👀 Event Impressions (Current Month)" 
           icon="eye"
           loading={loadingRevenues}
         >
-          {loadingRevenues && eventImpressions.length === 0 ? (
+          {loadingRevenues && impressionsData.length === 0 ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+              <View style={styles.loadingSpinner}>
+                <ActivityIndicator size="large" color={chartColors.impressions.primary()} />
+              </View>
               <Text style={styles.placeholderText}>Loading impression data...</Text>
             </View>
-          ) : eventImpressions.length === 0 ? (
+          ) : impressionsData.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Feather name="eye" size={32} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No impression data available for current month</Text>
-              <Text style={styles.emptySubText}>
-                This could be because:
-              </Text>
-              <View style={styles.bulletPointContainer}>
-                <Text style={styles.bulletPoint}>• No events were viewed this month</Text>
-                <Text style={styles.bulletPoint}>• No impressions have been tracked yet</Text>
-                <Text style={styles.bulletPoint}>• Your events haven't been discovered by users</Text>
+              <View style={[styles.emptyIconContainer, { backgroundColor: chartColors.impressions.background }]}>
+                <Feather name="eye" size={40} color={chartColors.impressions.primary()} />
+              </View>
+              <Text style={styles.emptyTitle}>No Impressions</Text>
+              <Text style={styles.emptyText}>No event views this month</Text>
+              <View style={styles.emptyDetailsContainer}>
+                <Text style={styles.emptySubText}>This could be because:</Text>
+                <View style={styles.bulletPointContainer}>
+                  <Text style={styles.bulletPoint}>• No events were viewed this month</Text>
+                  <Text style={styles.bulletPoint}>• No impressions have been tracked yet</Text>
+                  <Text style={styles.bulletPoint}>• Your events haven't been discovered by users</Text>
+                </View>
               </View>
             </View>
           ) : (
-            <View style={styles.chartContainer}>
-              <BarChart
-                data={impressionsChartData}
-                width={chartWidth}
-                height={220}
-                yAxisLabel=""
-                yAxisSuffix=" views"
-                chartConfig={{
-                  ...chartConfig,
-                  color: (opacity = 1) => `rgba(59, 130, 246, ${opacity})`, // Blue color
-                }}
-                verticalLabelRotation={30}
-                showValuesOnTopOfBars
-                withInnerLines={false}
-                fromZero
-                style={styles.chart}
-              />
+            <View style={styles.enhancedChartContainer}>
+              <View style={styles.chartHeaderContainer}>
+                <Text style={styles.chartMetricValue}>
+                  {impressionsData.reduce((sum, event) => sum + event.impressionCount, 0).toLocaleString()}
+                </Text>
+                <Text style={styles.chartMetricLabel}>Total Impressions This Month</Text>
+              </View>
+              <View style={styles.chartWrapper}>
+                <BarChart
+                  data={impressionsChartData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  yAxisLabel=""
+                  yAxisSuffix=" views"
+                  chartConfig={createChartConfig(chartColors.impressions)}
+                  verticalLabelRotation={30}
+                  showValuesOnTopOfBars
+                  withInnerLines={false}
+                  fromZero
+                  style={styles.enhancedChart}
+                />
+              </View>
               <Text style={styles.chartDescription}>
                 Impression count by event for the current month
               </Text>
+              {impressionsData.length > 6 && (
+                <Text style={styles.chartNote}>
+                  Showing top 6 events • {impressionsData.length} total events
+                </Text>
+              )}
             </View>
           )}
         </Section>
 
-        {/* 5. Monthly Revenue Section */}
+        {/* 5. Monthly Revenue Section - Enhanced */}
         <Section 
-          title="Monthly Revenue" 
+          title="📈 Monthly Revenue Trend" 
           icon="trending-up"
           loading={loadingRevenues}
         >
           {loadingRevenues && monthlyRevenues.length === 0 ? (
             <View style={styles.loadingContainer}>
+              <View style={styles.loadingSpinner}>
+                <ActivityIndicator size="large" color={chartColors.revenue.primary()} />
+              </View>
               <Text style={styles.placeholderText}>Loading revenue data...</Text>
             </View>
-          ) : monthlyRevenues.length === 0 ? (
+          ) : monthlyRevenues.every(item => item.revenue === 0) ? (
             <View style={styles.emptyContainer}>
-              <Feather name="info" size={24} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No monthly revenue data available</Text>
+              <View style={[styles.emptyIconContainer, { backgroundColor: chartColors.revenue.background }]}>
+                <Feather name="trending-up" size={40} color={chartColors.revenue.primary()} />
+              </View>
+              <Text style={styles.emptyTitle}>No Revenue History</Text>
+              <Text style={styles.emptyText}>No revenue generated in the past 12 months</Text>
             </View>
           ) : (
-            <View style={styles.chartContainer}>
-              <BarChart
-                data={monthlyRevenueData}
-                width={chartWidth}
-                height={220}
-                yAxisLabel={monthlyRevenues.length > 0 ? getCurrencySymbol(monthlyRevenues[0].currency) : "$"}
-                yAxisSuffix=""
-                chartConfig={{
-                  ...chartConfig,
-                  color: (opacity = 1) => `rgba(34, 197, 94, ${opacity})`, // Green color
-                }}
-                verticalLabelRotation={30}
-                showValuesOnTopOfBars
-                withInnerLines={false}
-                fromZero
-                style={styles.chart}
-              />
+            <View style={styles.enhancedChartContainer}>
+              <View style={styles.chartHeaderContainer}>
+                <Text style={styles.chartMetricValue}>
+                  ${monthlyRevenues.reduce((sum, item) => sum + item.revenue, 0).toFixed(2)}
+                </Text>
+                <Text style={styles.chartMetricLabel}>Total Revenue (12 Months)</Text>
+              </View>
+              <View style={styles.chartWrapper}>
+                <BarChart
+                  data={monthlyRevenueData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  yAxisLabel="$"
+                  yAxisSuffix=""
+                  chartConfig={createChartConfig(chartColors.revenue)}
+                  verticalLabelRotation={30}
+                  showValuesOnTopOfBars
+                  withInnerLines={false}
+                  fromZero
+                  style={styles.enhancedChart}
+                />
+              </View>
               <Text style={styles.chartDescription}>
-                Total revenue earned per month
+                Total revenue earned per month over the last 12 months
               </Text>
             </View>
           )}
         </Section>
         
-        {/* Total Impressions per Month (MOVED: Now before Impression Costs) */}
-        <Section title="Total Impressions per Month" icon="activity" loading={loadingTrends}>
-          {loadingTrends && monthlyTrends.length === 0 ? (
+        {/* Total Impressions per Month - Enhanced */}
+        <Section title="📊 Total Impressions per Month" icon="activity" loading={loadingMonthlyTrends}>
+          {loadingMonthlyTrends && monthlyImpressions.length === 0 ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+              <View style={styles.loadingSpinner}>
+                <ActivityIndicator size="large" color={chartColors.impressions.primary()} />
+              </View>
               <Text style={styles.placeholderText}>Loading monthly impression data...</Text>
             </View>
-          ) : monthlyTrends.length === 0 ? (
+          ) : monthlyImpressions.every(item => item.count === 0) ? (
             <View style={styles.emptyContainer}>
-              <Feather name="zap-off" size={32} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No impression data found for the past 12 months.</Text>
+              <View style={[styles.emptyIconContainer, { backgroundColor: chartColors.impressions.background }]}>
+                <Feather name="activity" size={40} color={chartColors.impressions.primary()} />
+              </View>
+              <Text style={styles.emptyTitle}>No Impression History</Text>
+              <Text style={styles.emptyText}>No impressions tracked in the past 12 months</Text>
             </View>
           ) : (
-            <View style={styles.chartContainer}>
-              <BarChart
-                data={monthlyImpressionsChartData}
-                width={chartWidth}
-                height={220}
-                yAxisLabel=""
-                yAxisSuffix=" views"
-                chartConfig={chartConfig} // Use the default chartConfig
-                verticalLabelRotation={30}
-                showValuesOnTopOfBars
-                withInnerLines={false}
-                fromZero
-                style={styles.chart}
-              />
+            <View style={styles.enhancedChartContainer}>
+              <View style={styles.chartHeaderContainer}>
+                <Text style={styles.chartMetricValue}>
+                  {monthlyImpressions.reduce((sum, item) => sum + item.count, 0).toLocaleString()}
+                </Text>
+                <Text style={styles.chartMetricLabel}>Total Impressions (12 Months)</Text>
+              </View>
+              <View style={styles.chartWrapper}>
+                <BarChart
+                  data={monthlyImpressionsChartData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  yAxisLabel=""
+                  yAxisSuffix=" views"
+                  chartConfig={createChartConfig(chartColors.impressions)}
+                  verticalLabelRotation={30}
+                  showValuesOnTopOfBars
+                  withInnerLines={false}
+                  fromZero
+                  style={styles.enhancedChart}
+                />
+              </View>
               <Text style={styles.chartDescription}>
-                Total event impressions over the last 12 months.
+                Total event impressions over the last 12 months
               </Text>
             </View>
           )}
         </Section>
         
-        {/* Impression Cost Section (MOVED: Now after Impressions per Month) */}
-        <Section title="Impression Costs ($0.0075 per impression)" icon="eye" loading={loadingExpenditures}>
-          {loadingExpenditures && monthlyExpenditures.length === 0 ? (
+        {/* Impression Cost Section - Enhanced */}
+        <Section title="💸 Impression Costs ($0.0075 per impression)" icon="eye" loading={loadingExpenses}>
+          {loadingExpenses && monthlyExpenditures.length === 0 ? (
             <View style={styles.loadingContainer}>
+              <View style={styles.loadingSpinner}>
+                <ActivityIndicator size="large" color={chartColors.costs.primary()} />
+              </View>
               <Text style={styles.placeholderText}>Loading cost data...</Text>
             </View>
-          ) : monthlyExpenditures.length === 0 ? (
+          ) : monthlyExpenditures.every(item => item.impressionCost === 0) ? (
             <View style={styles.emptyContainer}>
-              <Feather name="info" size={24} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No impression data available</Text>
+              <View style={[styles.emptyIconContainer, { backgroundColor: chartColors.costs.background }]}>
+                <Feather name="eye" size={40} color={chartColors.costs.primary()} />
+              </View>
+              <Text style={styles.emptyTitle}>No Impression Costs</Text>
+              <Text style={styles.emptyText}>No impression costs incurred</Text>
             </View>
           ) : (
-            <View style={styles.chartContainer}>
-              <BarChart
-                data={impressionCostData}
-                width={chartWidth}
-                height={220}
-                yAxisLabel={monthlyExpenditures.length > 0 ? getCurrencySymbol(monthlyExpenditures[0].currency) : "$"}
-                yAxisSuffix=""
-                chartConfig={{
-                  ...chartConfig,
-                  color: (opacity = 1) => `rgba(239, 68, 68, ${opacity})`, // Red color
-                }}
-                verticalLabelRotation={30}
-                showValuesOnTopOfBars
-                withInnerLines={false}
-                fromZero
-                style={styles.chart}
-              />
+            <View style={styles.enhancedChartContainer}>
+              <View style={styles.chartHeaderContainer}>
+                <Text style={styles.chartMetricValue}>
+                  ${monthlyExpenditures.reduce((sum, item) => sum + item.impressionCost, 0).toFixed(3)}
+                </Text>
+                <Text style={styles.chartMetricLabel}>Total Impression Costs (12 Months)</Text>
+              </View>
+              <View style={styles.chartWrapper}>
+                <BarChart
+                  data={impressionCostData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  yAxisLabel="$"
+                  yAxisSuffix=""
+                  chartConfig={createChartConfig(chartColors.costs, 3)}
+                  verticalLabelRotation={30}
+                  showValuesOnTopOfBars
+                  withInnerLines={false}
+                  fromZero
+                  style={styles.enhancedChart}
+                />
+              </View>
               <Text style={styles.chartDescription}>
-                Monthly expenditure on event impressions
+                Monthly expenditure on event impressions ($0.0075 per view)
               </Text>
             </View>
           )}
         </Section>
         
-        {/* Total Tickets Sold per Month (MOVED: Now before Ticket/Reservation Costs) */}
-        <Section title="Total Tickets Sold per Month" icon="tag" loading={loadingTrends}>
-          {loadingTrends && monthlyTrends.length === 0 ? (
+        {/* Total Tickets Sold per Month - Enhanced */}
+        <Section title="🎟️ Total Tickets Sold per Month" icon="tag" loading={loadingMonthlyTrends}>
+          {loadingMonthlyTrends && monthlyTicketSales.length === 0 ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+              <View style={styles.loadingSpinner}>
+                <ActivityIndicator size="large" color={chartColors.tickets.primary()} />
+              </View>
               <Text style={styles.placeholderText}>Loading monthly ticket sales data...</Text>
             </View>
-          ) : monthlyTrends.length === 0 ? (
+          ) : monthlyTicketSales.every(item => item.count === 0) ? (
             <View style={styles.emptyContainer}>
-              <Feather name="tag" size={32} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No ticket sales data available</Text>
+              <View style={[styles.emptyIconContainer, { backgroundColor: chartColors.tickets.background }]}>
+                <Feather name="tag" size={40} color={chartColors.tickets.primary()} />
+              </View>
+              <Text style={styles.emptyTitle}>No Ticket Sales History</Text>
+              <Text style={styles.emptyText}>No tickets sold in the past 12 months</Text>
             </View>
           ) : (
-            <View style={styles.chartContainer}>
-              <BarChart
-                data={monthlyTicketSalesChartData}
-                width={chartWidth}
-                height={220}
-                yAxisLabel=""
-                yAxisSuffix=""
-                chartConfig={chartConfig}
-                showBarTops={false}
-                withInnerLines={false}
-                style={styles.chart}
-              />
+            <View style={styles.enhancedChartContainer}>
+              <View style={styles.chartHeaderContainer}>
+                <Text style={styles.chartMetricValue}>
+                  {monthlyTicketSales.reduce((sum, item) => sum + item.count, 0).toLocaleString()}
+                </Text>
+                <Text style={styles.chartMetricLabel}>Total Tickets Sold (12 Months)</Text>
+              </View>
+              <View style={styles.chartWrapper}>
+                <BarChart
+                  data={monthlyTicketSalesChartData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  yAxisLabel=""
+                  yAxisSuffix=" tix"
+                  chartConfig={createChartConfig(chartColors.tickets)}
+                  verticalLabelRotation={30}
+                  showValuesOnTopOfBars
+                  withInnerLines={false}
+                  fromZero
+                  style={styles.enhancedChart}
+                />
+              </View>
               <Text style={styles.chartDescription}>
-                Total tickets sold over the last 12 months.
+                Total tickets sold over the last 12 months
               </Text>
-              {monthlyTrends.length === 0 && (
-                <Text style={styles.noDataText}>No ticket sales data available for this period.</Text>
-              )}
             </View>
           )}
         </Section>
 
-        {/* Total Reservations Made per Month (MOVED: Now before Ticket/Reservation Costs) */}
-        <Section title="Total Reservations Made per Month" icon="bookmark" loading={loadingTrends}>
-          {(loadingTrends && monthlyTrends.length === 0 && !isLoading) ? (
+        {/* Total Reservations Made per Month - Enhanced */}
+        <Section title="📅 Total Reservations Made per Month" icon="bookmark" loading={loadingMonthlyTrends}>
+          {(loadingMonthlyTrends && monthlyReservations.length === 0 && !isRefreshing) ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+              <View style={styles.loadingSpinner}>
+                <ActivityIndicator size="large" color={chartColors.reservations.primary()} />
+              </View>
               <Text style={styles.placeholderText}>Loading monthly reservation data...</Text>
             </View>
+          ) : monthlyReservations.every(item => item.count === 0) ? (
+            <View style={styles.emptyContainer}>
+              <View style={[styles.emptyIconContainer, { backgroundColor: chartColors.reservations.background }]}>
+                <Feather name="bookmark" size={40} color={chartColors.reservations.primary()} />
+              </View>
+              <Text style={styles.emptyTitle}>No Reservation History</Text>
+              <Text style={styles.emptyText}>No reservations made in the past 12 months</Text>
+            </View>
           ) : (
-            <View style={styles.chartContainer}>
-              <BarChart
-                data={monthlyTicketSalesChartData}
-                width={chartWidth}
-                height={220}
-                yAxisLabel=""
-                yAxisSuffix=""
-                chartConfig={{
-                  ...chartConfig,
-                  color: (opacity = 1) => `rgba(236, 72, 153, ${opacity})`, // Pink
-                }}
-                verticalLabelRotation={30}
-                showValuesOnTopOfBars
-                withInnerLines={false}
-                fromZero
-                style={styles.chart}
-              />
+            <View style={styles.enhancedChartContainer}>
+              <View style={styles.chartHeaderContainer}>
+                <Text style={styles.chartMetricValue}>
+                  {monthlyReservations.reduce((sum, item) => sum + item.count, 0).toLocaleString()}
+                </Text>
+                <Text style={styles.chartMetricLabel}>Total Reservations (12 Months)</Text>
+              </View>
+              <View style={styles.chartWrapper}>
+                <BarChart
+                  data={monthlyReservationsChartData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  yAxisLabel=""
+                  yAxisSuffix=""
+                  chartConfig={createChartConfig(chartColors.reservations)}
+                  verticalLabelRotation={30}
+                  showValuesOnTopOfBars
+                  withInnerLines={false}
+                  fromZero
+                  style={styles.enhancedChart}
+                />
+              </View>
               <Text style={styles.chartDescription}>
-                Total reservations made over the last 12 months.
+                Total reservations made over the last 12 months
               </Text>
-              {monthlyTrends.length === 0 && (
-                <Text style={styles.noDataText}>No reservation data available for this period.</Text>
-              )}
             </View>
           )}
         </Section>
         
-        {/* Ticket/Reservation Cost Section (MOVED: Now after monthly ticket/reservation charts) */}
-        <Section title="Ticket/Reservation Costs ($0.50 per transaction)" icon="dollar-sign" loading={loadingExpenditures}>
-          {loadingExpenditures && monthlyExpenditures.length === 0 ? (
+        {/* Ticket/Reservation Cost Section - Enhanced */}
+        <Section title="💳 Ticket/Reservation Costs ($0.50 per transaction)" icon="dollar-sign" loading={loadingExpenses}>
+          {loadingExpenses && monthlyExpenditures.length === 0 ? (
             <View style={styles.loadingContainer}>
+              <View style={styles.loadingSpinner}>
+                <ActivityIndicator size="large" color={chartColors.ratings.primary()} />
+              </View>
               <Text style={styles.placeholderText}>Loading cost data...</Text>
             </View>
-          ) : monthlyExpenditures.length === 0 ? (
+          ) : monthlyExpenditures.every(item => item.bookingCost === 0) ? (
             <View style={styles.emptyContainer}>
-              <Feather name="info" size={24} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No ticket transaction data available</Text>
+              <View style={[styles.emptyIconContainer, { backgroundColor: chartColors.ratings.background }]}>
+                <Feather name="dollar-sign" size={40} color={chartColors.ratings.primary()} />
+              </View>
+              <Text style={styles.emptyTitle}>No Transaction Costs</Text>
+              <Text style={styles.emptyText}>No ticket/reservation transaction costs incurred</Text>
             </View>
           ) : (
-            <View style={styles.chartContainer}>
-              <BarChart
-                data={bookingCostData}
-                width={chartWidth}
-                height={220}
-                yAxisLabel={monthlyExpenditures.length > 0 ? getCurrencySymbol(monthlyExpenditures[0].currency) : "$"}
-                yAxisSuffix=""
-                chartConfig={{
-                  ...chartConfig,
-                  color: (opacity = 1) => `rgba(245, 158, 11, ${opacity})`, // Amber color
-                }}
-                verticalLabelRotation={30}
-                showValuesOnTopOfBars
-                withInnerLines={false}
-                fromZero
-                style={styles.chart}
-              />
+            <View style={styles.enhancedChartContainer}>
+              <View style={styles.chartHeaderContainer}>
+                <Text style={styles.chartMetricValue}>
+                  ${monthlyExpenditures.reduce((sum, item) => sum + item.bookingCost, 0).toFixed(2)}
+                </Text>
+                <Text style={styles.chartMetricLabel}>Total Transaction Costs (12 Months)</Text>
+              </View>
+              <View style={styles.chartWrapper}>
+                <BarChart
+                  data={bookingCostData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  yAxisLabel="$"
+                  yAxisSuffix=""
+                  chartConfig={createChartConfig(chartColors.ratings, 2)}
+                  verticalLabelRotation={30}
+                  showValuesOnTopOfBars
+                  withInnerLines={false}
+                  fromZero
+                  style={styles.enhancedChart}
+                />
+              </View>
               <Text style={styles.chartDescription}>
-                Monthly expenditure on ticket/reservation fees
+                Monthly expenditure on ticket/reservation fees ($0.50 per transaction)
               </Text>
             </View>
           )}
         </Section>
         
-        {/* 8. Total Expenditure Section */}
+        {/* Total Expenditure Section - Enhanced */}
         <Section 
-          title="Total Monthly Expenditure" 
+          title="💰 Total Monthly Expenditure" 
           icon="credit-card"
-          loading={loadingExpenditures}
+          loading={loadingExpenses}
         >
-          {loadingExpenditures && monthlyExpenditures.length === 0 ? (
+          {loadingExpenses && monthlyExpenditures.length === 0 ? (
             <View style={styles.loadingContainer}>
+              <View style={styles.loadingSpinner}>
+                <ActivityIndicator size="large" color={chartColors.combined.primary()} />
+              </View>
               <Text style={styles.placeholderText}>Loading expenditure data...</Text>
             </View>
-          ) : monthlyExpenditures.length === 0 ? (
+          ) : monthlyExpenditures.every(item => item.totalCost === 0) ? (
             <View style={styles.emptyContainer}>
-              <Feather name="info" size={24} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No expenditure data available</Text>
+              <View style={[styles.emptyIconContainer, { backgroundColor: chartColors.combined.background }]}>
+                <Feather name="credit-card" size={40} color={chartColors.combined.primary()} />
+              </View>
+              <Text style={styles.emptyTitle}>No Expenditure History</Text>
+              <Text style={styles.emptyText}>No platform costs incurred</Text>
             </View>
           ) : (
-            <View style={styles.chartContainer}>
-              <BarChart
-                data={totalCostData}
-                width={chartWidth}
-                height={220}
-                yAxisLabel={monthlyExpenditures.length > 0 ? getCurrencySymbol(monthlyExpenditures[0].currency) : "$"}
-                yAxisSuffix=""
-                chartConfig={{
-                  ...chartConfig,
-                  color: (opacity = 1) => `rgba(139, 92, 246, ${opacity})`, // Purple color
-                }}
-                verticalLabelRotation={30}
-                showValuesOnTopOfBars
-                withInnerLines={false}
-                fromZero
-                style={styles.chart}
-              />
+            <View style={styles.enhancedChartContainer}>
+              <View style={styles.chartHeaderContainer}>
+                <Text style={styles.chartMetricValue}>
+                  ${monthlyExpenditures.reduce((sum, item) => sum + item.totalCost, 0).toFixed(2)}
+                </Text>
+                <Text style={styles.chartMetricLabel}>Total Platform Costs (12 Months)</Text>
+              </View>
+              <View style={styles.chartWrapper}>
+                <BarChart
+                  data={totalCostData}
+                  width={chartWidth}
+                  height={chartHeight}
+                  yAxisLabel="$"
+                  yAxisSuffix=""
+                  chartConfig={createChartConfig(chartColors.combined, 2)}
+                  verticalLabelRotation={30}
+                  showValuesOnTopOfBars
+                  withInnerLines={false}
+                  fromZero
+                  style={styles.enhancedChart}
+                />
+              </View>
               <Text style={styles.chartDescription}>
-                Combined monthly expenditure on platform
+                Combined monthly expenditure on platform (impressions + transactions)
               </Text>
             </View>
           )}
         </Section>
         
-        {/* Performance Summary Section (MOVED: Now second-to-last) */}
+        {/* Performance Summary Section - Enhanced */}
         <Section 
-          title="Performance Summary" 
+          title="📊 Performance Summary" 
           icon="bar-chart-2"
-          loading={loadingExpenditures}
+          loading={loadingSummary}
         >
-          {loadingExpenditures && !analyticsSummary ? (
+          {loadingSummary && !analyticsSummary ? (
             <View style={styles.loadingContainer}>
+              <View style={styles.loadingSpinner}>
+                <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+              </View>
               <Text style={styles.placeholderText}>Loading summary data...</Text>
             </View>
           ) : !analyticsSummary ? (
             <View style={styles.emptyContainer}>
-              <Feather name="info" size={24} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No summary data available</Text>
+              <View style={[styles.emptyIconContainer, { backgroundColor: '#F0F9FF' }]}>
+                <Feather name="bar-chart-2" size={40} color="#0EA5E9" />
+              </View>
+              <Text style={styles.emptyTitle}>No Summary Available</Text>
+              <Text style={styles.emptyText}>Performance data not available</Text>
             </View>
           ) : (
             <View style={styles.summaryContainer}>
@@ -1656,13 +2074,13 @@ const OverallAnalyticsScreen: React.FC = () => {
                 <View style={styles.summaryItem}>
                   <Text style={styles.summaryLabel}>Avg. Cost per Event</Text>
                   <Text style={styles.summaryValue}>
-                    {formatPriceWithCurrency(analyticsSummary.avgCostPerEvent, analyticsSummary.currency)}
+                    ${analyticsSummary.avgCostPerEvent.toFixed(2)}
                   </Text>
                 </View>
                 <View style={styles.summaryItem}>
                   <Text style={styles.summaryLabel}>Avg. Revenue per Event</Text>
                   <Text style={styles.summaryValue}>
-                    {formatPriceWithCurrency(analyticsSummary.avgRevenuePerEvent, analyticsSummary.currency)}
+                    ${analyticsSummary.avgRevenuePerEvent.toFixed(2)}
                   </Text>
                 </View>
               </View>
@@ -1684,15 +2102,15 @@ const OverallAnalyticsScreen: React.FC = () => {
                 <Text style={styles.summaryProfitLabel}>Net Profit per Event</Text>
                 <Text style={[
                   styles.summaryProfitValue, 
-                  { color: analyticsSummary.avgRevenuePerEvent - analyticsSummary.avgCostPerEvent > 0 ? '#10B981' : '#EF4444' }
+                  { color: analyticsSummary.avgRevenuePerEvent - analyticsSummary.avgCostPerEvent > 0 ? '#047857' : '#DC2626' }
                 ]}>
-                  {formatPriceWithCurrency(analyticsSummary.avgRevenuePerEvent - analyticsSummary.avgCostPerEvent, analyticsSummary.currency)}
+                  ${(analyticsSummary.avgRevenuePerEvent - analyticsSummary.avgCostPerEvent).toFixed(2)}
                 </Text>
               </View>
               
               {/* Popular Tags Section */}
               <View style={styles.popularTagsContainer}>
-                <Text style={styles.popularTagsTitle}>Most Popular Tags</Text>
+                <Text style={styles.popularTagsTitle}>🏷️ Most Popular Tags</Text>
                 <View style={styles.tagsContainer}>
                   {analyticsSummary.popularTags.length > 0 ? (
                     analyticsSummary.popularTags.map((tag, index) => (
@@ -1710,31 +2128,48 @@ const OverallAnalyticsScreen: React.FC = () => {
           )}
         </Section>
         
-        {/* Latest Event Ratings Section - Now truly last */}
+        {/* Latest Event Ratings Section - Enhanced */}
         <Section 
-          title="Latest Event Ratings" 
+          title="⭐ Latest Event Ratings" 
           icon="star"
           loading={loadingRatings}
         >
           {loadingRatings && eventRatings.length === 0 ? (
             <View style={styles.loadingContainer}>
+              <View style={styles.loadingSpinner}>
+                <ActivityIndicator size="large" color={chartColors.ratings.primary()} />
+              </View>
               <Text style={styles.placeholderText}>Loading rating data...</Text>
             </View>
           ) : eventRatings.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Feather name="info" size={24} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No event rating data available</Text>
+              <View style={[styles.emptyIconContainer, { backgroundColor: chartColors.ratings.background }]}>
+                <Feather name="star" size={40} color={chartColors.ratings.primary()} />
+              </View>
+              <Text style={styles.emptyTitle}>No Event Ratings</Text>
+              <Text style={styles.emptyText}>No ratings available for recent events</Text>
             </View>
           ) : (
-            <View style={styles.chartContainer}>
+            <View style={styles.enhancedChartContainer}>
+              <View style={styles.chartHeaderContainer}>
+                <Text style={styles.chartMetricValue}>
+                  {(eventRatings.reduce((sum, event) => sum + event.averageRating, 0) / eventRatings.length).toFixed(1)}★
+                </Text>
+                <Text style={styles.chartMetricLabel}>Average Rating Across Events</Text>
+              </View>
               <RatingsBarChart
                 data={eventRatingData}
                 width={chartWidth}
-                height={220}
+                height={chartHeight}
               />
               <Text style={styles.chartDescription}>
-                Average ratings for your {eventRatings.length} most recent events
+                Average ratings for your {Math.min(eventRatings.length, 6)} most recent events
               </Text>
+              {eventRatings.length > 6 && (
+                <Text style={styles.chartNote}>
+                  Showing 6 most recent events • {eventRatings.length} total events with ratings
+                </Text>
+              )}
             </View>
           )}
         </Section>
@@ -1746,174 +2181,301 @@ const OverallAnalyticsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#F8FAFC',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
     backgroundColor: 'white',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
   },
   backButton: {
-    padding: 4,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1E293B',
+    letterSpacing: -0.5,
   },
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 50,
   },
   errorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FEF2F2',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    marginHorizontal: 20,
+    marginTop: 20,
     borderWidth: 1,
     borderColor: '#FECACA',
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   errorText: {
     flex: 1,
-    marginLeft: 8,
+    marginLeft: 14,
     color: '#B91C1C',
-    fontSize: 14,
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 22,
   },
   section: {
     backgroundColor: 'white',
-    borderRadius: 12,
-    marginHorizontal: 16,
-    marginTop: 16,
-    padding: 16,
+    borderRadius: 20,
+    marginHorizontal: 20,
+    marginTop: 24,
+    padding: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    marginBottom: 24,
+    paddingBottom: 20,
+    borderBottomWidth: 2,
+    borderBottomColor: '#F1F5F9',
   },
   sectionTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#1E293B',
+    letterSpacing: -0.3,
   },
-  sectionContent: {
-    // Content container styles
-  },
+  sectionContent: {},
   loadingContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 40,
+    paddingVertical: 80,
+  },
+  loadingSpinner: {
+    padding: 20,
+    borderRadius: 50,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+    marginBottom: 20,
   },
   placeholderText: {
-    fontSize: 14,
-    color: '#6B7280',
+    fontSize: 16,
+    color: '#64748B',
     textAlign: 'center',
-    marginTop: 12,
+    fontWeight: '600',
+    letterSpacing: -0.2,
   },
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 30,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    paddingVertical: 60,
+    paddingHorizontal: 24,
+  },
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    borderWidth: 3,
+    borderColor: '#E2E8F0',
     borderStyle: 'dashed',
   },
-  emptyText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#4B5563',
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1E293B',
     textAlign: 'center',
-    marginTop: 12,
-    marginBottom: 8,
+    marginBottom: 12,
+    letterSpacing: -0.3,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 24,
+  },
+  emptyDetailsContainer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   emptySubText: {
-    fontSize: 14,
-    color: '#6B7280',
+    fontSize: 15,
+    color: '#64748B',
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 4,
+    marginBottom: 16,
+    fontWeight: '600',
   },
   bulletPointContainer: {
     alignItems: 'flex-start',
-    paddingHorizontal: 8,
-    marginTop: 4,
   },
   bulletPoint: {
-    fontSize: 13,
-    color: '#6B7280',
-    lineHeight: 22,
+    fontSize: 14,
+    color: '#94A3B8',
+    lineHeight: 24,
+    paddingLeft: 4,
   },
-  chartContainer: {
+  enhancedChartContainer: {
     alignItems: 'center',
+    paddingVertical: 16,
   },
-  chart: {
-    marginVertical: 8,
+  chartHeaderContainer: {
+    alignItems: 'center',
+    marginBottom: 24,
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    backgroundColor: '#F8FAFC',
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    width: '100%',
+  },
+  chartMetricValue: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#1E293B',
+    marginBottom: 4,
+    letterSpacing: -1,
+  },
+  chartMetricLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  chartWrapper: {
+    borderRadius: 20,
+    backgroundColor: 'white',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+    marginBottom: 20,
+  },
+  enhancedChart: {
+    borderRadius: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  chartGradientOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    zIndex: 1,
   },
   chartDescription: {
-    fontSize: 14,
-    color: '#6B7280',
+    fontSize: 15,
+    color: '#64748B',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 20,
+    fontWeight: '600',
+    lineHeight: 22,
+    letterSpacing: -0.1,
+  },
+  chartNote: {
+    fontSize: 13,
+    color: '#94A3B8',
+    textAlign: 'center',
+    marginTop: 12,
+    fontWeight: '500',
     fontStyle: 'italic',
   },
+  ratingChartContainer: {
+    position: 'relative',
+  },
   summaryContainer: {
-    paddingVertical: 8,
+    paddingVertical: 12,
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   summaryItem: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
-    padding: 12,
-    borderRadius: 8,
-    marginHorizontal: 4,
+    backgroundColor: '#F8FAFC',
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    marginHorizontal: 8,
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
   },
   summaryLabel: {
     fontSize: 13,
-    color: '#6B7280',
-    marginBottom: 4,
-    textAlign: 'center',
-  },
-  summaryValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  popularTagsContainer: {
-    marginTop: 8,
-  },
-  popularTagsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
+    color: '#64748B',
     marginBottom: 12,
     textAlign: 'center',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  summaryValue: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#1E293B',
+    letterSpacing: -0.5,
+  },
+  popularTagsContainer: {
+    marginTop: 24,
+    paddingTop: 24,
+    borderTopWidth: 2,
+    borderTopColor: '#F1F5F9',
+  },
+  popularTagsTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1E293B',
+    marginBottom: 20,
+    textAlign: 'center',
+    letterSpacing: -0.3,
   },
   tagsContainer: {
     flexDirection: 'row',
@@ -1923,98 +2485,134 @@ const styles = StyleSheet.create({
   tagItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EFF6FF',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    margin: 4,
+    backgroundColor: '#EEF2FF',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    margin: 8,
+    borderWidth: 2,
+    borderColor: '#C7D2FE',
+    shadowColor: '#6366F1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   tagText: {
-    fontSize: 14,
-    color: '#3B82F6',
-    fontWeight: '500',
+    fontSize: 15,
+    color: '#4338CA',
+    fontWeight: '700',
+    letterSpacing: -0.1,
   },
   tagCount: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#3B82F6',
-    backgroundColor: '#DBEAFE',
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    fontWeight: '900',
+    color: '#4338CA',
+    backgroundColor: '#C7D2FE',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     textAlign: 'center',
-    lineHeight: 22,
-    marginLeft: 6,
+    lineHeight: 28,
+    marginLeft: 12,
   },
   noTagsText: {
-    fontSize: 14,
-    color: '#9CA3AF',
+    fontSize: 15,
+    color: '#94A3B8',
     fontStyle: 'italic',
     textAlign: 'center',
-    padding: 16,
+    padding: 24,
+    fontWeight: '500',
   },
   ratingLegendContainer: {
-    marginTop: 16,
-    padding: 8,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    marginTop: 24,
+    padding: 20,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#FEF3C7',
+  },
+  legendTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#92400E',
+    marginBottom: 16,
+    textAlign: 'center',
+    letterSpacing: -0.2,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#F59E0B',
+    marginRight: 12,
   },
   ratingLegendItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
+    alignItems: 'center',
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: '#FEF3C7',
   },
   ratingLegendName: {
     flex: 1,
-    fontSize: 14,
-    color: '#374151',
-    fontWeight: '500',
+    fontSize: 15,
+    color: '#92400E',
+    fontWeight: '600',
+    letterSpacing: -0.1,
   },
   ratingLegendRating: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   ratingLegendValue: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#F59E0B',
-    marginRight: 4,
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#D97706',
+    marginRight: 8,
   },
   ratingLegendCount: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#92400E',
+    fontWeight: '600',
   },
   summaryProfitContainer: {
-    backgroundColor: '#F0FDF4',
-    padding: 16,
-    borderRadius: 10, 
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: '#D1FAE5',
+    backgroundColor: '#ECFDF5',
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    marginTop: 20,
+    borderWidth: 2,
+    borderColor: '#A7F3D0',
     alignItems: 'center',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   summaryProfitLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 6,
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#065F46',
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   summaryProfitValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#10B981',
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#047857',
+    letterSpacing: -1,
   },
   noDataText: {
-    fontSize: 14,
-    color: '#9CA3AF',
+    fontSize: 15,
+    color: '#94A3B8',
     fontStyle: 'italic',
-    marginTop: 8,
+    marginTop: 16,
     textAlign: 'center',
+    fontWeight: '500',
   },
 });
-
+  
 export default OverallAnalyticsScreen; 

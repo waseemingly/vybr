@@ -1,7 +1,8 @@
-const { withAndroidManifest } = require('@expo/config-plugins');
+const { withAndroidManifest, withGradleProperties } = require('@expo/config-plugins');
 
 const withAppAuth = (config, { scheme = 'vybr' } = {}) => {
-  return withAndroidManifest(config, (config) => {
+  // Configure Android Manifest
+  config = withAndroidManifest(config, (config) => {
     const androidManifest = config.modResults;
     
     // Find the main activity
@@ -55,6 +56,18 @@ const withAppAuth = (config, { scheme = 'vybr' } = {}) => {
     
     return config;
   });
+
+  // Configure Gradle Properties to set the placeholder
+  config = withGradleProperties(config, (config) => {
+    config.modResults.push({
+      type: 'property',
+      key: 'appAuthRedirectScheme',
+      value: scheme
+    });
+    return config;
+  });
+
+  return config;
 };
 
 module.exports = withAppAuth; 

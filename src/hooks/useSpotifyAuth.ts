@@ -482,15 +482,30 @@ export const useSpotifyAuth = () => {
     }
     
     try {
-      const response = await fetch(`${SPOTIFY_API_URL}/me/top/artists?time_range=${timeRange}&limit=${limit}`, {
+      console.log(`[useSpotifyAuth] Fetching top artists with timeRange: ${timeRange}, limit: ${limit}`);
+      const url = `${SPOTIFY_API_URL}/me/top/artists?time_range=${timeRange}&limit=${limit}`;
+      console.log(`[useSpotifyAuth] API URL: ${url}`);
+      
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
         },
       });
       
+      console.log(`[useSpotifyAuth] Top artists API response status: ${response.status}`);
+      
       if (response.ok) {
         const data = await response.json();
-        return data.items.map((item: any) => ({
+        console.log(`[useSpotifyAuth] Top artists raw response:`, JSON.stringify(data, null, 2));
+        
+        if (!data.items) {
+          console.warn('[useSpotifyAuth] No items field in top artists response');
+          return [];
+        }
+        
+        console.log(`[useSpotifyAuth] Found ${data.items.length} top artists`);
+        
+        const mappedArtists = data.items.map((item: any) => ({
           id: item.id,
           name: item.name,
           genres: item.genres || [],
@@ -498,15 +513,27 @@ export const useSpotifyAuth = () => {
           popularity: item.popularity || 0,
           uri: item.uri
         }));
+        
+        console.log(`[useSpotifyAuth] Mapped artists sample:`, mappedArtists.slice(0, 3));
+        return mappedArtists;
       } else {
+        const errorText = await response.text();
+        console.error(`[useSpotifyAuth] Top artists API error ${response.status}:`, errorText);
+        
         // Handle token refresh if needed
         if (response.status === 401 && refreshToken) {
+          console.log('[useSpotifyAuth] Token expired, attempting refresh for top artists');
           await refreshAccessToken(refreshToken);
           // Retry after token refresh
           return getTopArtists(timeRange, limit);
         } else {
-          const errorData = await response.json();
-          throw new Error(errorData.error?.message || 'Failed to fetch top artists');
+          let errorData: any = {};
+          try {
+            errorData = JSON.parse(errorText);
+          } catch (e) {
+            console.error('[useSpotifyAuth] Could not parse error response as JSON');
+          }
+          throw new Error(errorData.error?.message || `Failed to fetch top artists: ${response.status} ${errorText}`);
         }
       }
     } catch (err: any) {
@@ -522,16 +549,31 @@ export const useSpotifyAuth = () => {
     }
     
     try {
+      console.log(`[useSpotifyAuth] Fetching top tracks with timeRange: ${timeRange}, limit: ${limit}`);
+      const url = `${SPOTIFY_API_URL}/me/top/tracks?time_range=${timeRange}&limit=${limit}`;
+      console.log(`[useSpotifyAuth] API URL: ${url}`);
+      
       // Use the /me/top/tracks endpoint (requires user-top-read scope)
-      const response = await fetch(`${SPOTIFY_API_URL}/me/top/tracks?time_range=${timeRange}&limit=${limit}`, {
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
         },
       });
       
+      console.log(`[useSpotifyAuth] Top tracks API response status: ${response.status}`);
+      
       if (response.ok) {
         const data = await response.json();
-        return data.items.map((item: any) => ({
+        console.log(`[useSpotifyAuth] Top tracks raw response:`, JSON.stringify(data, null, 2));
+        
+        if (!data.items) {
+          console.warn('[useSpotifyAuth] No items field in top tracks response');
+          return [];
+        }
+        
+        console.log(`[useSpotifyAuth] Found ${data.items.length} top tracks`);
+        
+        const mappedTracks = data.items.map((item: any) => ({
           id: item.id,
           name: item.name,
           uri: item.uri,
@@ -546,15 +588,27 @@ export const useSpotifyAuth = () => {
           })),
           popularity: item.popularity || 0
         }));
+        
+        console.log(`[useSpotifyAuth] Mapped tracks sample:`, mappedTracks.slice(0, 3));
+        return mappedTracks;
       } else {
+        const errorText = await response.text();
+        console.error(`[useSpotifyAuth] Top tracks API error ${response.status}:`, errorText);
+        
         // Handle token refresh if needed
         if (response.status === 401 && refreshToken) {
+          console.log('[useSpotifyAuth] Token expired, attempting refresh for top tracks');
           await refreshAccessToken(refreshToken);
           // Retry after token refresh
           return getTopTracks(timeRange, limit);
         } else {
-          const errorData = await response.json();
-          throw new Error(errorData.error?.message || 'Failed to fetch top tracks');
+          let errorData: any = {};
+          try {
+            errorData = JSON.parse(errorText);
+          } catch (e) {
+            console.error('[useSpotifyAuth] Could not parse error response as JSON');
+          }
+          throw new Error(errorData.error?.message || `Failed to fetch top tracks: ${response.status} ${errorText}`);
         }
       }
     } catch (err: any) {
@@ -662,16 +716,50 @@ export const useSpotifyAuth = () => {
     let topMoodsData: TopMood[] = [];
 
     try {
-      // 1. Fetch top artists (last 4 weeks)
-      const topArtists = await getTopArtists('short_term', 50);
+      // 1. Fetch top artists with fallback strategy for different time ranges
+      console.log('[useSpotifyAuth] Step 1: Fetching top artists with fallback strategy...');
+      let topArtists: TopArtist[] = [];
+      
+      // Try different time ranges if short_term returns no data
+      for (const timeRange of ['short_term', 'medium_term', 'long_term'] as const) {
+        console.log(`[useSpotifyAuth] Trying artists for time range: ${timeRange}`);
+        topArtists = await getTopArtists(timeRange, 50);
+        console.log(`[useSpotifyAuth] Got ${topArtists.length} artists for ${timeRange}`);
+        if (topArtists.length > 0) break;
+      }
+      console.log(`[useSpotifyAuth] Step 1 completed: Got ${topArtists.length} top artists`);
       
       // 2. Calculate top genres from artists
+      console.log('[useSpotifyAuth] Step 2: Calculating top genres...');
       const topGenres = calculateTopGenres(topArtists);
+      console.log(`[useSpotifyAuth] Step 2 completed: Got ${topGenres.length} top genres`);
       
-      // 3. Get top tracks directly instead of recently played
-      const topTracks = await getTopTracks('short_term', 50);
+      // 3. Get top tracks with fallback strategy for different time ranges
+      console.log('[useSpotifyAuth] Step 3: Fetching top tracks with fallback strategy...');
+      let topTracks: TopTrack[] = [];
+      
+      // Try different time ranges if short_term returns no data
+      for (const timeRange of ['short_term', 'medium_term', 'long_term'] as const) {
+        console.log(`[useSpotifyAuth] Trying tracks for time range: ${timeRange}`);
+        topTracks = await getTopTracks(timeRange, 50);
+        console.log(`[useSpotifyAuth] Got ${topTracks.length} tracks for ${timeRange}`);
+        if (topTracks.length > 0) break;
+      }
+      
+      // If still no tracks, try recently played as last resort
+      if (topTracks.length === 0) {
+        console.log('[useSpotifyAuth] No top tracks found in any time range, trying recently played as fallback...');
+        try {
+          topTracks = await getRecentlyPlayedTracks(50);
+          console.log(`[useSpotifyAuth] Got ${topTracks.length} recently played tracks`);
+        } catch (recentError) {
+          console.warn('[useSpotifyAuth] Recently played tracks also failed:', recentError);
+        }
+      }
+      console.log(`[useSpotifyAuth] Step 3 completed: Got ${topTracks.length} top tracks`);
       
       // 4. Extract top albums from top tracks
+      console.log('[useSpotifyAuth] Step 4: Extracting top albums...');
       const albumMap = new Map<string, TopAlbum>();
       topTracks.forEach(track => {
         if (track.album && !albumMap.has(track.album.id)) {
@@ -685,6 +773,7 @@ export const useSpotifyAuth = () => {
         }
       });
       const topAlbums = Array.from(albumMap.values());
+      console.log(`[useSpotifyAuth] Step 4 completed: Got ${topAlbums.length} top albums`);
       
       // --- MOOD ANALYSIS --- START ---
       console.log(`[useSpotifyAuth] In fetchAndSaveSpotifyData: isPremium = ${isPremium}, topTracks.length = ${topTracks.length}`);
@@ -812,7 +901,14 @@ export const useSpotifyAuth = () => {
         });
       
       if (saveError) throw saveError;
-      console.log(`Successfully saved fresh Spotify data for user ${session.user.id}. Artists: ${limitedArtists.length}, Tracks: ${limitedTracks.length}, Genres: ${limitedGenres.length}, Moods: ${topMoodsData.length}`);
+      
+      // Provide detailed feedback about data collection
+      if (topArtists.length === 0 && topTracks.length === 0) {
+        console.warn(`[useSpotifyAuth] No music data found for user ${session.user.id}. This usually indicates a new Spotify account with insufficient listening history. Saved empty record for future updates.`);
+        setError('No listening history found. Please use Spotify for a few weeks and try refreshing your music data again.');
+      } else if (topArtists.length > 0 || topTracks.length > 0) {
+        console.log(`Successfully saved Spotify data for user ${session.user.id}. Artists: ${limitedArtists.length}, Tracks: ${limitedTracks.length}, Genres: ${limitedGenres.length}, Moods: ${topMoodsData.length}`);
+      }
       
       return true;
     } catch (err: any) {
@@ -899,16 +995,50 @@ export const useSpotifyAuth = () => {
     let topMoodsData: TopMood[] = [];
     
     try {
-      // 1. Fetch top artists (last 4 weeks)
-      const topArtists = await getTopArtists('short_term', 50);
+      // 1. Fetch top artists with fallback strategy for different time ranges
+      console.log('[useSpotifyAuth] Step 1: Fetching top artists with fallback strategy...');
+      let topArtists: TopArtist[] = [];
+      
+      // Try different time ranges if short_term returns no data
+      for (const timeRange of ['short_term', 'medium_term', 'long_term'] as const) {
+        console.log(`[useSpotifyAuth] Trying artists for time range: ${timeRange}`);
+        topArtists = await getTopArtists(timeRange, 50);
+        console.log(`[useSpotifyAuth] Got ${topArtists.length} artists for ${timeRange}`);
+        if (topArtists.length > 0) break;
+      }
+      console.log(`[useSpotifyAuth] Step 1 completed: Got ${topArtists.length} top artists`);
       
       // 2. Calculate top genres from artists
+      console.log('[useSpotifyAuth] Step 2: Calculating top genres...');
       const topGenres = calculateTopGenres(topArtists);
+      console.log(`[useSpotifyAuth] Step 2 completed: Got ${topGenres.length} top genres`);
       
-      // 3. Get top tracks directly instead of recently played
-      const topTracks = await getTopTracks('short_term', 50);
+      // 3. Get top tracks with fallback strategy for different time ranges
+      console.log('[useSpotifyAuth] Step 3: Fetching top tracks with fallback strategy...');
+      let topTracks: TopTrack[] = [];
+      
+      // Try different time ranges if short_term returns no data
+      for (const timeRange of ['short_term', 'medium_term', 'long_term'] as const) {
+        console.log(`[useSpotifyAuth] Trying tracks for time range: ${timeRange}`);
+        topTracks = await getTopTracks(timeRange, 50);
+        console.log(`[useSpotifyAuth] Got ${topTracks.length} tracks for ${timeRange}`);
+        if (topTracks.length > 0) break;
+      }
+      
+      // If still no tracks, try recently played as last resort
+      if (topTracks.length === 0) {
+        console.log('[useSpotifyAuth] No top tracks found in any time range, trying recently played as fallback...');
+        try {
+          topTracks = await getRecentlyPlayedTracks(50);
+          console.log(`[useSpotifyAuth] Got ${topTracks.length} recently played tracks`);
+        } catch (recentError) {
+          console.warn('[useSpotifyAuth] Recently played tracks also failed:', recentError);
+        }
+      }
+      console.log(`[useSpotifyAuth] Step 3 completed: Got ${topTracks.length} top tracks`);
       
       // 4. Extract top albums from top tracks
+      console.log('[useSpotifyAuth] Step 4: Extracting top albums...');
       const albumMap = new Map<string, TopAlbum>();
       topTracks.forEach(track => {
         if (track.album && !albumMap.has(track.album.id)) {
@@ -922,6 +1052,7 @@ export const useSpotifyAuth = () => {
         }
       });
       const topAlbums = Array.from(albumMap.values());
+      console.log(`[useSpotifyAuth] Step 4 completed: Got ${topAlbums.length} top albums`);
       
       // --- MOOD ANALYSIS --- START (Copied from fetchAndSaveSpotifyData) ---
       console.log(`[useSpotifyAuth] In forceFetchAndSaveSpotifyData: isPremium = ${isPremium}, topTracks.length = ${topTracks.length}`);
@@ -1041,7 +1172,14 @@ export const useSpotifyAuth = () => {
         });
       
       if (saveError) throw saveError;
-      console.log(`Successfully saved fresh Spotify data for user ${userId}. Artists: ${limitedArtists.length}, Tracks: ${limitedTracks.length}, Genres: ${limitedGenres.length}, Moods: ${topMoodsData.length}`);
+      
+      // Provide detailed feedback about data collection
+      if (topArtists.length === 0 && topTracks.length === 0) {
+        console.warn(`[useSpotifyAuth] No music data found for user ${userId}. This usually indicates a new Spotify account with insufficient listening history. Saved empty record for future updates.`);
+        setError('No listening history found. Please use Spotify for a few weeks and try refreshing your music data again.');
+      } else if (topArtists.length > 0 || topTracks.length > 0) {
+        console.log(`Successfully saved Spotify data for user ${userId}. Artists: ${limitedArtists.length}, Tracks: ${limitedTracks.length}, Genres: ${limitedGenres.length}, Moods: ${topMoodsData.length}`);
+      }
       
       return true;
     } catch (err: any) {
@@ -1104,6 +1242,110 @@ export const useSpotifyAuth = () => {
     return isTokenValid;
   };
 
+  // Debug function to test Spotify API connectivity and data availability
+  const debugSpotifyApiData = async (): Promise<void> => {
+    if (!accessToken) {
+      console.error('[useSpotifyAuth] DEBUG: No access token available');
+      return;
+    }
+
+    console.log('[useSpotifyAuth] DEBUG: Starting Spotify API debug test...');
+    
+    try {
+      // Test basic profile access
+      console.log('[useSpotifyAuth] DEBUG: Testing /me endpoint...');
+      const profileResponse = await fetch(`${SPOTIFY_API_URL}/me`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+      });
+      console.log(`[useSpotifyAuth] DEBUG: Profile response status: ${profileResponse.status}`);
+      
+      if (profileResponse.ok) {
+        const profileData = await profileResponse.json();
+        console.log(`[useSpotifyAuth] DEBUG: Profile data:`, {
+          id: profileData.id,
+          display_name: profileData.display_name,
+          country: profileData.country,
+          product: profileData.product // This shows if user has premium
+        });
+      }
+
+      // Test top artists with different time ranges
+      const timeRanges = ['short_term', 'medium_term', 'long_term'] as const;
+      for (const timeRange of timeRanges) {
+        console.log(`[useSpotifyAuth] DEBUG: Testing top artists - ${timeRange}...`);
+        try {
+          const artistsResponse = await fetch(`${SPOTIFY_API_URL}/me/top/artists?time_range=${timeRange}&limit=5`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+          });
+          console.log(`[useSpotifyAuth] DEBUG: Artists ${timeRange} response status: ${artistsResponse.status}`);
+          
+          if (artistsResponse.ok) {
+            const artistsData = await artistsResponse.json();
+            console.log(`[useSpotifyAuth] DEBUG: Artists ${timeRange} count: ${artistsData.items?.length || 0}`);
+            if (artistsData.items?.length > 0) {
+              console.log(`[useSpotifyAuth] DEBUG: Sample artist:`, artistsData.items[0].name);
+            }
+          } else {
+            const errorText = await artistsResponse.text();
+            console.error(`[useSpotifyAuth] DEBUG: Artists ${timeRange} error:`, errorText);
+          }
+        } catch (err) {
+          console.error(`[useSpotifyAuth] DEBUG: Artists ${timeRange} exception:`, err);
+        }
+      }
+
+      // Test top tracks with different time ranges
+      for (const timeRange of timeRanges) {
+        console.log(`[useSpotifyAuth] DEBUG: Testing top tracks - ${timeRange}...`);
+        try {
+          const tracksResponse = await fetch(`${SPOTIFY_API_URL}/me/top/tracks?time_range=${timeRange}&limit=5`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+          });
+          console.log(`[useSpotifyAuth] DEBUG: Tracks ${timeRange} response status: ${tracksResponse.status}`);
+          
+          if (tracksResponse.ok) {
+            const tracksData = await tracksResponse.json();
+            console.log(`[useSpotifyAuth] DEBUG: Tracks ${timeRange} count: ${tracksData.items?.length || 0}`);
+            if (tracksData.items?.length > 0) {
+              console.log(`[useSpotifyAuth] DEBUG: Sample track:`, tracksData.items[0].name);
+            }
+          } else {
+            const errorText = await tracksResponse.text();
+            console.error(`[useSpotifyAuth] DEBUG: Tracks ${timeRange} error:`, errorText);
+          }
+        } catch (err) {
+          console.error(`[useSpotifyAuth] DEBUG: Tracks ${timeRange} exception:`, err);
+        }
+      }
+
+      // Test recently played tracks
+      console.log(`[useSpotifyAuth] DEBUG: Testing recently played tracks...`);
+      try {
+        const recentResponse = await fetch(`${SPOTIFY_API_URL}/me/player/recently-played?limit=5`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` },
+        });
+        console.log(`[useSpotifyAuth] DEBUG: Recently played response status: ${recentResponse.status}`);
+        
+        if (recentResponse.ok) {
+          const recentData = await recentResponse.json();
+          console.log(`[useSpotifyAuth] DEBUG: Recently played count: ${recentData.items?.length || 0}`);
+          if (recentData.items?.length > 0) {
+            console.log(`[useSpotifyAuth] DEBUG: Sample recent track:`, recentData.items[0].track.name);
+          }
+        } else {
+          const errorText = await recentResponse.text();
+          console.error(`[useSpotifyAuth] DEBUG: Recently played error:`, errorText);
+        }
+      } catch (err) {
+        console.error(`[useSpotifyAuth] DEBUG: Recently played exception:`, err);
+      }
+
+      console.log('[useSpotifyAuth] DEBUG: Spotify API debug test completed');
+    } catch (err) {
+      console.error('[useSpotifyAuth] DEBUG: Fatal error during debug test:', err);
+    }
+  };
+
   // Return the hook interface
   return {
     login,
@@ -1121,6 +1363,7 @@ export const useSpotifyAuth = () => {
     forceFetchAndSaveSpotifyData,
     isUpdatingListeningData,
     verifyAuthorizationCompleted,
+    debugSpotifyApiData,
     // Add credentials state for debugging/monitoring
     credentialsLoaded,
     spotifyClientId: spotifyClientId || null,
