@@ -21,6 +21,7 @@ import { createClient } from '@supabase/supabase-js';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
+import * as AuthSession from 'expo-auth-session';
 // Import notification service
 import NotificationService from '../services/NotificationService';
 
@@ -192,9 +193,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
     useEffect(() => {
         if (Platform.OS !== 'web') {
+            const webClientId = Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "830574548321-h59962oi42ok7tejuhkefud8tbooo18j.apps.googleusercontent.com";
+            console.log('🔍 DEBUG: Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID =', Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID);
+            console.log('🔍 DEBUG: Using webClientId =', webClientId);
+            
             GoogleSignin.configure({
-                webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, // From Google Cloud Console
-                offlineAccess: true, 
+                webClientId: webClientId, // Web client ID for backend verification
+                offlineAccess: true,
             });
         }
     }, []);
@@ -563,25 +568,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                     if (data?.screen && navigationRef.current?.isReady()) {
                                         if (data.screen === 'MatchesScreen') {
                                             // Navigate to matches screen
-                                            navigationRef.current.navigate('MainApp' as never, { 
+                                            (navigationRef.current as any)?.navigate('MainApp', { 
                                                 screen: 'MatchesScreen' 
-                                            } as never);
+                                            });
                                         } else if (data.screen === 'IndividualChatScreen' && data.matchUserId) {
                                             // Navigate to specific chat
-                                            navigationRef.current.navigate('MainApp' as never, { 
+                                            (navigationRef.current as any)?.navigate('MainApp', { 
                                                 screen: 'IndividualChatScreen',
                                                 params: { 
                                                     matchUserId: data.matchUserId,
                                                     matchName: data.senderName || data.matchName,
                                                     isFirstInteractionFromMatches: false
                                                 }
-                                            } as never);
+                                            });
                                         } else if (data.screen === 'GroupChatScreen' && data.groupId) {
                                             // Navigate to group chat
-                                            navigationRef.current.navigate('MainApp' as never, { 
+                                            (navigationRef.current as any)?.navigate('MainApp', { 
                                                 screen: 'GroupChatScreen',
                                                 params: { groupId: data.groupId }
-                                            } as never);
+                                            });
                                         }
                                     }
                                 });
@@ -1396,7 +1401,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         }
     };
 
-    // Simplified Google Sign-In that follows Spotify's pattern
+    // Google Sign-In with native flow for mobile, OAuth for web
     const signInWithGoogle = async (): Promise<{ error: any } | { user: any }> => {
         setLoading(true);
         
@@ -1550,38 +1555,124 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     setTimeout(checkAuth, 2000);
                 });
             } else {
-                // For mobile, use the standard Supabase OAuth flow
-                const { data, error } = await supabase.auth.signInWithOAuth({
-                    provider: 'google',
-                    options: {
-                        redirectTo: Constants.expoConfig?.extra?.SUPABASE_REDIRECT_URL,
-                        queryParams: {
-                            access_type: 'offline',
-                            prompt: 'consent',
+                // For mobile (Android/iOS), use browser-based OAuth flow similar to Spotify
+                console.log('[useAuth] Using browser OAuth for mobile Google Sign-In');
+                
+                try {
+                    // Create redirect URI for mobile OAuth
+                    const redirectUri = `${Constants.expoConfig?.scheme || 'vybr'}://auth/callback`;
+                    
+                    console.log('[useAuth] Using OAuth redirect URI:', redirectUri);
+                    
+                    // Get the OAuth URL from Supabase
+                    const { data, error } = await supabase.auth.signInWithOAuth({
+                        provider: 'google',
+                        options: {
+                            redirectTo: redirectUri,
+                            skipBrowserRedirect: true,
+                            queryParams: {
+                                prompt: 'select_account', // Force account selection screen
+                                access_type: 'offline', // Get refresh token
+                            },
                         },
-                    },
-                });
-                
-                setLoading(false);
-                
-                if (error) {
-                    console.error('[useAuth] Mobile Google OAuth error:', error);
-                    return { error };
-                }
-                
-                // For mobile OAuth, we need to wait for the callback and check the session
-                console.log('[useAuth] Mobile OAuth initiated, checking for session...');
-                
-                // Wait a moment for the OAuth flow to complete
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                const { data: sessionData } = await supabase.auth.getSession();
-                
-                if (sessionData?.session?.user) {
-                    console.log('[useAuth] Mobile Google authentication successful');
-                    return { user: sessionData.session.user };
-                } else {
-                    return { error: { message: "Authentication was initiated. Please complete the process in your browser.", cancelled: false } };
+                    });
+
+                    if (error) {
+                        console.error('[useAuth] Error getting OAuth URL:', error);
+                        setLoading(false);
+                        return { error };
+                    }
+
+                    if (!data?.url) {
+                        console.error('[useAuth] No OAuth URL received from Supabase');
+                        setLoading(false);
+                        return { error: { message: 'Failed to get authentication URL' } };
+                    }
+
+                    console.log('[useAuth] Opening OAuth URL in browser:', data.url.substring(0, 100) + '...');
+
+                    // Use WebBrowser for the OAuth flow (same as Spotify)
+                    const result = await WebBrowser.openAuthSessionAsync(
+                        data.url,
+                        redirectUri
+                    );
+
+                    console.log('[useAuth] WebBrowser auth session result:', result);
+
+                    if (result.type === 'success' && result.url) {
+                        const parsedUrl = new URL(result.url);
+                        
+                        // Check for tokens in URL fragment (after #) - Supabase uses implicit flow
+                        let code = parsedUrl.searchParams.get('code');
+                        let accessToken = parsedUrl.searchParams.get('access_token');
+                        let refreshToken = parsedUrl.searchParams.get('refresh_token');
+                        
+                        // If not found in query params, check URL fragment
+                        if (!accessToken && !code && parsedUrl.hash) {
+                            console.log('[useAuth] Checking URL fragment for tokens:', parsedUrl.hash);
+                            const fragmentParams = new URLSearchParams(parsedUrl.hash.substring(1));
+                            code = fragmentParams.get('code');
+                            accessToken = fragmentParams.get('access_token');
+                            refreshToken = fragmentParams.get('refresh_token');
+                            console.log('[useAuth] Fragment parsing result - code:', !!code, 'accessToken:', !!accessToken, 'refreshToken:', !!refreshToken);
+                        }
+                        
+                        if (code) {
+                            console.log('[useAuth] Authorization code received, exchanging for session...');
+                            
+                            // Exchange the code for a session
+                            const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
+                            
+                            if (sessionError) {
+                                console.error('[useAuth] Error exchanging code for session:', sessionError);
+                                setLoading(false);
+                                return { error: sessionError };
+                            }
+
+                            if (sessionData?.user) {
+                                console.log('[useAuth] Google OAuth authentication successful');
+                                setLoading(false);
+                                return { user: sessionData.user };
+                            }
+                        } else if (accessToken) {
+                            console.log('[useAuth] Access token received, setting session...');
+                            
+                            // Set the session directly with the tokens
+                            const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+                                access_token: accessToken,
+                                refresh_token: refreshToken || '',
+                            });
+                            
+                            if (sessionError) {
+                                console.error('[useAuth] Error setting session:', sessionError);
+                                setLoading(false);
+                                return { error: sessionError };
+                            }
+
+                            if (sessionData?.user) {
+                                console.log('[useAuth] Google OAuth authentication successful');
+                                setLoading(false);
+                                return { user: sessionData.user };
+                            }
+                        }
+                        
+                        console.error('[useAuth] No valid authentication data found in callback URL');
+                        setLoading(false);
+                        return { error: { message: 'Authentication failed - no valid data received' } };
+                    } else if (result.type === 'cancel') {
+                        console.log('[useAuth] User cancelled Google OAuth');
+                        setLoading(false);
+                        return { error: { message: 'Sign-in was cancelled.', cancelled: true } };
+                    } else {
+                        console.error('[useAuth] Unexpected AuthSession result:', result);
+                        setLoading(false);
+                        return { error: { message: 'Authentication failed - unexpected result' } };
+                    }
+                    
+                } catch (browserError: any) {
+                    console.error('[useAuth] OAuth error:', browserError);
+                    setLoading(false);
+                    return { error: { message: browserError.message || 'Failed to complete authentication' } };
                 }
             }
         } catch (err: any) {

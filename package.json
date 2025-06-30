@@ -67,7 +67,7 @@
     "expo-auth-session": "~6.2.0",
     "expo-build-properties": "^0.14.6",
     "expo-constants": "~17.1.5",
-    "expo-dev-client": "~5.2.1",
+    "expo-dev-client": "~5.2.2",
     "expo-device": "^7.1.4",
     "expo-file-system": "~18.1.9",
     "expo-font": "~13.3.1",
@@ -94,7 +94,6 @@
     "react-easy-crop": "^5.4.2",
     "react-hook-form": "^7.49.3",
     "react-native": "0.79.4",
-    "react-native-app-auth": "^8.0.2",
     "react-native-calendars": "^1.1312.1",
     "react-native-chart-kit": "^6.12.0",
     "react-native-gesture-handler": "~2.24.0",
@@ -121,7 +120,8 @@
     "vaul": "^1.1.2",
     "web-streams-polyfill": "^4.1.0",
     "youtube-music-ts-api": "^1.8.3",
-    "zod": "^3.22.4"
+    "zod": "^3.22.4",
+    "expo-crypto": "~14.1.5"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
