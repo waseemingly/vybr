@@ -15,8 +15,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Platform } from 'react-native';
 //import { Linking } from 'react-native';
 import * as Linking from 'expo-linking';
-// IMPORT from custom wrapper
-import CustomStripeProvider from './src/components/StripeProvider';
+
+// IMPORT from custom wrapper based on platform
+import CustomStripeProviderWeb from './src/components/StripeProvider.web';
+import CustomStripeProviderNative from './src/components/StripeProvider.native';
+
+const CustomStripeProvider = Platform.OS === 'web' 
+  ? CustomStripeProviderWeb 
+  : CustomStripeProviderNative;
 
 import { OrganizerModeProvider } from "./src/hooks/useOrganizerMode";
 import { AuthProvider } from "./src/hooks/useAuth";
@@ -38,9 +44,14 @@ if (!STRIPE_PUBLISHABLE_KEY) {
   // In a real app, you might want to show an error UI or prevent the app from loading
 }
 
-// Configure deep linking for web
+// Configure deep linking for all platforms
 const linking = {
-  prefixes: [Linking.createURL('/')],
+  prefixes: [
+    Linking.createURL('/'),
+    'vybr://',
+    'https://vybr.app',
+    'https://fqfgueshwuhpckszyrsj.supabase.co/auth/v1/callback'
+  ],
   config: {
     screens: {
       MainApp: {
@@ -55,6 +66,9 @@ const linking = {
           }
         },
       },
+      // Handle OAuth callbacks
+      AuthCallback: 'auth/callback',
+      SpotifyCallback: 'spotify-auth-callback',
     },
   },
 };
@@ -85,6 +99,33 @@ export default function App() {
     }
   }, [isReady]);
 
+  // Handle OAuth deep link callbacks
+  React.useEffect(() => {
+    const handleDeepLink = (url: string) => {
+      console.log('[App] Deep link received:', url);
+      
+      // Handle OAuth callback URLs
+      if (url.includes('auth/callback') || url.includes('error=')) {
+        console.log('[App] OAuth callback detected:', url);
+        // The Supabase auth handler will process this automatically
+        // No additional navigation needed - let the AuthProvider handle it
+      }
+    };
+
+    const subscription = Linking.addEventListener('url', (event) => {
+      handleDeepLink(event.url);
+    });
+
+    // Handle the initial URL if the app was opened from a deep link
+    Linking.getInitialURL().then((url) => {
+      if (url) {
+        handleDeepLink(url);
+      }
+    });
+
+    return () => subscription?.remove();
+  }, []);
+
   if (!isReady) {
     return null;
   }
@@ -99,7 +140,7 @@ export default function App() {
             <SafeAreaProvider>
               <NavigationContainer 
                 ref={navigationRef}
-                linking={Platform.OS === 'web' ? linking : undefined}
+                linking={linking}
                 initialState={initialState}
                 onStateChange={(state) => {
                   // Save navigation state to localStorage on web
