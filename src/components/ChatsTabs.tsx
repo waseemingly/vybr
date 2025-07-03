@@ -341,8 +341,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             return;
         }
         
-        if (!refreshing && !isLoading) setIsLoading(true);
-        else if (refreshing) setIsRefreshing(true);
+        if (!refreshing) setIsLoading(true);
+        else setIsRefreshing(true);
         
         setError(null);
         console.log("ChatsTabs: Fetching data with unread counts...");
@@ -370,16 +370,27 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             setIsLoading(false); 
             setIsRefreshing(false);
         }
-    }, [session?.user?.id, isLoading]);
+    }, [session?.user?.id]);
 
     // Fetch on mount and when session changes
     useEffect(() => {
-        if (!isLoading) {
-            fetchData();
-        }
-    }, [session?.user?.id]);
+        fetchData();
+    }, [fetchData]);
 
     // Real-time subscriptions for new messages and updates
+    const lastRealtimeFetch = React.useRef<number>(0);
+    const throttledFetchData = useCallback(() => {
+        const now = Date.now();
+        // Only fetch if more than 1 second has passed since last realtime fetch
+        if (now - lastRealtimeFetch.current > 1000) {
+            console.log("Real-time update triggered, refreshing data");
+            lastRealtimeFetch.current = now;
+            fetchData();
+        } else {
+            console.log("Real-time update triggered, but throttling fetch (too recent)");
+        }
+    }, [fetchData]);
+
     useEffect(() => {
         if (!session?.user?.id) return;
 
@@ -397,8 +408,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                     filter: `receiver_id=eq.${session.user.id}`
                 },
                 () => {
-                    console.log("New individual message received, refreshing data");
-                    fetchData();
+                    console.log("New individual message received");
+                    throttledFetchData();
                 }
             )
             .on(
@@ -410,8 +421,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                     filter: `sender_id=eq.${session.user.id}`
                 },
                 () => {
-                    console.log("New individual message sent, refreshing data");
-                    fetchData();
+                    console.log("New individual message sent");
+                    throttledFetchData();
                 }
             )
             .subscribe();
@@ -427,8 +438,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                     table: 'group_chat_messages'
                 },
                 (payload) => {
-                    console.log("New group message received, refreshing data");
-                    fetchData();
+                    console.log("New group message received");
+                    throttledFetchData();
                 }
             )
             .subscribe();
@@ -445,8 +456,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                     filter: `user_id=eq.${session.user.id}`
                 },
                 () => {
-                    console.log("Group membership changed, refreshing data");
-                    fetchData();
+                    console.log("Group membership changed");
+                    throttledFetchData();
                 }
             )
             .subscribe();
@@ -457,24 +468,22 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             supabase.removeChannel(groupMessageChannel);
             supabase.removeChannel(groupMembershipChannel);
         };
-    }, [session?.user?.id, fetchData]);
+    }, [session?.user?.id, throttledFetchData]);
 
-    // Fetch data when the screen comes into focus
+    // Fetch data when the screen comes into focus (with throttling)
+    const lastFocusTime = React.useRef<number>(0);
     useFocusEffect(
         useCallback(() => {
-            console.log("ChatsTabs: Screen focused, fetching data.");
-            fetchData();
-            
-            // Also add a small delay to catch any pending database updates
-            const timeoutId = setTimeout(() => {
-                console.log("ChatsTabs: Secondary fetch after focus delay.");
+            const now = Date.now();
+            // Only fetch if more than 2 seconds have passed since last focus fetch
+            if (now - lastFocusTime.current > 2000) {
+                console.log("ChatsTabs: Screen focused, fetching data.");
+                lastFocusTime.current = now;
                 fetchData();
-            }, 1500);
-            
-            return () => {
-                clearTimeout(timeoutId);
-            };
-        }, [fetchData])
+            } else {
+                console.log("ChatsTabs: Screen focused, but throttling fetch (too recent).");
+            }
+        }, [])
     );
 
     // Handle pull-to-refresh
