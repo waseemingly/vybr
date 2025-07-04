@@ -15,6 +15,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Platform } from 'react-native';
 //import { Linking } from 'react-native';
 import * as Linking from 'expo-linking';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Text } from 'react-native';
 
 // IMPORT from custom wrapper based on platform
 import CustomStripeProviderWeb from './src/components/StripeProvider.web';
@@ -27,6 +29,8 @@ const CustomStripeProvider = Platform.OS === 'web'
 import { OrganizerModeProvider } from "./src/hooks/useOrganizerMode";
 import { AuthProvider } from "./src/hooks/useAuth";
 import AppNavigator from "./src/navigation/AppNavigator";
+import { RealtimeProvider } from '@/context/RealtimeContext';
+import { Toaster } from '@/components/ui/sonner';
 
 // React Navigation
 import type { NavigationContainerRef } from '@react-navigation/native';
@@ -131,31 +135,36 @@ export default function App() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <CustomStripeProvider
-        publishableKey={STRIPE_PUBLISHABLE_KEY}
-      >
-        <OrganizerModeProvider>
-          <AuthProvider navigationRef={navigationRef as React.RefObject<NavigationContainerRef<any>>}>
-            <SafeAreaProvider>
-              <NavigationContainer 
-                ref={navigationRef}
-                linking={linking}
-                initialState={initialState}
-                onStateChange={(state) => {
-                  // Save navigation state to localStorage on web
-                  if (Platform.OS === 'web') {
-                    localStorage.setItem('NAVIGATION_STATE_V1', JSON.stringify(state));
-                  }
-                }}
-              >
-                <AppNavigator />
-                <StatusBar style="auto" />
-              </NavigationContainer>
-            </SafeAreaProvider>
-          </AuthProvider>
-        </OrganizerModeProvider>
-      </CustomStripeProvider>
-    </QueryClientProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <QueryClientProvider client={queryClient}>
+        <CustomStripeProvider
+          publishableKey={STRIPE_PUBLISHABLE_KEY}
+        >
+          <OrganizerModeProvider>
+            <AuthProvider navigationRef={navigationRef as React.RefObject<NavigationContainerRef<any>>}>
+              <RealtimeProvider>
+                <SafeAreaProvider>
+                  <NavigationContainer 
+                    ref={navigationRef}
+                    linking={linking}
+                    initialState={initialState}
+                    onStateChange={(state) => {
+                      // Save navigation state to localStorage on web
+                      if (Platform.OS === 'web') {
+                        localStorage.setItem('NAVIGATION_STATE_V1', JSON.stringify(state));
+                      }
+                    }}
+                  >
+                    <AppNavigator />
+                    <StatusBar style="auto" />
+                  </NavigationContainer>
+                  <Toaster />
+                </SafeAreaProvider>
+              </RealtimeProvider>
+            </AuthProvider>
+          </OrganizerModeProvider>
+        </CustomStripeProvider>
+      </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }

@@ -17,6 +17,7 @@ import ImageViewer from 'react-native-image-zoom-viewer';
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { useRealtime } from '@/context/RealtimeContext'; // Add RealtimeContext import
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator'; // Adjust path
 import { APP_CONSTANTS } from '@/config/constants';    
 import { v4 as uuidv4 } from 'uuid';           // Adjust path
@@ -578,6 +579,7 @@ const GroupChatScreen: React.FC = () => {
     const route = useRoute<GroupChatScreenRouteProp>();
     const navigation = useNavigation<GroupChatScreenNavigationProp>();
     const { session } = useAuth();
+    const { presenceState } = useRealtime(); // Add RealtimeContext usage
     const currentUserId = session?.user?.id;
     const { groupId, sharedEventData: initialSharedEventData } = route.params;
 
@@ -600,6 +602,13 @@ const GroupChatScreen: React.FC = () => {
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [selectedImageIndex, setSelectedImageIndex] = useState(0);
     const [sharedEventMessage, setSharedEventMessage] = useState<string | null>(null);
+
+    // --- Realtime state ---
+    const [onlineMembers, setOnlineMembers] = useState<Set<string>>(new Set());
+    const [typingUsers, setTypingUsers] = useState<Map<string, { name: string; timestamp: number }>>(new Map());
+    const [groupMembers, setGroupMembers] = useState<Map<string, { name: string; avatar?: string }>>(new Map());
+    const typingTimeoutRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+    // --- End Realtime state ---
 
     // --- State for New Chat Features ---
     const [selectedMessageForAction, setSelectedMessageForAction] = useState<ChatMessage | null>(null);
@@ -897,7 +906,38 @@ const GroupChatScreen: React.FC = () => {
     }, []);
 
     // Fetch Initial Data
-    const fetchInitialData = useCallback(async () => { if (!currentUserId || !groupId) { setLoadError("Auth/Group ID missing."); setLoading(false); return; } setLoading(true); setLoadError(null); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); try { const { data: groupInfoData, error: groupInfoError } = await supabase.rpc('get_group_info', { group_id_input: groupId }); if (groupInfoError) throw groupInfoError; if (!groupInfoData?.group_details || !groupInfoData?.participants) throw new Error("Incomplete group data."); const groupDetails = groupInfoData.group_details; const participantsRaw: { user_id: string, is_admin: boolean }[] = groupInfoData.participants; const currentUserParticipant = participantsRaw.find(p => p.user_id === currentUserId); setIsCurrentUserAdmin(currentUserParticipant?.is_admin ?? false); setCanMembersAddOthers(groupDetails.can_members_add_others ?? false); setCanMembersEditInfo(groupDetails.can_members_edit_info ?? false); setCurrentGroupName(groupDetails.group_name); setCurrentGroupImage(groupDetails.group_image ?? null); const { data: messagesData, error: messagesError } = await supabase.from('group_chat_messages').select('id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id, is_delivered, delivered_at, is_seen, seen_at').eq('group_id', groupId).order('created_at', { ascending: true }); if (messagesError) throw messagesError; if (!messagesData || messagesData.length === 0) { setMessages([]); } else { const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id); const senderIds = Array.from(new Set(visibleMessages.filter(msg => msg.sender_id).map(msg => msg.sender_id))); const profilesMap = new Map<string, UserProfileInfo>(); if (senderIds.length > 0) { const idsToFetch = senderIds.filter(id => !userProfileCache[id]); if (idsToFetch.length > 0) { const { data: profilesData, error: profilesError } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').in('user_id', idsToFetch); if (profilesError) { console.error("Err fetch profiles:", profilesError); } else if (profilesData) { profilesData.forEach((p: UserProfileInfo) => { profilesMap.set(p.user_id, p); const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; const a = p.profile_picture||undefined; userProfileCache[p.user_id] = { name: n, avatar: a }; }); } } senderIds.forEach(id => { if (userProfileCache[id] && !profilesMap.has(id)) { profilesMap.set(id, { user_id: id, first_name: userProfileCache[id].name?.split(' ')[0]||null, last_name: userProfileCache[id].name?.split(' ')[1]||null, profile_picture: userProfileCache[id].avatar||null }); } }); } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You' }; const mappedMessages = visibleMessages.map(dbMsg => mapDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap)); setMessages(mappedMessages); } } catch (err: any) { console.error("Error fetching initial data:", err); if (err.message?.includes("User is not a member")) { Alert.alert("Access Denied", "Not member.", [{ text: "OK", onPress: () => navigation.goBack() }]); setLoadError("Not a member."); } else { setLoadError(`Load fail: ${err.message || 'Unknown'}`); } setMessages([]); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); } finally { setLoading(false); } }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
+    const fetchInitialData = useCallback(async () => { if (!currentUserId || !groupId) { setLoadError("Auth/Group ID missing."); setLoading(false); return; } setLoading(true); setLoadError(null); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); try { const { data: groupInfoData, error: groupInfoError } = await supabase.rpc('get_group_info', { group_id_input: groupId }); if (groupInfoError) throw groupInfoError; if (!groupInfoData?.group_details || !groupInfoData?.participants) throw new Error("Incomplete group data."); const groupDetails = groupInfoData.group_details; const participantsRaw: { user_id: string, is_admin: boolean }[] = groupInfoData.participants; const currentUserParticipant = participantsRaw.find(p => p.user_id === currentUserId); setIsCurrentUserAdmin(currentUserParticipant?.is_admin ?? false); setCanMembersAddOthers(groupDetails.can_members_add_others ?? false); setCanMembersEditInfo(groupDetails.can_members_edit_info ?? false); setCurrentGroupName(groupDetails.group_name); setCurrentGroupImage(groupDetails.group_image ?? null); 
+
+        // Fetch group member profiles for realtime features
+        const memberIds = participantsRaw.map(p => p.user_id);
+        const newGroupMembers = new Map<string, { name: string; avatar?: string }>();
+        
+        if (memberIds.length > 0) {
+            try {
+                const { data: profilesData, error: profilesError } = await supabase
+                    .from('music_lover_profiles')
+                    .select('user_id, first_name, last_name, profile_picture')
+                    .in('user_id', memberIds);
+                
+                if (profilesError) {
+                    console.warn("Error fetching group member profiles:", profilesError);
+                } else if (profilesData) {
+                    profilesData.forEach((profile: any) => {
+                        const displayName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'User';
+                        newGroupMembers.set(profile.user_id, {
+                            name: displayName,
+                            avatar: profile.profile_picture || undefined
+                        });
+                    });
+                }
+            } catch (profileErr) {
+                console.warn("Exception fetching group member profiles:", profileErr);
+            }
+        }
+        
+        setGroupMembers(newGroupMembers);
+
+        const { data: messagesData, error: messagesError } = await supabase.from('group_chat_messages').select('id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id, is_delivered, delivered_at, is_seen, seen_at').eq('group_id', groupId).order('created_at', { ascending: true }); if (messagesError) throw messagesError; if (!messagesData || messagesData.length === 0) { setMessages([]); } else { const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id); const senderIds = Array.from(new Set(visibleMessages.filter(msg => msg.sender_id).map(msg => msg.sender_id))); const profilesMap = new Map<string, UserProfileInfo>(); if (senderIds.length > 0) { const idsToFetch = senderIds.filter(id => !userProfileCache[id]); if (idsToFetch.length > 0) { const { data: profilesData, error: profilesError } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').in('user_id', idsToFetch); if (profilesError) { console.error("Err fetch profiles:", profilesError); } else if (profilesData) { profilesData.forEach((p: UserProfileInfo) => { profilesMap.set(p.user_id, p); const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; const a = p.profile_picture||undefined; userProfileCache[p.user_id] = { name: n, avatar: a }; }); } } senderIds.forEach(id => { if (userProfileCache[id] && !profilesMap.has(id)) { profilesMap.set(id, { user_id: id, first_name: userProfileCache[id].name?.split(' ')[0]||null, last_name: userProfileCache[id].name?.split(' ')[1]||null, profile_picture: userProfileCache[id].avatar||null }); } }); } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You' }; const mappedMessages = visibleMessages.map(dbMsg => mapDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap)); setMessages(mappedMessages); } } catch (err: any) { console.error("Error fetching initial data:", err); if (err.message?.includes("User is not a member")) { Alert.alert("Access Denied", "Not member.", [{ text: "OK", onPress: () => navigation.goBack() }]); setLoadError("Not a member."); } else { setLoadError(`Load fail: ${err.message || 'Unknown'}`); } setMessages([]); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); } finally { setLoading(false); } }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
 
     // Send Text Message
     const sendTextMessage = useCallback(async (text: string) => { 
@@ -1132,6 +1172,27 @@ const GroupChatScreen: React.FC = () => {
             sendTextMessage(inputText); 
         }
     };
+
+    // --- Typing Handler ---
+    const handleTextInputChange = useCallback((text: string) => {
+        setInputText(text);
+        
+        // Broadcast typing event to other group members
+        if (text.trim() && currentUserId && groupId) {
+            const channelName = `group_chat_${groupId}`;
+            const channel = supabase.channel(channelName);
+            channel.send({
+                type: 'broadcast',
+                event: 'typing',
+                payload: { 
+                    sender_id: currentUserId,
+                    group_id: groupId,
+                    typing: true 
+                }
+            });
+        }
+    }, [currentUserId, groupId]);
+    // --- End Typing Handler ---
 
     //Pick and Send Image
     const pickAndSendImage = async () => {
@@ -1377,253 +1438,158 @@ const GroupChatScreen: React.FC = () => {
     }, [messages, markMessagesAsSeen]);
 
     //real time subscriptions
-    useEffect(() => { if (!groupId || !currentUserId) return; const messageChannel = supabase.channel(`group_chat_messages_${groupId}`).on<DbGroupMessage>( 'postgres_changes',{ event: 'INSERT', schema: 'public', table: 'group_chat_messages', filter: `group_id=eq.${groupId}` }, async (payload) => { const newMessageDb = payload.new as DbGroupMessage; 
-        
-        // Check if message is hidden for current user
-        try {
-            const { data: hiddenCheck, error: hiddenError } = await supabase
-                .from('user_hidden_messages')
-                .select('message_id')
-                .eq('user_id', currentUserId)
-                .eq('message_id', newMessageDb.id)
-                .maybeSingle(); // Ensure using maybeSingle
-
-            if (hiddenError) {
-                console.warn("Error checking if RT group message is hidden:", hiddenError.message);
-                // Continue processing despite error
-            } else if (hiddenCheck) { // If message is hidden for this user, don't add or update it
-                console.log(`RT group message ${newMessageDb.id} is hidden for user, skipping.`);
-                return;
-            }
-        } catch (hiddenCheckErr) {
-            console.warn("Exception checking hidden status for RT group message:", hiddenCheckErr);
-            // Continue processing the message
-        }
-
-        const rtProfilesMap = new Map<string, UserProfileInfo>(); 
-        if (newMessageDb.sender_id && !newMessageDb.is_system_message && !userProfileCache[newMessageDb.sender_id]) { 
-            try { 
-                const { data: p, error: profileError } = await supabase
-                    .from('music_lover_profiles')
-                    .select('user_id, first_name, last_name, profile_picture')
-                    .eq('user_id', newMessageDb.sender_id)
-                    .maybeSingle(); // Ensure using maybeSingle
-                    
-                if (profileError) {
-                    console.warn("Error fetching RT profile for group message:", profileError.message);
-                } else if (p) { 
-                    rtProfilesMap.set(p.user_id, p); 
-                    const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; 
-                    const a = p.profile_picture||undefined; 
-                    userProfileCache[p.user_id]={name:n,avatar:a}; 
-                } 
-            } catch (err) { 
-                console.warn(`RT Profile Fetch Err for group message ${newMessageDb.sender_id}`, err); 
-            } 
-        }
-        const receivedMessage = mapDbMessageToChatMessage(newMessageDb, rtProfilesMap);
-
-        if (newMessageDb.sender_id === currentUserId) {
-            // Message from the current user, likely an optimistic update confirmation
-            setMessages(prevMessages =>
-                prevMessages.map(msg => {
-                    // If it's a text message confirmation
-                    if (msg._id.startsWith('temp_txt_') && msg.text === receivedMessage.text && !msg.sharedEvent && msg.replyToMessageId === receivedMessage.replyToMessageId) {
-                        return receivedMessage;
-                    }
-                    // If it's a shared event confirmation
-                    if (msg._id.startsWith('temp_shared_') && msg.sharedEvent?.eventId === receivedMessage.sharedEvent?.eventId && msg.replyToMessageId === receivedMessage.replyToMessageId) {
-                        return receivedMessage;
-                    }
-                    // If it's an image upload confirmation (this part was not explicitly requested to change but good to keep in mind)
-                    // if (msg._id.startsWith('temp_img_') && msg.image === optimisticImageUriPlaceholder && receivedMessage.image) {
-                    //    return receivedMessage;
-                    // }
-                    return msg;
-                })
-            );
-        } else {
-            // Message from another user, or a system message
-            // Make the callback async to handle await for fetchMessageById
-            (async () => {
-                // Check if message already exists to prevent duplicates from optimistic + RT updates
-                if (messages.some(msg => msg._id === receivedMessage._id)) return;
-
-                let finalReceivedMessage = { ...receivedMessage };
-                // Add replyToMessagePreview for the new message from another user
-                if (finalReceivedMessage.replyToMessageId) {
-                    // Handle reply preview asynchronously to avoid blocking
-                    (async () => {
-                        try {
-                            const repliedMsg = messages.find(m => m._id === finalReceivedMessage.replyToMessageId) || 
-                                (finalReceivedMessage.replyToMessageId ? await fetchMessageById(finalReceivedMessage.replyToMessageId) : null);
-                            if (repliedMsg) {
-                                const updatedMessage = {
-                                    ...finalReceivedMessage,
-                                    replyToMessagePreview: {
-                                        text: repliedMsg.image ? (repliedMsg.text || '[Image]') : repliedMsg.text,
-                                        senderName: repliedMsg.user.name,
-                                        image: repliedMsg.image
-                                    }
-                                };
-                                // Update the message with reply preview
-                                setMessages(currentMessages => 
-                                    currentMessages.map(msg => 
-                                        msg._id === finalReceivedMessage._id ? updatedMessage : msg
-                                    )
-                                );
-                            }
-                        } catch (replyErr) {
-                            console.warn("Error adding reply preview to RT group message:", replyErr);
+    useEffect(() => {
+        if (!groupId || !currentUserId) return;
+    
+        const messageChannel = supabase.channel(`group_chat_messages_${groupId}`);
+    
+        // --- Handle Typing Broadcasts ---
+        messageChannel.on('broadcast', { event: 'typing' }, ({ payload }) => {
+            if (payload.sender_id !== currentUserId) {
+                const senderName = groupMembers.get(payload.sender_id)?.name || 'Someone';
+                setTypingUsers(prev => {
+                    const newTypingUsers = new Map(prev);
+                    if (payload.typing) {
+                        newTypingUsers.set(payload.sender_id, { name: senderName, timestamp: Date.now() });
+                        const existingTimeout = typingTimeoutRef.current.get(payload.sender_id);
+                        if (existingTimeout) clearTimeout(existingTimeout);
+                        const timeout = setTimeout(() => {
+                            setTypingUsers(curr => {
+                                const updated = new Map(curr);
+                                updated.delete(payload.sender_id);
+                                return updated;
+                            });
+                            typingTimeoutRef.current.delete(payload.sender_id);
+                        }, 3000);
+                        typingTimeoutRef.current.set(payload.sender_id, timeout);
+                    } else {
+                        newTypingUsers.delete(payload.sender_id);
+                        const timeout = typingTimeoutRef.current.get(payload.sender_id);
+                        if (timeout) {
+                            clearTimeout(timeout);
+                            typingTimeoutRef.current.delete(payload.sender_id);
                         }
-                    })();
-                }
-                setMessages(prev => [...prev, finalReceivedMessage]);
-
-                // If the message is for the current user, mark as delivered
-                if (finalReceivedMessage.user._id !== currentUserId && currentUserId) { // Message from other user to current user
+                    }
+                    return newTypingUsers;
+                });
+            }
+        });
+    
+        // --- Handle New Messages (INSERT) ---
+        messageChannel.on<DbGroupMessage>('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_chat_messages' }, 
+            async (payload) => {
+                const newMessageDb = payload.new as DbGroupMessage;
+    
+                // Mark as delivered and seen as soon as it arrives
+                if (newMessageDb.sender_id !== currentUserId) {
                     try {
-                        await markMessageDelivered(finalReceivedMessage._id);
-                    } catch (deliveredErr) {
-                        console.warn("Error marking group message as delivered:", deliveredErr);
+                        supabase.rpc('mark_group_message_delivered', { message_id_input: newMessageDb.id, user_id_input: currentUserId }).then(({ error }) => {
+                            if (error) console.error(`Error marking group message ${newMessageDb.id} as delivered:`, error);
+                        });
+                        supabase.rpc('mark_group_message_seen', { message_id_input: newMessageDb.id, user_id_input: currentUserId }).then(({ error }) => {
+                            if (error) console.error(`Error marking group message ${newMessageDb.id} as seen:`, error);
+                        });
+                    } catch (e) { console.error('Exception marking group message status:', e); }
+                }
+    
+                const rtProfilesMap = new Map<string, UserProfileInfo>();
+                if (newMessageDb.sender_id && !userProfileCache[newMessageDb.sender_id]) {
+                    // Fetch profile if not cached
+                }
+                const receivedMessage = mapDbMessageToChatMessage(newMessageDb, rtProfilesMap);
+    
+                setMessages(prevMessages => {
+                    if (prevMessages.some(msg => msg._id === receivedMessage._id)) {
+                        return prevMessages; // Prevent duplicates
                     }
-                }
-            })();
-        }
-       
-    }).on<DbGroupMessage>(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'group_chat_messages', filter: `group_id=eq.${groupId}` },
-        async (payload) => {
-            const updatedMessageDb = payload.new as DbGroupMessage;
-            const oldMessageDb = payload.old as DbGroupMessage;
-
-            // Check if message is hidden for current user
-            try {
-                const { data: hiddenCheck, error: hiddenError } = await supabase
-                    .from('user_hidden_messages')
-                    .select('message_id')
-                    .eq('user_id', currentUserId)
-                    .eq('message_id', updatedMessageDb.id)
-                    .maybeSingle(); // Ensure using maybeSingle
-
-                if (hiddenError) {
-                    console.warn("Error checking if RT updated group message is hidden:", hiddenError.message);
-                    // Continue processing despite error
-                } else if (hiddenCheck && !updatedMessageDb.is_deleted) { // If hidden and not a delete event, ignore
-                    console.log(`RT updated group message ${updatedMessageDb.id} is hidden, skipping unless it's a delete confirmation.`);
-                     // If it was a delete for everyone, we might want to show it as deleted
-                    if (updatedMessageDb.is_deleted) {
-                         setMessages(prev => prev.map(msg => 
-                            msg._id === updatedMessageDb.id 
-                            ? { ...msg, 
-                                text: 'This message was deleted', 
-                                isDeleted: true, 
-                                deletedAt: updatedMessageDb.deleted_at ? new Date(updatedMessageDb.deleted_at) : new Date(),
-                                image: null, // Clear image for deleted messages
-                                sharedEvent: null // Clear shared event for deleted messages
-                              }
-                            : msg
-                        ));
+    
+                    if (newMessageDb.sender_id !== currentUserId) {
+                        receivedMessage.isDelivered = true;
+                        receivedMessage.deliveredAt = new Date();
+                        receivedMessage.isSeen = true;
+                        receivedMessage.seenAt = new Date();
                     }
-                    return;
-                }
-            } catch (hiddenCheckErr) {
-                console.warn("Exception checking hidden status for RT updated group message:", hiddenCheckErr);
-                // Continue processing the message
-            }
-
-            const rtProfilesMap = new Map<string, UserProfileInfo>();
-            if (updatedMessageDb.sender_id && !updatedMessageDb.is_system_message && !userProfileCache[updatedMessageDb.sender_id]) {
-                 try { 
-                    const { data: p, error: profileError } = await supabase
-                        .from('music_lover_profiles')
-                        .select('user_id, first_name, last_name, profile_picture')
-                        .eq('user_id', updatedMessageDb.sender_id)
-                        .maybeSingle(); // Ensure using maybeSingle
-                        
-                    if (profileError) {
-                        console.warn("Error fetching RT profile for updated group message:", profileError.message);
-                    } else if (p) { 
-                        rtProfilesMap.set(p.user_id, p); 
-                        const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; 
-                        const a = p.profile_picture||undefined; 
-                        userProfileCache[p.user_id]={name:n,avatar:a}; 
-                    } 
-                } catch (err) { 
-                    console.warn(`RT Profile Fetch Err for updated group message ${updatedMessageDb.sender_id}`, err); 
-                } 
-            }
-            const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb, rtProfilesMap);
-
-            // Add replyToMessagePreview for the updated message
-            if (updatedMessageUi.replyToMessageId) {
-                try {
-                    const repliedMsg = messages.find(m => m._id === updatedMessageUi.replyToMessageId) || (await fetchMessageById(updatedMessageUi.replyToMessageId));
-                    if (repliedMsg) {
-                        updatedMessageUi.replyToMessagePreview = {
-                            text: repliedMsg.image ? '[Image]' : repliedMsg.text,
-                            senderName: repliedMsg.user.name,
-                            image: repliedMsg.image
-                        };
+    
+                    // Logic to replace optimistic message
+                    const optimisticIdPattern = `temp_${newMessageDb.sender_id}_`;
+                    const optimisticIndex = prevMessages.findIndex(m => m._id.startsWith(optimisticIdPattern) && m.text === receivedMessage.text);
+                    if (optimisticIndex > -1) {
+                        const newMessages = [...prevMessages];
+                        newMessages[optimisticIndex] = receivedMessage;
+                        return newMessages;
                     }
-                } catch (replyErr) {
-                    console.warn("Error fetching reply preview for updated group message:", replyErr);
-                    // Continue without reply preview
+    
+                    return [...prevMessages, receivedMessage];
+                });
+            }
+        );
+    
+        // --- Handle Message Updates (UPDATE) ---
+        messageChannel.on<DbGroupMessage>('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'group_chat_messages' },
+            (payload) => {
+                const updatedMessageDb = payload.new as DbGroupMessage;
+                const rtProfilesMap = new Map<string, UserProfileInfo>();
+                const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb, rtProfilesMap);
+    
+                setMessages(prev => prev.map(msg => msg._id === updatedMessageUi._id ? updatedMessageUi : msg));
+    
+                if (editingMessage && editingMessage._id === updatedMessageUi._id) {
+                    setEditingMessage(null);
+                    setEditText("");
                 }
             }
+        );
 
-            setMessages(prev => prev.map(msg => 
-                msg._id === updatedMessageUi._id ? updatedMessageUi : msg
-            ));
-
-            // If this update was an edit initiated by the current user, close the edit modal
-            if (editingMessage && editingMessage._id === updatedMessageUi._id && updatedMessageUi.isEdited && currentUserId === updatedMessageUi.user._id) {
-                setEditingMessage(null);
-                setEditText("");
+        messageChannel.subscribe();
+    
+        // --- Handle Group Info Updates ---
+        const infoChannel = supabase.channel(`group_info_${groupId}`);
+        infoChannel.on<DbGroupChat>('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },
+            (payload) => {
+                const d = payload.new;
+                if(d.group_name !== currentGroupName) setCurrentGroupName(d.group_name);
+                if(d.group_image !== currentGroupImage) setCurrentGroupImage(d.group_image);
+                if(d.can_members_add_others !== undefined) setCanMembersAddOthers(d.can_members_add_others);
+                if(d.can_members_edit_info !== undefined) setCanMembersEditInfo(d.can_members_edit_info);
             }
-        }
-    ).subscribe();
-
-    // Subscription for group message_status updates
-    const messageStatusChannelName = `group_message_status_updates_${groupId}`;
-    const statusChannel = supabase
-        .channel(messageStatusChannelName)
-        .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'group_message_status',
-              filter: `message_id=in.(SELECT id FROM group_chat_messages WHERE group_id = '${groupId}')`
-            },
-            (payload: any) => {
-                const statusUpdate = payload.new as {message_id: string; user_id: string; is_delivered: boolean; delivered_at: string; is_seen: boolean; seen_at: string;};
-                if (statusUpdate && statusUpdate.message_id && statusUpdate.user_id === currentUserId) {
-                    setMessages(prevMessages => 
-                        prevMessages.map(msg => {
-                            if (msg._id === statusUpdate.message_id) {
-                                return {
-                                    ...msg,
-                                    isDelivered: statusUpdate.is_delivered,
-                                    deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : null,
-                                    isSeen: statusUpdate.is_seen,
-                                    seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : null,
-                                };
-                            }
-                            return msg;
-                        })
-                    );
-                }
+        ).on<any>('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },
+            () => {
+                Alert.alert("Group Deleted", "This group no longer exists.", [{ text: "OK", onPress: () => navigation.popToTop() }]);
             }
-        )
-        .subscribe();
-
-    const infoChannel = supabase.channel(`group_info_${groupId}`).on<DbGroupChat>('postgres_changes',{ event: 'UPDATE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },(payload) => { const d=payload.new; if(d.group_name!==currentGroupName){setCurrentGroupName(d.group_name);} if(d.group_image!==currentGroupImage){setCurrentGroupImage(d.group_image);} if(d.can_members_add_others!==undefined){setCanMembersAddOthers(d.can_members_add_others);} if(d.can_members_edit_info!==undefined){setCanMembersEditInfo(d.can_members_edit_info);} }).on<any>('postgres_changes',{ event: 'DELETE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },(payload) => { Alert.alert("Group Deleted", "This group no longer exists.", [{ text: "OK", onPress: () => navigation.popToTop() }]); }).subscribe(); return () => { supabase.removeChannel(messageChannel); supabase.removeChannel(statusChannel); supabase.removeChannel(infoChannel); }; }, [groupId, currentUserId, mapDbMessageToChatMessage, navigation, currentGroupName, currentGroupImage, canMembersAddOthers, canMembersEditInfo, editingMessage, messages, markMessageDelivered]);
+        ).subscribe();
+    
+        return () => {
+            typingTimeoutRef.current.forEach(timeout => clearTimeout(timeout));
+            typingTimeoutRef.current.clear();
+            supabase.removeChannel(messageChannel);
+            supabase.removeChannel(infoChannel);
+        };
+    }, [groupId, currentUserId, mapDbMessageToChatMessage, navigation, currentGroupName, currentGroupImage, canMembersAddOthers, canMembersEditInfo, editingMessage, groupMembers]);
 
     // Navigation and Header
     const navigateToGroupInfo = () => { if (!groupId || !currentGroupName) return; navigation.navigate('GroupInfoScreen', { groupId, groupName: currentGroupName ?? 'Group', groupImage: currentGroupImage ?? null }); };
-    useEffect(() => { const canAdd = isCurrentUserAdmin || canMembersAddOthers; const canEdit = isCurrentUserAdmin || canMembersEditInfo; const headerColor = APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'; const disabledColor = APP_CONSTANTS?.COLORS?.DISABLED || '#D1D5DB'; navigation.setOptions({ headerTitleAlign: 'center', headerTitle: () => ( <TouchableOpacity style={styles.headerTitleContainer} onPress={navigateToGroupInfo} activeOpacity={0.8}><Image source={{uri:currentGroupImage??DEFAULT_GROUP_PIC}} style={styles.headerGroupImage}/><Text style={styles.headerTitleText} numberOfLines={1}>{currentGroupName}</Text></TouchableOpacity>), headerRight: () => ( <View style={styles.headerButtons}><TouchableOpacity onPress={()=>{if(canAdd)navigation.navigate('AddGroupMembersScreen',{groupId,groupName:currentGroupName});else Alert.alert("Denied","Admin only");}} style={styles.headerButton} disabled={!canAdd}><Feather name="user-plus" size={22} color={canAdd?headerColor:disabledColor}/></TouchableOpacity><TouchableOpacity onPress={()=>{if(canEdit){setEditingName(currentGroupName??'');setIsEditModalVisible(true);}else Alert.alert("Denied","Admin only");}} style={styles.headerButton} disabled={!canEdit}><Feather name="edit-2" size={22} color={canEdit?headerColor:disabledColor}/></TouchableOpacity></View>), headerBackTitleVisible: false, headerShown: true }); }, [navigation, currentGroupName, currentGroupImage, groupId, isCurrentUserAdmin, canMembersAddOthers, canMembersEditInfo]);
+    useEffect(() => { const canAdd = isCurrentUserAdmin || canMembersAddOthers; const canEdit = isCurrentUserAdmin || canMembersEditInfo; const headerColor = APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'; const disabledColor = APP_CONSTANTS?.COLORS?.DISABLED || '#D1D5DB'; navigation.setOptions({ headerTitleAlign: 'center', headerTitle: () => ( <TouchableOpacity style={styles.headerTitleContainer} onPress={navigateToGroupInfo} activeOpacity={0.8}><Image source={{uri:currentGroupImage??DEFAULT_GROUP_PIC}} style={styles.headerGroupImage}/><View style={styles.headerTextContainer}><Text style={styles.headerTitleText} numberOfLines={1}>{currentGroupName}</Text>{onlineMembers.size > 0 && (<Text style={styles.onlineMembersText}>{onlineMembers.size} online</Text>)}</View></TouchableOpacity>), headerRight: () => ( <View style={styles.headerButtons}><TouchableOpacity onPress={()=>{if(canAdd)navigation.navigate('AddGroupMembersScreen',{groupId,groupName:currentGroupName});else Alert.alert("Denied","Admin only");}} style={styles.headerButton} disabled={!canAdd}><Feather name="user-plus" size={22} color={canAdd?headerColor:disabledColor}/></TouchableOpacity><TouchableOpacity onPress={()=>{if(canEdit){setEditingName(currentGroupName??'');setIsEditModalVisible(true);}else Alert.alert("Denied","Admin only");}} style={styles.headerButton} disabled={!canEdit}><Feather name="edit-2" size={22} color={canEdit?headerColor:disabledColor}/></TouchableOpacity></View>), headerBackTitleVisible: false, headerShown: true }); }, [navigation, currentGroupName, currentGroupImage, groupId, isCurrentUserAdmin, canMembersAddOthers, canMembersEditInfo, onlineMembers.size]);
 
     // Modal and Actions
     const handleUpdateName = async () => { const n=editingName.trim();if(!n||n===currentGroupName||isUpdatingName||!groupId){setIsEditModalVisible(false);return;}setIsUpdatingName(true); try{const{error}=await supabase.rpc('rename_group_chat',{group_id_input:groupId,new_group_name:n});if(error)throw error;setIsEditModalVisible(false);}catch(e:any){Alert.alert("Error",`Update fail: ${e.message}`);}finally{setIsUpdatingName(false);}};
+
+    // --- Online Status Tracking ---
+    useEffect(() => {
+        if (!presenceState || !groupMembers.size) {
+            setOnlineMembers(new Set());
+            return;
+        }
+
+        const newOnlineMembers = new Set<string>();
+        for (const [userId] of groupMembers) {
+            if (presenceState[userId] && presenceState[userId].length > 0) {
+                newOnlineMembers.add(userId);
+            }
+        }
+
+        setOnlineMembers(newOnlineMembers);
+    }, [presenceState, groupMembers]);
+    // --- End Online Status Tracking ---
 
     // Effects
     useFocusEffect( useCallback(() => { fetchInitialData(); return () => {}; }, [fetchInitialData]) );
@@ -2048,6 +2014,15 @@ const GroupChatScreen: React.FC = () => {
             <KeyboardAvoidingView style={styles.keyboardAvoidingContainer} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0} >
                 {sendError && ( <View style={styles.errorBanner}><Text style={styles.errorBannerText}>{sendError}</Text><TouchableOpacity onPress={() => setSendError(null)} style={styles.errorBannerClose}><Feather name="x" size={16} color="#B91C1C" /></TouchableOpacity></View> )}
 
+                {/* Typing Indicators */}
+                {typingUsers.size > 0 && (
+                    <View style={styles.typingIndicatorContainer}>
+                        <Text style={styles.typingIndicatorText}>
+                            {Array.from(typingUsers.values()).map(user => user.name).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
+                        </Text>
+                    </View>
+                )}
+
                 <SectionList
                     ref={flatListRef}
                     sections={sections}
@@ -2111,7 +2086,7 @@ const GroupChatScreen: React.FC = () => {
                     <TouchableOpacity style={styles.attachButton} onPress={pickAndSendImage} disabled={isUploading} >
                          {isUploading ? <ActivityIndicator size="small" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /> : <Feather name="paperclip" size={22} color="#52525b" /> }
                     </TouchableOpacity>
-                    <TextInput style={styles.textInput} value={inputText} onChangeText={setInputText} placeholder="Type a message..." placeholderTextColor="#9CA3AF" multiline />
+                    <TextInput style={styles.textInput} value={inputText} onChangeText={handleTextInputChange} placeholder="Type a message..." placeholderTextColor="#9CA3AF" multiline />
                     <TouchableOpacity 
                         style={[styles.sendButton, ((!inputText.trim() && !sharedEventMessage) || isUploading) && styles.sendButtonDisabled]}
                         onPress={handleSendPress} 
@@ -3074,6 +3049,28 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#6B7280',
         marginTop: 4,
+    },
+    // Realtime styles
+    headerTextContainer: {
+        flex: 1,
+        alignItems: 'center',
+    },
+    onlineMembersText: {
+        fontSize: 12,
+        color: '#22C55E',
+        fontWeight: '500',
+        marginTop: 2,
+    },
+    typingIndicatorContainer: {
+        paddingHorizontal: 15,
+        paddingBottom: 5,
+        height: 25,
+        backgroundColor: '#F9FAFB',
+    },
+    typingIndicatorText: {
+        fontSize: 12,
+        color: '#6B7280',
+        fontStyle: 'italic',
     },
 });
 
