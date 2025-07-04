@@ -25,6 +25,7 @@ import {
     type MappedEvent,
     type OrganizerInfo,
 } from '@/screens/EventsScreen';
+import { useRealtime } from '@/context/RealtimeContext'; // Import useRealtime
 
 // Types and MessageBubble component
 type IndividualChatScreenRouteProp = RouteProp<RootStackParamList & {
@@ -517,6 +518,7 @@ const IndividualChatScreen: React.FC = () => {
     const route = useRoute<IndividualChatScreenRouteProp>();
     const navigation = useNavigation<RootNavigationProp>();
     const { session, musicLoverProfile } = useAuth();
+    const { presenceState } = useRealtime();
 
     const currentUserIdFromSession = session?.user?.id;
     const { 
@@ -549,6 +551,9 @@ const IndividualChatScreen: React.FC = () => {
     const [currentStarterIndex, setCurrentStarterIndex] = useState(0);
     const [sharedEventMessage, setSharedEventMessage] = useState<string | null>(null);
     
+    const [isTyping, setIsTyping] = useState(false);
+    const [isMatchOnline, setIsMatchOnline] = useState(false);
+    
     const [selectedMessageForAction, setSelectedMessageForAction] = useState<ChatMessage | null>(null);
     const [messageActionModalVisible, setMessageActionModalVisible] = useState(false);
     const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
@@ -572,6 +577,7 @@ const IndividualChatScreen: React.FC = () => {
     const [isNearBottom, setIsNearBottom] = useState(true);
     const [isScrollingToMessage, setIsScrollingToMessage] = useState(false);
     const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     // --- End State for scroll management ---
 
     const flatListRef = useRef<SectionList<any>>(null);
@@ -1166,64 +1172,65 @@ const IndividualChatScreen: React.FC = () => {
     useFocusEffect(
         useCallback(() => {
             console.log(`[ChatScreen] Focus effect running for user: ${matchUserId}`);
-            // Update the name from route params in case it changed somehow
-            const currentName = route.params.matchName || 'Chat';
-            setDynamicMatchName(currentName);
-            const profilePicUri = route.params.matchProfilePicture; // Get profile picture URI
-
-            // Fetch the latest mute/block status
-             fetchInteractionStatus(); // This now also handles setting block error messages
-
-            // Update navigation options based on the LATEST fetched status and name
-             navigation.setOptions({
-                 headerShown: true,
-                 headerTitleAlign: 'center',
-                 headerBackTitleVisible: false,
-                 headerLeft: () => (
-                     <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}>
-                         <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                     </TouchableOpacity>
-                 ),
-                 headerTitle: () => (
-                     <TouchableOpacity
-                         onPress={() => {
-                             if (isChatMutuallyInitiated) {
-                                 if (matchUserId) {
-                                     navigation.navigate('OtherUserProfileScreen', {
-                                         userId: matchUserId,
-                                         fromChat: true,
-                                         chatImages: messages
-                                             .filter(msg => msg.image)
-                                             .map(msg => msg.image!)
-                                     });
-                                 }
-                             } else {
-                                 Alert.alert(
-                                     "Interaction Required",
-                                     "Both you and this user need to send at least one message in this chat before you can view their profile from here."
-                                 );
-                             }
-                         }}
-                         style={styles.headerTitleContainer}
-                     >
-                         <Image
-                             source={{ uri: route.params.matchProfilePicture ?? DEFAULT_PROFILE_PIC }}
-                             style={styles.headerProfileImage}
-                         />
-                         <Text style={[styles.headerTitleText, isBlocked && styles.blockedText]} numberOfLines={1}>
-                             {dynamicMatchName || 'Chat'}
-                         </Text>
-                         {isMatchMuted && !isBlocked && (
-                             <Feather name="volume-x" size={16} color="#FF8C00" style={styles.muteIcon} />
-                         )}
-                     </TouchableOpacity>
-                 ),
-                 headerRight: () => (isBlocked ? <View style={{width: 30}} /> : undefined),
-                 headerStyle: { backgroundColor: 'white' },
-             });
-
-        }, [navigation, dynamicMatchName, matchUserId, route.params.matchProfilePicture, fetchInteractionStatus, isBlocked, isMatchMuted, isChatMutuallyInitiated, messages]) // Add messages to dependencies
+            fetchInteractionStatus();
+        }, [fetchInteractionStatus, matchUserId])
     );
+
+    // Update header options when dynamic data changes
+    useEffect(() => {
+        const currentName = route.params.matchName || 'Chat';
+        setDynamicMatchName(currentName);
+        
+        navigation.setOptions({
+             headerShown: true,
+             headerTitleAlign: 'center',
+             headerBackTitleVisible: false,
+             headerLeft: () => (
+                 <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}>
+                     <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                 </TouchableOpacity>
+             ),
+             headerTitle: () => (
+                 <TouchableOpacity
+                     onPress={() => {
+                         if (isChatMutuallyInitiated) {
+                             if (matchUserId) {
+                                 navigation.navigate('OtherUserProfileScreen', {
+                                     userId: matchUserId,
+                                     fromChat: true,
+                                     chatImages: messages
+                                         .filter(msg => msg.image)
+                                         .map(msg => msg.image!)
+                                 });
+                             }
+                         } else {
+                             Alert.alert(
+                                 "Interaction Required",
+                                 "Both you and this user need to send at least one message in this chat before you can view their profile from here."
+                             );
+                         }
+                     }}
+                     style={styles.headerTitleContainer}
+                 >
+                     <View>
+                          <Image
+                              source={{ uri: route.params.matchProfilePicture ?? DEFAULT_PROFILE_PIC }}
+                              style={styles.headerProfileImage}
+                          />
+                          {isMatchOnline && !isBlocked && <View style={styles.onlineIndicator} />}
+                      </View>
+                      <Text style={[styles.headerTitleText, isBlocked && styles.blockedText]} numberOfLines={1}>
+                           {dynamicMatchName || 'Chat'}
+                       </Text>
+                     {isMatchMuted && !isBlocked && (
+                         <Feather name="volume-x" size={16} color="#FF8C00" style={styles.muteIcon} />
+                     )}
+                 </TouchableOpacity>
+             ),
+             headerRight: () => (isBlocked ? <View style={{width: 30}} /> : undefined),
+             headerStyle: { backgroundColor: 'white' },
+         });
+    }, [navigation, route.params.matchName, route.params.matchProfilePicture, matchUserId, isBlocked, isMatchMuted, isChatMutuallyInitiated, isMatchOnline, dynamicMatchName, messages]);
 
     // Fetch initial messages AFTER checking block status
     useEffect(() => {
@@ -1233,6 +1240,21 @@ const IndividualChatScreen: React.FC = () => {
             setMessages([]); // Ensure messages are cleared if blocked
         }
     }, [fetchMessages, isBlocked, currentUserId, matchUserId]); // Run when block status or IDs change
+
+    // Update online status from presence state
+    useEffect(() => {
+        if (!matchUserId || !presenceState) {
+            setIsMatchOnline(false);
+            return;
+        }
+
+        const matchUserPresence = presenceState[matchUserId];
+        const isOnline = !!(matchUserPresence && matchUserPresence.length > 0);
+
+        if (isOnline !== isMatchOnline) {
+            setIsMatchOnline(isOnline);
+        }
+    }, [presenceState, matchUserId, isMatchOnline]);
 
     // --- Fetch Conversation Starters (Updated Logic) ---
     useEffect(() => {
@@ -1313,181 +1335,221 @@ const IndividualChatScreen: React.FC = () => {
                 const messageStatusChannelName = `message_status_updates_${[currentUserId, matchUserId].sort().join('_')}`;
                 supabase.channel(channelName).unsubscribe(); 
                 supabase.channel(messageStatusChannelName).unsubscribe();
+                if (typingTimeoutRef.current) {
+                    clearTimeout(typingTimeoutRef.current);
+                }
             };
         }
 
         console.log(`[ChatScreen] Subscribing to channel for ${matchUserId}`);
         const channelName = `chat_${[currentUserId, matchUserId].sort().join('_')}`;
+        console.log(`[ChatScreen] Channel name: ${channelName}`);
+        
         const messageChannel = supabase
             .channel(channelName)
-            .on<DbMessage>(
-                'postgres_changes',
-                { event: 'INSERT', schema: 'public', table: 'messages',
-                  filter: `or(and(sender_id.eq.${currentUserId},receiver_id.eq.${matchUserId}),and(sender_id.eq.${matchUserId},receiver_id.eq.${currentUserId}))` },
-                async (payload: any) => {
-                    if (isBlocked) return;
-                    console.log('[ChatScreen] New message received via subscription:', payload.new);
-                    const newMessageDb = payload.new as DbMessage;
-
-                    // Check if message is hidden for current user
-                    try {
-                        const { data: hiddenCheck, error: hiddenError } = await supabase
-                            .from('user_hidden_messages')
-                            .select('message_id')
-                            .eq('user_id', currentUserId)
-                            .eq('message_id', newMessageDb.id)
-                            .maybeSingle(); // Changed from implicit single to maybeSingle
-                            
-                        if (hiddenError) {
-                            console.warn("Error checking if message is hidden:", hiddenError.message);
-                            // Continue processing the message despite the error
-                        } else if (hiddenCheck) {
-                            console.log("Message is hidden for current user, skipping");
-                            return; // Skip if hidden
-                        }
-                    } catch (hiddenCheckErr) {
-                        console.warn("Exception checking hidden message status:", hiddenCheckErr);
-                        // Continue processing the message
+            .on('broadcast', { event: 'typing' }, ({ payload }) => {
+                if (payload.sender_id === matchUserId) {
+                    setIsTyping(true);
+                    if (typingTimeoutRef.current) {
+                        clearTimeout(typingTimeoutRef.current);
                     }
-
-                    const receivedMessage = mapDbMessageToChatMessage(newMessageDb);
-                    
-                    // Add reply preview if it exists
-                    if (receivedMessage.replyToMessageId) {
-                        try {
-                            const repliedMsg = messages.find(m => m._id === receivedMessage.replyToMessageId) || await fetchMessageById(receivedMessage.replyToMessageId);
-                            if (repliedMsg) {
-                                receivedMessage.replyToMessagePreview = {
-                                    text: repliedMsg.image ? '[Image]' : repliedMsg.text,
-                                    senderName: repliedMsg.user._id === currentUserId ? musicLoverProfile?.firstName || 'You' : dynamicMatchName,
-                                    image: repliedMsg.image
-                                };
-                            }
-                        } catch (replyErr) {
-                            console.warn("Error fetching reply preview:", replyErr);
-                            // Continue without reply preview
-                        }
-                    }
-
-                    if (receivedMessage.user._id === matchUserId || receivedMessage.user._id === currentUserId) { // Process if sender or receiver
-                        setMessages(prevMessages => {
-                            // Replace temp message or add new message
-                            const existingMsgIndex = prevMessages.findIndex(msg => msg._id.startsWith('temp_') && msg.text === receivedMessage.text && msg.replyToMessageId === receivedMessage.replyToMessageId);
-                            if (existingMsgIndex !== -1) {
-                                const newMessages = [...prevMessages];
-                                newMessages[existingMsgIndex] = receivedMessage;
-                                return newMessages;
-                            } else if (!prevMessages.some(msg => msg._id === receivedMessage._id)) {
-                                return [...prevMessages, receivedMessage];
-                            }
-                            return prevMessages;
-                        });
-                    }
-                    try {
-                        checkMutualInitiation([...messages, receivedMessage]);
-                    } catch (mutualErr) {
-                        console.warn("Error checking mutual initiation:", mutualErr);
-                    }
-                     // If the message is for the current user, no need to mark as delivered since we're removing that feature
-                    // Just let the real-time subscription handle the message display
+                    typingTimeoutRef.current = setTimeout(() => {
+                        setIsTyping(false);
+                    }, 3000);
                 }
-            )
-            .on<DbMessage>(
-                'postgres_changes',
-                { event: 'UPDATE', schema: 'public', table: 'messages',
-                  filter: `or(and(sender_id.eq.${currentUserId},receiver_id.eq.${matchUserId}),and(sender_id.eq.${matchUserId},receiver_id.eq.${currentUserId}))` },
-                async (payload: any) => {
-                    if (isBlocked) return;
-                    const updatedMessageDb = payload.new as DbMessage;
-                    
-                     // Check if message update is relevant (e.g., not hidden, unless it's a delete for everyone)
-                    try {
-                        const { data: hiddenCheck, error: hiddenError } = await supabase
-                            .from('user_hidden_messages')
-                            .select('message_id')
-                            .eq('user_id', currentUserId)
-                            .eq('message_id', updatedMessageDb.id)
-                            .maybeSingle(); // Changed from implicit single to maybeSingle
-                            
-                        if (hiddenError) {
-                            console.warn("Error checking if updated message is hidden:", hiddenError.message);
-                        } else if (hiddenCheck && !updatedMessageDb.is_deleted) {
-                            console.log("Updated message is hidden for current user, skipping unless delete");
-                            return;
-                        }
-                    } catch (hiddenCheckErr) {
-                        console.warn("Exception checking hidden status for updated message:", hiddenCheckErr);
-                        // Continue processing
-                    }
+            })
+             .on<DbMessage>(
+                 'postgres_changes',
+                 { event: 'INSERT', schema: 'public', table: 'messages' },
+                 async (payload: any) => {
+                     if (isBlocked) {
+                         console.log('[ChatScreen] Ignoring message - user is blocked');
+                         return;
+                     }
+                     console.log('[ChatScreen] New message received via subscription:', payload.new);
+                     const newMessageDb = payload.new as DbMessage;
 
-                    const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb);
-                    
+                     // If the message is from the other user, mark it as seen immediately.
+                     if (newMessageDb.sender_id === matchUserId) {
+                        try {
+                            const { error } = await supabase.rpc('mark_message_seen', { message_id_input: newMessageDb.id });
+                            if (error) {
+                                console.error(`Error marking message ${newMessageDb.id} as seen via RPC:`, error.message);
+                            }
+                        } catch (e: any) {
+                            console.error(`Exception marking message ${newMessageDb.id} as seen:`, e.message);
+                        }
+                     }
+
+                     // Check if message is hidden for current user
+                     try {
+                         const { data: hiddenCheck, error: hiddenError } = await supabase
+                             .from('user_hidden_messages')
+                             .select('message_id')
+                             .eq('user_id', currentUserId)
+                             .eq('message_id', newMessageDb.id)
+                             .maybeSingle(); // Changed from implicit single to maybeSingle
+                         
+                         if (hiddenError) {
+                             console.warn("Error checking if message is hidden:", hiddenError.message);
+                             // Continue processing the message despite the error
+                         } else if (hiddenCheck) {
+                             console.log("Message is hidden for current user, skipping");
+                             return; // Skip if hidden
+                         }
+                     } catch (hiddenCheckErr) {
+                         console.warn("Exception checking hidden message status:", hiddenCheckErr);
+                         // Continue processing the message
+                     }
+
+                     const receivedMessage = mapDbMessageToChatMessage(newMessageDb);
+                     
                      // Add reply preview if it exists
-                    if (updatedMessageUi.replyToMessageId) {
-                        try {
-                            const repliedMsg = messages.find(m => m._id === updatedMessageUi.replyToMessageId) || await fetchMessageById(updatedMessageUi.replyToMessageId);
-                            if (repliedMsg) {
-                                updatedMessageUi.replyToMessagePreview = {
-                                    text: repliedMsg.image ? '[Image]' : repliedMsg.text,
-                                    senderName: repliedMsg.user._id === currentUserId ? musicLoverProfile?.firstName || 'You' : dynamicMatchName,
-                                    image: repliedMsg.image
-                                };
-                            }
-                        } catch (replyErr) {
-                            console.warn("Error fetching reply preview for updated message:", replyErr);
-                            // Continue without reply preview
+                     if (receivedMessage.replyToMessageId) {
+                         try {
+                             const repliedMsg = messages.find(m => m._id === receivedMessage.replyToMessageId) || await fetchMessageById(receivedMessage.replyToMessageId);
+                             if (repliedMsg) {
+                                 receivedMessage.replyToMessagePreview = {
+                                     text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                     senderName: repliedMsg.user._id === currentUserId ? musicLoverProfile?.firstName || 'You' : dynamicMatchName,
+                                     image: repliedMsg.image
+                                 };
+                             }
+                         } catch (replyErr) {
+                             console.warn("Error fetching reply preview:", replyErr);
+                             // Continue without reply preview
+                         }
+                     }
+
+                     setMessages(prevMessages => {
+                         // Prevent duplicate messages
+                         if (prevMessages.some(msg => msg._id === receivedMessage._id)) {
+                             return prevMessages;
+                         }
+                         
+                         // Optimistically update seen status in the UI
+                         if (receivedMessage.user._id === matchUserId) {
+                             receivedMessage.isSeen = true;
+                             receivedMessage.seenAt = new Date();
+                         }
+
+                         // Replace temp message or add new message
+                         const existingMsgIndex = prevMessages.findIndex(msg => msg._id.startsWith('temp_') && msg.text === receivedMessage.text && msg.replyToMessageId === receivedMessage.replyToMessageId);
+                         if (existingMsgIndex !== -1) {
+                             const newMessages = [...prevMessages];
+                             newMessages[existingMsgIndex] = receivedMessage;
+                             checkMutualInitiation(newMessages); // Check mutual initiation with the new state
+                             return newMessages;
+                         }
+                         
+                         const finalMessages = [...prevMessages, receivedMessage];
+                         checkMutualInitiation(finalMessages); // Check mutual initiation with the new state
+                         return finalMessages;
+                     });
+                 }
+             )
+             .on<DbMessage>(
+                 'postgres_changes',
+                 { event: 'UPDATE', schema: 'public', table: 'messages' },
+                 async (payload: any) => {
+                     if (isBlocked) return;
+                     const updatedMessageDb = payload.new as DbMessage;
+                     
+                      // Check if message update is relevant (e.g., not hidden, unless it's a delete for everyone)
+                     try {
+                         const { data: hiddenCheck, error: hiddenError } = await supabase
+                             .from('user_hidden_messages')
+                             .select('message_id')
+                             .eq('user_id', currentUserId)
+                             .eq('message_id', updatedMessageDb.id)
+                             .maybeSingle(); // Changed from implicit single to maybeSingle
+                         
+                         if (hiddenError) {
+                             console.warn("Error checking if updated message is hidden:", hiddenError.message);
+                         } else if (hiddenCheck && !updatedMessageDb.is_deleted) {
+                             console.log("Updated message is hidden for current user, skipping unless delete");
+                             return;
+                         }
+                     } catch (hiddenCheckErr) {
+                         console.warn("Exception checking hidden status for updated message:", hiddenCheckErr);
+                         // Continue processing
+                     }
+
+                     const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb);
+                     
+                     // Add reply preview if it exists
+                     if (updatedMessageUi.replyToMessageId) {
+                         try {
+                             const repliedMsg = messages.find(m => m._id === updatedMessageUi.replyToMessageId) || await fetchMessageById(updatedMessageUi.replyToMessageId);
+                             if (repliedMsg) {
+                                 updatedMessageUi.replyToMessagePreview = {
+                                     text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                     senderName: repliedMsg.user._id === currentUserId ? musicLoverProfile?.firstName || 'You' : dynamicMatchName,
+                                     image: repliedMsg.image
+                                 };
+                             }
+                         } catch (replyErr) {
+                             console.warn("Error fetching reply preview for updated message:", replyErr);
+                             // Continue without reply preview
+                         }
+                     }
+
+                     setMessages(prev => prev.map(msg => 
+                         msg._id === updatedMessageUi._id ? updatedMessageUi : msg
+                     ));
+
+                     if (editingMessage && editingMessage._id === updatedMessageUi._id && updatedMessageUi.isEdited && currentUserId === updatedMessageUi.user._id) {
+                         setEditingMessage(null);
+                         setEditText("");
+                     }
+                 }
+             )
+             .subscribe((status) => {
+                 console.log(`[ChatScreen] Message channel subscription status: ${status} for ${channelName}`);
+             });
+
+            // Subscription for message_status updates
+            const messageStatusChannelName = `message_status_updates_${[currentUserId, matchUserId].sort().join('_')}`;
+            const statusChannel = supabase
+                .channel(messageStatusChannelName)
+                .on(
+                    'postgres_changes',
+                    { event: '*', schema: 'public', table: 'message_status',
+                      filter: `message_id=in.(SELECT id FROM messages WHERE (sender_id = '${currentUserId}' AND receiver_id = '${matchUserId}') OR (sender_id = '${matchUserId}' AND receiver_id = '${currentUserId}'))`
+                    },
+                    (payload: any) => {
+                        const statusUpdate = payload.new as {message_id: string; is_delivered: boolean; delivered_at: string; is_seen: boolean; seen_at: string;};
+                        if (statusUpdate && statusUpdate.message_id) {
+                            setMessages(prevMessages => 
+                                prevMessages.map(msg => {
+                                    if (msg._id === statusUpdate.message_id) {
+                                        return {
+                                            ...msg,
+                                            isDelivered: statusUpdate.is_delivered,
+                                            deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : null,
+                                            isSeen: statusUpdate.is_seen,
+                                            seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : null,
+                                        };
+                                    }
+                                    return msg;
+                                })
+                            );
                         }
                     }
+                )
+                .subscribe((status) => {
+                    console.log(`[ChatScreen] Status channel subscription status: ${status} for ${messageStatusChannelName}`);
+                });
 
-                    setMessages(prev => prev.map(msg => 
-                        msg._id === updatedMessageUi._id ? updatedMessageUi : msg
-                    ));
-
-                    if (editingMessage && editingMessage._id === updatedMessageUi._id && updatedMessageUi.isEdited && currentUserId === updatedMessageUi.user._id) {
-                        setEditingMessage(null);
-                        setEditText("");
-                    }
+            return () => {
+                console.log(`[ChatScreen] Unsubscribing from channels for ${matchUserId}`);
+                supabase.removeChannel(messageChannel);
+                supabase.removeChannel(statusChannel);
+                if (typingTimeoutRef.current) {
+                    clearTimeout(typingTimeoutRef.current);
                 }
-            )
-            .subscribe();
-
-        // Subscription for message_status updates
-        const messageStatusChannelName = `message_status_updates_${[currentUserId, matchUserId].sort().join('_')}`;
-        const statusChannel = supabase
-            .channel(messageStatusChannelName)
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'message_status',
-                  filter: `message_id=in.(SELECT id FROM messages WHERE (sender_id = '${currentUserId}' AND receiver_id = '${matchUserId}') OR (sender_id = '${matchUserId}' AND receiver_id = '${currentUserId}'))`
-                },
-                (payload: any) => {
-                    const statusUpdate = payload.new as {message_id: string; is_delivered: boolean; delivered_at: string; is_seen: boolean; seen_at: string;};
-                    if (statusUpdate && statusUpdate.message_id) {
-                        setMessages(prevMessages => 
-                            prevMessages.map(msg => {
-                                if (msg._id === statusUpdate.message_id) {
-                                    return {
-                                        ...msg,
-                                        isDelivered: statusUpdate.is_delivered,
-                                        deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : null,
-                                        isSeen: statusUpdate.is_seen,
-                                        seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : null,
-                                    };
-                                }
-                                return msg;
-                            })
-                        );
-                    }
-                }
-            )
-            .subscribe();
-
-        return () => {
-            console.log(`[ChatScreen] Unsubscribing from channels for ${matchUserId}`);
-            supabase.removeChannel(messageChannel);
-            supabase.removeChannel(statusChannel);
-        };
-    }, [currentUserId, matchUserId, mapDbMessageToChatMessage, isBlocked, checkMutualInitiation, messages, editingMessage, musicLoverProfile, dynamicMatchName]);
+            };
+        }, [currentUserId, matchUserId, mapDbMessageToChatMessage, isBlocked, checkMutualInitiation, editingMessage, musicLoverProfile, dynamicMatchName]);
 
     // Group messages by date for section headers
     const sections = useMemo(() => {
@@ -1990,53 +2052,35 @@ const IndividualChatScreen: React.FC = () => {
         return null;
     };
 
-    // Function to mark messages as seen when the chat screen is focused or messages are visible
-    const markMessagesAsSeen = useCallback(async () => {
-        if (!currentUserId || !matchUserId || messages.length === 0) return;
-
-        const unseenMessagesFromOtherUser = messages.filter(
-            msg => msg.user._id === matchUserId && !msg.isSeen
-        );
-
-        if (unseenMessagesFromOtherUser.length === 0) return;
-
-        console.log(`[ChatScreen] Marking ${unseenMessagesFromOtherUser.length} messages as seen from ${matchUserId}`);
-
-        for (const message of unseenMessagesFromOtherUser) {
-            try {
-                const { error } = await supabase.rpc('mark_message_seen', { message_id_input: message._id });
-                if (error) {
-                    console.error(`Error marking message ${message._id} as seen:`, error.message);
-                } else {
-                    console.log(`Message ${message._id} marked as seen.`);
-                     // Optimistically update UI or rely on subscription to message_status table
-                    setMessages(prev => prev.map(m => m._id === message._id ? {...m, isSeen: true, seenAt: new Date()} : m));
-                }
-            } catch (e: any) {
-                console.error(`Exception marking message ${message._id} as seen:`, e.message);
-            }
-        }
-    }, [currentUserId, matchUserId, messages, supabase]);
-
-    // Call markMessagesAsSeen when the screen focuses and when new messages arrive from the other user
-    useFocusEffect(
-        useCallback(() => {
-            markMessagesAsSeen();
-        }, [markMessagesAsSeen])
-    );
-    useEffect(() => {
-        // Also mark as seen if new messages arrive while screen is focused
-        markMessagesAsSeen();
-    }, [messages, markMessagesAsSeen]);
-
     // --- Cleanup scroll timeout on unmount ---
     useEffect(() => {
         return () => {
             if (scrollTimeoutRef.current) {
                 clearTimeout(scrollTimeoutRef.current);
             }
+            if (typingTimeoutRef.current) {
+                clearTimeout(typingTimeoutRef.current);
+            }
         };
     }, []);
+
+    const broadcastTyping = useCallback(() => {
+        if (!currentUserId || !matchUserId || isBlocked) return;
+        const channelName = `chat_${[currentUserId, matchUserId].sort().join('_')}`;
+        const channel = supabase.channel(channelName);
+        channel.send({
+            type: 'broadcast',
+            event: 'typing',
+            payload: { sender_id: currentUserId },
+        });
+    }, [currentUserId, matchUserId, isBlocked]);
+
+    const handleTextInputChange = (text: string) => {
+        setInputText(text);
+        if (text) {
+            broadcastTyping();
+        }
+    };
 
     // --- Render Logic ---
     if (loading && messages.length === 0 && !isBlocked) {
@@ -2122,6 +2166,12 @@ const IndividualChatScreen: React.FC = () => {
                     </View>
                 )}
 
+                {isTyping && (
+                    <View style={styles.typingIndicatorContainer}>
+                        <Text style={styles.typingIndicatorText}>{`${dynamicMatchName} is typing...`}</Text>
+                    </View>
+                )}
+
                 <SectionList
                     ref={flatListRef}
                     sections={sections}
@@ -2181,21 +2231,13 @@ const IndividualChatScreen: React.FC = () => {
                 {renderEventSharePreview()}
 
                 <View style={styles.inputToolbar}>
-                    <TouchableOpacity 
-                        style={styles.attachButton} 
-                        onPress={pickAndSendImage} 
-                        disabled={isUploading || isBlocked}
-                    >
-                        {isUploading ? (
-                            <ActivityIndicator size="small" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
-                        ) : (
-                            <Feather name="paperclip" size={22} color="#52525b" />
-                        )}
+                    <TouchableOpacity style={styles.attachButton} onPress={pickAndSendImage} disabled={isUploading} >
+                         {isUploading ? <ActivityIndicator size="small" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /> : <Feather name="paperclip" size={22} color="#52525b" /> }
                     </TouchableOpacity>
                     <TextInput
                         style={styles.textInput}
                         value={inputText}
-                        onChangeText={setInputText}
+                        onChangeText={handleTextInputChange}
                         placeholder="Type a message..."
                         placeholderTextColor="#9CA3AF"
                         multiline
@@ -2454,9 +2496,10 @@ const styles = StyleSheet.create({
         marginRight: 10,
     },
     headerTitleText: {
-        fontSize: 18,
+        fontSize: 17,
         fontWeight: '600',
         color: '#1F2937',
+        marginBottom: 1,
     },
     blockedText: {
         color: '#9CA3AF',
@@ -3039,6 +3082,27 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: 13,
         marginBottom: 1,
+    },
+    onlineIndicator: {
+        position: 'absolute',
+        bottom: 0,
+        right: 10,
+        width: 12,
+        height: 12,
+        borderRadius: 6,
+        backgroundColor: '#22C55E', // tailwind green-500
+        borderWidth: 2,
+        borderColor: '#FFFFFF', // white
+    },
+    typingIndicatorContainer: {
+        paddingHorizontal: 15,
+        paddingBottom: 5,
+        height: 25,
+    },
+    typingIndicatorText: {
+        fontSize: 12,
+        color: '#6B7280',
+        fontStyle: 'italic',
     },
 });
 

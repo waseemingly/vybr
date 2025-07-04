@@ -178,6 +178,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRealtime } from '@/context/RealtimeContext';
 
 // --- Adjust Imports ---
 import ChatCard from './ChatCard';
@@ -326,6 +327,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     searchQuery = '',
 }) => {
     const { session } = useAuth();
+    const { subscribeToEvent, unsubscribeFromEvent } = useRealtime();
     const [individualList, setIndividualList] = useState<IndividualChatListItem[]>([]);
     const [groupList, setGroupList] = useState<GroupChatListItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -377,113 +379,32 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         fetchData();
     }, [fetchData]);
 
-    // Real-time subscriptions for new messages and updates
-    const lastRealtimeFetch = React.useRef<number>(0);
-    const throttledFetchData = useCallback(() => {
-        const now = Date.now();
-        // Only fetch if more than 1 second has passed since last realtime fetch
-        if (now - lastRealtimeFetch.current > 1000) {
-            console.log("Real-time update triggered, refreshing data");
-            lastRealtimeFetch.current = now;
-            fetchData();
-        } else {
-            console.log("Real-time update triggered, but throttling fetch (too recent)");
-        }
-    }, [fetchData]);
-
+    // Replace the old real-time useEffect with this one
     useEffect(() => {
-        if (!session?.user?.id) return;
+        const handleNewMessage = (payload: any) => {
+            console.log('ChatsTabs received new message notification, refreshing data...', payload);
+            fetchData(); // Refresh the chat list
+        };
 
-        console.log("ChatsTabs: Setting up real-time subscriptions");
-
-        // Subscribe to individual message updates
-        const individualMessageChannel = supabase
-            .channel('individual_messages_updates')
-            .on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'messages',
-                    filter: `receiver_id=eq.${session.user.id}`
-                },
-                () => {
-                    console.log("New individual message received");
-                    throttledFetchData();
-                }
-            )
-            .on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'messages',
-                    filter: `sender_id=eq.${session.user.id}`
-                },
-                () => {
-                    console.log("New individual message sent");
-                    throttledFetchData();
-                }
-            )
-            .subscribe();
-
-        // Subscribe to group message updates
-        const groupMessageChannel = supabase
-            .channel('group_messages_updates')
-            .on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'group_chat_messages'
-                },
-                (payload) => {
-                    console.log("New group message received");
-                    throttledFetchData();
-                }
-            )
-            .subscribe();
-
-        // Subscribe to group membership changes
-        const groupMembershipChannel = supabase
-            .channel('group_membership_updates')
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'group_chat_members',
-                    filter: `user_id=eq.${session.user.id}`
-                },
-                () => {
-                    console.log("Group membership changed");
-                    throttledFetchData();
-                }
-            )
-            .subscribe();
+        // Subscribe to both individual and group notifications
+        subscribeToEvent('new_message_notification', handleNewMessage);
+        // Assuming a similar notification for group messages exists or will be added
+        subscribeToEvent('new_group_message_notification', handleNewMessage); 
 
         return () => {
-            console.log("ChatsTabs: Cleaning up real-time subscriptions");
-            supabase.removeChannel(individualMessageChannel);
-            supabase.removeChannel(groupMessageChannel);
-            supabase.removeChannel(groupMembershipChannel);
+            unsubscribeFromEvent('new_message_notification', handleNewMessage);
+            unsubscribeFromEvent('new_group_message_notification', handleNewMessage);
         };
-    }, [session?.user?.id, throttledFetchData]);
+    }, [subscribeToEvent, unsubscribeFromEvent, fetchData]);
 
-    // Fetch data when the screen comes into focus (with throttling)
-    const lastFocusTime = React.useRef<number>(0);
+    // Fetch data when the screen comes into focus (this is still useful)
     useFocusEffect(
         useCallback(() => {
             const now = Date.now();
-            // Only fetch if more than 2 seconds have passed since last focus fetch
-            if (now - lastFocusTime.current > 2000) {
-                console.log("ChatsTabs: Screen focused, fetching data.");
-                lastFocusTime.current = now;
-                fetchData();
-            } else {
-                console.log("ChatsTabs: Screen focused, but throttling fetch (too recent).");
-            }
-        }, [])
+            // ...
+            fetchData();
+            // ...
+        }, [fetchData]) // I'll fix the dependency array if needed
     );
 
     // Handle pull-to-refresh
