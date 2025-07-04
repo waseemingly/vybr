@@ -1975,7 +1975,10 @@ const IndividualChatScreen: React.FC = () => {
                     isDeleted: true, 
                     deletedAt: new Date(),
                     image: null, 
-                    sharedEvent: null 
+                    sharedEvent: null,
+                    originalContent: null,
+                    replyToMessageId: null,
+                    replyToMessagePreview: null
                   }
                 : msg
             ));

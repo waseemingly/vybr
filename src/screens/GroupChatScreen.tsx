@@ -1526,11 +1526,67 @@ const GroupChatScreen: React.FC = () => {
     
         // --- Handle Message Updates (UPDATE) ---
         messageChannel.on<DbGroupMessage>('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'group_chat_messages' },
-            (payload) => {
+            async (payload) => {
                 const updatedMessageDb = payload.new as DbGroupMessage;
+
+                // --- Start: Added Robustness Logic ---
+                // Check if the message is hidden for the current user (unless it's a delete)
+                if (!updatedMessageDb.is_deleted) {
+                    try {
+                        const { data: hiddenCheck, error: hiddenError } = await supabase
+                            .from('user_hidden_messages')
+                            .select('message_id', { count: 'exact', head: true })
+                            .eq('user_id', currentUserId)
+                            .eq('message_id', updatedMessageDb.id);
+
+                        if (hiddenError) throw hiddenError;
+                        if (hiddenCheck && hiddenCheck.length > 0) {
+                            console.log(`[RT-UPDATE] Skipping update for hidden message ${updatedMessageDb.id}`);
+                            return;
+                        }
+                    } catch (e) {
+                        console.warn(`[RT-UPDATE] Error checking if message is hidden: ${e}`);
+                    }
+                }
+
+                // Ensure sender profile is available
                 const rtProfilesMap = new Map<string, UserProfileInfo>();
+                if (updatedMessageDb.sender_id && !userProfileCache[updatedMessageDb.sender_id]) {
+                    try {
+                        const { data: p, error: profileError } = await supabase
+                            .from('music_lover_profiles')
+                            .select('user_id, first_name, last_name, profile_picture')
+                            .eq('user_id', updatedMessageDb.sender_id)
+                            .single();
+                        if (profileError) throw profileError;
+                        if (p) {
+                            const name = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
+                            const avatar = p.profile_picture || undefined;
+                            userProfileCache[p.user_id] = { name, avatar };
+                            rtProfilesMap.set(p.user_id, p);
+                        }
+                    } catch (err) { console.warn(`[RT-UPDATE] Profile fetch err: ${err}`); }
+                }
+                // --- End: Added Robustness Logic ---
+
                 const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb, rtProfilesMap);
-    
+
+                // Fetch reply preview if it exists
+                if (updatedMessageUi.replyToMessageId) {
+                    try {
+                        const repliedMsg = messages.find(m => m._id === updatedMessageUi.replyToMessageId) || await fetchMessageById(updatedMessageUi.replyToMessageId);
+                        if (repliedMsg) {
+                            updatedMessageUi.replyToMessagePreview = {
+                                text: repliedMsg.image ? (repliedMsg.text || '[Image]') : repliedMsg.text,
+                                senderName: repliedMsg.user.name,
+                                image: repliedMsg.image
+                            };
+                        }
+                    } catch (replyErr) {
+                        console.warn("[RT-UPDATE] Error fetching reply preview:", replyErr);
+                    }
+                }
+
                 setMessages(prev => prev.map(msg => msg._id === updatedMessageUi._id ? updatedMessageUi : msg));
     
                 if (editingMessage && editingMessage._id === updatedMessageUi._id) {
