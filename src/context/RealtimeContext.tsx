@@ -39,8 +39,16 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Set up the channel when the user is authenticated
     useEffect(() => {
+        console.log('[RealtimeContext] 🔄 Effect triggered:', {
+            hasSession: !!session,
+            userId: session?.user?.id,
+            hasExistingChannel: !!channelRef.current
+        });
+        
         if (session?.user?.id && !channelRef.current) {
             const userId = session.user.id;
+            console.log('[RealtimeContext] 🚀 Setting up realtime channel for user:', userId);
+            
             const userChannel = supabase.channel(`user:${userId}`, {
                 config: {
                     presence: {
@@ -77,12 +85,13 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     }
                 })
                 .subscribe((status, err) => {
+                    console.log('[RealtimeContext] 📡 Channel subscription status:', status, err);
                     if (status === 'SUBSCRIBED') {
-                        console.log(`Subscribed to user channel: ${userId}`);
+                        console.log(`[RealtimeContext] ✅ Subscribed to user channel: ${userId}`);
                         userChannel.track({ user_id: userId, online_at: new Date().toISOString() });
                     }
                     if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-                        console.error('Realtime channel error:', err);
+                        console.error('[RealtimeContext] ❌ Realtime channel error:', status, err);
                     }
                 });
             

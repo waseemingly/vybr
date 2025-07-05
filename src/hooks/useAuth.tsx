@@ -1406,10 +1406,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         setLoading(true);
         
         try {
-            console.log('[useAuth] Starting Google Sign-In...');
+            console.log('[useAuth] 🚀 Starting Google Sign-In...');
+            console.log('[useAuth] 📱 Platform:', Platform.OS);
+            console.log('[useAuth] 🌐 Current URL:', typeof window !== 'undefined' ? window.location.href : 'N/A');
             
             if (Platform.OS === 'web') {
                 // For web, use Supabase's built-in OAuth with popup
+                console.log('[useAuth] 🌐 Using web OAuth flow with popup');
+                
                 const { data, error } = await supabase.auth.signInWithOAuth({
                     provider: 'google',
                     options: {
@@ -1423,14 +1427,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 });
                 
                 if (error) {
-                    console.error('[useAuth] Google OAuth initiation error:', error);
+                    console.error('[useAuth] ❌ Google OAuth initiation error:', error);
                     setLoading(false);
                     return { error };
                 }
                 
+                console.log('[useAuth] ✅ OAuth URL received:', data?.url ? data.url.substring(0, 100) + '...' : 'No URL');
+                
                 // Open popup manually with the OAuth URL
                 let popup: Window | null = null;
                 if (data?.url) {
+                    console.log('[useAuth] 🪟 Opening OAuth popup...');
                     popup = window.open(
                         data.url, 
                         'google-oauth', 
@@ -1438,9 +1445,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     );
                     
                     if (!popup) {
+                        console.error('[useAuth] ❌ Popup blocked by browser');
                         setLoading(false);
                         return { error: { message: "Popup blocked. Please allow popups for this site." } };
                     }
+                    console.log('[useAuth] ✅ Popup opened successfully');
                 }
                 
                 // Wait for the authentication to complete by listening for session changes
@@ -1449,19 +1458,106 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     const maxAttempts = 120; // 60 seconds timeout
                     let resolved = false;
                     
+                    console.log('[useAuth] 👂 Setting up auth state listener...');
+                    
                     // Listen for auth state changes
                     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
                         if (resolved) return;
                         
+                        console.log('[useAuth] 📡 Auth state change:', event, session?.user ? 'User present' : 'No user');
+                        
                         if (event === 'SIGNED_IN' && session?.user) {
-                            console.log('[useAuth] Google authentication successful via auth state change');
+                            console.log('[useAuth] ✅ Google authentication successful via auth state change');
+                            console.log('[useAuth] 👤 User ID:', session.user.id);
+                            console.log('[useAuth] 📧 User email:', session.user.email);
+                            console.log('[useAuth] 🔍 Full user object:', session.user);
+                            
+                            // CRITICAL: Verify the user actually exists in auth.users
+                            console.log('[useAuth] 🔍 Verifying user exists in database...');
+                            try {
+                                const { data: userCheck, error: userCheckError } = await supabase.auth.getUser();
+                                console.log('[useAuth] 📊 User verification result:', {
+                                    hasUser: !!userCheck?.user,
+                                    userId: userCheck?.user?.id,
+                                    error: userCheckError
+                                });
+                                
+                                if (userCheckError) {
+                                    console.error('[useAuth] ❌ User verification failed:', userCheckError);
+                                    
+                                    // CRITICAL: Try to diagnose the issue
+                                    console.log('[useAuth] 🔍 Diagnosing OAuth user creation issue...');
+                                    
+                                    // Check if we can see the user in public.users
+                                    try {
+                                        const { data: publicUserCheck, error: publicError } = await supabase
+                                            .from('users')
+                                            .select('id, email, user_type')
+                                            .eq('id', session.user.id)
+                                            .single();
+                                        
+                                        console.log('[useAuth] 📊 Public users check:', {
+                                            found: !!publicUserCheck,
+                                            error: publicError?.message
+                                        });
+                                    } catch (publicCheckError) {
+                                        console.error('[useAuth] ❌ Could not check public.users:', publicCheckError);
+                                    }
+                                    
+                                    // Try to manually create the user record
+                                    console.log('[useAuth] 🔧 Attempting to manually create user record...');
+                                    try {
+                                        const currentPath = window.location.pathname;
+                                        const userType = currentPath.includes('MusicLover') ? 'music_lover' : 'organizer';
+                                        
+                                        const { data: manualUserCreate, error: manualError } = await supabase
+                                            .from('users')
+                                            .insert({
+                                                id: session.user.id,
+                                                email: session.user.email,
+                                                user_type: userType
+                                            })
+                                            .select()
+                                            .single();
+                                        
+                                        console.log('[useAuth] 📊 Manual user creation result:', {
+                                            success: !!manualUserCreate,
+                                            error: manualError?.message
+                                        });
+                                        
+                                        if (manualUserCreate) {
+                                            console.log('[useAuth] ✅ Successfully created user record manually');
+                                            // Continue with the flow
+                                        } else {
+                                            resolved = true;
+                                            setLoading(false);
+                                            if (popup) popup.close();
+                                            authListener.subscription.unsubscribe();
+                                            resolve({ error: { message: 'Failed to create user record: ' + (manualError?.message || 'Unknown error') } });
+                                            return;
+                                        }
+                                    } catch (manualCreateError) {
+                                        console.error('[useAuth] ❌ Manual user creation failed:', manualCreateError);
+                                        resolved = true;
+                                        setLoading(false);
+                                        if (popup) popup.close();
+                                        authListener.subscription.unsubscribe();
+                                        resolve({ error: { message: 'User verification failed: ' + userCheckError.message } });
+                                        return;
+                                    }
+                                }
+                            } catch (verifyError) {
+                                console.error('[useAuth] ❌ Error verifying user:', verifyError);
+                            }
+                            
                             resolved = true;
                             setLoading(false);
                             if (popup) {
                                 try {
                                     popup.close();
+                                    console.log('[useAuth] 🪟 Popup closed');
                                 } catch (e) {
-                                    console.log('[useAuth] Could not close popup (expected with COOP)');
+                                    console.log('[useAuth] 🪟 Could not close popup (expected with COOP)');
                                 }
                             }
                             authListener.subscription.unsubscribe();
@@ -1472,19 +1568,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             const currentPath = window.location.pathname;
                             const userType = currentPath.includes('MusicLover') ? 'music_lover' : 'organizer';
                             
-                            console.log('[useAuth] Setting user_type immediately:', userType);
+                            console.log('[useAuth] 🏷️ Setting user_type immediately:', userType, 'based on path:', currentPath);
                             try {
                                 await supabase.auth.updateUser({
                                     data: { user_type: userType }
                                 });
-                                console.log('[useAuth] User type set successfully:', userType);
+                                console.log('[useAuth] ✅ User type set successfully:', userType);
                             } catch (metaError) {
-                                console.error('[useAuth] Error setting user_type:', metaError);
+                                console.error('[useAuth] ❌ Error setting user_type:', metaError);
+                                // Don't fail the whole process if metadata update fails
                             }
                             
                             resolve({ user: session.user });
                         } else if (event === 'SIGNED_OUT') {
-                            console.log('[useAuth] Authentication was cancelled or failed');
+                            console.log('[useAuth] ❌ Authentication was cancelled or failed');
                         }
                     });
                     
@@ -1493,19 +1590,116 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         if (resolved) return;
                         
                         attempts++;
+                        console.log('[useAuth] 🔄 Polling attempt:', attempts, '/', maxAttempts);
                         
                         try {
                             const { data: sessionData } = await supabase.auth.getSession();
                             
                             if (sessionData?.session?.user) {
-                                console.log('[useAuth] Google authentication successful via polling');
+                                console.log('[useAuth] ✅ Google authentication successful via polling');
+                                console.log('[useAuth] 👤 User ID:', sessionData.session.user.id);
+                                console.log('[useAuth] 📧 User email:', sessionData.session.user.email);
+                                console.log('[useAuth] 🔍 Full user object (polling):', sessionData.session.user);
+                                
+                                // CRITICAL: Verify the user actually exists in auth.users
+                                console.log('[useAuth] 🔍 Verifying user exists in database (polling)...');
+                                try {
+                                    const { data: userCheck, error: userCheckError } = await supabase.auth.getUser();
+                                    console.log('[useAuth] 📊 User verification result (polling):', {
+                                        hasUser: !!userCheck?.user,
+                                        userId: userCheck?.user?.id,
+                                        error: userCheckError
+                                    });
+                                    
+                                    if (userCheckError) {
+                                        console.error('[useAuth] ❌ User verification failed (polling):', userCheckError);
+                                        
+                                        // CRITICAL: Try to diagnose the issue
+                                        console.log('[useAuth] 🔍 Diagnosing OAuth user creation issue...');
+                                        
+                                        // Check if we can see the user in auth.users directly
+                                        try {
+                                            const { data: directUserCheck, error: directError } = await supabase
+                                                .from('auth.users')
+                                                .select('id, email, created_at')
+                                                .eq('id', sessionData.session.user.id)
+                                                .single();
+                                            
+                                            console.log('[useAuth] 📊 Direct auth.users check:', {
+                                                found: !!directUserCheck,
+                                                error: directError?.message
+                                            });
+                                        } catch (directCheckError) {
+                                            console.error('[useAuth] ❌ Could not check auth.users directly:', directCheckError);
+                                        }
+                                        
+                                        // Check if we can see the user in public.users
+                                        try {
+                                            const { data: publicUserCheck, error: publicError } = await supabase
+                                                .from('users')
+                                                .select('id, email, user_type')
+                                                .eq('id', sessionData.session.user.id)
+                                                .single();
+                                            
+                                            console.log('[useAuth] 📊 Public users check:', {
+                                                found: !!publicUserCheck,
+                                                error: publicError?.message
+                                            });
+                                        } catch (publicCheckError) {
+                                            console.error('[useAuth] ❌ Could not check public.users:', publicCheckError);
+                                        }
+                                        
+                                        // Try to manually create the user record
+                                        console.log('[useAuth] 🔧 Attempting to manually create user record...');
+                                        try {
+                                            const { data: manualUserCreate, error: manualError } = await supabase
+                                                .from('users')
+                                                .insert({
+                                                    id: sessionData.session.user.id,
+                                                    email: sessionData.session.user.email,
+                                                    user_type: userType
+                                                })
+                                                .select()
+                                                .single();
+                                            
+                                            console.log('[useAuth] 📊 Manual user creation result:', {
+                                                success: !!manualUserCreate,
+                                                error: manualError?.message
+                                            });
+                                            
+                                            if (manualUserCreate) {
+                                                console.log('[useAuth] ✅ Successfully created user record manually');
+                                                // Continue with the flow
+                                            } else {
+                                                resolved = true;
+                                                setLoading(false);
+                                                if (popup) popup.close();
+                                                authListener.subscription.unsubscribe();
+                                                resolve({ error: { message: 'Failed to create user record: ' + (manualError?.message || 'Unknown error') } });
+                                                return;
+                                            }
+                                        } catch (manualCreateError) {
+                                            console.error('[useAuth] ❌ Manual user creation failed:', manualCreateError);
+                                            resolved = true;
+                                            setLoading(false);
+                                            if (popup) popup.close();
+                                            authListener.subscription.unsubscribe();
+                                            resolve({ error: { message: 'User verification failed: ' + userCheckError.message } });
+                                            return;
+                                        }
+                                    }
+                                } catch (verifyError) {
+                                    console.error('[useAuth] ❌ Error verifying user (polling):', verifyError);
+                                }
+                                
                                 resolved = true;
                                 setLoading(false);
                                 if (popup) {
                                     try {
                                         popup.close();
+                                        console.log('[useAuth] 🪟 Popup closed');
                                     } catch (e) {
-                                        console.log('[useAuth] Could not close popup (expected with COOP)');
+                                        console.log('[useAuth] 🪟 Could not close popup (expected with COOP)');
                                     }
                                 }
                                 authListener.subscription.unsubscribe();
@@ -1514,32 +1708,34 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 const currentPath = window.location.pathname;
                                 const userType = currentPath.includes('MusicLover') ? 'music_lover' : 'organizer';
                                 
-                                console.log('[useAuth] Setting user_type immediately (polling):', userType);
+                                console.log('[useAuth] 🏷️ Setting user_type immediately (polling):', userType, 'based on path:', currentPath);
                                 try {
                                     await supabase.auth.updateUser({
                                         data: { user_type: userType }
                                     });
-                                    console.log('[useAuth] User type set successfully (polling):', userType);
+                                    console.log('[useAuth] ✅ User type set successfully (polling):', userType);
                                 } catch (metaError) {
-                                    console.error('[useAuth] Error setting user_type (polling):', metaError);
+                                    console.error('[useAuth] ❌ Error setting user_type (polling):', metaError);
+                                    // Don't fail the whole process if metadata update fails
                                 }
                                 
                                 resolve({ user: sessionData.session.user });
                                 return;
                             }
                         } catch (err) {
-                            console.error('[useAuth] Error checking session:', err);
+                            console.error('[useAuth] ❌ Error checking session:', err);
                         }
                         
                         if (attempts >= maxAttempts) {
-                            console.log('[useAuth] Google authentication timeout');
+                            console.log('[useAuth] ⏰ Google authentication timeout');
                             resolved = true;
                             setLoading(false);
                             if (popup) {
                                 try {
                                     popup.close();
+                                    console.log('[useAuth] 🪟 Popup closed due to timeout');
                                 } catch (e) {
-                                    console.log('[useAuth] Could not close popup (expected with COOP)');
+                                    console.log('[useAuth] 🪟 Could not close popup (expected with COOP)');
                                 }
                             }
                             authListener.subscription.unsubscribe();
@@ -1552,6 +1748,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     };
                     
                     // Start monitoring after a brief delay
+                    console.log('[useAuth] ⏱️ Starting polling in 2 seconds...');
                     setTimeout(checkAuth, 2000);
                 });
             } else {

@@ -188,6 +188,126 @@ const MusicLoverSignUpFlow = () => {
     // Add state to hold Google User ID
     const [googleUserId, setGoogleUserId] = useState<string | null>(null);
 
+    // Debug function to check current authentication state
+    const debugAuthState = async () => {
+        console.log('[MusicLoverSignUpFlow] 🔍 DEBUG: Checking authentication state...');
+        
+        try {
+            const { data: { session }, error } = await supabase.auth.getSession();
+            console.log('[MusicLoverSignUpFlow] 📊 Session debug:', {
+                hasSession: !!session,
+                sessionError: error,
+                userId: session?.user?.id,
+                userEmail: session?.user?.email,
+                userMetadata: session?.user?.user_metadata,
+                accessToken: session?.access_token ? 'Present' : 'Missing',
+                refreshToken: session?.refresh_token ? 'Present' : 'Missing',
+                expiresAt: session?.expires_at,
+                tokenType: session?.token_type
+            });
+
+            // Check if we can query the database
+            const { data: profileData, error: profileError } = await supabase
+                .from('music_lover_profiles')
+                .select('*')
+                .eq('user_id', session?.user?.id)
+                .single();
+
+            console.log('[MusicLoverSignUpFlow] 🗄️ Profile query result:', {
+                hasProfile: !!profileData,
+                profileError: profileError,
+                profileId: profileData?.id
+            });
+
+        } catch (error) {
+            console.error('[MusicLoverSignUpFlow] ❌ Error in debug auth state:', error);
+        }
+    };
+
+    // Debug function to check OAuth user creation issue
+    const diagnoseOAuthUserCreation = async () => {
+        console.log('[MusicLoverSignUpFlow] 🔍 Diagnosing OAuth user creation...');
+        
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            
+            if (!session?.user) {
+                console.log('[MusicLoverSignUpFlow] ❌ No session found');
+                return;
+            }
+            
+            const userId = session.user.id;
+            console.log('[MusicLoverSignUpFlow] 👤 Checking user:', userId);
+            
+            // Check auth.users table (we can't directly query this, but we can check via getUser)
+            try {
+                const { data: authUser, error: authError } = await supabase.auth.getUser();
+                console.log('[MusicLoverSignUpFlow] 📊 Auth user check:', {
+                    found: !!authUser?.user,
+                    error: authError?.message
+                });
+            } catch (authCheckError) {
+                console.error('[MusicLoverSignUpFlow] ❌ Auth user check failed:', authCheckError);
+            }
+            
+            // Check public.users table
+            try {
+                const { data: publicUser, error: publicError } = await supabase
+                    .from('users')
+                    .select('*')
+                    .eq('id', userId)
+                    .single();
+                
+                console.log('[MusicLoverSignUpFlow] 📊 Public user check:', {
+                    found: !!publicUser,
+                    data: publicUser,
+                    error: publicError?.message
+                });
+                
+                if (!publicUser && !publicError) {
+                    console.log('[MusicLoverSignUpFlow] 🔧 User not found in public.users, attempting to create...');
+                    
+                    const { data: createUser, error: createError } = await supabase
+                        .from('users')
+                        .insert({
+                            id: userId,
+                            email: session.user.email,
+                            user_type: 'music_lover'
+                        })
+                        .select()
+                        .single();
+                    
+                    console.log('[MusicLoverSignUpFlow] 📊 Manual user creation:', {
+                        success: !!createUser,
+                        data: createUser,
+                        error: createError?.message
+                    });
+                }
+            } catch (publicCheckError) {
+                console.error('[MusicLoverSignUpFlow] ❌ Public user check failed:', publicCheckError);
+            }
+            
+            // Check music_lover_profiles table
+            try {
+                const { data: profileCheck, error: profileError } = await supabase
+                    .from('music_lover_profiles')
+                    .select('*')
+                    .eq('user_id', userId)
+                    .single();
+                
+                console.log('[MusicLoverSignUpFlow] 📊 Profile check:', {
+                    found: !!profileCheck,
+                    error: profileError?.message
+                });
+            } catch (profileCheckError) {
+                console.error('[MusicLoverSignUpFlow] ❌ Profile check failed:', profileCheckError);
+            }
+            
+        } catch (error) {
+            console.error('[MusicLoverSignUpFlow] ❌ Error in OAuth diagnosis:', error);
+        }
+    };
+
     // Web cropping state
     const [showCropper, setShowCropper] = useState(false);
     const [tempImageUri, setTempImageUri] = useState<string | null>(null);
@@ -198,6 +318,81 @@ const MusicLoverSignUpFlow = () => {
 
     // Username and Email validation state
     const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'error'>('idle');
+
+    // Debug effect to monitor authentication state
+    useEffect(() => {
+        console.log('[MusicLoverSignUpFlow] 🔄 Component mounted, checking auth state...');
+        debugAuthState();
+    }, []);
+
+    // Debug effect to monitor Google user ID changes
+    useEffect(() => {
+        if (googleUserId) {
+            console.log('[MusicLoverSignUpFlow] 🔄 Google user ID changed:', googleUserId);
+            debugAuthState();
+        }
+    }, [googleUserId]);
+
+    // Comprehensive debugging function
+    const runFullDiagnostics = async () => {
+        console.log('[MusicLoverSignUpFlow] 🔍 Running full diagnostics...');
+        
+        // 1. Check current session
+        await debugAuthState();
+        
+        // 2. Check OAuth user creation
+        await diagnoseOAuthUserCreation();
+        
+        // 3. Check database connectivity
+        try {
+            const { data: testQuery, error: testError } = await supabase
+                .from('users')
+                .select('count')
+                .limit(1);
+            
+            console.log('[MusicLoverSignUpFlow] 📊 Database connectivity test:', {
+                success: !testError,
+                error: testError?.message
+            });
+        } catch (dbError) {
+            console.error('[MusicLoverSignUpFlow] ❌ Database connectivity test failed:', dbError);
+        }
+        
+        // 4. Check RLS policies
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                const { data: rlsTest, error: rlsError } = await supabase
+                    .from('users')
+                    .select('*')
+                    .eq('id', session.user.id);
+                
+                console.log('[MusicLoverSignUpFlow] 📊 RLS policy test:', {
+                    success: !rlsError,
+                    error: rlsError?.message,
+                    canReadOwnRecord: !!rlsTest
+                });
+            }
+        } catch (rlsError) {
+            console.error('[MusicLoverSignUpFlow] ❌ RLS policy test failed:', rlsError);
+        }
+        
+        // 5. Check foreign key constraints
+        try {
+            const { data: constraintCheck, error: constraintError } = await supabase
+                .rpc('get_foreign_key_constraints', { table_name: 'music_lover_profiles' });
+            
+            console.log('[MusicLoverSignUpFlow] 📊 Foreign key constraints check:', {
+                success: !constraintError,
+                error: constraintError?.message,
+                constraints: constraintCheck
+            });
+        } catch (constraintError) {
+            console.error('[MusicLoverSignUpFlow] ❌ Foreign key constraints check failed:', constraintError);
+        }
+        
+        console.log('[MusicLoverSignUpFlow] ✅ Full diagnostics completed');
+    };
     const [usernameFeedback, setUsernameFeedback] = useState('');
 
     // Location data lists
@@ -594,44 +789,116 @@ const MusicLoverSignUpFlow = () => {
     // Completes signup for FREE tier - MODIFIED for Google OAuth
     const handleFreeSignupCompletion = async () => {
         try {
-            console.log('[MusicLoverSignUpFlow] Starting free signup completion...');
+            console.log('[MusicLoverSignUpFlow] 🆓 Starting free signup completion...');
             setIsLoading(true);
             setError('');
 
+            console.log('[MusicLoverSignUpFlow] 🔍 Getting current session...');
             const { data: { session } } = await supabase.auth.getSession();
             const userId = session?.user?.id;
 
+            console.log('[MusicLoverSignUpFlow] 📊 Session data:', {
+                hasSession: !!session,
+                userId: userId,
+                userEmail: session?.user?.email,
+                userMetadata: session?.user?.user_metadata
+            });
+
             if (!userId) {
+                console.error('[MusicLoverSignUpFlow] ❌ No user ID found in session');
                 throw new Error("Could not determine user ID from session. Please sign in again.");
             }
 
+            // Add a small delay to ensure user is properly created in auth.users
+            console.log('[MusicLoverSignUpFlow] ⏳ Waiting 2 seconds for user creation to complete...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Verify user exists in auth.users before proceeding
+            console.log('[MusicLoverSignUpFlow] 🔍 Verifying user exists in database...');
+            try {
+                const { data: userCheck, error: userCheckError } = await supabase.auth.getUser();
+                console.log('[MusicLoverSignUpFlow] 📊 User verification result:', {
+                    hasUser: !!userCheck?.user,
+                    userId: userCheck?.user?.id,
+                    error: userCheckError
+                });
+                
+                if (userCheckError) {
+                    console.error('[MusicLoverSignUpFlow] ❌ User verification failed:', userCheckError);
+                    throw new Error('User verification failed: ' + userCheckError.message);
+                }
+                
+                if (!userCheck?.user) {
+                    console.error('[MusicLoverSignUpFlow] ❌ User not found in database');
+                    throw new Error('User not found in database. Please try signing in again.');
+                }
+            } catch (verifyError) {
+                console.error('[MusicLoverSignUpFlow] ❌ Error verifying user:', verifyError);
+                throw verifyError;
+            }
+
             // Create the profile for Google OAuth user
+            console.log('[MusicLoverSignUpFlow] 🔧 Preparing profile data...');
             const profileData = await prepareProfileData(userId);
-            console.log('[MusicLoverSignUpFlow] Creating profile with data:', profileData);
+            console.log('[MusicLoverSignUpFlow] 📝 Profile data prepared:', {
+                userId: profileData.userId,
+                firstName: profileData.firstName,
+                lastName: profileData.lastName,
+                username: profileData.username,
+                email: profileData.email,
+                selectedStreamingService: profileData.selectedStreamingService,
+                termsAccepted: profileData.termsAccepted
+            });
+            
+            console.log('[MusicLoverSignUpFlow] 🚀 Creating music lover profile...');
             const profileResult = await createMusicLoverProfile(profileData);
             
             if ('error' in profileResult && profileResult.error) {
-                console.error('[MusicLoverSignUpFlow] Profile creation error:', profileResult.error);
+                console.error('[MusicLoverSignUpFlow] ❌ Profile creation error:', profileResult.error);
                 throw new Error(profileResult.error.message || 'Failed to create profile');
             }
 
+            console.log('[MusicLoverSignUpFlow] ✅ Profile created successfully');
+
             // Set premium status to false
-            await updatePremiumStatus(userId, false);
+            console.log('[MusicLoverSignUpFlow] 🔧 Setting premium status to false...');
+            const premiumResult = await updatePremiumStatus(userId, false);
+            if ('error' in premiumResult) {
+                console.error('[MusicLoverSignUpFlow] ❌ Error updating premium status:', premiumResult.error);
+            } else {
+                console.log('[MusicLoverSignUpFlow] ✅ Premium status updated successfully');
+            }
 
             // Fetch streaming data if applicable
             if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None' && isSpotifyLoggedIn) {
-                 await forceFetchAndSaveSpotifyData(userId, false);
+                console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
+                try {
+                    await forceFetchAndSaveSpotifyData(userId, false);
+                    console.log('[MusicLoverSignUpFlow] ✅ Spotify data fetched successfully');
+                } catch (spotifyError) {
+                    console.error('[MusicLoverSignUpFlow] ❌ Error fetching Spotify data:', spotifyError);
+                }
+            } else {
+                console.log('[MusicLoverSignUpFlow] ⏭️ Skipping Spotify data fetch:', {
+                    selectedStreamingService: formData.selectedStreamingService,
+                    isSpotifyLoggedIn: isSpotifyLoggedIn
+                });
             }
 
             // Success - navigate to home/dashboard
-            console.log('[MusicLoverSignUpFlow] Free signup completed successfully, navigating to home.');
+            console.log('[MusicLoverSignUpFlow] 🎉 Free signup completed successfully, navigating to home.');
             navigation.reset({
                 index: 0,
                 routes: [{ name: 'MainApp', params: { screen: 'UserTabs' } }],
             });
 
         } catch (error: any) {
-            console.error('[MusicLoverSignUpFlow] Error in free signup completion:', error);
+            console.error('[MusicLoverSignUpFlow] ❌ Error in free signup completion:', error);
+            console.error('[MusicLoverSignUpFlow] 🔍 Error details:', {
+                message: error.message,
+                stack: error.stack,
+                name: error.name
+            });
             setError(error.message || 'An error occurred during signup');
             Alert.alert('Signup Error', error.message || 'An error occurred during signup');
         } finally {
@@ -641,44 +908,117 @@ const MusicLoverSignUpFlow = () => {
 
     // Completes signup for PREMIUM tier - MODIFIED for Google OAuth
     const handlePremiumSignupCompletion = async () => {
-        console.log('[handlePremiumSignupCompletion] Function START');
+        console.log('[MusicLoverSignUpFlow] 💎 Starting premium signup completion...');
         try {
             setIsLoading(true);
             setError('');
             
+            console.log('[MusicLoverSignUpFlow] 🔍 Getting current session...');
             const { data: { session } } = await supabase.auth.getSession();
             const userId = session?.user?.id;
 
+            console.log('[MusicLoverSignUpFlow] 📊 Session data:', {
+                hasSession: !!session,
+                userId: userId,
+                userEmail: session?.user?.email,
+                userMetadata: session?.user?.user_metadata
+            });
+
             if (!userId) {
+                console.error('[MusicLoverSignUpFlow] ❌ No user ID found in session');
                 throw new Error("Could not determine user ID from session. Please sign in again.");
+            }
+
+            // Add a small delay to ensure user is properly created in auth.users
+            console.log('[MusicLoverSignUpFlow] ⏳ Waiting 2 seconds for user creation to complete...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Verify user exists in auth.users before proceeding
+            console.log('[MusicLoverSignUpFlow] 🔍 Verifying user exists in database...');
+            try {
+                const { data: userCheck, error: userCheckError } = await supabase.auth.getUser();
+                console.log('[MusicLoverSignUpFlow] 📊 User verification result:', {
+                    hasUser: !!userCheck?.user,
+                    userId: userCheck?.user?.id,
+                    error: userCheckError
+                });
+                
+                if (userCheckError) {
+                    console.error('[MusicLoverSignUpFlow] ❌ User verification failed:', userCheckError);
+                    throw new Error('User verification failed: ' + userCheckError.message);
+                }
+                
+                if (!userCheck?.user) {
+                    console.error('[MusicLoverSignUpFlow] ❌ User not found in database');
+                    throw new Error('User not found in database. Please try signing in again.');
+                }
+            } catch (verifyError) {
+                console.error('[MusicLoverSignUpFlow] ❌ Error verifying user:', verifyError);
+                throw verifyError;
             }
             
             // Create the profile for the Google user
+            console.log('[MusicLoverSignUpFlow] 🔧 Preparing profile data...');
             const profileData = await prepareProfileData(userId);
+            console.log('[MusicLoverSignUpFlow] 📝 Profile data prepared:', {
+                userId: profileData.userId,
+                firstName: profileData.firstName,
+                lastName: profileData.lastName,
+                username: profileData.username,
+                email: profileData.email,
+                selectedStreamingService: profileData.selectedStreamingService,
+                termsAccepted: profileData.termsAccepted
+            });
+            
+            console.log('[MusicLoverSignUpFlow] 🚀 Creating music lover profile...');
             const profileResult = await createMusicLoverProfile(profileData);
 
             if ('error' in profileResult && profileResult.error) {
-                console.error('[handlePremiumSignupCompletion] Profile creation error:', profileResult.error);
+                console.error('[MusicLoverSignUpFlow] ❌ Profile creation error:', profileResult.error);
                 throw new Error(profileResult.error.message || 'Failed to create profile for Google user');
             }
+
+            console.log('[MusicLoverSignUpFlow] ✅ Profile created successfully');
     
             // Update Premium Status
-            await updatePremiumStatus(userId, true);
+            console.log('[MusicLoverSignUpFlow] 🔧 Setting premium status to true...');
+            const premiumResult = await updatePremiumStatus(userId, true);
+            if ('error' in premiumResult) {
+                console.error('[MusicLoverSignUpFlow] ❌ Error updating premium status:', premiumResult.error);
+            } else {
+                console.log('[MusicLoverSignUpFlow] ✅ Premium status updated successfully');
+            }
     
             // Fetch streaming data if applicable
             if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None' && isSpotifyLoggedIn) {
-                await forceFetchAndSaveSpotifyData(userId, true);
+                console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
+                try {
+                    await forceFetchAndSaveSpotifyData(userId, true);
+                    console.log('[MusicLoverSignUpFlow] ✅ Spotify data fetched successfully');
+                } catch (spotifyError) {
+                    console.error('[MusicLoverSignUpFlow] ❌ Error fetching Spotify data:', spotifyError);
+                }
+            } else {
+                console.log('[MusicLoverSignUpFlow] ⏭️ Skipping Spotify data fetch:', {
+                    selectedStreamingService: formData.selectedStreamingService,
+                    isSpotifyLoggedIn: isSpotifyLoggedIn
+                });
             }
     
             // Navigate to payment screen
-            console.log('[handlePremiumSignupCompletion] Premium signup completed. The app will redirect to payment setup.');
+            console.log('[MusicLoverSignUpFlow] 🎉 Premium signup completed. The app will redirect to payment setup.');
             navigation.reset({
                 index: 0,
                 routes: [{ name: 'MainApp' }],
             });
     
         } catch (error: any) {
-            console.error('[handlePremiumSignupCompletion] Error message:', error.message);
+            console.error('[MusicLoverSignUpFlow] ❌ Error in premium signup completion:', error);
+            console.error('[MusicLoverSignUpFlow] 🔍 Error details:', {
+                message: error.message,
+                stack: error.stack,
+                name: error.name
+            });
             setError(error.message || 'An error occurred during signup');
             Alert.alert('Signup Error', error.message || 'An error occurred during signup');
         } finally {
@@ -880,6 +1220,21 @@ const MusicLoverSignUpFlow = () => {
             <Text style={styles.secureNote}>
                 By continuing, you link your Google account to Vybr. We will use your email to create and manage your account.
             </Text>
+
+            {/* Debug button for troubleshooting */}
+            {__DEV__ && (
+                <TouchableOpacity 
+                    style={[styles.googleSignInButton, { backgroundColor: '#FF6B6B', marginTop: 10 }]} 
+                    onPress={runFullDiagnostics}
+                >
+                    <View style={styles.googleButtonContent}>
+                        <Feather name="activity" size={20} color="#FFFFFF" style={styles.googleIcon} />
+                        <Text style={[styles.googleSignInText, { color: '#FFFFFF' }]}>
+                            🔍 Run Diagnostics
+                        </Text>
+                    </View>
+                </TouchableOpacity>
+            )}
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
         </View>
@@ -1217,39 +1572,75 @@ const MusicLoverSignUpFlow = () => {
             setIsLoading(true);
             setError('');
             
-            console.log('[MusicLoverSignUpFlow] Starting Google Sign-In...');
+            console.log('[MusicLoverSignUpFlow] 🚀 Starting Google Sign-In...');
+            console.log('[MusicLoverSignUpFlow] 📊 Current form data state:', {
+                subscriptionTier: formData.subscriptionTier,
+                selectedStreamingService: formData.selectedStreamingService,
+                firstName: formData.firstName,
+                lastName: formData.lastName,
+                username: formData.username,
+                termsAccepted: formData.termsAccepted,
+                currentStep: currentStep
+            });
+            
             const result = await signInWithGoogle();
 
             if ('error' in result) {
                 if ((result.error as any)?.cancelled) {
-                    console.log('[MusicLoverSignUpFlow] Google Sign-In was cancelled by the user.');
+                    console.log('[MusicLoverSignUpFlow] ❌ Google Sign-In was cancelled by the user.');
                     return; 
                 }
-                console.error('[MusicLoverSignUpFlow] Google Sign-In error:', result.error);
+                console.error('[MusicLoverSignUpFlow] ❌ Google Sign-In error:', result.error);
                 setError(result.error.message || 'Failed to sign in with Google');
                 return;
             }
             
             if ('user' in result && result.user) {
-                console.log('[MusicLoverSignUpFlow] Google Sign-In successful, proceeding with signup...');
+                console.log('[MusicLoverSignUpFlow] ✅ Google Sign-In successful!');
+                console.log('[MusicLoverSignUpFlow] 👤 User ID:', result.user.id);
+                console.log('[MusicLoverSignUpFlow] 📧 User email:', result.user.email);
+                console.log('[MusicLoverSignUpFlow] 🏷️ User metadata:', result.user.user_metadata);
+                
+                // Store Google user ID for reference
+                setGoogleUserId(result.user.id);
                 
                 // Ensure user type is set to music_lover
-                await updateUserMetadata('music_lover');
+                console.log('[MusicLoverSignUpFlow] 🔧 Setting user metadata to music_lover...');
+                try {
+                    await updateUserMetadata('music_lover');
+                    console.log('[MusicLoverSignUpFlow] ✅ User metadata updated successfully');
+                } catch (metaError) {
+                    console.error('[MusicLoverSignUpFlow] ❌ Failed to update user metadata:', metaError);
+                }
                 
                 // Complete the signup process directly based on subscription tier
                 if (formData.subscriptionTier === 'free') {
-                    console.log('[MusicLoverSignUpFlow] Completing free signup...');
+                    console.log('[MusicLoverSignUpFlow] 🆓 Completing free signup...');
                     await handleFreeSignupCompletion();
                 } else if (formData.subscriptionTier === 'premium') {
-                    console.log('[MusicLoverSignUpFlow] Completing premium signup...');
+                    console.log('[MusicLoverSignUpFlow] 💎 Completing premium signup...');
                     await handlePremiumSignupCompletion();
                 } else {
-                    console.error('[MusicLoverSignUpFlow] No subscription tier selected when Google sign-in completed');
+                    console.error('[MusicLoverSignUpFlow] ❌ No subscription tier selected when Google sign-in completed');
+                    console.log('[MusicLoverSignUpFlow] 🔍 Available subscription tiers: free, premium');
+                    console.log('[MusicLoverSignUpFlow] 📊 Current subscription tier:', formData.subscriptionTier);
                     setError('Please select a subscription tier first');
                 }
+            } else {
+                console.error('[MusicLoverSignUpFlow] ❌ Google Sign-In result missing user data:', result);
+                setError('Authentication completed but user data is missing');
             }
         } catch (error: any) {
-            console.error('[MusicLoverSignUpFlow] Google sign-in error:', error);
+            console.error('[MusicLoverSignUpFlow] ❌ Google sign-in error:', error);
+            console.error('[MusicLoverSignUpFlow] 🔍 Error details:', {
+                message: error.message,
+                stack: error.stack,
+                name: error.name
+            });
+            
+            // Run diagnosis to understand the issue
+            await diagnoseOAuthUserCreation();
+            
             setError(error.message || 'Failed to sign in with Google');
         } finally {
             setIsLoading(false);

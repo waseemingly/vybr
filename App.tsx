@@ -106,13 +106,51 @@ export default function App() {
   // Handle OAuth deep link callbacks
   React.useEffect(() => {
     const handleDeepLink = (url: string) => {
-      console.log('[App] Deep link received:', url);
+      console.log('[App] 🔗 Deep link received:', url);
+      
+      // Parse URL to extract parameters
+      const parsedUrl = new URL(url);
+      const params = new URLSearchParams(parsedUrl.search);
+      
+      console.log('[App] 🔍 URL breakdown:', {
+        origin: parsedUrl.origin,
+        pathname: parsedUrl.pathname,
+        search: parsedUrl.search,
+        hash: parsedUrl.hash,
+        params: Object.fromEntries(params)
+      });
       
       // Handle OAuth callback URLs
       if (url.includes('auth/callback') || url.includes('error=')) {
-        console.log('[App] OAuth callback detected:', url);
+        console.log('[App] ✅ OAuth callback detected:', url);
+        
+        // Check for specific OAuth parameters
+        const accessToken = params.get('access_token');
+        const refreshToken = params.get('refresh_token');
+        const error = params.get('error');
+        const errorDescription = params.get('error_description');
+        
+        console.log('[App] 📊 OAuth parameters:', {
+          hasAccessToken: !!accessToken,
+          hasRefreshToken: !!refreshToken,
+          error: error,
+          errorDescription: errorDescription,
+          type: params.get('type'),
+          provider: params.get('provider')
+        });
+        
+        if (error) {
+          console.error('[App] ❌ OAuth error:', error, errorDescription);
+        } else if (accessToken) {
+          console.log('[App] ✅ OAuth success - tokens received');
+        }
+        
         // The Supabase auth handler will process this automatically
         // No additional navigation needed - let the AuthProvider handle it
+      } else if (url.includes('MusicLoverSignUpFlow')) {
+        console.log('[App] 📱 Music lover signup flow deep link detected');
+      } else {
+        console.log('[App] 🔍 Other deep link:', url);
       }
     };
 
@@ -123,7 +161,10 @@ export default function App() {
     // Handle the initial URL if the app was opened from a deep link
     Linking.getInitialURL().then((url) => {
       if (url) {
+        console.log('[App] 🚀 Initial URL detected:', url);
         handleDeepLink(url);
+      } else {
+        console.log('[App] 🚀 No initial URL detected');
       }
     });
 
