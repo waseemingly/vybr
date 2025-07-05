@@ -190,6 +190,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     const [organizerProfile, setOrganizerProfile] = useState<OrganizerProfile | null>(null);
     const { isOrganizerMode, setIsOrganizerMode } = useOrganizerMode();
     const previousSessionRef = useRef<UserSession | null>(null);
+    
+    // Flag to prevent auth state change listener from navigating during login/signup
+    const isManualAuthInProgress = useRef(false);
 
     useEffect(() => {
         if (Platform.OS !== 'web') {
@@ -428,7 +431,91 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
             if (supabaseSession) {
                 console.log("[AuthProvider] Supabase session found, user ID:", supabaseSession.user.id);
+                const userId = supabaseSession.user.id;
+                
+                // ENHANCED: Better user type determination with multiple fallbacks
                 userType = (supabaseSession.user.user_metadata?.user_type as UserTypes) || null;
+                console.log(`[AuthProvider] User type from metadata: ${userType}`);
+                
+                // Fallback 1: Check URL path (for signup flows)
+                if (!userType && typeof window !== 'undefined') {
+                    const currentPath = window.location.pathname;
+                    if (currentPath.includes('MusicLover')) {
+                        userType = 'music_lover';
+                        console.log(`[AuthProvider] User type determined from URL path: ${userType}`);
+                    } else if (currentPath.includes('Organizer')) {
+                        userType = 'organizer';
+                        console.log(`[AuthProvider] User type determined from URL path: ${userType}`);
+                    }
+                }
+                
+                // Fallback 2: Check if we have existing profiles in the database
+                if (!userType) {
+                    console.log("[AuthProvider] User type still unknown, checking database profiles...");
+                    try {
+                        // Check for music lover profile
+                        const { data: musicLoverData, error: musicLoverError } = await supabase
+                            .from('music_lover_profiles')
+                            .select('id')
+                            .eq('user_id', userId)
+                            .maybeSingle();
+                        
+                        if (!musicLoverError && musicLoverData) {
+                            userType = 'music_lover';
+                            console.log(`[AuthProvider] User type determined from existing music lover profile: ${userType}`);
+                        } else {
+                            // Check for organizer profile
+                            const { data: organizerData, error: organizerError } = await supabase
+                                .from('organizer_profiles')
+                                .select('id')
+                                .eq('user_id', userId)
+                                .maybeSingle();
+                            
+                            if (!organizerError && organizerData) {
+                                userType = 'organizer';
+                                console.log(`[AuthProvider] User type determined from existing organizer profile: ${userType}`);
+                            }
+                        }
+                    } catch (profileCheckError) {
+                        console.error("[AuthProvider] Error checking existing profiles:", profileCheckError);
+                    }
+                }
+                
+                // Fallback 3: Check the public.users table
+                if (!userType) {
+                    console.log("[AuthProvider] User type still unknown, checking public.users table...");
+                    try {
+                        const { data: userData, error: userError } = await supabase
+                            .from('users')
+                            .select('user_type')
+                            .eq('id', userId)
+                            .maybeSingle();
+                        
+                        if (!userError && userData?.user_type) {
+                            userType = userData.user_type as UserTypes;
+                            console.log(`[AuthProvider] User type determined from public.users table: ${userType}`);
+                        }
+                    } catch (userTableError) {
+                        console.error("[AuthProvider] Error checking public.users table:", userTableError);
+                    }
+                }
+                
+                // Fallback 4: Default to music_lover (most common case)
+                if (!userType) {
+                    userType = 'music_lover';
+                    console.log(`[AuthProvider] ⚠️ User type was still undefined, defaulting to: ${userType}`);
+                    
+                    // Update the user metadata to persist this choice
+                    try {
+                        await supabase.auth.updateUser({
+                            data: { user_type: userType }
+                        });
+                        console.log(`[AuthProvider] ✅ Updated user metadata with default user_type: ${userType}`);
+                    } catch (metadataError) {
+                        console.error("[AuthProvider] ❌ Failed to update user metadata:", metadataError);
+                    }
+                }
+                
                 // Construct session matching UserSession type correctly
                 currentSession = {
                     // Ensure user object matches the type
@@ -442,8 +529,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     // REMOVED token properties and duplicates
                 };
 
-                const userId = supabaseSession.user.id;
-                console.log(`[AuthProvider] User type determined: ${userType}`);
+                console.log(`[AuthProvider] Final user type determined: ${userType}`);
 
                 // Fetch the correct profile based on userType
                 const _fetchProfileData = async (user: any, userType: UserTypes) => {
@@ -532,6 +618,34 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             }
                         } else {
                             console.warn("[AuthProvider] User type is null or unrecognized, cannot fetch profile.");
+                            // If we still don't have a userType, try to determine it from existing data
+                            console.log("[AuthProvider] Attempting to determine user type from any existing profile...");
+                            
+                            // Check both profile tables to see if the user has any existing profile
+                            try {
+                                const [musicLoverResult, organizerResult] = await Promise.all([
+                                    supabase.from('music_lover_profiles').select('id').eq('user_id', userId).maybeSingle(),
+                                    supabase.from('organizer_profiles').select('id').eq('user_id', userId).maybeSingle()
+                                ]);
+                                
+                                if (!musicLoverResult.error && musicLoverResult.data) {
+                                    console.log("[AuthProvider] Found existing music lover profile, setting userType and fetching profile...");
+                                    userType = 'music_lover';
+                                    if (currentSession) currentSession.userType = userType;
+                                    // Recursively call to fetch the profile
+                                    return await _fetchProfileData(user, userType);
+                                } else if (!organizerResult.error && organizerResult.data) {
+                                    console.log("[AuthProvider] Found existing organizer profile, setting userType and fetching profile...");
+                                    userType = 'organizer';
+                                    if (currentSession) currentSession.userType = userType;
+                                    // Recursively call to fetch the profile
+                                    return await _fetchProfileData(user, userType);
+                                } else {
+                                    console.log("[AuthProvider] No existing profiles found, user needs to complete signup.");
+                                }
+                            } catch (profileSearchError) {
+                                console.error("[AuthProvider] Error searching for existing profiles:", profileSearchError);
+                            }
                         }
 
                         // Set organizer mode based on fetched profile
@@ -687,6 +801,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         console.log("[AuthProvider] Setting up Supabase auth listener.");
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSupabaseSession) => {
             console.log(`[AuthProvider] onAuthStateChange triggered: Event ${_event}`);
+            
+            // CRITICAL: Don't navigate during manual login/signup to prevent race conditions
+            if (isManualAuthInProgress.current && _event === 'SIGNED_IN') {
+                console.log("[AuthProvider] ⚠️ Manual auth in progress, skipping navigation for SIGNED_IN event");
+                // Still update the session state, but don't navigate
+                checkSession({ navigateToProfile: false });
+                return;
+            }
+            
             // Simple comparison: re-fetch profile if user ID changes or logs in/out
             if (newSupabaseSession?.user?.id !== previousSessionRef.current?.user?.id) {
                 console.log("[AuthProvider] Auth state change detected (user ID changed or login/logout), running checkSession...");
@@ -1088,12 +1211,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         console.log(`[AuthProvider] login: Starting login process`);
         console.log(`[AuthProvider] login: Credentials received - Type: ${credentials.userType}, Email: ${credentials.email}, Username: ${credentials.username}`);
         
+        // Set flag to prevent auth state change listener from navigating prematurely
+        isManualAuthInProgress.current = true;
+        
         try {
             const { email, username, password, userType } = credentials;
             
             // Validate required fields
             if ((!email && !username) || !password || !userType) {
                 console.error('[AuthProvider] login: Missing required fields.');
+                isManualAuthInProgress.current = false;
                 return { error: new Error('Please enter email/username, password, and select account type.') };
             }
 
@@ -1101,6 +1228,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             const loginInput = email || username;
             if (!loginInput) {
                 console.error('[AuthProvider] login: No login input provided');
+                isManualAuthInProgress.current = false;
                 return { error: new Error('Please enter email/username and password.') };
             }
 
@@ -1122,6 +1250,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
                 if (profileError || !profileData?.email) {
                     console.error('[AuthProvider] login: Username lookup failed:', profileError);
+                    isManualAuthInProgress.current = false;
                     return { error: { message: 'Invalid email/username or password.' } };
                 }
 
@@ -1136,11 +1265,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
                 if (retryLoginError) {
                     console.error("[AuthProvider] login: Supabase signIn Error after username lookup:", retryLoginError);
+                    isManualAuthInProgress.current = false;
                     return { error: { message: 'Invalid email/username or password.' } };
                 }
 
                 if (!retryLoginData?.user) {
                     console.error('[AuthProvider] login: Login successful but no user data returned.');
+                    isManualAuthInProgress.current = false;
                     return { error: new Error('Login failed: Could not retrieve user data.') };
                 }
 
@@ -1159,6 +1290,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     console.error(`[AuthProvider] login: Failed to verify DB user type for ${userId}:`, typeError || 'No type data found');
                     await logout();
                     setLoading(false);
+                    isManualAuthInProgress.current = false;
                     return { error: { message: 'Login failed: Could not verify account type. Please contact support.' } };
                 }
 
@@ -1169,12 +1301,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     console.warn(`[AuthProvider] login: TYPE MISMATCH! User ${userId} tried logging in via ${userType} portal, but DB type is ${dbUserType}.`);
                     await logout();
                     setLoading(false);
+                    isManualAuthInProgress.current = false;
                     return { error: { message: `Incorrect login portal. This account is registered as a ${dbUserType === 'music_lover' ? 'Music Lover' : 'Organizer'}. Please use the correct login page.` } };
                 }
 
-                console.log('[AuthProvider] login: User type verified. Calling checkSession...');
+                console.log('[AuthProvider] login: User type verified. Updating user metadata and calling checkSession...');
+                
+                // CRITICAL: Update user metadata with the correct user type before checkSession
+                try {
+                    await supabase.auth.updateUser({
+                        data: { user_type: dbUserType }
+                    });
+                    console.log(`[AuthProvider] login: ✅ Updated user metadata with user_type: ${dbUserType}`);
+                } catch (metadataError) {
+                    console.error("[AuthProvider] login: ❌ Failed to update user metadata:", metadataError);
+                    // Don't fail the login if metadata update fails
+                }
+                
                 setIsOrganizerMode(dbUserType === 'organizer');
                 await checkSession({ navigateToProfile: true });
+                
+                // Clear the flag after successful login
+                isManualAuthInProgress.current = false;
                 return { user: retryLoginData.user };
 
             }
@@ -1182,6 +1330,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             // If we get here, the first email authentication attempt was successful
             if (!loginData?.user) {
                 console.error('[AuthProvider] login: Login successful but no user data returned.');
+                isManualAuthInProgress.current = false;
                 return { error: new Error('Login failed: Could not retrieve user data.') };
             }
 
@@ -1200,6 +1349,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 console.error(`[AuthProvider] login: Failed to verify DB user type for ${userId}:`, typeError || 'No type data found');
                 await logout();
                 setLoading(false);
+                isManualAuthInProgress.current = false;
                 return { error: { message: 'Login failed: Could not verify account type. Please contact support.' } };
             }
 
@@ -1210,17 +1360,36 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 console.warn(`[AuthProvider] login: TYPE MISMATCH! User ${userId} tried logging in via ${userType} portal, but DB type is ${dbUserType}.`);
                 await logout();
                 setLoading(false);
+                isManualAuthInProgress.current = false;
                 return { error: { message: `Incorrect login portal. This account is registered as a ${dbUserType === 'music_lover' ? 'Music Lover' : 'Organizer'}. Please use the correct login page.` } };
             }
 
-            console.log('[AuthProvider] login: User type verified. Calling checkSession...');
+            console.log('[AuthProvider] login: User type verified. Updating user metadata and calling checkSession...');
+            
+            // CRITICAL: Update user metadata with the correct user type before checkSession
+            try {
+                await supabase.auth.updateUser({
+                    data: { user_type: dbUserType }
+                });
+                console.log(`[AuthProvider] login: ✅ Updated user metadata with user_type: ${dbUserType}`);
+            } catch (metadataError) {
+                console.error("[AuthProvider] login: ❌ Failed to update user metadata:", metadataError);
+                // Don't fail the login if metadata update fails
+            }
+            
             setIsOrganizerMode(dbUserType === 'organizer');
             await checkSession({ navigateToProfile: true });
+            
+            // Clear the flag after successful login
+            isManualAuthInProgress.current = false;
             return { user: loginData.user };
 
         } catch (error: any) {
             console.error('[AuthProvider] login: UNEXPECTED error:', error);
             setLoading(false);
+            
+            // Clear the flag on error
+            isManualAuthInProgress.current = false;
             return { error: new Error('An unexpected error occurred during login.') };
         }
     };
@@ -1405,6 +1574,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     const signInWithGoogle = async (): Promise<{ error: any } | { user: any }> => {
         setLoading(true);
         
+        // Set flag to prevent auth state change listener from navigating prematurely
+        isManualAuthInProgress.current = true;
+        
         try {
             console.log('[useAuth] 🚀 Starting Google Sign-In...');
             console.log('[useAuth] 📱 Platform:', Platform.OS);
@@ -1579,7 +1751,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 // Don't fail the whole process if metadata update fails
                             }
                             
-                            resolve({ user: session.user });
+                                                            // Clear the flag on success
+                                isManualAuthInProgress.current = false;
+                                resolve({ user: session.user });
                         } else if (event === 'SIGNED_OUT') {
                             console.log('[useAuth] ❌ Authentication was cancelled or failed');
                         }
@@ -1719,6 +1893,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                     // Don't fail the whole process if metadata update fails
                                 }
                                 
+                                // Clear the flag on success
+                                isManualAuthInProgress.current = false;
                                 resolve({ user: sessionData.session.user });
                                 return;
                             }
@@ -1777,12 +1953,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     if (error) {
                         console.error('[useAuth] Error getting OAuth URL:', error);
                         setLoading(false);
+                        // Clear the flag on error
+                        isManualAuthInProgress.current = false;
                         return { error };
                     }
 
                     if (!data?.url) {
                         console.error('[useAuth] No OAuth URL received from Supabase');
                         setLoading(false);
+                        // Clear the flag on error
+                        isManualAuthInProgress.current = false;
                         return { error: { message: 'Failed to get authentication URL' } };
                     }
 
@@ -1823,12 +2003,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             if (sessionError) {
                                 console.error('[useAuth] Error exchanging code for session:', sessionError);
                                 setLoading(false);
+                                // Clear the flag on error
+                                isManualAuthInProgress.current = false;
                                 return { error: sessionError };
                             }
 
                             if (sessionData?.user) {
                                 console.log('[useAuth] Google OAuth authentication successful');
                                 setLoading(false);
+                                // Clear the flag on success
+                                isManualAuthInProgress.current = false;
                                 return { user: sessionData.user };
                             }
                         } else if (accessToken) {
@@ -1843,38 +2027,52 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             if (sessionError) {
                                 console.error('[useAuth] Error setting session:', sessionError);
                                 setLoading(false);
+                                // Clear the flag on error
+                                isManualAuthInProgress.current = false;
                                 return { error: sessionError };
                             }
 
                             if (sessionData?.user) {
                                 console.log('[useAuth] Google OAuth authentication successful');
                                 setLoading(false);
+                                // Clear the flag on success
+                                isManualAuthInProgress.current = false;
                                 return { user: sessionData.user };
                             }
                         }
                         
                         console.error('[useAuth] No valid authentication data found in callback URL');
                         setLoading(false);
+                        // Clear the flag on error
+                        isManualAuthInProgress.current = false;
                         return { error: { message: 'Authentication failed - no valid data received' } };
                     } else if (result.type === 'cancel') {
                         console.log('[useAuth] User cancelled Google OAuth');
                         setLoading(false);
+                        // Clear the flag on cancellation
+                        isManualAuthInProgress.current = false;
                         return { error: { message: 'Sign-in was cancelled.', cancelled: true } };
                     } else {
                         console.error('[useAuth] Unexpected AuthSession result:', result);
                         setLoading(false);
+                        // Clear the flag on error
+                        isManualAuthInProgress.current = false;
                         return { error: { message: 'Authentication failed - unexpected result' } };
                     }
                     
                 } catch (browserError: any) {
                     console.error('[useAuth] OAuth error:', browserError);
                     setLoading(false);
+                    // Clear the flag on error
+                    isManualAuthInProgress.current = false;
                     return { error: { message: browserError.message || 'Failed to complete authentication' } };
                 }
             }
         } catch (err: any) {
             console.error('[useAuth] Error in signInWithGoogle:', err);
             setLoading(false);
+            // Clear the flag on error
+            isManualAuthInProgress.current = false;
             return { error: err };
         }
     };

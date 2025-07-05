@@ -844,7 +844,35 @@ const usePaymentRequirementCheck = () => {
   
   // Basic user info
   const userId = session?.user?.id;
-  const userType = session?.userType;
+  
+  // ENHANCED: Better user type detection with fallbacks
+  let userType = session?.userType;
+  
+  // Fallback 1: Check if we have profiles to determine user type
+  if (!userType && session) {
+    if (musicLoverProfile) {
+      userType = 'music_lover';
+    } else if (organizerProfile) {
+      userType = 'organizer';
+    }
+  }
+  
+  // Fallback 2: Check URL path (for signup flows)
+  if (!userType && typeof window !== 'undefined') {
+    const currentPath = window.location.pathname;
+    if (currentPath.includes('MusicLover')) {
+      userType = 'music_lover';
+    } else if (currentPath.includes('Organizer')) {
+      userType = 'organizer';
+    }
+  }
+  
+  // Fallback 3: Default to music_lover if still undefined (most common case)
+  if (!userType && session) {
+    userType = 'music_lover';
+    console.log("[AppNavigator] ⚠️ UserType was undefined, defaulting to music_lover");
+  }
+  
   const isOrganizer = userType === 'organizer';
   const isPremiumUser = musicLoverProfile?.isPremium ?? false;
   
