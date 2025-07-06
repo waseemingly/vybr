@@ -379,21 +379,40 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         fetchData();
     }, [fetchData]);
 
-    // Replace the old real-time useEffect with this one
+    // Replace the old real-time useEffect with this enhanced one
     useEffect(() => {
         const handleNewMessage = (payload: any) => {
             console.log('ChatsTabs received new message notification, refreshing data...', payload);
             fetchData(); // Refresh the chat list
         };
 
-        // Subscribe to both individual and group notifications
+        const handleMessageStatusUpdate = (payload: any) => {
+            console.log('ChatsTabs received message status update:', payload);
+            // If a message is marked as seen, we should refresh the chat list to update unread counts
+            if (payload.is_seen) {
+                fetchData();
+            }
+        };
+
+        const handleGroupMessageStatusUpdate = (payload: any) => {
+            console.log('ChatsTabs received group message status update:', payload);
+            // If a message is marked as seen, we should refresh the chat list to update unread counts
+            if (payload.is_seen) {
+                fetchData();
+            }
+        };
+
+        // Subscribe to all relevant real-time events
         subscribeToEvent('new_message_notification', handleNewMessage);
-        // Assuming a similar notification for group messages exists or will be added
-        subscribeToEvent('new_group_message_notification', handleNewMessage); 
+        subscribeToEvent('new_group_message_notification', handleNewMessage);
+        subscribeToEvent('message_status_updated', handleMessageStatusUpdate);
+        subscribeToEvent('group_message_status_updated', handleGroupMessageStatusUpdate);
 
         return () => {
             unsubscribeFromEvent('new_message_notification', handleNewMessage);
             unsubscribeFromEvent('new_group_message_notification', handleNewMessage);
+            unsubscribeFromEvent('message_status_updated', handleMessageStatusUpdate);
+            unsubscribeFromEvent('group_message_status_updated', handleGroupMessageStatusUpdate);
         };
     }, [subscribeToEvent, unsubscribeFromEvent, fetchData]);
 
@@ -466,90 +485,111 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         );
     }, [session?.user?.id]);
 
-    // Function to mark all messages as seen for a specific chat
+    // Enhanced function to mark all messages as seen for a specific chat with better error handling
     const markChatMessagesAsSeen = useCallback(async (chatItem: ChatItem) => {
         if (!session?.user?.id) return;
 
-        const currentUserId = session.user.id; // Store in a variable to avoid repeated null checks
+        const currentUserId = session.user.id;
+        const startTime = Date.now();
 
         try {
             if (chatItem.type === 'individual') {
                 const partnerId = (chatItem.data as IndividualChatListItem).partner_user_id;
                 console.log(`ChatsTabs: Marking individual messages as seen from partner ${partnerId}`);
                 
-                // Use a simpler approach - get all messages from partner and mark them as seen
-                const { data: allMessages, error: fetchError } = await supabase
-                    .from('messages')
-                    .select('id')
-                    .eq('sender_id', partnerId)
-                    .eq('receiver_id', currentUserId);
+                // Use the more efficient database function approach
+                try {
+                    const { error } = await supabase.rpc('mark_all_messages_seen_from_user', {
+                        sender_id_input: partnerId,
+                        receiver_id_input: currentUserId
+                    });
+                    
+                    if (error) {
+                        console.warn('Error with bulk mark function, falling back to individual marking:', error.message);
+                        // Fallback to individual message marking
+                        const { data: unseenMessages, error: fetchError } = await supabase
+                            .from('messages')
+                            .select('id')
+                            .eq('sender_id', partnerId)
+                            .eq('receiver_id', currentUserId)
+                            .limit(50); // Limit to avoid performance issues
 
-                if (fetchError) {
-                    console.error('Error fetching messages from partner:', fetchError);
-                    return;
-                }
-
-                if (!allMessages || allMessages.length === 0) {
-                    console.log(`ChatsTabs: No messages found from partner ${partnerId}`);
-                    return;
-                }
-
-                // Try to mark messages as seen using the database function
-                for (const message of allMessages) {
-                    try {
-                        const { error } = await supabase.rpc('mark_message_seen', { 
-                            message_id_input: message.id 
-                        });
-                        if (error) {
-                            console.warn(`Error marking message ${message.id} as seen:`, error.message);
+                        if (fetchError) {
+                            console.error('Error fetching unseen messages:', fetchError);
+                            return;
                         }
-                    } catch (e) {
-                        console.warn(`Exception marking message ${message.id} as seen:`, e);
+
+                        if (unseenMessages && unseenMessages.length > 0) {
+                            const markPromises = unseenMessages.map(async (message) => {
+                                try {
+                                    const { error } = await supabase.rpc('mark_message_seen', { message_id_input: message.id });
+                                    if (error) {
+                                        console.warn(`Failed to mark message ${message.id} as seen:`, error.message);
+                                    }
+                                } catch (e: any) {
+                                    console.warn(`Exception marking message ${message.id} as seen:`, e.message);
+                                }
+                            });
+                            await Promise.allSettled(markPromises);
+                        }
                     }
+                } catch (bulkError) {
+                    console.error('Exception in bulk message marking:', bulkError);
                 }
 
-                console.log(`ChatsTabs: Marked ${allMessages.length} individual messages as seen`);
             } else {
                 // Group chat
                 const groupId = (chatItem.data as GroupChatListItem).group_id;
                 console.log(`ChatsTabs: Marking group messages as seen for group ${groupId}`);
                 
-                // Get all messages from this group (excluding own messages)
-                const { data: allGroupMessages, error: fetchError } = await supabase
-                    .from('group_chat_messages')
-                    .select('id')
-                    .eq('group_id', groupId)
-                    .neq('sender_id', currentUserId);
+                // Use the more efficient database function approach
+                try {
+                    const { error } = await supabase.rpc('mark_all_group_messages_seen', {
+                        group_id_input: groupId,
+                        user_id_input: currentUserId
+                    });
+                    
+                    if (error) {
+                        console.warn('Error with bulk group mark function, falling back to individual marking:', error.message);
+                        // Fallback to individual message marking
+                        const { data: unseenMessages, error: fetchError } = await supabase
+                            .from('group_chat_messages')
+                            .select('id')
+                            .eq('group_id', groupId)
+                            .neq('sender_id', currentUserId)
+                            .limit(50); // Limit to avoid performance issues
 
-                if (fetchError) {
-                    console.error('Error fetching group messages:', fetchError);
-                    return;
-                }
-
-                if (!allGroupMessages || allGroupMessages.length === 0) {
-                    console.log(`ChatsTabs: No messages found in group ${groupId}`);
-                    return;
-                }
-
-                // Try to mark group messages as seen using the database function
-                for (const message of allGroupMessages) {
-                    try {
-                        const { error } = await supabase.rpc('mark_group_message_seen', { 
-                            message_id_input: message.id,
-                            user_id_input: currentUserId
-                        });
-                        if (error) {
-                            console.warn(`Error marking group message ${message.id} as seen:`, error.message);
+                        if (fetchError) {
+                            console.error('Error fetching unseen group messages:', fetchError);
+                            return;
                         }
-                    } catch (e) {
-                        console.warn(`Exception marking group message ${message.id} as seen:`, e);
-                    }
-                }
 
-                console.log(`ChatsTabs: Marked ${allGroupMessages.length} group messages as seen`);
+                        if (unseenMessages && unseenMessages.length > 0) {
+                            const markPromises = unseenMessages.map(async (message) => {
+                                try {
+                                    const { error } = await supabase.rpc('mark_group_message_seen', { 
+                                        message_id_input: message.id,
+                                        user_id_input: currentUserId
+                                    });
+                                    if (error) {
+                                        console.warn(`Failed to mark group message ${message.id} as seen:`, error.message);
+                                    }
+                                } catch (e: any) {
+                                    console.warn(`Exception marking group message ${message.id} as seen:`, e.message);
+                                }
+                            });
+                            await Promise.allSettled(markPromises);
+                        }
+                    }
+                } catch (bulkError) {
+                    console.error('Exception in bulk group message marking:', bulkError);
+                }
             }
         } catch (error) {
             console.error('Error in markChatMessagesAsSeen:', error);
+        } finally {
+            const endTime = Date.now();
+            console.log(`ChatsTabs: Message marking completed in ${endTime - startTime}ms`);
         }
     }, [session?.user?.id]);
 

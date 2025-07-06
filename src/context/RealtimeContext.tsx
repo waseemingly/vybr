@@ -84,6 +84,27 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                         listeners[eventName].forEach(callback => callback(payload));
                     }
                 })
+                .on('broadcast', { event: 'new_group_message_notification' }, (payload) => {
+                    console.log('Received new group message notification:', payload);
+                    const eventName = 'new_group_message_notification';
+                    if (listeners[eventName]) {
+                        listeners[eventName].forEach(callback => callback(payload));
+                    }
+                })
+                .on('broadcast', { event: 'message_status_updated' }, (payload) => {
+                    console.log('Received message status update:', payload);
+                    const eventName = 'message_status_updated';
+                    if (listeners[eventName]) {
+                        listeners[eventName].forEach(callback => callback(payload));
+                    }
+                })
+                .on('broadcast', { event: 'group_message_status_updated' }, (payload) => {
+                    console.log('Received group message status update:', payload);
+                    const eventName = 'group_message_status_updated';
+                    if (listeners[eventName]) {
+                        listeners[eventName].forEach(callback => callback(payload));
+                    }
+                })
                 .subscribe((status, err) => {
                     console.log('[RealtimeContext] 📡 Channel subscription status:', status, err);
                     if (status === 'SUBSCRIBED') {

@@ -1080,6 +1080,7 @@ const IndividualChatScreen: React.FC = () => {
 
             console.log('[IndividualChatScreen] Event shared to user successfully, message_id:', insertedMessage.id);
             markChatAsInitiatedInStorage(matchUserId);
+            
             setMessages(prev => prev.map(msg => 
                 msg._id === tempId ? { 
                     ...optimisticMessage, 
@@ -1094,6 +1095,16 @@ const IndividualChatScreen: React.FC = () => {
                     } : null
                 } : msg
             ));
+
+            // Explicitly create the message status entry for the receiver
+            const { error: statusError } = await supabase.rpc('create_message_status_entry', {
+                message_id_input: insertedMessage.id,
+                receiver_id_input: matchUserId
+            });
+
+            if (statusError) {
+                console.error("Failed to create shared event message status entry:", statusError);
+            }
 
         } catch (err: any) {
             console.error("Error sharing event to user:", err);
@@ -1135,6 +1146,7 @@ const IndividualChatScreen: React.FC = () => {
              markChatAsInitiatedInStorage(matchUserId);
          }
          try {
+             console.log("Sending message to receiver_id:", matchUserId); // Added for debugging
              let insertData: any = { 
                  sender_id: currentUserId, 
                  receiver_id: matchUserId, 
@@ -1143,10 +1155,22 @@ const IndividualChatScreen: React.FC = () => {
                 };
              const { data: insertedMessage, error: insertError } = await supabase.from('messages').insert(insertData).select('id, created_at').single(); 
              if (insertError) { throw insertError; }
+
              if (insertedMessage) {
                 setMessages(prev => prev.map(msg => 
                     msg._id === tempId ? { ...newMessage, _id: insertedMessage.id, createdAt: new Date(insertedMessage.created_at) } : msg
                 ));
+
+                // Explicitly create the message status entry for the receiver
+                const { error: statusError } = await supabase.rpc('create_message_status_entry', {
+                    message_id_input: insertedMessage.id,
+                    receiver_id_input: matchUserId
+                });
+
+                if (statusError) {
+                    // This is a non-fatal error for the user, but we must log it.
+                    console.error("Failed to create message status entry:", statusError);
+                }
              }
              setError(null);
          } catch (err: any) { 
@@ -1831,17 +1855,29 @@ const IndividualChatScreen: React.FC = () => {
                 throw insertError;
             }
 
-            // Update the message with the final data
-            setMessages(prev => prev.map(msg => 
-                msg._id === tempId 
-                    ? { 
-                        ...optimisticMessage, 
-                        _id: insertedData.id,
-                        image: insertedData.image_url,
-                        createdAt: new Date(insertedData.created_at)
-                    } 
-                    : msg
-            ));
+            if (insertedData) {
+                // Update the message with the final data
+                setMessages(prev => prev.map(msg => 
+                    msg._id === tempId 
+                        ? { 
+                            ...optimisticMessage, 
+                            _id: insertedData.id,
+                            image: insertedData.image_url,
+                            createdAt: new Date(insertedData.created_at)
+                        } 
+                        : msg
+                ));
+                
+                // Explicitly create the message status entry for the receiver
+                const { error: statusError } = await supabase.rpc('create_message_status_entry', {
+                    message_id_input: insertedData.id,
+                    receiver_id_input: matchUserId
+                });
+
+                if (statusError) {
+                    console.error("Failed to create image message status entry:", statusError);
+                }
+            }
 
         } catch (err: any) {
             console.error('[pickAndSendImage] Error:', err);
@@ -2084,6 +2120,51 @@ const IndividualChatScreen: React.FC = () => {
             broadcastTyping();
         }
     };
+
+    // Add a function to mark messages as seen when the screen is focused
+    const markMessagesAsSeen = useCallback(async () => {
+        if (!currentUserId || !matchUserId || messages.length === 0) return;
+
+        const unseenMessagesFromPartner = messages.filter(
+            msg => msg.user._id === matchUserId && !msg.isSeen
+        );
+
+        if (unseenMessagesFromPartner.length === 0) return;
+
+        console.log(`[IndividualChatScreen] Marking ${unseenMessagesFromPartner.length} messages as seen from ${matchUserId}`);
+
+        for (const message of unseenMessagesFromPartner) {
+            try {
+                const { error } = await supabase.rpc('mark_message_seen', { 
+                    message_id_input: message._id 
+                });
+                if (error) {
+                    console.error(`Error marking message ${message._id} as seen:`, error.message);
+                } else {
+                    // Optimistically update UI
+                    setMessages(prev => prev.map(m => 
+                        m._id === message._id 
+                            ? {...m, isSeen: true, seenAt: new Date()} 
+                            : m
+                    ));
+                }
+            } catch (e: any) {
+                console.error(`Exception marking message ${message._id} as seen:`, e.message);
+            }
+        }
+    }, [currentUserId, matchUserId, messages]);
+
+    // Call markMessagesAsSeen when the screen focuses and when new messages arrive from the partner
+    useFocusEffect(
+        useCallback(() => {
+            markMessagesAsSeen();
+        }, [markMessagesAsSeen])
+    );
+
+    // Also mark as seen when new messages arrive while screen is focused
+    useEffect(() => {
+        markMessagesAsSeen();
+    }, [messages, markMessagesAsSeen]);
 
     // --- Render Logic ---
     if (loading && messages.length === 0 && !isBlocked) {

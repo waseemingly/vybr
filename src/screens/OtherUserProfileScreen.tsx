@@ -332,6 +332,67 @@ const OtherUserProfileScreen: React.FC = () => {
         };
     }, [currentUserId, profileUserId, fetchInteractionStatus, fetchFriendsCount]);
 
+    // --- Realtime Subscription for Mute and Block Status ---
+    useEffect(() => {
+        if (!currentUserId || !profileUserId) return;
+
+        const handleInteractionChange = (payload: any, table: string) => {
+            console.log(`[Realtime] Change detected in ${table}:`, payload);
+            // Refetch on any relevant change.
+            // This is safer than inspecting the payload, especially for DELETE events
+            // where `payload.old` might not contain all the data needed for a check.
+            fetchInteractionStatus();
+        };
+
+        // This channel can be shared for different interactions between these two users
+        const interactionChannel = supabase.channel(`user-interactions-social-${currentUserId}-${profileUserId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'muted_users',
+                    filter: `muter_id=eq.${currentUserId}`,
+                },
+                (payload) => handleInteractionChange(payload, 'muted_users')
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'blocks',
+                    // Listen for when the current user blocks someone OR when the current user is blocked by someone.
+                    // This is broad but necessary to cover both cases in real-time.
+                    filter: `blocker_id=eq.${currentUserId}`
+                },
+                (payload) => handleInteractionChange(payload, 'blocks_as_blocker')
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'blocks',
+                    filter: `blocked_id=eq.${currentUserId}`
+                },
+                (payload) => handleInteractionChange(payload, 'blocks_as_blocked')
+            )
+            .subscribe((status, err) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log(`[Realtime] Subscribed to mute/block status changes involving user: ${currentUserId}`);
+                }
+                if (err) {
+                    console.error('[Realtime] Mute/Block subscription error:', err);
+                }
+            });
+
+        return () => {
+            console.log('[Realtime] Unsubscribing from mute/block status channel.');
+            supabase.removeChannel(interactionChannel);
+        };
+    }, [currentUserId, profileUserId, fetchInteractionStatus]);
+
     // --- useEffect Hooks (Initial fetch, Focus effect, Interaction after load, Header options) ---
     useEffect(() => {
         setIsLoading(true);
