@@ -80,6 +80,31 @@ const UserMutedListScreen: React.FC = () => {
             }
         };
         fetchMutedUsers();
+
+        // Realtime subscription for unmutes
+        const muteChannel = supabase
+            .channel(`public:muted_users:muter_id=eq.${currentUserId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'DELETE',
+                    schema: 'public',
+                    table: 'muted_users',
+                    filter: `muter_id=eq.${currentUserId}`,
+                },
+                (payload) => {
+                    console.log('[UserMutedListScreen] Unmute detected in realtime:', payload);
+                    const unmutedUserId = payload.old?.muted_id;
+                    if (unmutedUserId) {
+                        setMutedUsers((prev) => prev.filter((user) => user.id !== unmutedUserId));
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(muteChannel);
+        };
     }, [currentUserId]);
 
     // Unmute handler
