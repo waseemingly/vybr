@@ -838,23 +838,23 @@ const OrganizerTabs = () => {
 
 // --- Enhanced Payment Requirement Logic with Real Payment Method Validation ---
 const usePaymentRequirementCheck = () => {
-  const { session, loading, musicLoverProfile, organizerProfile } = useAuth();
+  const { session, loading, musicLoverProfile, organizerProfile, isSetupInProgress } = useAuth();
   const [hasActualPaymentMethods, setHasActualPaymentMethods] = useState<boolean | null>(null);
-  const [paymentCheckLoading, setPaymentCheckLoading] = useState(false);
-  
-  // Basic user info
+  const [paymentCheckLoading, setPaymentCheckLoading] = useState<boolean>(false);
+
   const userId = session?.user?.id;
-  
-  // ENHANCED: Better user type detection with fallbacks
-  let userType = session?.userType;
-  
-  // Fallback 1: Check if we have profiles to determine user type
-  if (!userType && session) {
-    if (musicLoverProfile) {
-      userType = 'music_lover';
-    } else if (organizerProfile) {
-      userType = 'organizer';
-    }
+  let userType = session?.userType ||
+    session?.user?.user_metadata?.user_type ||
+    session?.user?.user_metadata?.userType ||
+    session?.user?.app_metadata?.user_type ||
+    session?.user?.app_metadata?.userType;
+
+  // Fallback 1: Check profile data for userType
+  if (!userType && musicLoverProfile) {
+    userType = 'music_lover';
+  }
+  if (!userType && organizerProfile) {
+    userType = 'organizer';
   }
   
   // Fallback 2: Check URL path (for signup flows)
@@ -942,12 +942,13 @@ const usePaymentRequirementCheck = () => {
   // CRITICAL: Payment is required if user needs it AND doesn't have ACTUAL payment methods
   const requiresPaymentScreen = isPaymentMethodRequired && isProfileComplete && !hasValidPaymentMethod;
   
-  // Include payment method check loading in overall loading state
-  const overallLoading = loading || (isPaymentMethodRequired && isProfileComplete && paymentCheckLoading);
+  // CRITICAL: Include setup loading state to prevent navigation bouncing
+  const overallLoading = loading || isSetupInProgress || (isPaymentMethodRequired && isProfileComplete && paymentCheckLoading);
 
   // Enhanced debugging with timestamp for monitoring changes
   console.log("[AppNavigator] ========================= " + new Date().toISOString());
   console.log("[AppNavigator] Auth State:", loading ? "Loading" : session ? `Authenticated (${session.userType})` : "No Authentication");
+  console.log("[AppNavigator] Setup In Progress:", isSetupInProgress);
   console.log("[AppNavigator] User ID:", userId);
   console.log("[AppNavigator] Profile Complete:", isProfileComplete);
   console.log("[AppNavigator] Is Organizer:", isOrganizer);
@@ -957,7 +958,8 @@ const usePaymentRequirementCheck = () => {
   console.log("[AppNavigator] Payment Check Loading:", paymentCheckLoading);
   console.log("[AppNavigator] Has Actual Payment Methods:", hasActualPaymentMethods);
   console.log("[AppNavigator] Has Valid Payment Method:", hasValidPaymentMethod);
-  console.log("[AppNavigator] 🚨 REQUIRES PAYMENT SCREEN:", requiresPaymentScreen);
+  console.log("[AppNavigator] �� REQUIRES PAYMENT SCREEN:", requiresPaymentScreen);
+  console.log("[AppNavigator] 🔄 OVERALL LOADING:", overallLoading);
   console.log("[AppNavigator] =========================");
 
   return {

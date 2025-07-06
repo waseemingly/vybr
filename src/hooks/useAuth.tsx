@@ -134,6 +134,7 @@ export type OpeningHours = {
 const AuthContext = createContext<{
     session: UserSession | null;
     loading: boolean;
+    isSetupInProgress: boolean;
     musicLoverProfile: MusicLoverProfile | null;
     organizerProfile: OrganizerProfile | null;
     signUp: (credentials: SignUpCredentials) => Promise<{ error: any } | { user: any }>;
@@ -153,9 +154,11 @@ const AuthContext = createContext<{
     signInWithGoogle: () => Promise<{ error: any } | { user: any }>;
     verifyGoogleAuthCompleted: () => Promise<boolean>;
     updateUserMetadata: (userType: UserTypes) => Promise<{ error: any } | { success: boolean }>;
+    setSetupInProgress: (inProgress: boolean) => void;
 }>({
     session: null,
     loading: true,
+    isSetupInProgress: false,
     musicLoverProfile: null,
     organizerProfile: null,
     signUp: async () => ({ error: 'Not implemented' }),
@@ -175,6 +178,7 @@ const AuthContext = createContext<{
     signInWithGoogle: async () => ({ error: 'Not implemented' }),
     verifyGoogleAuthCompleted: async () => false,
     updateUserMetadata: async () => ({ error: 'Not implemented' }),
+    setSetupInProgress: () => { },
 });
 
 // --- Provider Component ---
@@ -186,6 +190,7 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigationRef }) => {
     const [session, setSession] = useState<UserSession | null>(null);
     const [loading, setLoading] = useState(true);
+    const [isSetupInProgress, setIsSetupInProgress] = useState(false);
     const [musicLoverProfile, setMusicLoverProfile] = useState<MusicLoverProfile | null>(null);
     const [organizerProfile, setOrganizerProfile] = useState<OrganizerProfile | null>(null);
     const { isOrganizerMode, setIsOrganizerMode } = useOrganizerMode();
@@ -2097,11 +2102,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         }
     };
 
+    // Function to set setup in progress state (prevents navigation bouncing)
+    const setSetupInProgress = (inProgress: boolean) => {
+        console.log('[useAuth] Setting setup in progress:', inProgress);
+        setIsSetupInProgress(inProgress);
+    };
+
     // Provide context value
     return (
         <AuthContext.Provider value={{
             session,
             loading,
+            isSetupInProgress,
             musicLoverProfile,
             organizerProfile,
             signUp,
@@ -2121,6 +2133,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             signInWithGoogle,
             verifyGoogleAuthCompleted,
             updateUserMetadata,
+            setSetupInProgress,
         }}>
             {children}
         </AuthContext.Provider>

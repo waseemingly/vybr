@@ -145,6 +145,7 @@ const MusicLoverSignUpFlow = () => {
         signInWithGoogle,     // Add Google Sign-In function
         verifyGoogleAuthCompleted, // Add new function
         updateUserMetadata,   // Add function to update user metadata
+        setSetupInProgress,   // Add function to prevent navigation bouncing
     } = useAuth();
     
     // Spotify auth hook
@@ -907,124 +908,7 @@ const MusicLoverSignUpFlow = () => {
     };
 
     // Completes signup for PREMIUM tier - MODIFIED for Google OAuth
-    const handlePremiumSignupCompletion = async () => {
-        console.log('[MusicLoverSignUpFlow] 💎 Starting premium signup completion...');
-        try {
-            setIsLoading(true);
-            setError('');
-            
-            console.log('[MusicLoverSignUpFlow] 🔍 Getting current session...');
-            const { data: { session } } = await supabase.auth.getSession();
-            const userId = session?.user?.id;
-
-            console.log('[MusicLoverSignUpFlow] 📊 Session data:', {
-                hasSession: !!session,
-                userId: userId,
-                userEmail: session?.user?.email,
-                userMetadata: session?.user?.user_metadata
-            });
-
-            if (!userId) {
-                console.error('[MusicLoverSignUpFlow] ❌ No user ID found in session');
-                throw new Error("Could not determine user ID from session. Please sign in again.");
-            }
-
-            // Add a small delay to ensure user is properly created in auth.users
-            console.log('[MusicLoverSignUpFlow] ⏳ Waiting 2 seconds for user creation to complete...');
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            // Verify user exists in auth.users before proceeding
-            console.log('[MusicLoverSignUpFlow] 🔍 Verifying user exists in database...');
-            try {
-                const { data: userCheck, error: userCheckError } = await supabase.auth.getUser();
-                console.log('[MusicLoverSignUpFlow] 📊 User verification result:', {
-                    hasUser: !!userCheck?.user,
-                    userId: userCheck?.user?.id,
-                    error: userCheckError
-                });
-                
-                if (userCheckError) {
-                    console.error('[MusicLoverSignUpFlow] ❌ User verification failed:', userCheckError);
-                    throw new Error('User verification failed: ' + userCheckError.message);
-                }
-                
-                if (!userCheck?.user) {
-                    console.error('[MusicLoverSignUpFlow] ❌ User not found in database');
-                    throw new Error('User not found in database. Please try signing in again.');
-                }
-            } catch (verifyError) {
-                console.error('[MusicLoverSignUpFlow] ❌ Error verifying user:', verifyError);
-                throw verifyError;
-            }
-            
-            // Create the profile for the Google user
-            console.log('[MusicLoverSignUpFlow] 🔧 Preparing profile data...');
-            const profileData = await prepareProfileData(userId);
-            console.log('[MusicLoverSignUpFlow] 📝 Profile data prepared:', {
-                userId: profileData.userId,
-                firstName: profileData.firstName,
-                lastName: profileData.lastName,
-                username: profileData.username,
-                email: profileData.email,
-                selectedStreamingService: profileData.selectedStreamingService,
-                termsAccepted: profileData.termsAccepted
-            });
-            
-            console.log('[MusicLoverSignUpFlow] 🚀 Creating music lover profile...');
-            const profileResult = await createMusicLoverProfile(profileData);
-
-            if ('error' in profileResult && profileResult.error) {
-                console.error('[MusicLoverSignUpFlow] ❌ Profile creation error:', profileResult.error);
-                throw new Error(profileResult.error.message || 'Failed to create profile for Google user');
-            }
-
-            console.log('[MusicLoverSignUpFlow] ✅ Profile created successfully');
-    
-            // Update Premium Status
-            console.log('[MusicLoverSignUpFlow] 🔧 Setting premium status to true...');
-            const premiumResult = await updatePremiumStatus(userId, true);
-            if ('error' in premiumResult) {
-                console.error('[MusicLoverSignUpFlow] ❌ Error updating premium status:', premiumResult.error);
-            } else {
-                console.log('[MusicLoverSignUpFlow] ✅ Premium status updated successfully');
-            }
-    
-            // Fetch streaming data if applicable
-            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None' && isSpotifyLoggedIn) {
-                console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
-                try {
-                    await forceFetchAndSaveSpotifyData(userId, true);
-                    console.log('[MusicLoverSignUpFlow] ✅ Spotify data fetched successfully');
-                } catch (spotifyError) {
-                    console.error('[MusicLoverSignUpFlow] ❌ Error fetching Spotify data:', spotifyError);
-                }
-            } else {
-                console.log('[MusicLoverSignUpFlow] ⏭️ Skipping Spotify data fetch:', {
-                    selectedStreamingService: formData.selectedStreamingService,
-                    isSpotifyLoggedIn: isSpotifyLoggedIn
-                });
-            }
-    
-            // Navigate to payment screen
-            console.log('[MusicLoverSignUpFlow] 🎉 Premium signup completed. The app will redirect to payment setup.');
-            navigation.reset({
-                index: 0,
-                routes: [{ name: 'MainApp' }],
-            });
-    
-        } catch (error: any) {
-            console.error('[MusicLoverSignUpFlow] ❌ Error in premium signup completion:', error);
-            console.error('[MusicLoverSignUpFlow] 🔍 Error details:', {
-                message: error.message,
-                stack: error.stack,
-                name: error.name
-            });
-            setError(error.message || 'An error occurred during signup');
-            Alert.alert('Signup Error', error.message || 'An error occurred during signup');
-        } finally {
-            setIsLoading(false);
-        }
-    };
+    // Note: handlePremiumSignupCompletion function removed - premium users now go directly to PremiumSignupScreen
 
     // --- Handle Step Submission (Orchestrator) ---
     const handleStepSubmit = async () => {
@@ -1107,7 +991,23 @@ const MusicLoverSignUpFlow = () => {
                 // The actual completion logic is in `handleGoogleSignIn`.
                 break;
             case 'payment':
-                 await handlePremiumSignupCompletion();
+                // Premium users should now go directly to PremiumSignupScreen after Google sign-in
+                // If they somehow reach this step, redirect them to the payment screen
+                if (formData.subscriptionTier === 'premium') {
+                    console.log('[MusicLoverSignUpFlow] 💎 Premium user reached payment step - redirecting to PremiumSignupScreen...');
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (session?.user) {
+                        navigation.navigate('PremiumSignupScreen', {
+                            userEmail: session.user.email || '',
+                            userId: session.user.id
+                        });
+                    } else {
+                        setError('Please sign in with Google first');
+                    }
+                } else {
+                    // This shouldn't happen for free users as they don't have a payment step
+                    setError('Free users should not reach the payment step');
+                }
                 break;
         }
     };
@@ -1613,19 +1513,34 @@ const MusicLoverSignUpFlow = () => {
                     console.error('[MusicLoverSignUpFlow] ❌ Failed to update user metadata:', metaError);
                 }
                 
-                // Complete the signup process directly based on subscription tier
-                if (formData.subscriptionTier === 'free') {
-                    console.log('[MusicLoverSignUpFlow] 🆓 Completing free signup...');
-                    await handleFreeSignupCompletion();
-                } else if (formData.subscriptionTier === 'premium') {
-                    console.log('[MusicLoverSignUpFlow] 💎 Completing premium signup...');
-                    await handlePremiumSignupCompletion();
+                // CRITICAL: Set setup in progress flag to prevent AppNavigator from routing
+                console.log('[MusicLoverSignUpFlow] 🔒 Setting setup in progress - preventing navigation bouncing...');
+                setSetupInProgress(true);
+                
+                // For premium users, create profile with premium status
+                if (formData.subscriptionTier === 'premium') {
+                    console.log('[MusicLoverSignUpFlow] 💎 Premium user - creating profile...');
+                    await handleCreateProfileForPayment(result.user.id);
+                    console.log('[MusicLoverSignUpFlow] 💎 Premium profile created - AppNavigator will handle routing to payment...');
+                } else if (formData.subscriptionTier === 'free') {
+                    console.log('[MusicLoverSignUpFlow] 🆓 Free user - creating profile...');
+                    await handleCreateProfileForFree(result.user.id);
+                    console.log('[MusicLoverSignUpFlow] 🆓 Free profile created - AppNavigator will handle routing to main app...');
                 } else {
                     console.error('[MusicLoverSignUpFlow] ❌ No subscription tier selected when Google sign-in completed');
                     console.log('[MusicLoverSignUpFlow] 🔍 Available subscription tiers: free, premium');
                     console.log('[MusicLoverSignUpFlow] 📊 Current subscription tier:', formData.subscriptionTier);
                     setError('Please select a subscription tier first');
+                    setSetupInProgress(false);
+                    return;
                 }
+                
+                // Add a small delay to ensure all auth state updates have propagated
+                console.log('[MusicLoverSignUpFlow] ⏳ Waiting for auth state to stabilize...');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                console.log('[MusicLoverSignUpFlow] ✅ Profile creation complete - releasing setup in progress flag...');
+                setSetupInProgress(false);
             } else {
                 console.error('[MusicLoverSignUpFlow] ❌ Google Sign-In result missing user data:', result);
                 setError('Authentication completed but user data is missing');
@@ -1642,8 +1557,145 @@ const MusicLoverSignUpFlow = () => {
             await diagnoseOAuthUserCreation();
             
             setError(error.message || 'Failed to sign in with Google');
+            setSetupInProgress(false);
         } finally {
+            // Only release loading state after everything is complete
             setIsLoading(false);
+        }
+    };
+
+    // New function to create profile without setting premium status (for premium users going to payment)
+    const handleCreateProfileForPayment = async (userId: string) => {
+        try {
+            console.log('[MusicLoverSignUpFlow] 🔧 Creating profile for payment flow...');
+            
+            // Add a small delay to ensure user is properly created in auth.users
+            console.log('[MusicLoverSignUpFlow] ⏳ Waiting 2 seconds for user creation to complete...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Verify user exists in auth.users before proceeding
+            console.log('[MusicLoverSignUpFlow] 🔍 Verifying user exists in database...');
+            const { data: userCheck, error: userCheckError } = await supabase.auth.getUser();
+            
+            if (userCheckError) {
+                console.error('[MusicLoverSignUpFlow] ❌ User verification failed:', userCheckError);
+                throw new Error('User verification failed: ' + userCheckError.message);
+            }
+            
+            if (!userCheck?.user) {
+                console.error('[MusicLoverSignUpFlow] ❌ User not found in database');
+                throw new Error('User not found in database. Please try signing in again.');
+            }
+
+            // Create the profile for Google OAuth user (but don't set premium status yet)
+            console.log('[MusicLoverSignUpFlow] 🔧 Preparing profile data...');
+            const profileData = await prepareProfileData(userId);
+            
+            console.log('[MusicLoverSignUpFlow] 🚀 Creating music lover profile (premium tier)...');
+            const profileResult = await createMusicLoverProfile(profileData);
+            
+            if ('error' in profileResult && profileResult.error) {
+                console.error('[MusicLoverSignUpFlow] ❌ Profile creation error:', profileResult.error);
+                throw new Error(profileResult.error.message || 'Failed to create profile');
+            }
+
+            console.log('[MusicLoverSignUpFlow] ✅ Profile created successfully (premium tier)');
+
+            // Set premium status to true for premium users so AppNavigator routes them to payment
+            console.log('[MusicLoverSignUpFlow] 🔧 Setting premium status to true for premium user...');
+            const premiumResult = await updatePremiumStatus(userId, true);
+            if ('error' in premiumResult) {
+                console.error('[MusicLoverSignUpFlow] ❌ Error updating premium status:', premiumResult.error);
+            } else {
+                console.log('[MusicLoverSignUpFlow] ✅ Premium status set to true for premium user');
+            }
+
+            // Fetch streaming data if applicable
+            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None' && isSpotifyLoggedIn) {
+                console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
+                try {
+                    await forceFetchAndSaveSpotifyData(userId, false);
+                    console.log('[MusicLoverSignUpFlow] ✅ Spotify data fetched successfully');
+                } catch (spotifyError) {
+                    console.error('[MusicLoverSignUpFlow] ❌ Error fetching Spotify data:', spotifyError);
+                }
+            }
+
+            console.log('[MusicLoverSignUpFlow] 🎉 Profile created successfully for payment flow');
+            
+        } catch (error: any) {
+            console.error('[MusicLoverSignUpFlow] ❌ Error creating profile for payment:', error);
+            throw error;
+        }
+    };
+
+    // New function to create profile for free users and complete signup
+    const handleCreateProfileForFree = async (userId: string) => {
+        try {
+            console.log('[MusicLoverSignUpFlow] 🔧 Creating profile for free user...');
+            
+            // Add a small delay to ensure user is properly created in auth.users
+            console.log('[MusicLoverSignUpFlow] ⏳ Waiting 2 seconds for user creation to complete...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Verify user exists in auth.users before proceeding
+            console.log('[MusicLoverSignUpFlow] 🔍 Verifying user exists in database...');
+            const { data: userCheck, error: userCheckError } = await supabase.auth.getUser();
+            
+            if (userCheckError) {
+                console.error('[MusicLoverSignUpFlow] ❌ User verification failed:', userCheckError);
+                throw new Error('User verification failed: ' + userCheckError.message);
+            }
+            
+            if (!userCheck?.user) {
+                console.error('[MusicLoverSignUpFlow] ❌ User not found in database');
+                throw new Error('User not found in database. Please try signing in again.');
+            }
+
+            // Create the profile for Google OAuth user
+            console.log('[MusicLoverSignUpFlow] 🔧 Preparing profile data...');
+            const profileData = await prepareProfileData(userId);
+            
+            console.log('[MusicLoverSignUpFlow] 🚀 Creating music lover profile (free tier)...');
+            const profileResult = await createMusicLoverProfile(profileData);
+            
+            if ('error' in profileResult && profileResult.error) {
+                console.error('[MusicLoverSignUpFlow] ❌ Profile creation error:', profileResult.error);
+                throw new Error(profileResult.error.message || 'Failed to create profile');
+            }
+
+            console.log('[MusicLoverSignUpFlow] ✅ Profile created successfully (free tier)');
+
+            // Set premium status to false for free users
+            console.log('[MusicLoverSignUpFlow] 🔧 Setting premium status to false for free user...');
+            const premiumResult = await updatePremiumStatus(userId, false);
+            if ('error' in premiumResult) {
+                console.error('[MusicLoverSignUpFlow] ❌ Error updating premium status:', premiumResult.error);
+            } else {
+                console.log('[MusicLoverSignUpFlow] ✅ Premium status set to false for free user');
+            }
+
+            // Fetch streaming data if applicable
+            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None' && isSpotifyLoggedIn) {
+                console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
+                try {
+                    await forceFetchAndSaveSpotifyData(userId, false);
+                    console.log('[MusicLoverSignUpFlow] ✅ Spotify data fetched successfully');
+                } catch (spotifyError) {
+                    console.error('[MusicLoverSignUpFlow] ❌ Error fetching Spotify data:', spotifyError);
+                }
+            } else {
+                console.log('[MusicLoverSignUpFlow] ⏭️ Skipping Spotify data fetch:', {
+                    selectedStreamingService: formData.selectedStreamingService,
+                    isSpotifyLoggedIn: isSpotifyLoggedIn
+                });
+            }
+
+            console.log('[MusicLoverSignUpFlow] 🎉 Free user profile created successfully');
+            
+        } catch (error: any) {
+            console.error('[MusicLoverSignUpFlow] ❌ Error creating profile for free user:', error);
+            throw error;
         }
     };
 
