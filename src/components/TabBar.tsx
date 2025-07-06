@@ -1,9 +1,9 @@
-
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { MessageSquare, User, Search, Calendar, Plus, Heart, LayoutDashboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOrganizerMode } from '@/hooks/useOrganizerMode';
+import { useUnreadCount } from '@/hooks/useUnreadCount';
 
 // Define the type for tab items
 interface TabItem {
@@ -16,6 +16,7 @@ interface TabItem {
 const TabBar = () => {
   const location = useLocation();
   const { isOrganizerMode } = useOrganizerMode();
+  const { unreadCount } = useUnreadCount();
   
   // User mode tabs (original design)
   const userTabs: TabItem[] = [
@@ -55,7 +56,7 @@ const TabBar = () => {
               )}
             >
               <div className={cn(
-                "w-12 h-12 rounded-full flex items-center justify-center mb-1 transition-all duration-300",
+                "w-12 h-12 rounded-full flex items-center justify-center mb-1 transition-all duration-300 relative",
                 isPrimary 
                   ? "bg-vybr-midBlue text-white" 
                   : isActive 
@@ -66,6 +67,12 @@ const TabBar = () => {
                   "w-6 h-6 transition-transform duration-300",
                   isActive ? "scale-110" : ""
                 )} />
+                {/* Unread count badge for chat tab */}
+                {tab.label === 'Chats' && unreadCount > 0 && (
+                  <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full min-w-5 h-5 flex items-center justify-center px-1 font-medium shadow-sm">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </div>
+                )}
               </div>
               <span className={cn(
                 "transition-all duration-200",
