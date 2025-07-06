@@ -309,7 +309,7 @@ const WebVerticalTabsUser = () => {
   // Get current navigation state to determine active tab
   const currentRouteName = useNavigationState(state => {
     // Correctly find the deepest route name
-    let route = state?.routes[state.index];
+    let route: any = state?.routes[state.index];
     while (route?.state) {
       route = route.state.routes[route.state.index];
     }
@@ -462,7 +462,7 @@ const WebVerticalTabsOrganizer = () => {
   // Get current navigation state to determine active tab
   const currentRouteName = useNavigationState(state => {
     // Correctly find the deepest route name
-    let route = state?.routes[state.index];
+    let route: any = state?.routes[state.index];
     while (route?.state) {
       route = route.state.routes[route.state.index];
     }
@@ -659,7 +659,7 @@ const WebLayoutWrapper = ({ children, isOrganizerMode = false }: { children: Rea
   // Get current navigation state to determine active tab
   const currentRouteName = useNavigationState(state => {
     // Correctly find the deepest route name
-    let route = state?.routes[state.index];
+    let route: any = state?.routes[state.index];
     while (route?.state) {
       route = route.state.routes[route.state.index];
     }
@@ -844,10 +844,10 @@ const usePaymentRequirementCheck = () => {
 
   const userId = session?.user?.id;
   let userType = session?.userType ||
-    session?.user?.user_metadata?.user_type ||
-    session?.user?.user_metadata?.userType ||
-    session?.user?.app_metadata?.user_type ||
-    session?.user?.app_metadata?.userType;
+    (session?.user as any)?.user_metadata?.user_type ||
+    (session?.user as any)?.user_metadata?.userType ||
+    (session?.user as any)?.app_metadata?.user_type ||
+    (session?.user as any)?.app_metadata?.userType;
 
   // Fallback 1: Check profile data for userType
   if (!userType && musicLoverProfile) {
@@ -958,7 +958,7 @@ const usePaymentRequirementCheck = () => {
   console.log("[AppNavigator] Payment Check Loading:", paymentCheckLoading);
   console.log("[AppNavigator] Has Actual Payment Methods:", hasActualPaymentMethods);
   console.log("[AppNavigator] Has Valid Payment Method:", hasValidPaymentMethod);
-  console.log("[AppNavigator] �� REQUIRES PAYMENT SCREEN:", requiresPaymentScreen);
+  console.log("[AppNavigator] REQUIRES PAYMENT SCREEN:", requiresPaymentScreen);
   console.log("[AppNavigator] 🔄 OVERALL LOADING:", overallLoading);
   console.log("[AppNavigator] =========================");
 
