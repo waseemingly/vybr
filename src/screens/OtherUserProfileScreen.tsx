@@ -213,7 +213,7 @@ const OtherUserProfileScreen: React.FC = () => {
             // 2. Check Friendship Status (if not blocked)
             // Determine user_id_low and user_id_high for querying the unique_friendship
             const user_id_low = currentUserId < profileUserId ? currentUserId : profileUserId;
-            const user_id_high = currentUserId < profileUserId ? profileUserId : currentUserId;
+            const user_id_high = currentUserId > profileUserId ? currentUserId : profileUserId;
 
             console.log(`[OtherUserProfileScreen] Checking friendship: low=${user_id_low}, high=${user_id_high}`);
             const { data: friendRow, error: friendError } = await supabase
@@ -271,6 +271,66 @@ const OtherUserProfileScreen: React.FC = () => {
              // setIsMuted(false); // Mute status might be unreliable
          }
     }, [currentUserId, profileUserId]);
+
+    // --- Realtime Subscription for Friendship Status ---
+    useEffect(() => {
+        if (!currentUserId || !profileUserId) {
+            return;
+        }
+
+        // Determine the lower and higher user IDs to create a consistent channel filter
+        const user_id_low = currentUserId < profileUserId ? currentUserId : profileUserId;
+        const user_id_high = currentUserId > profileUserId ? currentUserId : profileUserId;
+
+        const friendsChannel = supabase.channel(`friend-status-${user_id_low}-${user_id_high}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'friends',
+                },
+                (payload: { new: { [key: string]: any }; old: { [key: string]: any }, eventType: 'INSERT' | 'UPDATE' | 'DELETE' }) => {
+                    // For INSERT and UPDATE, we can check the new record to see if it's relevant to our users.
+                    if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                        const changedRecord = payload.new;
+                        if (!changedRecord) return;
+                        
+                        const isRelevant = 
+                            (changedRecord.user_id_1 === currentUserId && changedRecord.user_id_2 === profileUserId) ||
+                            (changedRecord.user_id_1 === profileUserId && changedRecord.user_id_2 === currentUserId);
+
+                        if (isRelevant) {
+                            console.log(`[Realtime] Relevant ${payload.eventType} detected, refetching status:`, payload);
+                            fetchInteractionStatus();
+                            fetchFriendsCount();
+                        }
+                    }
+                    // For DELETE, we can't inspect the old record without REPLICA IDENTITY FULL.
+                    // So, we refetch unconditionally to get the latest state. This is necessary
+                    // for "cancel request" and "unfriend" to work in real-time.
+                    else if (payload.eventType === 'DELETE') {
+                        console.log('[Realtime] DELETE event detected on friends table, refetching status to be safe.');
+                        fetchInteractionStatus();
+                        fetchFriendsCount();
+                    }
+                }
+            )
+            .subscribe((status, err) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log(`[Realtime] Subscribed to friendship status for users: ${user_id_low} & ${user_id_high}`);
+                }
+                if (status === 'CHANNEL_ERROR') {
+                    console.error('[Realtime] Friendship subscription error:', err);
+                }
+            });
+
+        // Cleanup function to remove the channel subscription when the component unmounts
+        return () => {
+            console.log('[Realtime] Unsubscribing from friendship status channel.');
+            supabase.removeChannel(friendsChannel);
+        };
+    }, [currentUserId, profileUserId, fetchInteractionStatus, fetchFriendsCount]);
 
     // --- useEffect Hooks (Initial fetch, Focus effect, Interaction after load, Header options) ---
     useEffect(() => {
@@ -384,7 +444,8 @@ const OtherUserProfileScreen: React.FC = () => {
 
     // handleAddFriendDirectly - Updated to use RPC for real-time functionality
     const handleAddFriendDirectly = async () => {
-        if (!currentUserId || !profileUserId || friendshipStatus !== 'not_friends' || isLoading) {
+        const allowedStatuses: FriendshipStatusDirect[] = ['not_friends', 'rejected_by_you', 'rejected_by_them'];
+        if (!currentUserId || !profileUserId || !allowedStatuses.includes(friendshipStatus) || isLoading) {
             console.log("[OtherUserProfileScreen] Add friend conditions not met:", { currentUserIdPresent: !!currentUserId, profileUserIdPresent: !!profileUserId, status: friendshipStatus, isLoading });
             return;
         }
@@ -393,8 +454,8 @@ const OtherUserProfileScreen: React.FC = () => {
 
         try {
             const { error: sendError } = await supabase.rpc('send_friend_request', {
-                sender_id: currentUserId,
-                receiver_id: profileUserId
+                p_sender_id: currentUserId,
+                p_receiver_id: profileUserId
             });
 
             if (sendError) {
@@ -515,8 +576,8 @@ const OtherUserProfileScreen: React.FC = () => {
         setFriendshipStatus('loading');
         try {
             const { error } = await supabase.rpc('cancel_friend_request', {
-                sender_id: currentUserId,
-                receiver_id: profileUserId
+                p_sender_id: currentUserId,
+                p_receiver_id: profileUserId
             });
             if (error) throw error;
             console.log("[OtherUserProfileScreen] Friend request cancelled.");
@@ -534,8 +595,8 @@ const OtherUserProfileScreen: React.FC = () => {
         setFriendshipStatus('loading');
         try {
             const { error } = await supabase.rpc('accept_friend_request', {
-                requester_id: profileUserId,
-                current_user_id: currentUserId
+                p_requester_id: profileUserId,
+                p_current_user_id: currentUserId
             });
             if (error) throw error;
             console.log("[OtherUserProfileScreen] Friend request accepted.");
@@ -554,8 +615,8 @@ const OtherUserProfileScreen: React.FC = () => {
         setFriendshipStatus('loading');
         try {
             const { error } = await supabase.rpc('decline_friend_request', {
-                requester_id: profileUserId,
-                current_user_id: currentUserId
+                p_requester_id: profileUserId,
+                p_current_user_id: currentUserId
             });
             if (error) throw error;
             console.log("[OtherUserProfileScreen] Friend request declined.");
