@@ -379,42 +379,105 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         fetchData();
     }, [fetchData]);
 
-    // Replace the old real-time useEffect with this enhanced one
+    // Enhanced real-time useEffect for smooth updates
     useEffect(() => {
-        const handleNewMessage = (payload: any) => {
-            console.log('ChatsTabs received new message notification, refreshing data...', payload);
-            fetchData(); // Refresh the chat list
+        if (!session?.user?.id) return;
+
+        // --- Handler for new individual messages ---
+        const handleNewIndividualMessage = (payload: any) => {
+            if (!session?.user) return; // Guard clause
+            const newMessage = payload.new as {
+                id: string; sender_id: string; receiver_id: string; content: string; created_at: string;
+            };
+
+            // Only process messages sent to the current user
+            if (newMessage.receiver_id !== session.user.id) return;
+            
+            const partnerId = newMessage.sender_id;
+            
+            setIndividualList(currentList => {
+                const chatIndex = currentList.findIndex(c => c.partner_user_id === partnerId);
+
+                // If chat doesn't exist yet, it's a new conversation.
+                // Fetch the full list to get all profile details for the new chat.
+                if (chatIndex === -1) {
+                    console.log('ChatsTabs: New conversation detected, fetching full list.');
+                    fetchData();
+                    return currentList; 
+                }
+
+                // If chat exists, update it smoothly
+                console.log('ChatsTabs: Updating existing individual chat smoothly.');
+                const existingChat = { ...currentList[chatIndex] };
+
+                existingChat.last_message_content = newMessage.content;
+                existingChat.last_message_created_at = newMessage.created_at;
+                existingChat.last_message_sender_id = newMessage.sender_id;
+                existingChat.unread_count = (existingChat.unread_count || 0) + 1;
+                
+                // Remove the old item and prepend the updated one to move it to the top
+                const updatedList = [existingChat, ...currentList.filter(c => c.partner_user_id !== partnerId)];
+                return updatedList;
+            });
+        };
+        
+        // --- Handler for new group messages ---
+        const handleNewGroupMessage = (payload: any) => {
+            if (!session?.user) return; // Guard clause
+            const newMessage = payload.new as {
+                id: string; group_id: string; sender_id: string; content: string; created_at: string;
+            };
+            
+            // Ignore messages sent by the current user
+            if (newMessage.sender_id === session.user.id) return;
+
+            setGroupList(currentList => {
+                const chatIndex = currentList.findIndex(c => c.group_id === newMessage.group_id);
+
+                // If user was just added to group, fetch list to get details
+                if (chatIndex === -1) {
+                    console.log('ChatsTabs: New group chat detected, fetching full list.');
+                    fetchData();
+                    return currentList;
+                }
+
+                // If group chat exists, update it smoothly
+                console.log('ChatsTabs: Updating existing group chat smoothly.');
+                const existingChat = { ...currentList[chatIndex] };
+                
+                existingChat.last_message_content = newMessage.content;
+                existingChat.last_message_created_at = newMessage.created_at;
+                existingChat.last_message_sender_id = newMessage.sender_id;
+                existingChat.unread_count = (existingChat.unread_count || 0) + 1;
+                // Note: The sender's name is not in the real-time payload.
+                // The name preview will update on the next full refresh.
+                
+                const updatedList = [existingChat, ...currentList.filter(c => c.group_id !== newMessage.group_id)];
+                return updatedList;
+            });
         };
 
-        const handleMessageStatusUpdate = (payload: any) => {
-            console.log('ChatsTabs received message status update:', payload);
-            // If a message is marked as seen, we should refresh the chat list to update unread counts
-            if (payload.is_seen) {
-                fetchData();
-            }
+        // For status updates (e.g., "seen"), a refresh is still the most reliable way 
+        // to ensure all unread counts across all chats are accurate.
+        const handleStatusUpdate = (payload: any) => {
+            console.log('ChatsTabs: Status update received, refreshing data for accurate counts.', payload);
+            fetchData();
         };
 
-        const handleGroupMessageStatusUpdate = (payload: any) => {
-            console.log('ChatsTabs received group message status update:', payload);
-            // If a message is marked as seen, we should refresh the chat list to update unread counts
-            if (payload.is_seen) {
-                fetchData();
-            }
-        };
-
-        // Subscribe to all relevant real-time events
-        subscribeToEvent('new_message_notification', handleNewMessage);
-        subscribeToEvent('new_group_message_notification', handleNewMessage);
-        subscribeToEvent('message_status_updated', handleMessageStatusUpdate);
-        subscribeToEvent('group_message_status_updated', handleGroupMessageStatusUpdate);
+        // Subscribe to events
+        subscribeToEvent('new_message_notification', handleNewIndividualMessage);
+        subscribeToEvent('new_group_message_notification', handleNewGroupMessage);
+        subscribeToEvent('message_status_updated', handleStatusUpdate);
+        subscribeToEvent('group_message_status_updated', handleStatusUpdate);
 
         return () => {
-            unsubscribeFromEvent('new_message_notification', handleNewMessage);
-            unsubscribeFromEvent('new_group_message_notification', handleNewMessage);
-            unsubscribeFromEvent('message_status_updated', handleMessageStatusUpdate);
-            unsubscribeFromEvent('group_message_status_updated', handleGroupMessageStatusUpdate);
+            // Unsubscribe on cleanup
+            unsubscribeFromEvent('new_message_notification', handleNewIndividualMessage);
+            unsubscribeFromEvent('new_group_message_notification', handleNewGroupMessage);
+            unsubscribeFromEvent('message_status_updated', handleStatusUpdate);
+            unsubscribeFromEvent('group_message_status_updated', handleStatusUpdate);
         };
-    }, [subscribeToEvent, unsubscribeFromEvent, fetchData]);
+    }, [subscribeToEvent, unsubscribeFromEvent, fetchData, session?.user?.id]);
 
     // Fetch data when the screen comes into focus (this is still useful)
     useFocusEffect(
