@@ -12,6 +12,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation, NavigationProp, useNavigationState, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
+import { useUnreadCount } from '@/hooks/useUnreadCount';
 
 // --- Import ALL your screens ---
 import MatchesScreen from "@/screens/MatchesScreen";
@@ -305,6 +306,7 @@ const PaymentRequiredStack = () => (
 // NEW: Web-specific vertical tab layout components
 const WebVerticalTabsUser = () => {
   const navigation = useNavigation();
+  const { unreadCount } = useUnreadCount();
   
   // Get current navigation state to determine active tab
   const currentRouteName = useNavigationState(state => {
@@ -334,8 +336,6 @@ const WebVerticalTabsUser = () => {
   };
 
   const activeTab = getActiveTab();
-
-  console.log('[WebVerticalTabsUser] Current route:', currentRouteName, 'Active tab:', activeTab);
 
   const handleTabPress = (tabName: string) => {
     console.log(`[WebVerticalTabsUser] Tab pressed: ${tabName}`);
@@ -409,11 +409,42 @@ const WebVerticalTabsUser = () => {
                 ]}
                 onPress={() => handleTabPress(tab.name)}
               >
-                <Feather 
-                  name={iconName} 
-                  size={22} 
-                  color={isActive ? '#1E40AF' : '#64748B'} 
-                />
+                <View style={{ flexDirection: 'row', alignItems: 'center', position: 'relative' }}>
+                  <Feather 
+                    name={iconName} 
+                    size={22} 
+                    color={isActive ? '#1E40AF' : '#64748B'} 
+                  />
+                  {/* Unread count badge for chat tab */}
+                  {tab.name === 'Chats' && unreadCount > 0 && (
+                    <View style={{
+                      position: 'absolute',
+                      top: -8,
+                      right: -8,
+                      backgroundColor: '#EF4444',
+                      borderRadius: 10,
+                      minWidth: 20,
+                      height: 20,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      paddingHorizontal: 4,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 2,
+                      elevation: 2,
+                    }}>
+                      <Text style={{
+                        color: 'white',
+                        fontSize: 11,
+                        fontWeight: '600',
+                        textAlign: 'center',
+                      }}>
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={[
                   styles.webTabLabel,
                   isActive ? styles.webTabLabelActive : styles.webTabLabelInactive
@@ -655,6 +686,7 @@ const MobileOrganizerTabs = () => (
 // NEW: Web Layout Wrapper - provides sidebar for all screens on web
 const WebLayoutWrapper = ({ children, isOrganizerMode = false }: { children: React.ReactNode, isOrganizerMode?: boolean }) => {
   const navigation = useNavigation();
+  const { unreadCount } = useUnreadCount();
   
   // Get current navigation state to determine active tab
   const currentRouteName = useNavigationState(state => {
@@ -785,11 +817,42 @@ const WebLayoutWrapper = ({ children, isOrganizerMode = false }: { children: Rea
                 ]}
                 onPress={() => handleTabPress(tab.name)}
               >
-                <Feather 
-                  name={iconName} 
-                  size={22} 
-                  color={isActive ? '#1E40AF' : '#64748B'} 
-                />
+                <View style={{ flexDirection: 'row', alignItems: 'center', position: 'relative' }}>
+                  <Feather 
+                    name={iconName} 
+                    size={22} 
+                    color={isActive ? '#1E40AF' : '#64748B'} 
+                  />
+                  {/* Unread count badge for chat tab (only for users) */}
+                  {!isOrganizerMode && tab.name === 'Chats' && unreadCount > 0 && (
+                    <View style={{
+                      position: 'absolute',
+                      top: -8,
+                      right: -8,
+                      backgroundColor: '#EF4444',
+                      borderRadius: 10,
+                      minWidth: 20,
+                      height: 20,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      paddingHorizontal: 4,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 2,
+                      elevation: 2,
+                    }}>
+                      <Text style={{
+                        color: 'white',
+                        fontSize: 11,
+                        fontWeight: '600',
+                        textAlign: 'center',
+                      }}>
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={[
                   styles.webTabLabel,
                   isActive ? styles.webTabLabelActive : styles.webTabLabelInactive
