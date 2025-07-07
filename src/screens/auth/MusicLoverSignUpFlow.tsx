@@ -189,6 +189,9 @@ const MusicLoverSignUpFlow = () => {
     // Add state to hold Google User ID
     const [googleUserId, setGoogleUserId] = useState<string | null>(null);
 
+    // Navigation state to prevent auto-navigation after manual back navigation
+    const [isManualBackNavigation, setIsManualBackNavigation] = useState(false);
+
     // Debug function to check current authentication state
     const debugAuthState = async () => {
         console.log('[MusicLoverSignUpFlow] 🔍 DEBUG: Checking authentication state...');
@@ -486,8 +489,23 @@ const MusicLoverSignUpFlow = () => {
         });
     };
     const goToPreviousStep = (prevStep: Step) => {
+        console.log(`[MusicLoverSignUpFlow] Going to previous step: ${prevStep}`);
+        
+        // If going back to streaming-service, reset the selection so user can choose again
+        if (prevStep === 'streaming-service') {
+            console.log('[MusicLoverSignUpFlow] Resetting streaming service selection for fresh choice');
+            setIsManualBackNavigation(true);
+            handleChange('selectedStreamingService', ''); // Reset streaming service selection
+            
+            // Reset flag after a brief delay to allow normal flow later
+            setTimeout(() => {
+                setIsManualBackNavigation(false);
+            }, 500);
+        }
+        
+        setCurrentStep(prevStep); // Update state immediately
+        
         Animated.timing(slideAnim, { toValue: SCREEN_WIDTH, duration: 300, useNativeDriver: true }).start(() => {
-            setCurrentStep(prevStep);
             slideAnim.setValue(-SCREEN_WIDTH); // Move off-screen to the left
             Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(); // Slide in from left
         });
@@ -1122,7 +1140,7 @@ const MusicLoverSignUpFlow = () => {
             </Text>
 
             {/* Debug button for troubleshooting */}
-            {__DEV__ && (
+            {false && (
                 <TouchableOpacity 
                     style={[styles.googleSignInButton, { backgroundColor: '#FF6B6B', marginTop: 10 }]} 
                     onPress={runFullDiagnostics}
@@ -1313,9 +1331,11 @@ const MusicLoverSignUpFlow = () => {
     // Effect to navigate after successful Spotify login during signup
     useEffect(() => {
         // Check if we are on the correct step, Spotify is selected, and login just completed
+        // Also prevent auto-navigation if user just navigated back manually
         if (currentStep === 'streaming-service' && 
             formData.selectedStreamingService === 'spotify' && 
-            isSpotifyLoggedIn) {
+            isSpotifyLoggedIn && 
+            !isManualBackNavigation) {
             
             // Before navigating, verify the authorization was actually completed
             const verifyAuth = async () => {
@@ -1331,8 +1351,10 @@ const MusicLoverSignUpFlow = () => {
             };
             
             verifyAuth();
+        } else if (isManualBackNavigation) {
+            console.log('[MusicLoverSignUpFlow] Auto-navigation to subscription prevented due to manual back navigation.');
         }
-    }, [isSpotifyLoggedIn, currentStep, formData.selectedStreamingService, verifyAuthorizationCompleted]);
+    }, [isSpotifyLoggedIn, currentStep, formData.selectedStreamingService, verifyAuthorizationCompleted, isManualBackNavigation]);
 
     // Effect to handle Spotify login errors during signup
     useEffect(() => {
