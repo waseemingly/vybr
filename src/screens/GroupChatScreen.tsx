@@ -13,6 +13,10 @@ import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 import * as FileSystem from 'expo-file-system';
 import ImageViewer from 'react-native-image-zoom-viewer';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useHeaderHeight } from '@react-navigation/elements';
+import UnifiedNotificationService from '@/services/UnifiedNotificationService';
+import { useUnreadCount } from '@/hooks/useUnreadCount';
 
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
@@ -579,6 +583,7 @@ const GroupChatScreen: React.FC = () => {
     const route = useRoute<GroupChatScreenRouteProp>();
     const navigation = useNavigation<GroupChatScreenNavigationProp>();
     const { session } = useAuth();
+    const { refreshUnreadCount } = useUnreadCount();
     const { presenceState } = useRealtime(); // Add RealtimeContext usage
     const currentUserId = session?.user?.id;
     const { groupId, sharedEventData: initialSharedEventData } = route.params;
@@ -831,10 +836,10 @@ const GroupChatScreen: React.FC = () => {
             isDeleted: dbMessage.is_deleted,
             deletedAt: dbMessage.deleted_at ? new Date(dbMessage.deleted_at) : null,
             replyToMessageId: dbMessage.reply_to_message_id,
-            isDelivered: dbMessage.is_delivered,
-            deliveredAt: dbMessage.delivered_at ? new Date(dbMessage.delivered_at) : null,
-            isSeen: dbMessage.is_seen,
-            seenAt: dbMessage.seen_at ? new Date(dbMessage.seen_at) : null,
+            isDelivered: false, // Will be set by calling code from joined data
+            deliveredAt: null,
+            isSeen: false, // Will be set by calling code from joined data
+            seenAt: null,
         }; 
     }, [currentUserId]);
 
@@ -937,7 +942,29 @@ const GroupChatScreen: React.FC = () => {
         
         setGroupMembers(newGroupMembers);
 
-        const { data: messagesData, error: messagesError } = await supabase.from('group_chat_messages').select('id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id, is_delivered, delivered_at, is_seen, seen_at').eq('group_id', groupId).order('created_at', { ascending: true }); if (messagesError) throw messagesError; if (!messagesData || messagesData.length === 0) { setMessages([]); } else { const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id); const senderIds = Array.from(new Set(visibleMessages.filter(msg => msg.sender_id).map(msg => msg.sender_id))); const profilesMap = new Map<string, UserProfileInfo>(); if (senderIds.length > 0) { const idsToFetch = senderIds.filter(id => !userProfileCache[id]); if (idsToFetch.length > 0) { const { data: profilesData, error: profilesError } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').in('user_id', idsToFetch); if (profilesError) { console.error("Err fetch profiles:", profilesError); } else if (profilesData) { profilesData.forEach((p: UserProfileInfo) => { profilesMap.set(p.user_id, p); const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; const a = p.profile_picture||undefined; userProfileCache[p.user_id] = { name: n, avatar: a }; }); } } senderIds.forEach(id => { if (userProfileCache[id] && !profilesMap.has(id)) { profilesMap.set(id, { user_id: id, first_name: userProfileCache[id].name?.split(' ')[0]||null, last_name: userProfileCache[id].name?.split(' ')[1]||null, profile_picture: userProfileCache[id].avatar||null }); } }); } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You' }; const mappedMessages = visibleMessages.map(dbMsg => mapDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap)); setMessages(mappedMessages); } } catch (err: any) { console.error("Error fetching initial data:", err); if (err.message?.includes("User is not a member")) { Alert.alert("Access Denied", "Not member.", [{ text: "OK", onPress: () => navigation.goBack() }]); setLoadError("Not a member."); } else { setLoadError(`Load fail: ${err.message || 'Unknown'}`); } setMessages([]); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); } finally { setLoading(false); } }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
+        const { data: messagesData, error: messagesError } = await supabase
+            .from('group_chat_messages')
+            .select(`
+                id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, 
+                original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id,
+                group_chat_message_status!left(is_delivered, delivered_at, is_seen, seen_at)
+            `)
+            .eq('group_id', groupId)
+            .eq('group_chat_message_status.user_id', currentUserId)
+            .order('created_at', { ascending: true }); if (messagesError) throw messagesError; if (!messagesData || messagesData.length === 0) { setMessages([]); } else { const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id); const senderIds = Array.from(new Set(visibleMessages.filter(msg => msg.sender_id).map(msg => msg.sender_id))); const profilesMap = new Map<string, UserProfileInfo>(); if (senderIds.length > 0) { const idsToFetch = senderIds.filter(id => !userProfileCache[id]); if (idsToFetch.length > 0) { const { data: profilesData, error: profilesError } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').in('user_id', idsToFetch); if (profilesError) { console.error("Err fetch profiles:", profilesError); } else if (profilesData) { profilesData.forEach((p: UserProfileInfo) => { profilesMap.set(p.user_id, p); const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; const a = p.profile_picture||undefined; userProfileCache[p.user_id] = { name: n, avatar: a }; }); } } senderIds.forEach(id => { if (userProfileCache[id] && !profilesMap.has(id)) { profilesMap.set(id, { user_id: id, first_name: userProfileCache[id].name?.split(' ')[0]||null, last_name: userProfileCache[id].name?.split(' ')[1]||null, profile_picture: userProfileCache[id].avatar||null }); } }); } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You' }; const mappedMessages = visibleMessages.map((dbMsg: any) => {
+            const chatMsg = mapDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap);
+            // Handle joined status data similar to individual chat
+            const status = dbMsg.group_chat_message_status && Array.isArray(dbMsg.group_chat_message_status) 
+                ? dbMsg.group_chat_message_status[0] 
+                : dbMsg.group_chat_message_status;
+            if (status) {
+                chatMsg.isDelivered = status.is_delivered;
+                chatMsg.deliveredAt = status.delivered_at ? new Date(status.delivered_at) : null;
+                chatMsg.isSeen = status.is_seen;
+                chatMsg.seenAt = status.seen_at ? new Date(status.seen_at) : null;
+            }
+            return chatMsg;
+        }); setMessages(mappedMessages); } } catch (err: any) { console.error("Error fetching initial data:", err); if (err.message?.includes("User is not a member")) { Alert.alert("Access Denied", "Not member.", [{ text: "OK", onPress: () => navigation.goBack() }]); setLoadError("Not a member."); } else { setLoadError(`Load fail: ${err.message || 'Unknown'}`); } setMessages([]); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); } finally { setLoading(false); } }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
 
     // Send Text Message
     const sendTextMessage = useCallback(async (text: string) => { 
@@ -991,10 +1018,6 @@ const GroupChatScreen: React.FC = () => {
                 image_url: null, 
                 is_system_message: false,
                 reply_to_message_id: replyToId || null,
-                is_delivered: false,
-                delivered_at: null,
-                is_seen: false,
-                seen_at: null,
             };
             
             // If there's a shared event, add it as metadata
@@ -1023,6 +1046,31 @@ const GroupChatScreen: React.FC = () => {
                     createdAt: new Date(insertedData.created_at) 
                 } : msg
             )); 
+
+            // --- Send Notification to all members except sender ---
+            const membersToNotify = Array.from(groupMembers.entries())
+                .filter(([userId, _]) => userId !== currentUserId)
+                .map(([userId, _]) => userId);
+
+            if (membersToNotify.length > 0) {
+                try {
+                    const notificationPromises = membersToNotify.map(userId => 
+                        UnifiedNotificationService.notifyNewMessage({
+                            receiver_id: userId,
+                            sender_id: currentUserId,
+                            sender_name: currentUserProfile.name || 'Someone',
+                            message_id: insertedData.id,
+                            content: trimmedText,
+                            is_group: true,
+                            group_id: groupId,
+                            group_name: currentGroupName || 'Group Chat',
+                        })
+                    );
+                    await Promise.all(notificationPromises);
+                } catch (notificationError) {
+                    console.error("Failed to send group message notifications:", notificationError);
+                }
+            }
             
             if (sendError) setSendError(null); 
             
@@ -1032,7 +1080,7 @@ const GroupChatScreen: React.FC = () => {
             setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempId)); 
             setInputText(trimmedText); 
         } 
-    }, [currentUserId, groupId, sendError, isUploading, replyingToMessage, userProfileCache]);
+    }, [currentUserId, groupId, sendError, isUploading, replyingToMessage, userProfileCache, groupMembers, currentGroupName]);
     
     const shareEventToGroupViaRpc = useCallback(async (eventDataToShare: typeof initialSharedEventData) => {
         if (!currentUserId || !groupId || !eventDataToShare || isUploading) return;
@@ -1158,12 +1206,36 @@ const GroupChatScreen: React.FC = () => {
                     } : null
                 } : msg
             ));
+
+            // --- Send Notification ---
+            const membersToNotify = Array.from(groupMembers.keys()).filter(id => id !== currentUserId);
+            if (membersToNotify.length > 0) {
+                try {
+                    const senderName = userProfileCache[currentUserId]?.name || 'Someone';
+                    const notificationPromises = membersToNotify.map(userId => 
+                        UnifiedNotificationService.notifyNewMessage({
+                            receiver_id: userId,
+                            sender_id: currentUserId,
+                            sender_name: senderName,
+                            message_id: insertedMessage.id,
+                            content: `Shared an event: ${eventDataToShare.eventTitle}`,
+                            is_group: true,
+                            group_id: groupId,
+                            group_name: currentGroupName || 'Group Chat',
+                        })
+                    );
+                    await Promise.all(notificationPromises);
+                } catch (notificationError) {
+                    console.error("Failed to send group event share notifications:", notificationError);
+                }
+            }
+
         } catch (err: any) {
             console.error("Error sharing event to group:", err);
             setSendError(`Event share fail: ${err.message}`);
             setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempId));
         }
-    }, [currentUserId, groupId, isUploading, replyingToMessage, userProfileCache]);
+    }, [currentUserId, groupId, isUploading, replyingToMessage, userProfileCache, currentGroupName]);
 
     const handleSendPress = () => { 
         if (sharedEventMessage && initialSharedEventData?.eventId) {
@@ -1366,6 +1438,29 @@ const GroupChatScreen: React.FC = () => {
                     : msg
             ));
 
+            // --- Send Notification ---
+            const membersToNotify = Array.from(groupMembers.keys()).filter(id => id !== currentUserId);
+            if (membersToNotify.length > 0) {
+                 try {
+                    const senderName = userProfileCache[currentUserId]?.name || 'Someone';
+                    const notificationPromises = membersToNotify.map(userId =>
+                        UnifiedNotificationService.notifyNewMessage({
+                            receiver_id: userId,
+                            sender_id: currentUserId,
+                            sender_name: senderName,
+                            message_id: insertedData.id,
+                            content: '[Image]',
+                            is_group: true,
+                            group_id: groupId,
+                            group_name: currentGroupName || 'Group Chat',
+                        })
+                    );
+                    await Promise.all(notificationPromises);
+                } catch (notificationError) {
+                    console.error("Failed to send group image notifications:", notificationError);
+                }
+            }
+
         } catch (error: any) {
             console.error('[pickAndSendImage] Error:', error);
             setSendError(`Failed to send image: ${error.message}`);
@@ -1408,23 +1503,30 @@ const GroupChatScreen: React.FC = () => {
 
         console.log(`[GroupChatScreen] Marking ${unseenMessagesFromOthers.length} messages as seen in group ${groupId}`);
 
-        for (const message of unseenMessagesFromOthers) {
-            try {
-                const { error } = await supabase.rpc('mark_group_message_seen', { 
-                    message_id_input: message._id,
-                    user_id_input: currentUserId 
-                });
-                if (error) {
-                    console.error(`Error marking group message ${message._id} as seen:`, error.message);
-                } else {
-                    // Optimistically update UI
-                    setMessages(prev => prev.map(m => m._id === message._id ? {...m, isSeen: true, seenAt: new Date()} : m));
-                }
-            } catch (e: any) {
-                console.error(`Exception marking group message ${message._id} as seen:`, e.message);
+        try {
+            // Use bulk function for better performance and real-time updates
+            const { error } = await supabase.rpc('mark_all_group_messages_seen', {
+                group_id_input: groupId,
+                user_id_input: currentUserId
+            });
+
+            if (error) {
+                console.error('Error marking all group messages as seen:', error.message);
+            } else {
+                // Optimistically update UI for all unseen messages from others
+                setMessages(prev => prev.map(m => 
+                    m.user._id !== currentUserId && !m.isSeen && !m.isSystemMessage
+                        ? {...m, isSeen: true, seenAt: new Date()} 
+                        : m
+                ));
+                
+                // Refresh unread count immediately
+                refreshUnreadCount();
             }
+        } catch (e: any) {
+            console.error('Exception marking group messages as seen:', e.message);
         }
-    }, [currentUserId, groupId, messages]);
+    }, [currentUserId, groupId, refreshUnreadCount]);
 
     // Call markMessagesAsSeen when the screen focuses and when new messages arrive from others
     useFocusEffect(
@@ -1436,6 +1538,13 @@ const GroupChatScreen: React.FC = () => {
         // Also mark as seen if new messages arrive while screen is focused
         markMessagesAsSeen();
     }, [messages, markMessagesAsSeen]);
+
+    // Mark messages as seen immediately when component mounts (for notification navigation)
+    useEffect(() => {
+        if (currentUserId && groupId && messages.length > 0) {
+            markMessagesAsSeen();
+        }
+    }, [currentUserId, groupId, markMessagesAsSeen]);
 
     //real time subscriptions
     useEffect(() => {
@@ -1598,6 +1707,51 @@ const GroupChatScreen: React.FC = () => {
 
         messageChannel.subscribe();
     
+        // --- Handle Group Message Status Updates ---
+        const statusChannelName = `group_message_status_${groupId}`;
+        const statusChannel = supabase.channel(statusChannelName);
+        statusChannel.on(
+            'postgres_changes',
+            { 
+                event: '*', 
+                schema: 'public', 
+                table: 'group_chat_message_status',
+                filter: `message_id=in.(SELECT id FROM group_chat_messages WHERE group_id = '${groupId}')`
+            },
+            (payload: any) => {
+                console.log('[GroupChatScreen] Status update received:', JSON.stringify(payload.new, null, 2));
+                const statusUpdate = payload.new as { message_id: string; user_id: string; is_seen: boolean; seen_at: string; };
+
+                if (!statusUpdate || !statusUpdate.message_id) return;
+
+                setMessages(prevMessages => {
+                    let needsUpdate = false;
+                    const newMessages = prevMessages.map(msg => {
+                        // Is this update for a message I sent?
+                        if (msg._id === statusUpdate.message_id && msg.user._id === currentUserId) {
+                            // If the update says it's seen, and my message isn't marked as seen yet, update it.
+                            if (statusUpdate.is_seen && !msg.isSeen) {
+                                console.log(`[GroupChatScreen] Marking message ${msg._id} as seen based on update from user ${statusUpdate.user_id}`);
+                                needsUpdate = true;
+                                return {
+                                    ...msg,
+                                    isSeen: true,
+                                    // We can just use the current date, or the date from the status update
+                                    seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : new Date(),
+                                };
+                            }
+                        }
+                        return msg;
+                    });
+
+                    // Only return a new array if a change was actually made
+                    return needsUpdate ? newMessages : prevMessages;
+                });
+            }
+        ).subscribe((status) => {
+            console.log(`[GroupChatScreen] Status channel subscription status: ${status} for ${statusChannelName}`);
+        });
+    
         // --- Handle Group Info Updates ---
         const infoChannel = supabase.channel(`group_info_${groupId}`);
         infoChannel.on<DbGroupChat>('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },
@@ -1618,9 +1772,10 @@ const GroupChatScreen: React.FC = () => {
             typingTimeoutRef.current.forEach(timeout => clearTimeout(timeout));
             typingTimeoutRef.current.clear();
             supabase.removeChannel(messageChannel);
+            supabase.removeChannel(statusChannel);
             supabase.removeChannel(infoChannel);
         };
-    }, [groupId, currentUserId, mapDbMessageToChatMessage, navigation, currentGroupName, currentGroupImage, canMembersAddOthers, canMembersEditInfo, editingMessage, groupMembers]);
+    }, [groupId, currentUserId, mapDbMessageToChatMessage, navigation, currentGroupName, currentGroupImage, canMembersAddOthers, canMembersEditInfo, editingMessage, groupMembers, refreshUnreadCount]);
 
     // Navigation and Header
     const navigateToGroupInfo = () => { if (!groupId || !currentGroupName) return; navigation.navigate('GroupInfoScreen', { groupId, groupName: currentGroupName ?? 'Group', groupImage: currentGroupImage ?? null }); };
