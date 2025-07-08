@@ -24,6 +24,8 @@ import * as Linking from 'expo-linking';
 import * as AuthSession from 'expo-auth-session';
 // Import notification service
 import NotificationService from '../services/NotificationService';
+// Import the new deep link parser
+import { parseDeepLink } from '../utils/navigationUtils';
 
 // --- Exported Types ---
 export type MusicLoverBio = SupabaseMusicLoverBio;
@@ -676,7 +678,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 // Setup notification listeners
                                 NotificationService.addNotificationReceivedListener((notification) => {
                                     console.log('[AuthProvider] Notification received while app is open:', notification);
-                                    // You can handle in-app notifications here if needed
+                                    // You can handle in-app notifications here if you have a UI for it
+                                    // For example, using the NotificationContext you might have created
                                 });
 
                                 NotificationService.addNotificationResponseReceivedListener((response) => {
@@ -684,29 +687,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                     
                                     // Handle navigation based on notification data
                                     const data = response.notification.request.content.data as any;
-                                    if (data?.screen && navigationRef.current?.isReady()) {
-                                        if (data.screen === 'MatchesScreen') {
-                                            // Navigate to matches screen
-                                            (navigationRef.current as any)?.navigate('MainApp', { 
-                                                screen: 'MatchesScreen' 
-                                            });
-                                        } else if (data.screen === 'IndividualChatScreen' && data.matchUserId) {
-                                            // Navigate to specific chat
-                                            (navigationRef.current as any)?.navigate('MainApp', { 
-                                                screen: 'IndividualChatScreen',
-                                                params: { 
-                                                    matchUserId: data.matchUserId,
-                                                    matchName: data.senderName || data.matchName,
-                                                    isFirstInteractionFromMatches: false
-                                                }
-                                            });
-                                        } else if (data.screen === 'GroupChatScreen' && data.groupId) {
-                                            // Navigate to group chat
-                                            (navigationRef.current as any)?.navigate('MainApp', { 
-                                                screen: 'GroupChatScreen',
-                                                params: { groupId: data.groupId }
-                                            });
+                                    const deepLink = data?.deep_link;
+
+                                    if (deepLink && navigationRef.current?.isReady()) {
+                                        console.log(`[AuthProvider] Handling deep link: ${deepLink}`);
+                                        const routeInfo = parseDeepLink(deepLink);
+                                        
+                                        if (routeInfo) {
+                                            console.log('[AuthProvider] Navigating to:', routeInfo);
+                                            // The `navigate` function can handle nested navigators if structured correctly
+                                            (navigationRef.current as any)?.navigate(routeInfo.routeName, routeInfo.params);
+                                        } else {
+                                            console.warn(`[AuthProvider] Could not parse deep link: ${deepLink}`);
                                         }
+                                    } else {
+                                        console.log('[AuthProvider] No deep link found in notification or navigator not ready.');
                                     }
                                 });
                             }

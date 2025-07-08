@@ -26,6 +26,8 @@ import {
     type OrganizerInfo,
 } from '@/screens/EventsScreen';
 import { useRealtime } from '@/context/RealtimeContext'; // Import useRealtime
+import UnifiedNotificationService from '@/services/UnifiedNotificationService';
+import { useUnreadCount } from '@/hooks/useUnreadCount';
 
 // Types and MessageBubble component
 type IndividualChatScreenRouteProp = RouteProp<RootStackParamList & {
@@ -519,6 +521,7 @@ const IndividualChatScreen: React.FC = () => {
     const navigation = useNavigation<RootNavigationProp>();
     const { session, musicLoverProfile } = useAuth();
     const { presenceState } = useRealtime();
+    const { refreshUnreadCount } = useUnreadCount();
 
     const currentUserIdFromSession = session?.user?.id;
     const { 
@@ -1106,6 +1109,19 @@ const IndividualChatScreen: React.FC = () => {
                 console.error("Failed to create shared event message status entry:", statusError);
             }
 
+            // --- Send Notification ---
+            try {
+                await UnifiedNotificationService.notifyNewMessage({
+                    receiver_id: matchUserId,
+                    sender_id: currentUserId,
+                    sender_name: musicLoverProfile?.firstName || 'Someone',
+                    message_id: insertedMessage.id,
+                    content: `Shared an event: ${eventDataToShare.eventTitle}`,
+                });
+            } catch (notificationError) {
+                console.error("Failed to send shared event notification:", notificationError);
+            }
+
         } catch (err: any) {
             console.error("Error sharing event to user:", err);
             setError(`Event share fail: ${err.message}`);
@@ -1170,6 +1186,19 @@ const IndividualChatScreen: React.FC = () => {
                 if (statusError) {
                     // This is a non-fatal error for the user, but we must log it.
                     console.error("Failed to create message status entry:", statusError);
+                }
+
+                // --- Send Notification ---
+                try {
+                    await UnifiedNotificationService.notifyNewMessage({
+                        receiver_id: matchUserId,
+                        sender_id: currentUserId,
+                        sender_name: musicLoverProfile?.firstName || 'Someone',
+                        message_id: insertedMessage.id,
+                        content: newMessage.text,
+                    });
+                } catch (notificationError) {
+                    console.error("Failed to send new message notification:", notificationError);
                 }
              }
              setError(null);
@@ -1542,23 +1571,36 @@ const IndividualChatScreen: React.FC = () => {
                       filter: `message_id=in.(SELECT id FROM messages WHERE (sender_id = '${currentUserId}' AND receiver_id = '${matchUserId}') OR (sender_id = '${matchUserId}' AND receiver_id = '${currentUserId}'))`
                     },
                     (payload: any) => {
-                        const statusUpdate = payload.new as {message_id: string; is_delivered: boolean; delivered_at: string; is_seen: boolean; seen_at: string;};
-                        if (statusUpdate && statusUpdate.message_id) {
-                            setMessages(prevMessages => 
-                                prevMessages.map(msg => {
-                                    if (msg._id === statusUpdate.message_id) {
+                        console.log('[IndividualChatScreen] Status update received:', JSON.stringify(payload.new, null, 2));
+                        const statusUpdate = payload.new as { message_id: string; is_seen: boolean; seen_at: string; is_delivered: boolean; delivered_at: string };
+
+                        if (!statusUpdate || !statusUpdate.message_id) return;
+
+                        setMessages(prevMessages => {
+                            let needsUpdate = false;
+                            const newMessages = prevMessages.map(msg => {
+                                if (msg._id === statusUpdate.message_id) {
+                                    // Check if any status has actually changed to avoid unnecessary re-renders
+                                    const deliveredChanged = msg.isDelivered !== statusUpdate.is_delivered;
+                                    const seenChanged = msg.isSeen !== statusUpdate.is_seen;
+
+                                    if (deliveredChanged || seenChanged) {
+                                        console.log(`[IndividualChatScreen] Updating status for message ${msg._id}. Seen: ${statusUpdate.is_seen}, Delivered: ${statusUpdate.is_delivered}`);
+                                        needsUpdate = true;
                                         return {
                                             ...msg,
                                             isDelivered: statusUpdate.is_delivered,
-                                            deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : null,
+                                            deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : msg.deliveredAt,
                                             isSeen: statusUpdate.is_seen,
-                                            seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : null,
+                                            seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : msg.seenAt,
                                         };
                                     }
-                                    return msg;
-                                })
-                            );
-                        }
+                                }
+                                return msg;
+                            });
+
+                            return needsUpdate ? newMessages : prevMessages;
+                        });
                     }
                 )
                 .subscribe((status) => {
@@ -1877,6 +1919,19 @@ const IndividualChatScreen: React.FC = () => {
                 if (statusError) {
                     console.error("Failed to create image message status entry:", statusError);
                 }
+
+                // --- Send Notification ---
+                try {
+                    await UnifiedNotificationService.notifyNewMessage({
+                        receiver_id: matchUserId,
+                        sender_id: currentUserId,
+                        sender_name: musicLoverProfile?.firstName || 'Someone',
+                        message_id: insertedData.id,
+                        content: '[Image]',
+                    });
+                } catch (notificationError) {
+                    console.error("Failed to send new image notification:", notificationError);
+                }
             }
 
         } catch (err: any) {
@@ -2133,26 +2188,30 @@ const IndividualChatScreen: React.FC = () => {
 
         console.log(`[IndividualChatScreen] Marking ${unseenMessagesFromPartner.length} messages as seen from ${matchUserId}`);
 
-        for (const message of unseenMessagesFromPartner) {
-            try {
-                const { error } = await supabase.rpc('mark_message_seen', { 
-                    message_id_input: message._id 
-                });
-                if (error) {
-                    console.error(`Error marking message ${message._id} as seen:`, error.message);
-                } else {
-                    // Optimistically update UI
-                    setMessages(prev => prev.map(m => 
-                        m._id === message._id 
-                            ? {...m, isSeen: true, seenAt: new Date()} 
-                            : m
-                    ));
-                }
-            } catch (e: any) {
-                console.error(`Exception marking message ${message._id} as seen:`, e.message);
+        try {
+            // Use bulk function for better performance and real-time updates
+            const { error } = await supabase.rpc('mark_all_messages_seen_from_user', {
+                sender_id_input: matchUserId,
+                receiver_id_input: currentUserId
+            });
+
+            if (error) {
+                console.error('Error marking all messages as seen:', error.message);
+            } else {
+                // Optimistically update UI for all unseen messages from this user
+                setMessages(prev => prev.map(m => 
+                    m.user._id === matchUserId && !m.isSeen
+                        ? {...m, isSeen: true, seenAt: new Date()} 
+                        : m
+                ));
+                
+                // Refresh unread count immediately
+                refreshUnreadCount();
             }
+        } catch (e: any) {
+            console.error('Exception marking messages as seen:', e.message);
         }
-    }, [currentUserId, matchUserId, messages]);
+    }, [currentUserId, matchUserId, messages, refreshUnreadCount]);
 
     // Call markMessagesAsSeen when the screen focuses and when new messages arrive from the partner
     useFocusEffect(
@@ -2165,6 +2224,13 @@ const IndividualChatScreen: React.FC = () => {
     useEffect(() => {
         markMessagesAsSeen();
     }, [messages, markMessagesAsSeen]);
+
+    // Mark messages as seen immediately when component mounts (for notification navigation)
+    useEffect(() => {
+        if (currentUserId && matchUserId && messages.length > 0) {
+            markMessagesAsSeen();
+        }
+    }, [currentUserId, matchUserId, markMessagesAsSeen]);
 
     // --- Render Logic ---
     if (loading && messages.length === 0 && !isBlocked) {

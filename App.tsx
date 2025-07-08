@@ -30,6 +30,8 @@ import { OrganizerModeProvider } from "./src/hooks/useOrganizerMode";
 import { AuthProvider } from "./src/hooks/useAuth";
 import AppNavigator from "./src/navigation/AppNavigator";
 import { RealtimeProvider } from '@/context/RealtimeContext';
+import { NotificationProvider } from '@/context/NotificationContext';
+import WebNotificationContainer from '@/components/WebNotificationContainer';
 import { Toaster } from '@/components/ui/sonner';
 
 // React Navigation
@@ -184,23 +186,26 @@ export default function App() {
           <OrganizerModeProvider>
             <AuthProvider navigationRef={navigationRef as React.RefObject<NavigationContainerRef<any>>}>
               <RealtimeProvider>
-                <SafeAreaProvider>
-                  <NavigationContainer 
-                    ref={navigationRef}
-                    linking={linking}
-                    initialState={initialState}
-                    onStateChange={(state) => {
-                      // Save navigation state to localStorage on web
-                      if (Platform.OS === 'web') {
-                        localStorage.setItem('NAVIGATION_STATE_V1', JSON.stringify(state));
-                      }
-                    }}
-                  >
-                    <AppNavigator />
-                    <StatusBar style="auto" />
-                  </NavigationContainer>
-                  <Toaster />
-                </SafeAreaProvider>
+                <NotificationProvider>
+                  <SafeAreaProvider>
+                    <NavigationContainer 
+                      ref={navigationRef}
+                      linking={linking}
+                      initialState={initialState}
+                      onStateChange={(state) => {
+                        // Save navigation state to localStorage on web
+                        if (Platform.OS === 'web') {
+                          localStorage.setItem('NAVIGATION_STATE_V1', JSON.stringify(state));
+                        }
+                      }}
+                    >
+                      <AppNavigator />
+                      <StatusBar style="auto" />
+                      <WebNotificationContainer />
+                    </NavigationContainer>
+                    <Toaster />
+                  </SafeAreaProvider>
+                </NotificationProvider>
               </RealtimeProvider>
             </AuthProvider>
           </OrganizerModeProvider>
