@@ -584,7 +584,7 @@ const GroupChatScreen: React.FC = () => {
     const navigation = useNavigation<GroupChatScreenNavigationProp>();
     const { session } = useAuth();
     const { refreshUnreadCount } = useUnreadCount();
-    const { presenceState } = useRealtime(); // Add RealtimeContext usage
+    const { presenceState, subscribeToGroupChat, sendTypingIndicator, getGroupMemberPresence } = useRealtime(); // Add RealtimeContext usage
     const currentUserId = session?.user?.id;
     const { groupId, sharedEventData: initialSharedEventData } = route.params;
 
@@ -1249,21 +1249,11 @@ const GroupChatScreen: React.FC = () => {
     const handleTextInputChange = useCallback((text: string) => {
         setInputText(text);
         
-        // Broadcast typing event to other group members
+        // Broadcast typing event to other group members using centralized context
         if (text.trim() && currentUserId && groupId) {
-            const channelName = `group_chat_${groupId}`;
-            const channel = supabase.channel(channelName);
-            channel.send({
-                type: 'broadcast',
-                event: 'typing',
-                payload: { 
-                    sender_id: currentUserId,
-                    group_id: groupId,
-                    typing: true 
-                }
-            });
+            sendTypingIndicator('group', groupId, true);
         }
-    }, [currentUserId, groupId]);
+    }, [currentUserId, groupId, sendTypingIndicator]);
     // --- End Typing Handler ---
 
     //Pick and Send Image
@@ -1546,49 +1536,17 @@ const GroupChatScreen: React.FC = () => {
         }
     }, [currentUserId, groupId, markMessagesAsSeen]);
 
-    //real time subscriptions
+    // Real-time subscriptions using centralized RealtimeContext
     useEffect(() => {
         if (!groupId || !currentUserId) return;
-    
-        const messageChannel = supabase.channel(`group_chat_messages_${groupId}`);
-    
-        // --- Handle Typing Broadcasts ---
-        messageChannel.on('broadcast', { event: 'typing' }, ({ payload }) => {
-            if (payload.sender_id !== currentUserId) {
-                const senderName = groupMembers.get(payload.sender_id)?.name || 'Someone';
-                setTypingUsers(prev => {
-                    const newTypingUsers = new Map(prev);
-                    if (payload.typing) {
-                        newTypingUsers.set(payload.sender_id, { name: senderName, timestamp: Date.now() });
-                        const existingTimeout = typingTimeoutRef.current.get(payload.sender_id);
-                        if (existingTimeout) clearTimeout(existingTimeout);
-                        const timeout = setTimeout(() => {
-                            setTypingUsers(curr => {
-                                const updated = new Map(curr);
-                                updated.delete(payload.sender_id);
-                                return updated;
-                            });
-                            typingTimeoutRef.current.delete(payload.sender_id);
-                        }, 3000);
-                        typingTimeoutRef.current.set(payload.sender_id, timeout);
-                    } else {
-                        newTypingUsers.delete(payload.sender_id);
-                        const timeout = typingTimeoutRef.current.get(payload.sender_id);
-                        if (timeout) {
-                            clearTimeout(timeout);
-                            typingTimeoutRef.current.delete(payload.sender_id);
-                        }
-                    }
-                    return newTypingUsers;
-                });
-            }
-        });
-    
-        // --- Handle New Messages (INSERT) ---
-        messageChannel.on<DbGroupMessage>('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_chat_messages' }, 
-            async (payload) => {
+
+        console.log(`[GroupChatScreen] Setting up realtime subscriptions for group: ${groupId}`);
+
+        // Subscribe to group chat using centralized context
+        const cleanupGroupChat = subscribeToGroupChat(groupId, {
+            onMessage: async (payload: any) => {
                 const newMessageDb = payload.new as DbGroupMessage;
-    
+
                 // Mark as delivered and seen as soon as it arrives
                 if (newMessageDb.sender_id !== currentUserId) {
                     try {
@@ -1600,25 +1558,25 @@ const GroupChatScreen: React.FC = () => {
                         });
                     } catch (e) { console.error('Exception marking group message status:', e); }
                 }
-    
+
                 const rtProfilesMap = new Map<string, UserProfileInfo>();
                 if (newMessageDb.sender_id && !userProfileCache[newMessageDb.sender_id]) {
                     // Fetch profile if not cached
                 }
                 const receivedMessage = mapDbMessageToChatMessage(newMessageDb, rtProfilesMap);
-    
+
                 setMessages(prevMessages => {
                     if (prevMessages.some(msg => msg._id === receivedMessage._id)) {
                         return prevMessages; // Prevent duplicates
                     }
-    
+
                     if (newMessageDb.sender_id !== currentUserId) {
                         receivedMessage.isDelivered = true;
                         receivedMessage.deliveredAt = new Date();
                         receivedMessage.isSeen = true;
                         receivedMessage.seenAt = new Date();
                     }
-    
+
                     // Logic to replace optimistic message
                     const optimisticIdPattern = `temp_${newMessageDb.sender_id}_`;
                     const optimisticIndex = prevMessages.findIndex(m => m._id.startsWith(optimisticIdPattern) && m.text === receivedMessage.text);
@@ -1627,18 +1585,14 @@ const GroupChatScreen: React.FC = () => {
                         newMessages[optimisticIndex] = receivedMessage;
                         return newMessages;
                     }
-    
+
                     return [...prevMessages, receivedMessage];
                 });
-            }
-        );
-    
-        // --- Handle Message Updates (UPDATE) ---
-        messageChannel.on<DbGroupMessage>('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'group_chat_messages' },
-            async (payload) => {
+            },
+
+            onMessageUpdate: async (payload: any) => {
                 const updatedMessageDb = payload.new as DbGroupMessage;
 
-                // --- Start: Added Robustness Logic ---
                 // Check if the message is hidden for the current user (unless it's a delete)
                 if (!updatedMessageDb.is_deleted) {
                     try {
@@ -1676,7 +1630,6 @@ const GroupChatScreen: React.FC = () => {
                         }
                     } catch (err) { console.warn(`[RT-UPDATE] Profile fetch err: ${err}`); }
                 }
-                // --- End: Added Robustness Logic ---
 
                 const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb, rtProfilesMap);
 
@@ -1697,28 +1650,14 @@ const GroupChatScreen: React.FC = () => {
                 }
 
                 setMessages(prev => prev.map(msg => msg._id === updatedMessageUi._id ? updatedMessageUi : msg));
-    
+
                 if (editingMessage && editingMessage._id === updatedMessageUi._id) {
                     setEditingMessage(null);
                     setEditText("");
                 }
-            }
-        );
-
-        messageChannel.subscribe();
-    
-        // --- Handle Group Message Status Updates ---
-        const statusChannelName = `group_message_status_${groupId}`;
-        const statusChannel = supabase.channel(statusChannelName);
-        statusChannel.on(
-            'postgres_changes',
-            { 
-                event: '*', 
-                schema: 'public', 
-                table: 'group_chat_message_status',
-                filter: `message_id=in.(SELECT id FROM group_chat_messages WHERE group_id = '${groupId}')`
             },
-            (payload: any) => {
+
+            onMessageStatus: (payload: any) => {
                 console.log('[GroupChatScreen] Status update received:', JSON.stringify(payload.new, null, 2));
                 const statusUpdate = payload.new as { message_id: string; user_id: string; is_seen: boolean; seen_at: string; };
 
@@ -1736,7 +1675,6 @@ const GroupChatScreen: React.FC = () => {
                                 return {
                                     ...msg,
                                     isSeen: true,
-                                    // We can just use the current date, or the date from the status update
                                     seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : new Date(),
                                 };
                             }
@@ -1744,38 +1682,61 @@ const GroupChatScreen: React.FC = () => {
                         return msg;
                     });
 
-                    // Only return a new array if a change was actually made
                     return needsUpdate ? newMessages : prevMessages;
                 });
+            },
+
+            onGroupUpdate: (payload: any) => {
+                if (payload.eventType === 'DELETE') {
+                    Alert.alert("Group Deleted", "This group no longer exists.", [{ text: "OK", onPress: () => navigation.popToTop() }]);
+                } else if (payload.eventType === 'UPDATE') {
+                    const d = payload.new;
+                    if (d.group_name !== currentGroupName) setCurrentGroupName(d.group_name);
+                    if (d.group_image !== currentGroupImage) setCurrentGroupImage(d.group_image);
+                    if (d.can_members_add_others !== undefined) setCanMembersAddOthers(d.can_members_add_others);
+                    if (d.can_members_edit_info !== undefined) setCanMembersEditInfo(d.can_members_edit_info);
+                }
+            },
+
+            onTyping: ({ payload }: { payload: any }) => {
+                if (payload.sender_id !== currentUserId) {
+                    const senderName = groupMembers.get(payload.sender_id)?.name || 'Someone';
+                    setTypingUsers(prev => {
+                        const newTypingUsers = new Map(prev);
+                        if (payload.typing) {
+                            newTypingUsers.set(payload.sender_id, { name: senderName, timestamp: Date.now() });
+                            const existingTimeout = typingTimeoutRef.current.get(payload.sender_id);
+                            if (existingTimeout) clearTimeout(existingTimeout);
+                            const timeout = setTimeout(() => {
+                                setTypingUsers(curr => {
+                                    const updated = new Map(curr);
+                                    updated.delete(payload.sender_id);
+                                    return updated;
+                                });
+                                typingTimeoutRef.current.delete(payload.sender_id);
+                            }, 3000);
+                            typingTimeoutRef.current.set(payload.sender_id, timeout);
+                        } else {
+                            newTypingUsers.delete(payload.sender_id);
+                            const timeout = typingTimeoutRef.current.get(payload.sender_id);
+                            if (timeout) {
+                                clearTimeout(timeout);
+                                typingTimeoutRef.current.delete(payload.sender_id);
+                            }
+                        }
+                        return newTypingUsers;
+                    });
+                }
             }
-        ).subscribe((status) => {
-            console.log(`[GroupChatScreen] Status channel subscription status: ${status} for ${statusChannelName}`);
         });
-    
-        // --- Handle Group Info Updates ---
-        const infoChannel = supabase.channel(`group_info_${groupId}`);
-        infoChannel.on<DbGroupChat>('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },
-            (payload) => {
-                const d = payload.new;
-                if(d.group_name !== currentGroupName) setCurrentGroupName(d.group_name);
-                if(d.group_image !== currentGroupImage) setCurrentGroupImage(d.group_image);
-                if(d.can_members_add_others !== undefined) setCanMembersAddOthers(d.can_members_add_others);
-                if(d.can_members_edit_info !== undefined) setCanMembersEditInfo(d.can_members_edit_info);
-            }
-        ).on<any>('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` },
-            () => {
-                Alert.alert("Group Deleted", "This group no longer exists.", [{ text: "OK", onPress: () => navigation.popToTop() }]);
-            }
-        ).subscribe();
-    
+
         return () => {
+            console.log(`[GroupChatScreen] Cleaning up realtime subscriptions for group: ${groupId}`);
             typingTimeoutRef.current.forEach(timeout => clearTimeout(timeout));
             typingTimeoutRef.current.clear();
-            supabase.removeChannel(messageChannel);
-            supabase.removeChannel(statusChannel);
-            supabase.removeChannel(infoChannel);
+            cleanupGroupChat();
         };
-    }, [groupId, currentUserId, mapDbMessageToChatMessage, navigation, currentGroupName, currentGroupImage, canMembersAddOthers, canMembersEditInfo, editingMessage, groupMembers, refreshUnreadCount]);
+    }, [groupId, currentUserId, subscribeToGroupChat, mapDbMessageToChatMessage, navigation, currentGroupName, currentGroupImage, canMembersAddOthers, canMembersEditInfo, editingMessage, groupMembers, refreshUnreadCount]);
 
     // Navigation and Header
     const navigateToGroupInfo = () => { if (!groupId || !currentGroupName) return; navigation.navigate('GroupInfoScreen', { groupId, groupName: currentGroupName ?? 'Group', groupImage: currentGroupImage ?? null }); };
@@ -1786,20 +1747,23 @@ const GroupChatScreen: React.FC = () => {
 
     // --- Online Status Tracking ---
     useEffect(() => {
-        if (!presenceState || !groupMembers.size) {
+        if (!groupMembers.size) {
             setOnlineMembers(new Set());
             return;
         }
 
+        const memberIds = Array.from(groupMembers.keys());
+        const onlineStatus = getGroupMemberPresence(memberIds);
         const newOnlineMembers = new Set<string>();
-        for (const [userId] of groupMembers) {
-            if (presenceState[userId] && presenceState[userId].length > 0) {
+        
+        Object.entries(onlineStatus).forEach(([userId, isOnline]) => {
+            if (isOnline) {
                 newOnlineMembers.add(userId);
             }
-        }
+        });
 
         setOnlineMembers(newOnlineMembers);
-    }, [presenceState, groupMembers]);
+    }, [presenceState, groupMembers, getGroupMemberPresence]);
     // --- End Online Status Tracking ---
 
     // Effects
