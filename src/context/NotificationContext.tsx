@@ -189,7 +189,15 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
               console.log('[NotificationProvider] Navigating to deep link:', notificationData.deep_link);
               const routeInfo = parseDeepLink(notificationData.deep_link);
               if (routeInfo) {
-                (navigationRef.current as any)?.navigate(routeInfo.routeName, routeInfo.params);
+                let finalParams = { ...routeInfo.params };
+                if (
+                  routeInfo.routeName === 'MainApp' && 
+                  finalParams.screen === 'ViewBookings' && 
+                  notificationData.data?.event_title
+                ) {
+                  finalParams.params.eventTitle = notificationData.data.event_title;
+                }
+                (navigationRef.current as any)?.navigate(routeInfo.routeName, finalParams);
               } else {
                 console.warn(`[NotificationProvider] Could not parse deep link: ${notificationData.deep_link}`);
               }

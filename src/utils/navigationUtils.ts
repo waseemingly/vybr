@@ -48,6 +48,18 @@ export const parseDeepLink = (url: string): { routeName: keyof RootStackParamLis
         }
         break;
 
+      case 'bookings':
+        if (rest[0]) {
+          return {
+            routeName: 'MainApp',
+            params: {
+              screen: 'ViewBookings',
+              params: { eventId: rest[0] },
+            },
+          };
+        }
+        break;
+
       case 'event':
       case 'events':
         if (rest[0]) {

@@ -50,6 +50,19 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const typingTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
     const updateUserStatus = async (userId: string, isOnline: boolean) => {
+        // Add a guard to prevent calling the function with an invalid userId
+        if (!userId || typeof userId !== 'string' || userId.trim() === '') {
+            console.warn(`[RealtimeContext] updateUserStatus called with invalid userId: ${userId}. Aborting.`);
+            return;
+        }
+        
+        // Additional validation to ensure userId is a valid UUID format
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(userId)) {
+            console.warn(`[RealtimeContext] updateUserStatus called with invalid UUID format: ${userId}. Aborting.`);
+            return;
+        }
+        
         try {
             await supabase.functions.invoke('update-user-status', {
                 body: { userId, isOnline },
@@ -275,10 +288,11 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             chatChannel.on(
                 'postgres_changes',
                 {
-                    event: '*',
+                    event: '*', // Listen for INSERT and UPDATE
                     schema: 'public',
-                    table: 'group_chat_message_status',
-                    filter: `message_id.in.(SELECT id FROM group_chat_messages WHERE group_id = '${groupId}')`
+                    table: 'group_message_status',
+                    // Use the new, efficient filter on the denormalized group_id
+                    filter: `group_id.eq.${groupId}`
                 },
                 callbacks.onMessageStatus
             );
@@ -423,12 +437,18 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
         console.log(`[RealtimeContext] App state changed to: ${nextAppState}`);
         
-        if (!session?.user?.id) return;
+        if (!session?.user?.id) {
+            console.log(`[RealtimeContext] No session or user ID available for app state change. Session: ${!!session}, User ID: ${session?.user?.id}`);
+            return;
+        }
+
+        const userId = session.user.id;
+        console.log(`[RealtimeContext] Updating user status for app state change. User ID: ${userId}, State: ${nextAppState}`);
 
         if (nextAppState === 'background' || nextAppState === 'inactive') {
-            updateUserStatus(session.user.id, false);
+            updateUserStatus(userId, false);
         } else if (nextAppState === 'active') {
-            updateUserStatus(session.user.id, true);
+            updateUserStatus(userId, true);
         }
     }, [session?.user?.id]);
 
@@ -469,7 +489,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
 
         // Subscribe to message notifications
-        const notificationChannel = supabase.channel('message_notifications');
+        const notificationChannel = supabase.channel(`notifications_for_${userId}`);
         notificationChannel.on(
             'postgres_changes',
             {
@@ -496,7 +516,33 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 table: 'group_chat_messages',
             },
             (payload) => {
-                const eventName = 'new_group_message_notification';
+                const newMessage = payload.new as any;
+                // This is a global listener. The actual message processing should happen
+                // in the component-level subscription to avoid displaying messages from
+                // groups the user is not currently viewing. However, we can use this
+                // for global notifications.
+                // We check if the sender is NOT the current user to trigger a notification.
+                if (session?.user?.id && newMessage.sender_id !== session.user.id) {
+                    const eventName = 'new_group_message_notification';
+                    if (listenersRef.current[eventName]) {
+                        listenersRef.current[eventName].forEach(callback => callback(payload));
+                    }
+                }
+            }
+        );
+
+        // Subscribe to being added to a new group
+        notificationChannel.on(
+            'postgres_changes',
+            {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'group_chat_participants',
+                filter: `user_id=eq.${userId}` // Only listen for when the current user is added
+            },
+            (payload) => {
+                console.log('[RealtimeContext] Current user added to a group, notifying listeners.', payload);
+                const eventName = 'new_group_added_notification';
                 if (listenersRef.current[eventName]) {
                     listenersRef.current[eventName].forEach(callback => callback(payload));
                 }
