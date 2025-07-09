@@ -440,23 +440,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 console.log("[AuthProvider] Supabase session found, user ID:", supabaseSession.user.id);
                 const userId = supabaseSession.user.id;
                 
-                // ENHANCED: Better user type determination with multiple fallbacks
+                // ENHANCED: Better user type determination with multiple fallbacks (reordered for reliability)
                 userType = (supabaseSession.user.user_metadata?.user_type as UserTypes) || null;
                 console.log(`[AuthProvider] User type from metadata: ${userType}`);
                 
-                // Fallback 1: Check URL path (for signup flows)
-                if (!userType && typeof window !== 'undefined') {
-                    const currentPath = window.location.pathname;
-                    if (currentPath.includes('MusicLover')) {
-                        userType = 'music_lover';
-                        console.log(`[AuthProvider] User type determined from URL path: ${userType}`);
-                    } else if (currentPath.includes('Organizer')) {
-                        userType = 'organizer';
-                        console.log(`[AuthProvider] User type determined from URL path: ${userType}`);
-                    }
-                }
-                
-                // Fallback 2: Check if we have existing profiles in the database
+                // Fallback 1: Check if we have existing profiles in the database (most reliable)
                 if (!userType) {
                     console.log("[AuthProvider] User type still unknown, checking database profiles...");
                     try {
@@ -488,7 +476,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     }
                 }
                 
-                // Fallback 3: Check the public.users table
+                // Fallback 2: Check the public.users table
                 if (!userType) {
                     console.log("[AuthProvider] User type still unknown, checking public.users table...");
                     try {
@@ -504,6 +492,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         }
                     } catch (userTableError) {
                         console.error("[AuthProvider] Error checking public.users table:", userTableError);
+                    }
+                }
+                
+                // Fallback 3: Check URL path (for signup flows) - More specific matching (least reliable)
+                if (!userType && typeof window !== 'undefined') {
+                    const currentPath = window.location.pathname;
+                    console.log(`[AuthProvider] Checking URL path for user type: ${currentPath}`);
+                    
+                    // More specific path matching to avoid false positives
+                    if (currentPath.includes('/MusicLover') || currentPath.includes('/music-lover') || currentPath.includes('MusicLoverSignUpFlow')) {
+                        userType = 'music_lover';
+                        console.log(`[AuthProvider] User type determined from URL path: ${userType}`);
+                    } else if (currentPath.includes('/Organizer') || currentPath.includes('/organizer') || currentPath.includes('OrganizerSignUpFlow')) {
+                        userType = 'organizer';
+                        console.log(`[AuthProvider] User type determined from URL path: ${userType}`);
+                    } else {
+                        console.log(`[AuthProvider] URL path does not contain specific user type indicators: ${currentPath}`);
                     }
                 }
                 
