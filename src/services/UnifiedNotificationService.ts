@@ -3,7 +3,7 @@ import NotificationService from './NotificationService';
 
 export interface CreateNotificationParams {
   user_id: string;
-  type: 'new_message' | 'new_group_message' | 'new_match' | 'event_alert' | 'booking_confirmation' | 'system_alert';
+  type: 'new_message' | 'new_group_message' | 'new_match' | 'event_alert' | 'booking_confirmation' | 'system_alert' | 'organizer_new_booking';
   title: string;
   body: string;
   data?: any;
@@ -19,6 +19,15 @@ export interface SendNotificationParams extends CreateNotificationParams {
   force_send?: boolean; // Skip preference checks
   skip_push?: boolean; // Only send web notification
   skip_web?: boolean; // Only send push notification
+}
+
+export interface NotifyOrganizerOfNewBookingParams {
+  organizer_id: string;
+  event_id: string;
+  event_title: string;
+  booking_id: string;
+  user_name: string;
+  quantity: number;
 }
 
 export class UnifiedNotificationService {
@@ -63,6 +72,31 @@ export class UnifiedNotificationService {
       console.error('Exception creating notification:', error);
       return null;
     }
+  }
+
+  /**
+   * Notify an organizer about a new booking for their event
+   */
+  async notifyOrganizerOfNewBooking(params: NotifyOrganizerOfNewBookingParams): Promise<boolean> {
+    const title = `New Booking for ${params.event_title}`;
+    const body = `${params.user_name} has booked ${params.quantity} ticket(s).`;
+    const deep_link = `/bookings/${params.event_id}`;
+
+    return this.sendImmediateNotification({
+      user_id: params.organizer_id,
+      type: 'organizer_new_booking',
+      title,
+      body,
+      data: {
+        event_id: params.event_id,
+        event_title: params.event_title,
+        booking_id: params.booking_id,
+      },
+      deep_link,
+      related_id: params.event_id,
+      related_type: 'event',
+      sender_id: params.organizer_id, // The user receiving the notification is the organizer.
+    });
   }
 
   /**
@@ -143,15 +177,15 @@ export class UnifiedNotificationService {
     group_name?: string;
   }): Promise<boolean> {
     const isGroup = params.is_group || false;
-    const title = isGroup 
+    const title = isGroup
       ? `${params.sender_name} in ${params.group_name || 'Group Chat'}`
       : `New message from ${params.sender_name}`;
-    
-    const body = params.content.length > 100 
+
+    const body = params.content.length > 100
       ? params.content.substring(0, 100) + '...'
       : params.content;
 
-    const deep_link = isGroup 
+    const deep_link = isGroup
       ? `/group-chat/${params.group_id}`
       : `/chat/${params.sender_id}`;
 
@@ -292,7 +326,7 @@ export class UnifiedNotificationService {
 
     const results = await Promise.allSettled(promises);
     const successCount = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
-    
+
     console.log(`Bulk notifications sent: ${successCount}/${userIds.length}`);
     return successCount;
   }

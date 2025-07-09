@@ -457,6 +457,11 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             });
         };
 
+        const handleNewGroupAdded = (payload: any) => {
+            console.log('ChatsTabs: Current user was added to a group, refreshing chat list.', payload);
+            fetchData();
+        };
+
         // For status updates (e.g., "seen"), a refresh is still the most reliable way 
         // to ensure all unread counts across all chats are accurate.
         const handleStatusUpdate = (payload: any) => {
@@ -469,6 +474,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         subscribeToEvent('new_group_message_notification', handleNewGroupMessage);
         subscribeToEvent('message_status_updated', handleStatusUpdate);
         subscribeToEvent('group_message_status_updated', handleStatusUpdate);
+        subscribeToEvent('new_group_added_notification', handleNewGroupAdded);
 
         return () => {
             // Unsubscribe on cleanup
@@ -476,6 +482,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             unsubscribeFromEvent('new_group_message_notification', handleNewGroupMessage);
             unsubscribeFromEvent('message_status_updated', handleStatusUpdate);
             unsubscribeFromEvent('group_message_status_updated', handleStatusUpdate);
+            unsubscribeFromEvent('new_group_added_notification', handleNewGroupAdded);
         };
     }, [subscribeToEvent, unsubscribeFromEvent, fetchData, session?.user?.id]);
 

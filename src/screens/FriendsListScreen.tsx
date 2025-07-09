@@ -132,13 +132,18 @@ const FriendsListScreen: React.FC = () => {
 
         try {
             const { error } = await supabase.rpc('accept_friend_request', {
-                requester_id: requesterId,
-                current_user_id: currentUserId
+                p_requester_id: requesterId,
+                p_current_user_id: currentUserId
             });
 
             if (error) throw error;
 
-            // Real-time subscription will handle UI updates automatically
+            // Update UI immediately
+            const acceptedRequest = friendRequests.find(req => req.userId === requesterId);
+            if (acceptedRequest) {
+                setFriendRequests(prevRequests => prevRequests.filter(req => req.userId !== requesterId));
+                setFriends(prevFriends => [...prevFriends, { ...acceptedRequest, status: 'accepted' }]);
+            }
             console.log('[FriendsListScreen] Friend request accepted successfully');
         } catch (error: any) {
             console.error('Error accepting friend request:', error);
@@ -159,13 +164,14 @@ const FriendsListScreen: React.FC = () => {
 
         try {
             const { error } = await supabase.rpc('decline_friend_request', {
-                requester_id: requesterId,
-                current_user_id: currentUserId
+                p_requester_id: requesterId,
+                p_current_user_id: currentUserId
             });
 
             if (error) throw error;
 
-            // Real-time subscription will handle UI updates automatically
+            // Update UI immediately
+            setFriendRequests(prevRequests => prevRequests.filter(req => req.userId !== requesterId));
             console.log('[FriendsListScreen] Friend request declined successfully');
         } catch (error: any) {
             console.error('Error declining friend request:', error);

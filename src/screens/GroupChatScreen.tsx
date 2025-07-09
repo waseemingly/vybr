@@ -21,9 +21,9 @@ import { useUnreadCount } from '@/hooks/useUnreadCount';
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { useRealtime } from '@/context/RealtimeContext'; // Add RealtimeContext import
+
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator'; // Adjust path
-import { APP_CONSTANTS } from '@/config/constants';    
+import { APP_CONSTANTS } from '@/config/constants';
 import { v4 as uuidv4 } from 'uuid';           // Adjust path
 // --- End Adjust Paths ---
 
@@ -42,9 +42,9 @@ const formatTime = (date: Date | string | number): string => {
         const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
         if (!dateObj || isNaN(dateObj.getTime())) return '--:--';
         return dateObj.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-    } catch (e) { 
-        console.warn("Format time error:", date, e); 
-        return '--:--'; 
+    } catch (e) {
+        console.warn("Format time error:", date, e);
+        return '--:--';
     }
 };
 
@@ -52,11 +52,11 @@ const formatTime = (date: Date | string | number): string => {
 const isEventOver = (eventDateString: string): boolean => {
     try {
         console.log('[DEBUG] Checking if event is over, date string:', eventDateString);
-        
+
         // First, try direct parsing
         let eventDate = new Date(eventDateString);
         const now = new Date();
-        
+
         // If direct parsing failed, try other formats
         if (isNaN(eventDate.getTime())) {
             // Try to parse common date formats manually
@@ -68,7 +68,7 @@ const isEventOver = (eventDateString: string): boolean => {
                 // Handle formats like "Dec 15" (assume current year)
                 eventDateString.includes(',') ? eventDateString : `${eventDateString}, ${new Date().getFullYear()}`,
             ];
-            
+
             for (const format of dateFormats) {
                 const parsed = new Date(format);
                 console.log('[DEBUG] Trying format:', format, 'Result:', parsed.toISOString(), 'Valid:', !isNaN(parsed.getTime()));
@@ -77,14 +77,14 @@ const isEventOver = (eventDateString: string): boolean => {
                     break;
                 }
             }
-            
+
             // If still couldn't parse, assume event is not over
             if (isNaN(eventDate.getTime())) {
                 console.log('[DEBUG] Could not parse event date, assuming not over:', eventDateString);
                 return false;
             }
         }
-        
+
         const isOver = eventDate < now;
         console.log('[DEBUG] Event date:', eventDate.toISOString(), 'Now:', now.toISOString(), 'Is over:', isOver);
         return isOver;
@@ -97,13 +97,13 @@ const isEventOver = (eventDateString: string): boolean => {
 // Helper to check if event is over using sharedEvent data
 const isSharedEventOver = (sharedEvent: ChatMessage['sharedEvent']): boolean => {
     if (!sharedEvent) return false;
-    
+
     // Use eventDateTime if available (more accurate) - this should be the primary method
     if (sharedEvent.eventDateTime) {
         try {
             const eventDate = new Date(sharedEvent.eventDateTime);
             const now = new Date();
-            
+
             // Validate the parsed date
             if (isNaN(eventDate.getTime())) {
                 console.warn('Invalid eventDateTime:', sharedEvent.eventDateTime);
@@ -116,13 +116,13 @@ const isSharedEventOver = (sharedEvent: ChatMessage['sharedEvent']): boolean => 
             console.warn('Error parsing eventDateTime:', sharedEvent.eventDateTime, e);
         }
     }
-    
+
     // Fallback to eventDate string parsing (less reliable due to formatting issues)
     if (sharedEvent.eventDate) {
         console.log('[DEBUG] Falling back to eventDate string parsing for:', sharedEvent.eventDate);
         return isEventOver(sharedEvent.eventDate);
     }
-    
+
     return false;
 };
 
@@ -155,14 +155,14 @@ type GroupChatScreenRouteProp = RouteProp<RootStackParamList & {
     }
 }, 'GroupChatScreen'>;
 type GroupChatScreenNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList, 'GroupChatScreen'>;
-interface DbGroupMessage { 
-    id: string; 
-    created_at: string; 
-    sender_id: string; 
-    group_id: string; 
-    content: string | null; 
-    image_url: string | null; 
-    is_system_message: boolean; 
+interface DbGroupMessage {
+    id: string;
+    created_at: string;
+    sender_id: string;
+    group_id: string;
+    content: string | null;
+    image_url: string | null;
+    is_system_message: boolean;
     metadata?: any; // Add metadata property for shared event data
     original_content?: string | null;
     is_edited?: boolean;
@@ -170,18 +170,13 @@ interface DbGroupMessage {
     is_deleted?: boolean;
     deleted_at?: string | null;
     reply_to_message_id?: string | null;
-    // Add message status fields for group messages
-    is_delivered?: boolean;
-    delivered_at?: string | null;
-    is_seen?: boolean;
-    seen_at?: string | null;
 }
-interface ChatMessage { 
-    _id: string; 
-    text: string; 
-    createdAt: Date; 
-    user: { _id: string; name?: string; avatar?: string; }; 
-    image?: string | null; 
+interface ChatMessage {
+    _id: string;
+    text: string;
+    createdAt: Date;
+    user: { _id: string; name?: string; avatar?: string; };
+    image?: string | null;
     isSystemMessage: boolean;
     sharedEvent?: {
         eventId: string;
@@ -202,11 +197,16 @@ interface ChatMessage {
         senderName?: string | null;
         image?: string | null;
     } | null;
-    // Add message status fields for group messages
     isDelivered?: boolean;
     deliveredAt?: Date | null;
     isSeen?: boolean;
     seenAt?: Date | null;
+    // Add seenBy to track who has seen the message and when
+    seenBy?: {
+        userId: string;
+        userName: string;
+        seenAt: Date;
+    }[];
 }
 interface UserProfileInfo { user_id: string; first_name: string | null; last_name: string | null; profile_picture: string | null; }
 interface DbGroupChat { id: string; group_name: string; group_image: string | null; can_members_add_others?: boolean; can_members_edit_info?: boolean; }
@@ -220,8 +220,8 @@ const DEFAULT_ORGANIZER_LOGO_CHAT = "https://via.placeholder.com/150/BFDBFE/1E40
 const DEFAULT_ORGANIZER_NAME_CHAT = "Event Organizer";
 
 // --- GroupMessageBubble Component ---
-interface GroupMessageBubbleProps { 
-    message: ChatMessage; 
+interface GroupMessageBubbleProps {
+    message: ChatMessage;
     currentUserId: string | undefined;
     onImagePress: (imageUri: string) => void;
     onEventPress?: (eventId: string) => void;
@@ -230,11 +230,11 @@ interface GroupMessageBubbleProps {
     getRepliedMessagePreview: (messageId: string) => ChatMessage['replyToMessagePreview'] | null;
     isHighlighted?: boolean;
 }
-const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({ 
-    message, 
-    currentUserId, 
-    onImagePress, 
-    onEventPress, 
+const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
+    message,
+    currentUserId,
+    onImagePress,
+    onEventPress,
     onMessageLongPress,
     onReplyPress,
     getRepliedMessagePreview,
@@ -254,7 +254,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 console.log(`[IMPRESSION] Skipping impression for past event: ${message.sharedEvent.eventId}`);
                 return;
             }
-            
+
             const logEventImpression = async () => {
                 try {
                     console.log(`[IMPRESSION] Logging impression for future event: ${message.sharedEvent?.eventId} from group chat`);
@@ -264,7 +264,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                         source: 'group_chat',
                         viewed_at: new Date().toISOString()
                     });
-                    
+
                     if (error) {
                         console.warn(`[IMPRESSION] Failed for shared event ${message.sharedEvent?.eventId}:`, error.message);
                     } else {
@@ -275,12 +275,12 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                     console.error("[IMPRESSION] Failed to log impression:", err);
                 }
             };
-            
+
             // Add a small delay to ensure the message is actually visible to the user
             const timeoutId = setTimeout(() => {
                 logEventImpression();
             }, 100);
-            
+
             return () => clearTimeout(timeoutId);
         }
     }, [message.sharedEvent?.eventId, currentUserId, hasLoggedImpression]);
@@ -298,10 +298,10 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
 
     // System Message
     if (message.isSystemMessage) {
-        return ( 
+        return (
             <View style={styles.systemMessageContainer}>
                 <Text style={styles.systemMessageText}>{message.text}</Text>
-            </View> 
+            </View>
         );
     }
 
@@ -309,11 +309,11 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     if (message.isDeleted) {
         return (
             <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
-                 <View style={styles.messageContentContainer}>
+                <View style={styles.messageContentContainer}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
-                            <Image 
-                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }} 
+                            <Image
+                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }}
                                 style={styles.senderAvatar}
                                 onError={() => console.warn('Failed to load sender avatar, using default')}
                                 defaultSource={{ uri: DEFAULT_PROFILE_PIC }}
@@ -324,14 +324,14 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                         </View>
                     )}
                     <View style={[styles.messageBubble, styles.deletedMessageBubble, isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived]}>
-                        <Feather name="slash" size={14} color={isCurrentUser ? "rgba(255,255,255,0.7)" : "#9CA3AF"} style={{marginRight: 6}}/>
+                        <Feather name="slash" size={14} color={isCurrentUser ? "rgba(255,255,255,0.7)" : "#9CA3AF"} style={{ marginRight: 6 }} />
                         <Text style={[styles.deletedMessageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>
                             This message was deleted
                         </Text>
                     </View>
                     <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
-                        {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
+                        {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />}
                     </Text>
                 </View>
             </View>
@@ -340,17 +340,21 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
 
     const repliedMessagePreview = message.replyToMessageId ? getRepliedMessagePreview(message.replyToMessageId) : null;
 
+    // Determine the text for the seen status
+    const seenByCount = message.seenBy?.filter(s => s.userId !== currentUserId).length || 0;
+    const seenByText = seenByCount > 0 ? `Seen by ${seenByCount}` : null;
+
     // Shared Event Message
     if (message.sharedEvent) {
         const eventIsOver = isSharedEventOver(message.sharedEvent);
-        
+
         return (
             <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
                 <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
-                            <Image 
-                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }} 
+                            <Image
+                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }}
                                 style={styles.senderAvatar}
                                 onError={() => console.warn('Failed to load sender avatar, using default')}
                                 defaultSource={{ uri: DEFAULT_PROFILE_PIC }}
@@ -361,19 +365,19 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                         </View>
                     )}
                     <View style={[
-                        styles.messageBubble, 
+                        styles.messageBubble,
                         styles.sharedEventMessageBubble,
                         isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived,
                         isHighlighted && styles.highlightedMessageBubble
                     ]}>
                         <Text style={[
-                            styles.messageText, 
+                            styles.messageText,
                             isCurrentUser ? styles.messageTextSent : styles.messageTextReceived
                         ]}>
                             {message.text}
                         </Text>
-                        
-                        <TouchableOpacity 
+
+                        <TouchableOpacity
                             style={[
                                 styles.sharedEventPreview,
                                 eventIsOver && styles.sharedEventPreviewDisabled
@@ -382,7 +386,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                             activeOpacity={eventIsOver ? 1 : 0.7}
                             disabled={eventIsOver}
                         >
-                            <Image 
+                            <Image
                                 source={{ uri: message.sharedEvent.eventImage || DEFAULT_EVENT_IMAGE_CHAT }}
                                 style={[
                                     styles.sharedEventPreviewImage,
@@ -430,7 +434,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                             {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
                             <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
                                 {formatTime(message.createdAt)}
-                                {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />} 
+                                {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />}
                             </Text>
                         </View>
                     </View>
@@ -442,8 +446,8 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     // Image Message
     if (message.image) {
         return (
-            <TouchableOpacity 
-                style={[styles.messageRowTouchable, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]} 
+            <TouchableOpacity
+                style={[styles.messageRowTouchable, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}
                 onLongPress={() => onMessageLongPress(message)}
                 delayLongPress={200}
                 activeOpacity={0.8}
@@ -451,8 +455,8 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
-                            <Image 
-                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }} 
+                            <Image
+                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }}
                                 style={styles.senderAvatar}
                                 onError={() => console.warn('Failed to load sender avatar, using default')}
                                 defaultSource={{ uri: DEFAULT_PROFILE_PIC }}
@@ -462,10 +466,10 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                             )}
                         </View>
                     )}
-                    
-                    {/* Reply Preview for Image */} 
+
+                    {/* Reply Preview for Image */}
                     {repliedMessagePreview && (
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             style={[styles.replyPreviewContainer, isCurrentUser ? styles.replyPreviewSent : styles.replyPreviewReceived]}
                             onPress={() => message.replyToMessageId && onReplyPress(message.replyToMessageId)}
                             activeOpacity={0.7}
@@ -474,8 +478,8 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                             <View style={styles.replyPreviewContent}>
                                 <Text style={styles.replyPreviewSenderName}>{repliedMessagePreview.senderName || 'User'}</Text>
                                 {repliedMessagePreview.image ? (
-                                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                                        <Feather name="image" size={12} color="#6B7280" style={{marginRight: 4}}/>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <Feather name="image" size={12} color="#6B7280" style={{ marginRight: 4 }} />
                                         <Text style={styles.replyPreviewText}>Image</Text>
                                     </View>
                                 ) : (
@@ -485,9 +489,9 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                         </TouchableOpacity>
                     )}
 
-                    <TouchableOpacity 
-                        style={[styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage, isHighlighted && styles.highlightedImageBubble]} 
-                        activeOpacity={0.8} 
+                    <TouchableOpacity
+                        style={[styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage, isHighlighted && styles.highlightedImageBubble]}
+                        activeOpacity={0.8}
                         onPress={() => onImagePress(message.image!)}
                     >
                         <Image
@@ -506,7 +510,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                     </TouchableOpacity>
                     <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
-                        {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
+                        {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />}
                     </Text>
                 </View>
             </TouchableOpacity>
@@ -516,8 +520,8 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     // Text Message
     if (message.text) {
         return (
-            <TouchableOpacity 
-                style={[styles.messageRowTouchable, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]} 
+            <TouchableOpacity
+                style={[styles.messageRowTouchable, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}
                 onLongPress={() => onMessageLongPress(message)}
                 delayLongPress={200}
                 activeOpacity={0.8}
@@ -525,8 +529,8 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
-                            <Image 
-                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }} 
+                            <Image
+                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }}
                                 style={styles.senderAvatar}
                                 onError={() => console.warn('Failed to load sender avatar, using default')}
                                 defaultSource={{ uri: DEFAULT_PROFILE_PIC }}
@@ -536,10 +540,10 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                             )}
                         </View>
                     )}
-                    
-                    {/* Reply Preview for Text */} 
+
+                    {/* Reply Preview for Text */}
                     {repliedMessagePreview && (
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             style={[styles.replyPreviewContainer, isCurrentUser ? styles.replyPreviewSent : styles.replyPreviewReceived]}
                             onPress={() => message.replyToMessageId && onReplyPress(message.replyToMessageId)}
                             activeOpacity={0.7}
@@ -548,8 +552,8 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                             <View style={styles.replyPreviewContent}>
                                 <Text style={styles.replyPreviewSenderName}>{repliedMessagePreview.senderName || 'User'}</Text>
                                 {repliedMessagePreview.image ? (
-                                     <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                                        <Feather name="image" size={12} color="#6B7280" style={{marginRight: 4}}/>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <Feather name="image" size={12} color="#6B7280" style={{ marginRight: 4 }} />
                                         <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text}</Text>
                                     </View>
                                 ) : (
@@ -560,15 +564,18 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                     )}
 
                     <View style={[styles.messageBubble, isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived, isHighlighted && styles.highlightedMessageBubble]}>
-                         <Text style={[styles.messageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>{message.text}</Text>
-                         <View style={styles.timeAndEditContainer}>
+                        <Text style={[styles.messageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>{message.text}</Text>
+                        <View style={styles.timeAndEditContainer}>
                             {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
                             <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
                                 {formatTime(message.createdAt)}
-                                {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />} 
+                                {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />}
                             </Text>
-                         </View>
+                        </View>
                     </View>
+                    {isCurrentUser && seenByText && (
+                        <Text style={styles.seenByText}>{seenByText}</Text>
+                    )}
                 </View>
             </TouchableOpacity>
         );
@@ -584,7 +591,7 @@ const GroupChatScreen: React.FC = () => {
     const navigation = useNavigation<GroupChatScreenNavigationProp>();
     const { session } = useAuth();
     const { refreshUnreadCount } = useUnreadCount();
-    const { presenceState, subscribeToGroupChat, sendTypingIndicator, getGroupMemberPresence } = useRealtime(); // Add RealtimeContext usage
+    // Removed useRealtime since we're using direct Supabase subscriptions like IndividualChatScreen
     const currentUserId = session?.user?.id;
     const { groupId, sharedEventData: initialSharedEventData } = route.params;
 
@@ -609,7 +616,7 @@ const GroupChatScreen: React.FC = () => {
     const [sharedEventMessage, setSharedEventMessage] = useState<string | null>(null);
 
     // --- Realtime state ---
-    const [onlineMembers, setOnlineMembers] = useState<Set<string>>(new Set());
+
     const [typingUsers, setTypingUsers] = useState<Map<string, { name: string; timestamp: number }>>(new Map());
     const [groupMembers, setGroupMembers] = useState<Map<string, { name: string; avatar?: string }>>(new Map());
     const typingTimeoutRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
@@ -651,7 +658,7 @@ const GroupChatScreen: React.FC = () => {
         }
         console.log("[GroupChatScreen] Event preview pressed, Event ID:", eventId);
         setLoadingEventDetails(true);
-        setSelectedEventDataForModal(null); 
+        setSelectedEventDataForModal(null);
         try {
             console.log("[GroupChatScreen] Fetching event details from database...");
             const { data: eventData, error: eventError } = await supabase
@@ -692,7 +699,7 @@ const GroupChatScreen: React.FC = () => {
                 booking_type: eventData.booking_type,
                 ticket_price: eventData.ticket_price
             });
-            
+
             // Fetch organizer profile from organizer_profiles table (not music_lover_profiles)
             let organizerProfile = null;
             if (eventData.organizer_id) {
@@ -703,7 +710,7 @@ const GroupChatScreen: React.FC = () => {
                         .select('user_id, company_name, logo')
                         .eq('user_id', eventData.organizer_id)
                         .maybeSingle(); // Changed from .single() to .maybeSingle()
-                    
+
                     if (profileError) {
                         console.warn("[GroupChatScreen] Could not fetch organizer profile in group chat:", profileError.message);
                     } else if (profileData) {
@@ -717,7 +724,7 @@ const GroupChatScreen: React.FC = () => {
                     // Continue without organizer profile
                 }
             }
-            
+
             const mappedEvent: MappedEvent = {
                 id: eventData.id,
                 title: eventData.title || "Event Title",
@@ -755,11 +762,12 @@ const GroupChatScreen: React.FC = () => {
     // --- End Event Press Handler ---
 
     // Memoized sections
-    const sections = useMemo(() => { const groups: Record<string, ChatMessage[]> = {}; messages.forEach(msg => { const dateKey = msg.createdAt.toDateString(); if (!groups[dateKey]) groups[dateKey] = []; groups[dateKey].push(msg); }); const sortedKeys = Object.keys(groups).sort((a,b) => new Date(a).getTime() - new Date(b).getTime()); const today = new Date(); today.setHours(0,0,0,0); const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); const oneWeekAgo = new Date(today); oneWeekAgo.setDate(today.getDate() - 7); return sortedKeys.map(dateKey => { const date = new Date(dateKey); date.setHours(0,0,0,0); let title = 'Older'; if (date.getTime() === today.getTime()) title = 'Today'; else if (date.getTime() === yesterday.getTime()) title = 'Yesterday'; else if (date > oneWeekAgo) title = date.toLocaleDateString(undefined, { weekday:'long' }); else title = date.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' }); return { title, data: groups[dateKey] }; }); }, [messages]);
+    const sections = useMemo(() => { const groups: Record<string, ChatMessage[]> = {}; messages.forEach(msg => { const dateKey = msg.createdAt.toDateString(); if (!groups[dateKey]) groups[dateKey] = []; groups[dateKey].push(msg); }); const sortedKeys = Object.keys(groups).sort((a, b) => new Date(a).getTime() - new Date(b).getTime()); const today = new Date(); today.setHours(0, 0, 0, 0); const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); const oneWeekAgo = new Date(today); oneWeekAgo.setDate(today.getDate() - 7); return sortedKeys.map(dateKey => { const date = new Date(dateKey); date.setHours(0, 0, 0, 0); let title = 'Older'; if (date.getTime() === today.getTime()) title = 'Today'; else if (date.getTime() === yesterday.getTime()) title = 'Yesterday'; else if (date > oneWeekAgo) title = date.toLocaleDateString(undefined, { weekday: 'long' }); else title = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); return { title, data: groups[dateKey] }; }); }, [messages]);
 
     // Map DB Message to UI
-    const mapDbMessageToChatMessage = useCallback((dbMessage: DbGroupMessage, profilesMap: Map<string, UserProfileInfo>): ChatMessage => { let senderName = 'User'; let senderAvatar: string | undefined = undefined; if (dbMessage.sender_id) { const pfc = userProfileCache[dbMessage.sender_id]; if (pfc) { senderName = pfc.name || 'User'; senderAvatar = pfc.avatar; } else { const pfm = profilesMap.get(dbMessage.sender_id); if (pfm) { senderName = `${pfm.first_name||''} ${pfm.last_name||''}`.trim()||'User'; senderAvatar = pfm.profile_picture||undefined; if (!dbMessage.is_system_message) userProfileCache[dbMessage.sender_id]={name: senderName, avatar: senderAvatar}; } } } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You', avatar: undefined }; 
-        
+    const mapDbMessageToChatMessage = useCallback((dbMessage: DbGroupMessage, profilesMap: Map<string, UserProfileInfo>): ChatMessage => {
+        let senderName = 'User'; let senderAvatar: string | undefined = undefined; if (dbMessage.sender_id) { const pfc = userProfileCache[dbMessage.sender_id]; if (pfc) { senderName = pfc.name || 'User'; senderAvatar = pfc.avatar; } else { const pfm = profilesMap.get(dbMessage.sender_id); if (pfm) { senderName = `${pfm.first_name || ''} ${pfm.last_name || ''}`.trim() || 'User'; senderAvatar = pfm.profile_picture || undefined; if (!dbMessage.is_system_message) userProfileCache[dbMessage.sender_id] = { name: senderName, avatar: senderAvatar }; } } } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You', avatar: undefined };
+
         let sharedEventInfo: ChatMessage['sharedEvent'] = null;
         const rawContent = dbMessage.content ?? '';
         let displayText = rawContent;
@@ -781,7 +789,7 @@ const GroupChatScreen: React.FC = () => {
                     const atIndex = detailsString.lastIndexOf(atSeparator);
                     if (atIndex !== -1) {
                         eventVenue = detailsString.substring(atIndex + atSeparator.length);
-                        eventName = detailsString.substring(0, atIndex); 
+                        eventName = detailsString.substring(0, atIndex);
                     }
 
                     const onIndex = eventName.lastIndexOf(onSeparator);
@@ -789,7 +797,7 @@ const GroupChatScreen: React.FC = () => {
                         eventDate = eventName.substring(onIndex + onSeparator.length);
                         eventName = eventName.substring(0, onIndex);
                     }
-                    
+
                     // Check metadata for stored event image first
                     let eventImage = DEFAULT_EVENT_IMAGE_CHAT;
                     let eventDateTime: string | null = null;
@@ -802,7 +810,7 @@ const GroupChatScreen: React.FC = () => {
                             eventDateTime = metadataEvent.eventDateTime;
                         }
                     }
-                    
+
                     sharedEventInfo = {
                         eventId: eventId,
                         eventTitle: eventName.trim(),
@@ -815,20 +823,20 @@ const GroupChatScreen: React.FC = () => {
                     const displayName = dbMessage.sender_id === currentUserId ? 'You' : senderName;
                     displayText = `${displayName} shared an event`;
                 } else {
-                     console.warn("SHARED_EVENT string has too few parts:", rawContent);
+                    console.warn("SHARED_EVENT string has too few parts:", rawContent);
                 }
             } catch (e) {
                 console.error("Failed to parse shared event content:", rawContent, e);
             }
         }
-        
-        return { 
-            _id: dbMessage.id, 
+
+        return {
+            _id: dbMessage.id,
             text: displayText, // Use potentially modified display text
-            createdAt: new Date(dbMessage.created_at), 
-            user: { _id: dbMessage.sender_id || 'system', name: dbMessage.sender_id === currentUserId ? 'You' : senderName, avatar: dbMessage.sender_id === currentUserId ? undefined : senderAvatar, }, 
-            image: dbMessage.image_url, 
-            isSystemMessage: dbMessage.is_system_message, 
+            createdAt: new Date(dbMessage.created_at),
+            user: { _id: dbMessage.sender_id || 'system', name: dbMessage.sender_id === currentUserId ? 'You' : senderName, avatar: dbMessage.sender_id === currentUserId ? undefined : senderAvatar, },
+            image: dbMessage.image_url,
+            isSystemMessage: dbMessage.is_system_message,
             sharedEvent: sharedEventInfo, // Attach parsed shared event data
             originalContent: dbMessage.original_content,
             isEdited: dbMessage.is_edited,
@@ -840,15 +848,16 @@ const GroupChatScreen: React.FC = () => {
             deliveredAt: null,
             isSeen: false, // Will be set by calling code from joined data
             seenAt: null,
-        }; 
+            seenBy: [], // Initialize seenBy array
+        };
     }, [currentUserId]);
 
     // Function to enhance shared events with missing eventDateTime (for older messages)
     const enhanceSharedEventsWithDateTime = useCallback(async (messages: ChatMessage[]): Promise<ChatMessage[]> => {
-        const messagesToEnhance = messages.filter(msg => 
-            msg.sharedEvent && 
-            !msg.sharedEvent.eventDateTime && 
-            msg.sharedEvent.eventId && 
+        const messagesToEnhance = messages.filter(msg =>
+            msg.sharedEvent &&
+            !msg.sharedEvent.eventDateTime &&
+            msg.sharedEvent.eventId &&
             msg.sharedEvent.eventId !== 'unknown'
         );
 
@@ -893,8 +902,8 @@ const GroupChatScreen: React.FC = () => {
                                 ...msg.sharedEvent,
                                 eventDateTime: eventData.event_datetime,
                                 // Also update image if needed
-                                eventImage: (eventData.poster_urls && eventData.poster_urls.length > 0) 
-                                    ? eventData.poster_urls[0] 
+                                eventImage: (eventData.poster_urls && eventData.poster_urls.length > 0)
+                                    ? eventData.poster_urls[0]
                                     : msg.sharedEvent.eventImage
                             }
                         };
@@ -911,69 +920,153 @@ const GroupChatScreen: React.FC = () => {
     }, []);
 
     // Fetch Initial Data
-    const fetchInitialData = useCallback(async () => { if (!currentUserId || !groupId) { setLoadError("Auth/Group ID missing."); setLoading(false); return; } setLoading(true); setLoadError(null); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); try { const { data: groupInfoData, error: groupInfoError } = await supabase.rpc('get_group_info', { group_id_input: groupId }); if (groupInfoError) throw groupInfoError; if (!groupInfoData?.group_details || !groupInfoData?.participants) throw new Error("Incomplete group data."); const groupDetails = groupInfoData.group_details; const participantsRaw: { user_id: string, is_admin: boolean }[] = groupInfoData.participants; const currentUserParticipant = participantsRaw.find(p => p.user_id === currentUserId); setIsCurrentUserAdmin(currentUserParticipant?.is_admin ?? false); setCanMembersAddOthers(groupDetails.can_members_add_others ?? false); setCanMembersEditInfo(groupDetails.can_members_edit_info ?? false); setCurrentGroupName(groupDetails.group_name); setCurrentGroupImage(groupDetails.group_image ?? null); 
+    const fetchInitialData = useCallback(async () => {
+        if (!currentUserId || !groupId) {
+            setLoadError("Auth/Group ID missing.");
+            setLoading(false);
+            return;
+        }
+        setLoading(true);
+        setLoadError(null);
+        setIsCurrentUserAdmin(false);
+        setCanMembersAddOthers(false);
+        setCanMembersEditInfo(false);
+        try {
+            const { data: groupInfoData, error: groupInfoError } = await supabase.rpc('get_group_info', { group_id_input: groupId });
+            if (groupInfoError) throw groupInfoError;
+            if (!groupInfoData?.group_details || !groupInfoData?.participants) throw new Error("Incomplete group data.");
+            const groupDetails = groupInfoData.group_details;
+            const participantsRaw: { user_id: string, is_admin: boolean }[] = groupInfoData.participants;
+            const currentUserParticipant = participantsRaw.find(p => p.user_id === currentUserId);
+            setIsCurrentUserAdmin(currentUserParticipant?.is_admin ?? false);
+            setCanMembersAddOthers(groupDetails.can_members_add_others ?? false);
+            setCanMembersEditInfo(groupDetails.can_members_edit_info ?? false);
+            setCurrentGroupName(groupDetails.group_name);
+            setCurrentGroupImage(groupDetails.group_image ?? null);
 
-        // Fetch group member profiles for realtime features
-        const memberIds = participantsRaw.map(p => p.user_id);
-        const newGroupMembers = new Map<string, { name: string; avatar?: string }>();
-        
-        if (memberIds.length > 0) {
-            try {
-                const { data: profilesData, error: profilesError } = await supabase
-                    .from('music_lover_profiles')
-                    .select('user_id, first_name, last_name, profile_picture')
-                    .in('user_id', memberIds);
-                
-                if (profilesError) {
-                    console.warn("Error fetching group member profiles:", profilesError);
-                } else if (profilesData) {
-                    profilesData.forEach((profile: any) => {
-                        const displayName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'User';
-                        newGroupMembers.set(profile.user_id, {
-                            name: displayName,
-                            avatar: profile.profile_picture || undefined
+            // Fetch group member profiles for realtime features
+            const memberIds = participantsRaw.map(p => p.user_id);
+            const newGroupMembers = new Map<string, { name: string; avatar?: string }>();
+
+            if (memberIds.length > 0) {
+                try {
+                    const { data: profilesData, error: profilesError } = await supabase
+                        .from('music_lover_profiles')
+                        .select('user_id, first_name, last_name, profile_picture')
+                        .in('user_id', memberIds);
+
+                    if (profilesError) {
+                        console.warn("Error fetching group member profiles:", profilesError);
+                    } else if (profilesData) {
+                        profilesData.forEach((profile: any) => {
+                            const displayName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'User';
+                            newGroupMembers.set(profile.user_id, {
+                                name: displayName,
+                                avatar: profile.profile_picture || undefined
+                            });
                         });
+                    }
+                } catch (profileErr) {
+                    console.warn("Exception fetching group member profiles:", profileErr);
+                }
+            }
+
+            setGroupMembers(newGroupMembers);
+
+            const { data: messagesData, error: messagesError } = await supabase
+                .from('group_chat_messages')
+                .select(`
+                    id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, 
+                    original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id,
+                    group_message_status(*)
+                `)
+                .eq('group_id', groupId)
+                .order('created_at', { ascending: true });
+
+            if (messagesError) throw messagesError;
+
+            if (!messagesData || messagesData.length === 0) {
+                setMessages([]);
+            } else {
+                const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id);
+                const senderIds = Array.from(new Set(visibleMessages.map(msg => msg.sender_id).filter(id => id)));
+                const profilesMap = new Map<string, UserProfileInfo>();
+                if (senderIds.length > 0) {
+                    const idsToFetch = senderIds.filter(id => !userProfileCache[id]);
+                    if (idsToFetch.length > 0) {
+                        const { data: profilesData, error: profilesError } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').in('user_id', idsToFetch);
+                        if (profilesError) {
+                            console.error("Err fetch profiles:", profilesError);
+                        } else if (profilesData) {
+                            profilesData.forEach((p: UserProfileInfo) => {
+                                profilesMap.set(p.user_id, p);
+                                const n = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
+                                const a = p.profile_picture || undefined;
+                                userProfileCache[p.user_id] = { name: n, avatar: a };
+                            });
+                        }
+                    }
+                    senderIds.forEach(id => {
+                        if (userProfileCache[id] && !profilesMap.has(id)) {
+                            profilesMap.set(id, { user_id: id, first_name: userProfileCache[id].name?.split(' ')[0] || null, last_name: userProfileCache[id].name?.split(' ')[1] || null, profile_picture: userProfileCache[id].avatar || null });
+                        }
                     });
                 }
-            } catch (profileErr) {
-                console.warn("Exception fetching group member profiles:", profileErr);
-            }
-        }
-        
-        setGroupMembers(newGroupMembers);
+                if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You' };
 
-        const { data: messagesData, error: messagesError } = await supabase
-            .from('group_chat_messages')
-            .select(`
-                id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, 
-                original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id,
-                group_chat_message_status!left(is_delivered, delivered_at, is_seen, seen_at)
-            `)
-            .eq('group_id', groupId)
-            .eq('group_chat_message_status.user_id', currentUserId)
-            .order('created_at', { ascending: true }); if (messagesError) throw messagesError; if (!messagesData || messagesData.length === 0) { setMessages([]); } else { const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id); const senderIds = Array.from(new Set(visibleMessages.filter(msg => msg.sender_id).map(msg => msg.sender_id))); const profilesMap = new Map<string, UserProfileInfo>(); if (senderIds.length > 0) { const idsToFetch = senderIds.filter(id => !userProfileCache[id]); if (idsToFetch.length > 0) { const { data: profilesData, error: profilesError } = await supabase.from('music_lover_profiles').select('user_id, first_name, last_name, profile_picture').in('user_id', idsToFetch); if (profilesError) { console.error("Err fetch profiles:", profilesError); } else if (profilesData) { profilesData.forEach((p: UserProfileInfo) => { profilesMap.set(p.user_id, p); const n = `${p.first_name||''} ${p.last_name||''}`.trim()||'User'; const a = p.profile_picture||undefined; userProfileCache[p.user_id] = { name: n, avatar: a }; }); } } senderIds.forEach(id => { if (userProfileCache[id] && !profilesMap.has(id)) { profilesMap.set(id, { user_id: id, first_name: userProfileCache[id].name?.split(' ')[0]||null, last_name: userProfileCache[id].name?.split(' ')[1]||null, profile_picture: userProfileCache[id].avatar||null }); } }); } if (currentUserId && !userProfileCache[currentUserId]) userProfileCache[currentUserId] = { name: 'You' }; const mappedMessages = visibleMessages.map((dbMsg: any) => {
-            const chatMsg = mapDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap);
-            // Handle joined status data similar to individual chat
-            const status = dbMsg.group_chat_message_status && Array.isArray(dbMsg.group_chat_message_status) 
-                ? dbMsg.group_chat_message_status[0] 
-                : dbMsg.group_chat_message_status;
-            if (status) {
-                chatMsg.isDelivered = status.is_delivered;
-                chatMsg.deliveredAt = status.delivered_at ? new Date(status.delivered_at) : null;
-                chatMsg.isSeen = status.is_seen;
-                chatMsg.seenAt = status.seen_at ? new Date(status.seen_at) : null;
+                const mappedMessages = visibleMessages.map((dbMsg: any) => {
+                    const chatMsg = mapDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap);
+
+                    const allStatuses = dbMsg.group_message_status || [];
+
+                    // Populate the seenBy array with everyone who has seen the message
+                    chatMsg.seenBy = allStatuses
+                        .filter((s: any) => s.is_seen)
+                        .map((s: any) => ({
+                            userId: s.user_id,
+                            userName: newGroupMembers.get(s.user_id)?.name || 'Someone',
+                            seenAt: new Date(s.seen_at)
+                        }));
+
+                    // For messages sent by the current user, isSeen is true if anyone else has seen it.
+                    if (chatMsg.user._id === currentUserId) {
+                        chatMsg.isSeen = (chatMsg.seenBy || []).some(s => s.userId !== currentUserId);
+                    } else {
+                        // For messages received by the current user, isSeen is true if they have seen it.
+                        const currentUserStatus = (chatMsg.seenBy || []).find(s => s.userId === currentUserId);
+                        chatMsg.isSeen = !!currentUserStatus;
+                        chatMsg.seenAt = currentUserStatus ? currentUserStatus.seenAt : null;
+                    }
+
+                    return chatMsg;
+                });
+                setMessages(mappedMessages);
             }
-            return chatMsg;
-        }); setMessages(mappedMessages); } } catch (err: any) { console.error("Error fetching initial data:", err); if (err.message?.includes("User is not a member")) { Alert.alert("Access Denied", "Not member.", [{ text: "OK", onPress: () => navigation.goBack() }]); setLoadError("Not a member."); } else { setLoadError(`Load fail: ${err.message || 'Unknown'}`); } setMessages([]); setIsCurrentUserAdmin(false); setCanMembersAddOthers(false); setCanMembersEditInfo(false); } finally { setLoading(false); } }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
+        } catch (err: any) {
+            console.error("Error fetching initial data:", err);
+            if (err.message?.includes("User is not a member")) {
+                Alert.alert("Access Denied", "Not member.", [{ text: "OK", onPress: () => navigation.goBack() }]);
+                setLoadError("Not a member.");
+            } else {
+                setLoadError(`Load fail: ${err.message || 'Unknown'}`);
+            }
+            setMessages([]);
+            setIsCurrentUserAdmin(false);
+            setCanMembersAddOthers(false);
+            setCanMembersEditInfo(false);
+        } finally {
+            setLoading(false);
+        }
+    }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
 
     // Send Text Message
-    const sendTextMessage = useCallback(async (text: string) => { 
-        if (!currentUserId || !groupId || !text.trim() || isUploading) return; 
-        
-        const trimmedText = text.trim(); 
+    const sendTextMessage = useCallback(async (text: string) => {
+        if (!currentUserId || !groupId || !text.trim() || isUploading) return;
+
+        const trimmedText = text.trim();
         const tempId = `temp_txt_${Date.now()}`; // Differentiate temp ID for text messages
-        const currentUserProfile = userProfileCache[currentUserId] || { name: 'You' }; 
-        
+        const currentUserProfile = userProfileCache[currentUserId] || { name: 'You' };
+
         let replyingToMessagePreview: ChatMessage['replyToMessagePreview'] = null;
         if (replyingToMessage) {
             replyingToMessagePreview = {
@@ -983,69 +1076,70 @@ const GroupChatScreen: React.FC = () => {
             };
         }
 
-        const optimisticMessage: ChatMessage = { 
-            _id: tempId, 
-            text: trimmedText, 
-            createdAt: new Date(), 
-            user: { 
-                _id: currentUserId, 
-                name: currentUserProfile.name, 
-                avatar: currentUserProfile.avatar 
-            }, 
-            image: null, 
+        const optimisticMessage: ChatMessage = {
+            _id: tempId,
+            text: trimmedText,
+            createdAt: new Date(),
+            user: {
+                _id: currentUserId,
+                name: currentUserProfile.name,
+                avatar: currentUserProfile.avatar
+            },
+            image: null,
             isSystemMessage: false,
             replyToMessageId: replyingToMessage?._id || null,
             replyToMessagePreview: replyingToMessagePreview,
-            isDelivered: false,
-            deliveredAt: null,
-            isSeen: false,
-            seenAt: null,
-        }; 
-        
-        setMessages(previousMessages => [...previousMessages, optimisticMessage]); 
-        setInputText(''); 
-        setSendError(null); 
-        Keyboard.dismiss(); 
+            isDelivered: true,
+            deliveredAt: new Date(),
+            isSeen: true,
+            seenAt: new Date(),
+            seenBy: [{ userId: currentUserId, userName: 'You', seenAt: new Date() }],
+        };
+
+        setMessages(previousMessages => [...previousMessages, optimisticMessage]);
+        setInputText('');
+        setSendError(null);
+        Keyboard.dismiss();
         const replyToId = replyingToMessage?._id;
         setReplyingToMessage(null);
-        
-        try { 
+
+        try {
             // Prepare the message data with metadata if needed
             let insertData: any = {
-                sender_id: currentUserId, 
-                group_id: groupId, 
-                content: trimmedText, 
-                image_url: null, 
+                sender_id: currentUserId,
+                group_id: groupId,
+                content: trimmedText,
+                image_url: null,
                 is_system_message: false,
                 reply_to_message_id: replyToId || null,
             };
-            
+
             // If there's a shared event, add it as metadata
             if (sharedEventMessage) {
-                insertData.metadata = { 
+                insertData.metadata = {
                     shared_event: JSON.parse(sharedEventMessage)
                 };
                 // Clear the shared event message state after sending
                 setSharedEventMessage(null);
             }
-            
+
             const { data: insertedData, error: insertError } = await supabase
                 .from('group_chat_messages')
                 .insert(insertData)
                 .select('id, created_at') // Select all fields to ensure optimistic update can use them
-                .single(); 
-            
-            if (insertError) throw insertError; 
-            
-            if (!insertedData) throw new Error("Text send no confirmation."); 
-            
-            setMessages(prevMessages => prevMessages.map(msg => 
-                msg._id === tempId ? { 
-                    ...optimisticMessage, 
-                    _id: insertedData.id, 
-                    createdAt: new Date(insertedData.created_at) 
+                .single();
+
+            if (insertError) throw insertError;
+
+            if (!insertedData) throw new Error("Text send no confirmation.");
+
+            setMessages(prevMessages => prevMessages.map(msg =>
+                msg._id === tempId ? {
+                    ...msg,
+                    _id: insertedData.id,
+                    createdAt: new Date(insertedData.created_at)
                 } : msg
-            )); 
+            ));
 
             // --- Send Notification to all members except sender ---
             const membersToNotify = Array.from(groupMembers.entries())
@@ -1054,7 +1148,7 @@ const GroupChatScreen: React.FC = () => {
 
             if (membersToNotify.length > 0) {
                 try {
-                    const notificationPromises = membersToNotify.map(userId => 
+                    const notificationPromises = membersToNotify.map(userId =>
                         UnifiedNotificationService.notifyNewMessage({
                             receiver_id: userId,
                             sender_id: currentUserId,
@@ -1071,17 +1165,27 @@ const GroupChatScreen: React.FC = () => {
                     console.error("Failed to send group message notifications:", notificationError);
                 }
             }
-            
-            if (sendError) setSendError(null); 
-            
-        } catch (err: any) { 
-            console.error("Error sending text:", err); 
-            setSendError(`Send fail: ${err.message}`); 
-            setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempId)); 
-            setInputText(trimmedText); 
-        } 
+
+            if (sendError) setSendError(null);
+
+        } catch (err: any) {
+            console.error("Error sending text:", err);
+            setSendError(`Send fail: ${err.message}`);
+            setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempId));
+            setInputText(trimmedText);
+        }
     }, [currentUserId, groupId, sendError, isUploading, replyingToMessage, userProfileCache, groupMembers, currentGroupName]);
-    
+
+    const broadcastTyping = useCallback(() => {
+        if (!currentUserId || !groupId) return;
+        const channel = supabase.channel(`group_chat_${groupId}`);
+        channel.send({
+            type: 'broadcast',
+            event: 'typing',
+            payload: { sender_id: currentUserId, typing: true },
+        });
+    }, [currentUserId, groupId]);
+
     const shareEventToGroupViaRpc = useCallback(async (eventDataToShare: typeof initialSharedEventData) => {
         if (!currentUserId || !groupId || !eventDataToShare || isUploading) return;
         const { eventId } = eventDataToShare;
@@ -1121,14 +1225,15 @@ const GroupChatScreen: React.FC = () => {
             },
             replyToMessageId: replyingToMessage?._id || null,
             replyToMessagePreview: replyingToMessagePreview,
-            isDelivered: false,
-            deliveredAt: null,
-            isSeen: false,
-            seenAt: null,
+            isDelivered: true,
+            deliveredAt: new Date(),
+            isSeen: true,
+            seenAt: new Date(),
+            seenBy: [{ userId: currentUserId, userName: 'You', seenAt: new Date() }],
         };
 
         setMessages(prevMessages => [...prevMessages, optimisticMessage]);
-        setInputText(''); 
+        setInputText('');
         setSharedEventMessage(null);
         setSendError(null);
         Keyboard.dismiss();
@@ -1149,7 +1254,7 @@ const GroupChatScreen: React.FC = () => {
 
             // Create formatted content for the message (similar to individual chat format)
             const formattedContent = `SHARED_EVENT:${eventId}:${eventDataToShare.eventTitle} on ${eventDataToShare.eventDate} at ${eventDataToShare.eventVenue}`;
-            
+
             // Insert message directly into group_chat_messages table
             const { data: insertedMessage, error: insertError } = await supabase
                 .from('group_chat_messages')
@@ -1165,8 +1270,8 @@ const GroupChatScreen: React.FC = () => {
                             eventTitle: eventDataToShare.eventTitle,
                             eventDate: eventDataToShare.eventDate,
                             eventVenue: eventDataToShare.eventVenue,
-                            eventImage: (eventData?.poster_urls && eventData.poster_urls.length > 0) 
-                                ? eventData.poster_urls[0] 
+                            eventImage: (eventData?.poster_urls && eventData.poster_urls.length > 0)
+                                ? eventData.poster_urls[0]
                                 : eventDataToShare.eventImage || DEFAULT_EVENT_IMAGE_CHAT,
                             eventDateTime: eventData?.event_datetime || null, // Store the actual ISO datetime
                         }
@@ -1192,16 +1297,16 @@ const GroupChatScreen: React.FC = () => {
             }
 
             console.log('[GroupChatScreen] Event shared to group successfully, message_id:', insertedMessage.id);
-            setMessages(prevMessages => prevMessages.map(msg => 
-                msg._id === tempId ? { 
-                    ...optimisticMessage, 
+            setMessages(prevMessages => prevMessages.map(msg =>
+                msg._id === tempId ? {
+                    ...optimisticMessage,
                     _id: insertedMessage.id,
                     createdAt: new Date(insertedMessage.created_at),
                     sharedEvent: optimisticMessage.sharedEvent ? {
                         ...optimisticMessage.sharedEvent,
                         eventDateTime: eventData?.event_datetime || optimisticMessage.sharedEvent.eventDateTime,
-                        eventImage: (eventData?.poster_urls && eventData.poster_urls.length > 0) 
-                            ? eventData.poster_urls[0] 
+                        eventImage: (eventData?.poster_urls && eventData.poster_urls.length > 0)
+                            ? eventData.poster_urls[0]
                             : optimisticMessage.sharedEvent.eventImage
                     } : null
                 } : msg
@@ -1212,7 +1317,7 @@ const GroupChatScreen: React.FC = () => {
             if (membersToNotify.length > 0) {
                 try {
                     const senderName = userProfileCache[currentUserId]?.name || 'Someone';
-                    const notificationPromises = membersToNotify.map(userId => 
+                    const notificationPromises = membersToNotify.map(userId =>
                         UnifiedNotificationService.notifyNewMessage({
                             receiver_id: userId,
                             sender_id: currentUserId,
@@ -1237,23 +1342,23 @@ const GroupChatScreen: React.FC = () => {
         }
     }, [currentUserId, groupId, isUploading, replyingToMessage, userProfileCache, currentGroupName]);
 
-    const handleSendPress = () => { 
+    const handleSendPress = () => {
         if (sharedEventMessage && initialSharedEventData?.eventId) {
             shareEventToGroupViaRpc(initialSharedEventData);
         } else if (inputText.trim()) {
-            sendTextMessage(inputText); 
+            sendTextMessage(inputText);
         }
     };
 
     // --- Typing Handler ---
     const handleTextInputChange = useCallback((text: string) => {
         setInputText(text);
-        
-        // Broadcast typing event to other group members using centralized context
+
+        // Broadcast typing event directly
         if (text.trim() && currentUserId && groupId) {
-            sendTypingIndicator('group', groupId, true);
+            broadcastTyping();
         }
-    }, [currentUserId, groupId, sendTypingIndicator]);
+    }, [currentUserId, groupId, broadcastTyping]);
     // --- End Typing Handler ---
 
     //Pick and Send Image
@@ -1333,10 +1438,11 @@ const GroupChatScreen: React.FC = () => {
                 isSystemMessage: false,
                 replyToMessageId: replyingToMessage?._id || null,
                 replyToMessagePreview: replyingToMessagePreview,
-                isDelivered: false,
-                deliveredAt: null,
-                isSeen: false,
-                seenAt: null,
+                isDelivered: true,
+                deliveredAt: new Date(),
+                isSeen: true,
+                seenAt: new Date(),
+                seenBy: [{ userId: currentUserId, userName: 'You', seenAt: new Date() }],
             };
 
             setMessages(prev => [...prev, optimisticMessage]);
@@ -1401,11 +1507,7 @@ const GroupChatScreen: React.FC = () => {
                     content: null,
                     image_url: urlData.publicUrl,
                     is_system_message: false,
-                    reply_to_message_id: replyToId || null,
-                    is_delivered: false,
-                    delivered_at: null,
-                    is_seen: false,
-                    seen_at: null,
+                    reply_to_message_id: replyToId || null
                 })
                 .select('id, created_at, image_url')
                 .single();
@@ -1417,21 +1519,21 @@ const GroupChatScreen: React.FC = () => {
             }
 
             // Update the message with the final data
-            setMessages(prev => prev.map(msg => 
-                msg._id === tempId 
-                    ? { 
-                        ...optimisticMessage, 
+            setMessages(prev => prev.map(msg =>
+                msg._id === tempId
+                    ? {
+                        ...msg,
                         _id: insertedData.id,
                         image: urlData.publicUrl,
                         createdAt: new Date(insertedData.created_at)
-                    } 
+                    }
                     : msg
             ));
 
             // --- Send Notification ---
             const membersToNotify = Array.from(groupMembers.keys()).filter(id => id !== currentUserId);
             if (membersToNotify.length > 0) {
-                 try {
+                try {
                     const senderName = userProfileCache[currentUserId]?.name || 'Someone';
                     const notificationPromises = membersToNotify.map(userId =>
                         UnifiedNotificationService.notifyNewMessage({
@@ -1466,15 +1568,15 @@ const GroupChatScreen: React.FC = () => {
     const markMessageDelivered = useCallback(async (messageId: string) => {
         if (!currentUserId) return;
         try {
-            const { error } = await supabase.rpc('mark_group_message_delivered', { 
+            const { error } = await supabase.rpc('mark_group_message_delivered', {
                 message_id_input: messageId,
-                user_id_input: currentUserId 
+                user_id_input: currentUserId
             });
             if (error) console.error('Error marking group message delivered:', error);
             else {
                 console.log(`Group message ${messageId} marked as delivered for user ${currentUserId}.`);
                 // Optimistically update UI
-                setMessages(prev => prev.map(m => m._id === messageId ? {...m, isDelivered: true, deliveredAt: new Date()} : m));
+                setMessages(prev => prev.map(m => m._id === messageId ? { ...m, isDelivered: true, deliveredAt: new Date() } : m));
             }
         } catch (e) {
             console.error('Exception marking group message delivered:', e);
@@ -1494,29 +1596,23 @@ const GroupChatScreen: React.FC = () => {
         console.log(`[GroupChatScreen] Marking ${unseenMessagesFromOthers.length} messages as seen in group ${groupId}`);
 
         try {
-            // Use bulk function for better performance and real-time updates
-            const { error } = await supabase.rpc('mark_all_group_messages_seen', {
-                group_id_input: groupId,
-                user_id_input: currentUserId
-            });
+            const messageIdsToMark = unseenMessagesFromOthers.map(msg => msg._id);
+            if (messageIdsToMark.length > 0) {
+                const { error } = await supabase.rpc('mark_group_messages_seen', {
+                    message_ids_input: messageIdsToMark,
+                    user_id_input: currentUserId
+                });
 
-            if (error) {
-                console.error('Error marking all group messages as seen:', error.message);
-            } else {
-                // Optimistically update UI for all unseen messages from others
-                setMessages(prev => prev.map(m => 
-                    m.user._id !== currentUserId && !m.isSeen && !m.isSystemMessage
-                        ? {...m, isSeen: true, seenAt: new Date()} 
-                        : m
-                ));
-                
-                // Refresh unread count immediately
-                refreshUnreadCount();
+                if (error) {
+                    console.error('Error marking all group messages as seen:', error.message);
+                } else {
+                    refreshUnreadCount();
+                }
             }
         } catch (e: any) {
             console.error('Exception marking group messages as seen:', e.message);
         }
-    }, [currentUserId, groupId, refreshUnreadCount]);
+    }, [currentUserId, groupId, messages, refreshUnreadCount]);
 
     // Call markMessagesAsSeen when the screen focuses and when new messages arrive from others
     useFocusEffect(
@@ -1536,175 +1632,31 @@ const GroupChatScreen: React.FC = () => {
         }
     }, [currentUserId, groupId, markMessagesAsSeen]);
 
-    // Real-time subscriptions using centralized RealtimeContext
+    // Real-time Subscription Setup (exactly like IndividualChatScreen)
     useEffect(() => {
-        if (!groupId || !currentUserId) return;
-
-        console.log(`[GroupChatScreen] Setting up realtime subscriptions for group: ${groupId}`);
-
-        // Subscribe to group chat using centralized context
-        const cleanupGroupChat = subscribeToGroupChat(groupId, {
-            onMessage: async (payload: any) => {
-                const newMessageDb = payload.new as DbGroupMessage;
-
-                // Mark as delivered and seen as soon as it arrives
-                if (newMessageDb.sender_id !== currentUserId) {
-                    try {
-                        supabase.rpc('mark_group_message_delivered', { message_id_input: newMessageDb.id, user_id_input: currentUserId }).then(({ error }) => {
-                            if (error) console.error(`Error marking group message ${newMessageDb.id} as delivered:`, error);
-                        });
-                        supabase.rpc('mark_group_message_seen', { message_id_input: newMessageDb.id, user_id_input: currentUserId }).then(({ error }) => {
-                            if (error) console.error(`Error marking group message ${newMessageDb.id} as seen:`, error);
-                        });
-                    } catch (e) { console.error('Exception marking group message status:', e); }
+        if (!currentUserId || !groupId) {
+            return () => { 
+                const channelName = `group_chat_${groupId}`;
+                const messageStatusChannelName = `group_message_status_${groupId}`;
+                supabase.channel(channelName).unsubscribe(); 
+                supabase.channel(messageStatusChannelName).unsubscribe();
+                if (typingTimeoutRef.current) {
+                    typingTimeoutRef.current.forEach(timeout => clearTimeout(timeout));
+                    typingTimeoutRef.current.clear();
                 }
+            };
+        }
 
-                const rtProfilesMap = new Map<string, UserProfileInfo>();
-                if (newMessageDb.sender_id && !userProfileCache[newMessageDb.sender_id]) {
-                    // Fetch profile if not cached
-                }
-                const receivedMessage = mapDbMessageToChatMessage(newMessageDb, rtProfilesMap);
-
-                setMessages(prevMessages => {
-                    if (prevMessages.some(msg => msg._id === receivedMessage._id)) {
-                        return prevMessages; // Prevent duplicates
-                    }
-
-                    if (newMessageDb.sender_id !== currentUserId) {
-                        receivedMessage.isDelivered = true;
-                        receivedMessage.deliveredAt = new Date();
-                        receivedMessage.isSeen = true;
-                        receivedMessage.seenAt = new Date();
-                    }
-
-                    // Logic to replace optimistic message
-                    const optimisticIdPattern = `temp_${newMessageDb.sender_id}_`;
-                    const optimisticIndex = prevMessages.findIndex(m => m._id.startsWith(optimisticIdPattern) && m.text === receivedMessage.text);
-                    if (optimisticIndex > -1) {
-                        const newMessages = [...prevMessages];
-                        newMessages[optimisticIndex] = receivedMessage;
-                        return newMessages;
-                    }
-
-                    return [...prevMessages, receivedMessage];
-                });
-            },
-
-            onMessageUpdate: async (payload: any) => {
-                const updatedMessageDb = payload.new as DbGroupMessage;
-
-                // Check if the message is hidden for the current user (unless it's a delete)
-                if (!updatedMessageDb.is_deleted) {
-                    try {
-                        const { data: hiddenCheck, error: hiddenError } = await supabase
-                            .from('user_hidden_messages')
-                            .select('message_id', { count: 'exact', head: true })
-                            .eq('user_id', currentUserId)
-                            .eq('message_id', updatedMessageDb.id);
-
-                        if (hiddenError) throw hiddenError;
-                        if (hiddenCheck && hiddenCheck.length > 0) {
-                            console.log(`[RT-UPDATE] Skipping update for hidden message ${updatedMessageDb.id}`);
-                            return;
-                        }
-                    } catch (e) {
-                        console.warn(`[RT-UPDATE] Error checking if message is hidden: ${e}`);
-                    }
-                }
-
-                // Ensure sender profile is available
-                const rtProfilesMap = new Map<string, UserProfileInfo>();
-                if (updatedMessageDb.sender_id && !userProfileCache[updatedMessageDb.sender_id]) {
-                    try {
-                        const { data: p, error: profileError } = await supabase
-                            .from('music_lover_profiles')
-                            .select('user_id, first_name, last_name, profile_picture')
-                            .eq('user_id', updatedMessageDb.sender_id)
-                            .single();
-                        if (profileError) throw profileError;
-                        if (p) {
-                            const name = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
-                            const avatar = p.profile_picture || undefined;
-                            userProfileCache[p.user_id] = { name, avatar };
-                            rtProfilesMap.set(p.user_id, p);
-                        }
-                    } catch (err) { console.warn(`[RT-UPDATE] Profile fetch err: ${err}`); }
-                }
-
-                const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb, rtProfilesMap);
-
-                // Fetch reply preview if it exists
-                if (updatedMessageUi.replyToMessageId) {
-                    try {
-                        const repliedMsg = messages.find(m => m._id === updatedMessageUi.replyToMessageId) || await fetchMessageById(updatedMessageUi.replyToMessageId);
-                        if (repliedMsg) {
-                            updatedMessageUi.replyToMessagePreview = {
-                                text: repliedMsg.image ? (repliedMsg.text || '[Image]') : repliedMsg.text,
-                                senderName: repliedMsg.user.name,
-                                image: repliedMsg.image
-                            };
-                        }
-                    } catch (replyErr) {
-                        console.warn("[RT-UPDATE] Error fetching reply preview:", replyErr);
-                    }
-                }
-
-                setMessages(prev => prev.map(msg => msg._id === updatedMessageUi._id ? updatedMessageUi : msg));
-
-                if (editingMessage && editingMessage._id === updatedMessageUi._id) {
-                    setEditingMessage(null);
-                    setEditText("");
-                }
-            },
-
-            onMessageStatus: (payload: any) => {
-                console.log('[GroupChatScreen] Status update received:', JSON.stringify(payload.new, null, 2));
-                const statusUpdate = payload.new as { message_id: string; user_id: string; is_seen: boolean; seen_at: string; };
-
-                if (!statusUpdate || !statusUpdate.message_id) return;
-
-                setMessages(prevMessages => {
-                    let needsUpdate = false;
-                    const newMessages = prevMessages.map(msg => {
-                        // Is this update for a message I sent?
-                        if (msg._id === statusUpdate.message_id && msg.user._id === currentUserId) {
-                            // If the update says it's seen, and my message isn't marked as seen yet, update it.
-                            if (statusUpdate.is_seen && !msg.isSeen) {
-                                console.log(`[GroupChatScreen] Marking message ${msg._id} as seen based on update from user ${statusUpdate.user_id}`);
-                                needsUpdate = true;
-                                return {
-                                    ...msg,
-                                    isSeen: true,
-                                    seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : new Date(),
-                                };
-                            }
-                        }
-                        return msg;
-                    });
-
-                    return needsUpdate ? newMessages : prevMessages;
-                });
-            },
-
-            onGroupUpdate: (payload: any) => {
-                if (payload.eventType === 'DELETE') {
-                    Alert.alert("Group Deleted", "This group no longer exists.", [{ text: "OK", onPress: () => navigation.popToTop() }]);
-                } else if (payload.eventType === 'UPDATE') {
-                    const d = payload.new;
-                    if (d.group_name !== currentGroupName) setCurrentGroupName(d.group_name);
-                    if (d.group_image !== currentGroupImage) setCurrentGroupImage(d.group_image);
-                    if (d.can_members_add_others !== undefined) setCanMembersAddOthers(d.can_members_add_others);
-                    if (d.can_members_edit_info !== undefined) setCanMembersEditInfo(d.can_members_edit_info);
-                }
-            },
-
-            onTyping: ({ payload }: { payload: any }) => {
+        console.log(`[GroupChatScreen] Subscribing to channel for group: ${groupId}`);
+        const channelName = `group_chat_${groupId}`;
+        const messageChannel = supabase
+            .channel(channelName)
+            .on('broadcast', { event: 'typing' }, ({ payload }) => {
                 if (payload.sender_id !== currentUserId) {
-                    const senderName = groupMembers.get(payload.sender_id)?.name || 'Someone';
                     setTypingUsers(prev => {
                         const newTypingUsers = new Map(prev);
                         if (payload.typing) {
-                            newTypingUsers.set(payload.sender_id, { name: senderName, timestamp: Date.now() });
+                            newTypingUsers.set(payload.sender_id, { name: payload.sender_name || 'Someone', timestamp: Date.now() });
                             const existingTimeout = typingTimeoutRef.current.get(payload.sender_id);
                             if (existingTimeout) clearTimeout(existingTimeout);
                             const timeout = setTimeout(() => {
@@ -1727,47 +1679,238 @@ const GroupChatScreen: React.FC = () => {
                         return newTypingUsers;
                     });
                 }
-            }
-        });
+            })
+            .on<DbGroupMessage>(
+                'postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'group_chat_messages', filter: `group_id=eq.${groupId}` },
+                async (payload: any) => {
+                    const newMessageDb = payload.new as DbGroupMessage;
+                    if (newMessageDb.sender_id !== currentUserId) {
+                        try {
+                            await supabase.rpc('mark_group_message_delivered', { message_id_input: newMessageDb.id, user_id_input: currentUserId });
+                            await supabase.rpc('mark_group_message_seen', { message_id_input: newMessageDb.id, user_id_input: currentUserId });
+                        } catch (e) { console.error('Exception marking group message status:', e); }
+                    }
+                    try {
+                        const { data: hiddenCheck, error: hiddenError } = await supabase
+                            .from('user_hidden_messages')
+                            .select('message_id')
+                            .eq('user_id', currentUserId)
+                            .eq('message_id', newMessageDb.id)
+                            .maybeSingle();
+                        if (hiddenError) {
+                            console.warn("Error checking if message is hidden:", hiddenError.message);
+                        } else if (hiddenCheck) {
+                            return;
+                        }
+                    } catch (hiddenCheckErr) {
+                        console.warn("Exception checking hidden message status:", hiddenCheckErr);
+                    }
+                    const rtProfilesMap = new Map<string, UserProfileInfo>();
+                    if (newMessageDb.sender_id && !userProfileCache[newMessageDb.sender_id]) {
+                        try {
+                            const { data: p, error } = await supabase
+                                .from('music_lover_profiles')
+                                .select('user_id, first_name, last_name, profile_picture')
+                                .eq('user_id', newMessageDb.sender_id)
+                                .single();
+                            if (error) throw error;
+                            if (p) {
+                                const name = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
+                                const avatar = p.profile_picture || undefined;
+                                userProfileCache[p.user_id] = { name, avatar };
+                                rtProfilesMap.set(p.user_id, p);
+                            }
+                        } catch (err) { console.warn("On-the-fly profile fetch failed:", err) }
+                    }
+                    const receivedMessage = mapDbMessageToChatMessage(newMessageDb, rtProfilesMap);
+                    if (receivedMessage.replyToMessageId) {
+                        try {
+                            const repliedMsg = await fetchMessageById(receivedMessage.replyToMessageId);
+                            if (repliedMsg) {
+                                receivedMessage.replyToMessagePreview = {
+                                    text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                    senderName: repliedMsg.user.name,
+                                    image: repliedMsg.image
+                                };
+                            }
+                        } catch (replyErr) {
+                            console.warn("Error fetching reply preview:", replyErr);
+                        }
+                    }
+                    setMessages(prevMessages => {
+                        if (prevMessages.some(msg => msg._id === receivedMessage._id)) {
+                            return prevMessages;
+                        }
+                        if (receivedMessage.user._id !== currentUserId) {
+                            receivedMessage.isSeen = true;
+                            receivedMessage.seenAt = new Date();
+                        }
+                        const optimisticIdPattern = `temp_`;
+                        const optimisticIndex = prevMessages.findIndex(m => 
+                            m._id.startsWith(optimisticIdPattern) && 
+                            (m.text === receivedMessage.text || (m.image && receivedMessage.image)) &&
+                            m.replyToMessageId === receivedMessage.replyToMessageId
+                        );
+                        if (optimisticIndex !== -1) {
+                            const newMessages = [...prevMessages];
+                            newMessages[optimisticIndex] = receivedMessage;
+                            return newMessages;
+                        }
+                        return [...prevMessages, receivedMessage];
+                    });
+                }
+            )
+            .on<DbGroupMessage>(
+                'postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'group_chat_messages', filter: `group_id=eq.${groupId}` },
+                async (payload: any) => {
+                    const updatedMessageDb = payload.new as DbGroupMessage;
+                    try {
+                        const { data: hiddenCheck, error: hiddenError } = await supabase
+                            .from('user_hidden_messages')
+                            .select('message_id')
+                            .eq('user_id', currentUserId)
+                            .eq('message_id', updatedMessageDb.id)
+                            .maybeSingle();
+                        if (hiddenError) {
+                            console.warn("Error checking if updated message is hidden:", hiddenError.message);
+                        } else if (hiddenCheck && !updatedMessageDb.is_deleted) {
+                            return;
+                        }
+                    } catch (hiddenCheckErr) {
+                        console.warn("Exception checking hidden status for updated message:", hiddenCheckErr);
+                    }
+                    const rtProfilesMap = new Map<string, UserProfileInfo>();
+                    if (updatedMessageDb.sender_id && !userProfileCache[updatedMessageDb.sender_id]) {
+                        try {
+                            const { data: p, error: profileError } = await supabase
+                                .from('music_lover_profiles')
+                                .select('user_id, first_name, last_name, profile_picture')
+                                .eq('user_id', updatedMessageDb.sender_id)
+                                .single();
+                            if (profileError) throw profileError;
+                            if (p) {
+                                const name = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
+                                const avatar = p.profile_picture || undefined;
+                                userProfileCache[p.user_id] = { name, avatar };
+                                rtProfilesMap.set(p.user_id, p);
+                            }
+                        } catch (err) { console.warn(`[RT-UPDATE] Profile fetch err:`, err); }
+                    }
+                    const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb, rtProfilesMap);
+                    if (updatedMessageUi.replyToMessageId) {
+                        try {
+                            const repliedMsg = await fetchMessageById(updatedMessageUi.replyToMessageId);
+                            if (repliedMsg) {
+                                updatedMessageUi.replyToMessagePreview = {
+                                    text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                    senderName: repliedMsg.user.name,
+                                    image: repliedMsg.image
+                                };
+                            }
+                        } catch (replyErr) {
+                            console.warn("Error fetching reply preview for updated message:", replyErr);
+                        }
+                    }
+                    setMessages(prev => prev.map(msg => {
+                        if (msg._id === updatedMessageUi._id) {
+                            updatedMessageUi.seenBy = msg.seenBy;
+                            updatedMessageUi.isSeen = msg.isSeen;
+                            updatedMessageUi.seenAt = msg.seenAt;
+                            return updatedMessageUi;
+                        }
+                        return msg;
+                    }));
+                    if (editingMessage && editingMessage._id === updatedMessageUi._id) {
+                        setEditingMessage(null);
+                        setEditText("");
+                    }
+                }
+            )
+            .subscribe((status) => {
+                console.log(`[GroupChatScreen] Message channel subscription status: ${status} for ${channelName}`);
+            });
+
+        const messageStatusChannelName = `group_message_status_${groupId}`;
+        const statusChannel = supabase
+            .channel(messageStatusChannelName)
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'group_message_status', filter: `group_id=eq.${groupId}` },
+                (payload: any) => {
+                    const statusUpdate = payload.new as { 
+                        message_id: string; 
+                        user_id: string;
+                        is_seen: boolean; 
+                        seen_at: string; 
+                        is_delivered: boolean; 
+                        delivered_at: string 
+                    };
+                    if (!statusUpdate || !statusUpdate.message_id) return;
+                    setMessages(prevMessages => {
+                        let needsUpdate = false;
+                        const newMessages = prevMessages.map(msg => {
+                            if (msg._id === statusUpdate.message_id) {
+                                const deliveredChanged = msg.isDelivered !== statusUpdate.is_delivered;
+                                const seenChanged = msg.isSeen !== statusUpdate.is_seen;
+                                if (deliveredChanged || seenChanged) {
+                                    needsUpdate = true;
+                                    let seenByArray = [...(msg.seenBy || [])];
+                                    if (statusUpdate.is_seen && statusUpdate.seen_at) {
+                                        const existingSeenIndex = seenByArray.findIndex(s => s.userId === statusUpdate.user_id);
+                                        const seenEntry = {
+                                            userId: statusUpdate.user_id,
+                                            userName: 'Someone',
+                                            seenAt: new Date(statusUpdate.seen_at)
+                                        };
+                                        if (existingSeenIndex > -1) {
+                                            seenByArray[existingSeenIndex] = seenEntry;
+                                        } else {
+                                            seenByArray.push(seenEntry);
+                                        }
+                                    }
+                                    return {
+                                        ...msg,
+                                        isDelivered: statusUpdate.is_delivered,
+                                        deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : msg.deliveredAt,
+                                        isSeen: statusUpdate.is_seen,
+                                        seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : msg.seenAt,
+                                        seenBy: seenByArray
+                                    };
+                                }
+                            }
+                            return msg;
+                        });
+                        return needsUpdate ? newMessages : prevMessages;
+                    });
+                }
+            )
+            .subscribe((status) => {
+                console.log(`[GroupChatScreen] Status channel subscription status: ${status} for ${messageStatusChannelName}`);
+            });
 
         return () => {
-            console.log(`[GroupChatScreen] Cleaning up realtime subscriptions for group: ${groupId}`);
-            typingTimeoutRef.current.forEach(timeout => clearTimeout(timeout));
-            typingTimeoutRef.current.clear();
-            cleanupGroupChat();
+            supabase.removeChannel(messageChannel);
+            supabase.removeChannel(statusChannel);
+            if (typingTimeoutRef.current) {
+                typingTimeoutRef.current.forEach(timeout => clearTimeout(timeout));
+                typingTimeoutRef.current.clear();
+            }
         };
-    }, [groupId, currentUserId, subscribeToGroupChat, mapDbMessageToChatMessage, navigation, currentGroupName, currentGroupImage, canMembersAddOthers, canMembersEditInfo, editingMessage, groupMembers, refreshUnreadCount]);
+    }, [currentUserId, groupId, mapDbMessageToChatMessage, editingMessage]);
 
     // Navigation and Header
     const navigateToGroupInfo = () => { if (!groupId || !currentGroupName) return; navigation.navigate('GroupInfoScreen', { groupId, groupName: currentGroupName ?? 'Group', groupImage: currentGroupImage ?? null }); };
-    useEffect(() => { const canAdd = isCurrentUserAdmin || canMembersAddOthers; const canEdit = isCurrentUserAdmin || canMembersEditInfo; const headerColor = APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'; const disabledColor = APP_CONSTANTS?.COLORS?.DISABLED || '#D1D5DB'; navigation.setOptions({ headerTitleAlign: 'center', headerTitle: () => ( <TouchableOpacity style={styles.headerTitleContainer} onPress={navigateToGroupInfo} activeOpacity={0.8}><Image source={{uri:currentGroupImage??DEFAULT_GROUP_PIC}} style={styles.headerGroupImage}/><View style={styles.headerTextContainer}><Text style={styles.headerTitleText} numberOfLines={1}>{currentGroupName}</Text>{onlineMembers.size > 0 && (<Text style={styles.onlineMembersText}>{onlineMembers.size} online</Text>)}</View></TouchableOpacity>), headerRight: () => ( <View style={styles.headerButtons}><TouchableOpacity onPress={()=>{if(canAdd)navigation.navigate('AddGroupMembersScreen',{groupId,groupName:currentGroupName});else Alert.alert("Denied","Admin only");}} style={styles.headerButton} disabled={!canAdd}><Feather name="user-plus" size={22} color={canAdd?headerColor:disabledColor}/></TouchableOpacity><TouchableOpacity onPress={()=>{if(canEdit){setEditingName(currentGroupName??'');setIsEditModalVisible(true);}else Alert.alert("Denied","Admin only");}} style={styles.headerButton} disabled={!canEdit}><Feather name="edit-2" size={22} color={canEdit?headerColor:disabledColor}/></TouchableOpacity></View>), headerBackTitleVisible: false, headerShown: true }); }, [navigation, currentGroupName, currentGroupImage, groupId, isCurrentUserAdmin, canMembersAddOthers, canMembersEditInfo, onlineMembers.size]);
+    useEffect(() => { const canAdd = isCurrentUserAdmin || canMembersAddOthers; const canEdit = isCurrentUserAdmin || canMembersEditInfo; const headerColor = APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'; const disabledColor = APP_CONSTANTS?.COLORS?.DISABLED || '#D1D5DB'; navigation.setOptions({ headerTitleAlign: 'center', headerTitle: () => (<TouchableOpacity style={styles.headerTitleContainer} onPress={navigateToGroupInfo} activeOpacity={0.8}><Image source={{ uri: currentGroupImage ?? DEFAULT_GROUP_PIC }} style={styles.headerGroupImage} /><View style={styles.headerTextContainer}><Text style={styles.headerTitleText} numberOfLines={1}>{currentGroupName}</Text></View></TouchableOpacity>), headerRight: () => (<View style={styles.headerButtons}><TouchableOpacity onPress={() => { if (canAdd) navigation.navigate('AddGroupMembersScreen', { groupId, groupName: currentGroupName }); else Alert.alert("Denied", "Admin only"); }} style={styles.headerButton} disabled={!canAdd}><Feather name="user-plus" size={22} color={canAdd ? headerColor : disabledColor} /></TouchableOpacity><TouchableOpacity onPress={() => { if (canEdit) { setEditingName(currentGroupName ?? ''); setIsEditModalVisible(true); } else Alert.alert("Denied", "Admin only"); }} style={styles.headerButton} disabled={!canEdit}><Feather name="edit-2" size={22} color={canEdit ? headerColor : disabledColor} /></TouchableOpacity></View>), headerBackTitleVisible: false, headerShown: true }); }, [navigation, currentGroupName, currentGroupImage, groupId, isCurrentUserAdmin, canMembersAddOthers, canMembersEditInfo]);
 
     // Modal and Actions
-    const handleUpdateName = async () => { const n=editingName.trim();if(!n||n===currentGroupName||isUpdatingName||!groupId){setIsEditModalVisible(false);return;}setIsUpdatingName(true); try{const{error}=await supabase.rpc('rename_group_chat',{group_id_input:groupId,new_group_name:n});if(error)throw error;setIsEditModalVisible(false);}catch(e:any){Alert.alert("Error",`Update fail: ${e.message}`);}finally{setIsUpdatingName(false);}};
+    const handleUpdateName = async () => { const n = editingName.trim(); if (!n || n === currentGroupName || isUpdatingName || !groupId) { setIsEditModalVisible(false); return; } setIsUpdatingName(true); try { const { error } = await supabase.rpc('rename_group_chat', { group_id_input: groupId, new_group_name: n }); if (error) throw error; setIsEditModalVisible(false); } catch (e: any) { Alert.alert("Error", `Update fail: ${e.message}`); } finally { setIsUpdatingName(false); } };
 
-    // --- Online Status Tracking ---
-    useEffect(() => {
-        if (!groupMembers.size) {
-            setOnlineMembers(new Set());
-            return;
-        }
-
-        const memberIds = Array.from(groupMembers.keys());
-        const onlineStatus = getGroupMemberPresence(memberIds);
-        const newOnlineMembers = new Set<string>();
-        
-        Object.entries(onlineStatus).forEach(([userId, isOnline]) => {
-            if (isOnline) {
-                newOnlineMembers.add(userId);
-            }
-        });
-
-        setOnlineMembers(newOnlineMembers);
-    }, [presenceState, groupMembers, getGroupMemberPresence]);
-    // --- End Online Status Tracking ---
+    // Removed online status tracking since we're no longer using RealtimeContext
 
     // Effects
-    useFocusEffect( useCallback(() => { fetchInitialData(); return () => {}; }, [fetchInitialData]) );
+    useFocusEffect(useCallback(() => { fetchInitialData(); return () => { }; }, [fetchInitialData]));
 
     // Handle shared event data
     useEffect(() => {
@@ -1845,10 +1988,10 @@ const GroupChatScreen: React.FC = () => {
             });
             if (error) throw error;
             // Optimistic update handled by subscription, or can be done here too
-            setMessages(prev => prev.map(msg => 
-                msg._id === editingMessage._id 
-                ? { ...msg, text: editText.trim(), isEdited: true, editedAt: new Date() } 
-                : msg
+            setMessages(prev => prev.map(msg =>
+                msg._id === editingMessage._id
+                    ? { ...msg, text: editText.trim(), isEdited: true, editedAt: new Date() }
+                    : msg
             ));
             setEditingMessage(null);
             setEditText("");
@@ -1876,7 +2019,7 @@ const GroupChatScreen: React.FC = () => {
         if (!selectedMessageForAction) return;
 
         const isSender = selectedMessageForAction.user._id === currentUserId;
-        
+
         if (!isSender && !isCurrentUserAdmin) {
             Alert.alert("Permission Denied", "You can only delete your own messages for everyone, or an admin can delete any message.");
             setMessageActionModalVisible(false);
@@ -1890,16 +2033,17 @@ const GroupChatScreen: React.FC = () => {
             });
             if (error) throw error;
             // Optimistic update is to mark as deleted. Subscription will confirm.
-            setMessages(prev => prev.map(msg => 
-                msg._id === selectedMessageForAction._id 
-                ? { ...msg, 
-                    text: 'This message was deleted', 
-                    isDeleted: true, 
-                    deletedAt: new Date(),
-                    image: null, // Clear image for deleted messages
-                    sharedEvent: null // Clear shared event for deleted messages
-                  }
-                : msg
+            setMessages(prev => prev.map(msg =>
+                msg._id === selectedMessageForAction._id
+                    ? {
+                        ...msg,
+                        text: 'This message was deleted',
+                        isDeleted: true,
+                        deletedAt: new Date(),
+                        image: null, // Clear image for deleted messages
+                        sharedEvent: null // Clear shared event for deleted messages
+                    }
+                    : msg
             ));
             setMessageActionModalVisible(false);
             setSelectedMessageForAction(null);
@@ -1918,10 +2062,10 @@ const GroupChatScreen: React.FC = () => {
             const [memberCountResult, statusResult] = await Promise.all([
                 // Get total group member count
                 supabase
-                    .from('group_chat_members')
+                    .from('group_chat_participants')
                     .select('*', { count: 'exact', head: true })
                     .eq('group_id', groupId),
-                
+
                 // Get message status for all members
                 supabase
                     .from('group_message_status')
@@ -1932,23 +2076,24 @@ const GroupChatScreen: React.FC = () => {
             if (memberCountResult.error) {
                 throw memberCountResult.error;
             }
-            
+
             if (statusResult.error) {
                 throw statusResult.error;
             }
 
             const totalMembers = memberCountResult.count || 0;
             const statusData = statusResult.data || [];
-            
+
             // Count delivered and seen
             const deliveredCount = statusData.filter(s => s.is_delivered).length;
             const seenCount = statusData.filter(s => s.is_seen).length;
-            
-            // Get seen details for display
+
+            // Get seen details for display, now with names
             const seenUsers = statusData
                 .filter(s => s.is_seen && s.seen_at)
                 .map(s => ({
                     user_id: s.user_id,
+                    name: groupMembers.get(s.user_id)?.name || 'User',
                     seen_at: s.seen_at
                 }));
 
@@ -1995,10 +2140,10 @@ const GroupChatScreen: React.FC = () => {
         try {
             const { data: dbMessage, error } = await supabase
                 .from('group_chat_messages')
-                .select('id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id, is_delivered, delivered_at, is_seen, seen_at')
+                .select(`*, group_message_status(*)`)
                 .eq('id', messageId)
-                .maybeSingle(); // Changed from .single() to .maybeSingle()
-                
+                .maybeSingle();
+
             if (error) {
                 console.error("Error fetching group message by ID:", error);
                 return null;
@@ -2015,8 +2160,8 @@ const GroupChatScreen: React.FC = () => {
                         .from('music_lover_profiles')
                         .select('user_id, first_name, last_name, profile_picture')
                         .eq('user_id', dbMessage.sender_id)
-                        .maybeSingle(); // Changed from .maybeSingle() to explicit maybeSingle()
-                        
+                        .maybeSingle();
+
                     if (profileError) {
                         console.warn("Error fetching profile for message reply:", profileError.message);
                     } else if (p) {
@@ -2030,7 +2175,7 @@ const GroupChatScreen: React.FC = () => {
                     // Continue without profile
                 }
             }
-            return mapDbMessageToChatMessage(dbMessage as DbGroupMessage, profilesMap);
+            return mapDbMessageToChatMessage(dbMessage as any, profilesMap);
         } catch (err) {
             console.error("Failed to fetch group message by ID for reply preview:", err);
             return null;
@@ -2040,13 +2185,13 @@ const GroupChatScreen: React.FC = () => {
     // Custom event share preview component
     const renderEventSharePreview = () => {
         if (!sharedEventMessage || !initialSharedEventData) return null;
-        
+
         return (
             <View style={styles.sharedEventContainer}>
                 <View style={styles.sharedEventContent}>
-                    <Image 
-                        source={{ uri: initialSharedEventData.eventImage || DEFAULT_EVENT_IMAGE_CHAT }} 
-                        style={styles.sharedEventImage} 
+                    <Image
+                        source={{ uri: initialSharedEventData.eventImage || DEFAULT_EVENT_IMAGE_CHAT }}
+                        style={styles.sharedEventImage}
                         resizeMode="cover"
                     />
                     <View style={styles.sharedEventInfo}>
@@ -2061,7 +2206,7 @@ const GroupChatScreen: React.FC = () => {
                         </Text>
                     </View>
                 </View>
-                <TouchableOpacity 
+                <TouchableOpacity
                     style={styles.sharedEventCloseButton}
                     onPress={() => {
                         setSharedEventMessage(null);
@@ -2080,11 +2225,11 @@ const GroupChatScreen: React.FC = () => {
     // --- Scroll to Message Handler ---
     const handleScrollToMessage = useCallback((messageId: string) => {
         if (isScrollingToMessage) return; // Prevent multiple simultaneous scrolls
-        
+
         // Find the message in sections
         let targetSectionIndex = -1;
         let targetItemIndex = -1;
-        
+
         for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
             const itemIndex = sections[sectionIndex].data.findIndex(msg => msg._id === messageId);
             if (itemIndex !== -1) {
@@ -2093,16 +2238,16 @@ const GroupChatScreen: React.FC = () => {
                 break;
             }
         }
-        
+
         if (targetSectionIndex !== -1 && targetItemIndex !== -1) {
             setIsScrollingToMessage(true);
             setHighlightedMessageId(messageId);
-            
+
             // Clear any existing scroll timeout
             if (scrollTimeoutRef.current) {
                 clearTimeout(scrollTimeoutRef.current);
             }
-            
+
             // Scroll to the message
             if (flatListRef.current) {
                 try {
@@ -2126,7 +2271,7 @@ const GroupChatScreen: React.FC = () => {
                     }
                 }
             }
-            
+
             // Remove highlight and reset scroll state after delay
             scrollTimeoutRef.current = setTimeout(() => {
                 setHighlightedMessageId(null);
@@ -2143,7 +2288,7 @@ const GroupChatScreen: React.FC = () => {
         if (isUserScrolling || isScrollingToMessage || !isNearBottom) {
             return; // Don't auto-scroll if user is scrolling or not near bottom
         }
-        
+
         if (flatListRef.current && sections.length > 0 && messages.length > 0) {
             try {
                 const sectionListRef = flatListRef.current as any;
@@ -2170,7 +2315,7 @@ const GroupChatScreen: React.FC = () => {
 
     const handleScroll = useCallback((event: any) => {
         if (isScrollingToMessage) return; // Don't update state during reply navigation
-        
+
         const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
         const isAtBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 100; // 100px threshold
         setIsNearBottom(isAtBottom);
@@ -2187,7 +2332,7 @@ const GroupChatScreen: React.FC = () => {
     return (
         <SafeAreaView style={styles.safeArea} edges={safeAreaEdges}>
             <KeyboardAvoidingView style={styles.keyboardAvoidingContainer} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0} >
-                {sendError && ( <View style={styles.errorBanner}><Text style={styles.errorBannerText}>{sendError}</Text><TouchableOpacity onPress={() => setSendError(null)} style={styles.errorBannerClose}><Feather name="x" size={16} color="#B91C1C" /></TouchableOpacity></View> )}
+                {sendError && (<View style={styles.errorBanner}><Text style={styles.errorBannerText}>{sendError}</Text><TouchableOpacity onPress={() => setSendError(null)} style={styles.errorBannerClose}><Feather name="x" size={16} color="#B91C1C" /></TouchableOpacity></View>)}
 
                 {/* Typing Indicators */}
                 {typingUsers.size > 0 && (
@@ -2233,14 +2378,14 @@ const GroupChatScreen: React.FC = () => {
                     onScroll={handleScroll}
                 />
 
-                {/* Replying To Preview */} 
+                {/* Replying To Preview */}
                 {replyingToMessage && (
                     <View style={styles.replyingToContainer}>
                         <View style={styles.replyingToContent}>
                             <Text style={styles.replyingToTitle} numberOfLines={1}>Replying to {replyingToMessage.user.name || 'User'}</Text>
                             {replyingToMessage.image ? (
-                                <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                                    <Feather name="image" size={14} color="#4B5563" style={{marginRight: 5}}/>
+                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    <Feather name="image" size={14} color="#4B5563" style={{ marginRight: 5 }} />
                                     <Text style={styles.replyingToText} numberOfLines={1}>Image</Text>
                                 </View>
                             ) : (
@@ -2253,18 +2398,18 @@ const GroupChatScreen: React.FC = () => {
                     </View>
                 )}
 
-                {/* Shared Event Preview */} 
+                {/* Shared Event Preview */}
                 {renderEventSharePreview()}
 
                 {/* Input Toolbar */}
                 <View style={styles.inputToolbar}>
                     <TouchableOpacity style={styles.attachButton} onPress={pickAndSendImage} disabled={isUploading} >
-                         {isUploading ? <ActivityIndicator size="small" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /> : <Feather name="paperclip" size={22} color="#52525b" /> }
+                        {isUploading ? <ActivityIndicator size="small" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /> : <Feather name="paperclip" size={22} color="#52525b" />}
                     </TouchableOpacity>
                     <TextInput style={styles.textInput} value={inputText} onChangeText={handleTextInputChange} placeholder="Type a message..." placeholderTextColor="#9CA3AF" multiline />
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         style={[styles.sendButton, ((!inputText.trim() && !sharedEventMessage) || isUploading) && styles.sendButtonDisabled]}
-                        onPress={handleSendPress} 
+                        onPress={handleSendPress}
                         disabled={(!inputText.trim() && !sharedEventMessage) || isUploading}
                     >
                         <Feather name="send" size={20} color="#FFFFFF" />
@@ -2273,10 +2418,10 @@ const GroupChatScreen: React.FC = () => {
             </KeyboardAvoidingView>
 
             {/* Edit Group Name Modal */}
-             <Modal visible={isEditModalVisible} transparent={true} animationType="fade" onRequestClose={() => setIsEditModalVisible(false)}>
-                 <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setIsEditModalVisible(false)} />
-                 <View style={styles.modalContent}><Text style={styles.modalTitle}>Edit Group Name</Text><TextInput style={styles.modalInput} value={editingName} onChangeText={setEditingName} placeholder="Enter new group name" maxLength={50} autoFocus={true} returnKeyType="done" onSubmitEditing={handleUpdateName} /><View style={styles.modalActions}><TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setIsEditModalVisible(false)} disabled={isUpdatingName}><Text style={styles.modalButtonTextCancel}>Cancel</Text></TouchableOpacity><TouchableOpacity style={[ styles.modalButton, styles.modalButtonSave, (isUpdatingName || !editingName.trim() || editingName.trim() === currentGroupName) && styles.modalButtonDisabled ]} onPress={handleUpdateName} disabled={isUpdatingName || !editingName.trim() || editingName.trim() === currentGroupName}>{isUpdatingName ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.modalButtonTextSave}>Save</Text>}</TouchableOpacity></View></View>
-             </Modal>
+            <Modal visible={isEditModalVisible} transparent={true} animationType="fade" onRequestClose={() => setIsEditModalVisible(false)}>
+                <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setIsEditModalVisible(false)} />
+                <View style={styles.modalContent}><Text style={styles.modalTitle}>Edit Group Name</Text><TextInput style={styles.modalInput} value={editingName} onChangeText={setEditingName} placeholder="Enter new group name" maxLength={50} autoFocus={true} returnKeyType="done" onSubmitEditing={handleUpdateName} /><View style={styles.modalActions}><TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setIsEditModalVisible(false)} disabled={isUpdatingName}><Text style={styles.modalButtonTextCancel}>Cancel</Text></TouchableOpacity><TouchableOpacity style={[styles.modalButton, styles.modalButtonSave, (isUpdatingName || !editingName.trim() || editingName.trim() === currentGroupName) && styles.modalButtonDisabled]} onPress={handleUpdateName} disabled={isUpdatingName || !editingName.trim() || editingName.trim() === currentGroupName}>{isUpdatingName ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.modalButtonTextSave}>Save</Text>}</TouchableOpacity></View></View>
+            </Modal>
 
             {/* Message Action Modal */}
             <Modal
@@ -2288,43 +2433,43 @@ const GroupChatScreen: React.FC = () => {
                     setSelectedMessageForAction(null);
                 }}
             >
-                <TouchableOpacity 
-                    style={styles.modalBackdrop} 
-                    activeOpacity={1} 
+                <TouchableOpacity
+                    style={styles.modalBackdrop}
+                    activeOpacity={1}
                     onPress={() => {
                         setMessageActionModalVisible(false);
                         setSelectedMessageForAction(null);
-                    }} 
+                    }}
                 />
                 <View style={styles.actionModalContent}>
                     {selectedMessageForAction && (
                         <>
                             <TouchableOpacity style={styles.actionModalButton} onPress={handleReply}>
-                                <Feather name="corner-up-left" size={20} color="#3B82F6" style={styles.actionModalIcon}/>
+                                <Feather name="corner-up-left" size={20} color="#3B82F6" style={styles.actionModalIcon} />
                                 <Text style={styles.actionModalButtonText}>Reply</Text>
                             </TouchableOpacity>
 
                             {selectedMessageForAction.user._id === currentUserId && !selectedMessageForAction.image && !selectedMessageForAction.sharedEvent && (
                                 <TouchableOpacity style={styles.actionModalButton} onPress={handleEdit}>
-                                    <Feather name="edit-2" size={20} color="#3B82F6" style={styles.actionModalIcon}/>
+                                    <Feather name="edit-2" size={20} color="#3B82F6" style={styles.actionModalIcon} />
                                     <Text style={styles.actionModalButtonText}>Edit</Text>
                                 </TouchableOpacity>
                             )}
 
                             <TouchableOpacity style={styles.actionModalButton} onPress={handleShowMessageInfo}>
-                                <Feather name="info" size={20} color="#3B82F6" style={styles.actionModalIcon}/>
+                                <Feather name="info" size={20} color="#3B82F6" style={styles.actionModalIcon} />
                                 <Text style={styles.actionModalButtonText}>Info</Text>
                             </TouchableOpacity>
 
                             <TouchableOpacity style={styles.actionModalButton} onPress={handleDeleteForMe}>
-                                <Feather name="trash" size={20} color="#EF4444" style={styles.actionModalIcon}/>
-                                <Text style={[styles.actionModalButtonText, {color: '#EF4444'}]}>Delete for Me</Text>
+                                <Feather name="trash" size={20} color="#EF4444" style={styles.actionModalIcon} />
+                                <Text style={[styles.actionModalButtonText, { color: '#EF4444' }]}>Delete for Me</Text>
                             </TouchableOpacity>
 
                             {(selectedMessageForAction.user._id === currentUserId || isCurrentUserAdmin) && (
                                 <TouchableOpacity style={styles.actionModalButton} onPress={handleDeleteForEveryone}>
-                                    <Feather name="trash-2" size={20} color="#EF4444" style={styles.actionModalIcon}/>
-                                    <Text style={[styles.actionModalButtonText, {color: '#EF4444'}]}>Delete for Everyone</Text>
+                                    <Feather name="trash-2" size={20} color="#EF4444" style={styles.actionModalIcon} />
+                                    <Text style={[styles.actionModalButtonText, { color: '#EF4444' }]}>Delete for Everyone</Text>
                                 </TouchableOpacity>
                             )}
                         </>
@@ -2343,8 +2488,8 @@ const GroupChatScreen: React.FC = () => {
                         setEditText("");
                     }}
                 >
-                    <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => {setEditingMessage(null); setEditText("");}}/>
-                    <View style={styles.modalContent}> 
+                    <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => { setEditingMessage(null); setEditText(""); }} />
+                    <View style={styles.modalContent}>
                         <Text style={styles.modalTitle}>Edit Message</Text>
                         <TextInput
                             style={styles.modalInput}
@@ -2355,18 +2500,18 @@ const GroupChatScreen: React.FC = () => {
                             autoFocus
                         />
                         <View style={styles.modalActions}>
-                            <TouchableOpacity 
-                                style={[styles.modalButton, styles.modalButtonCancel]} 
+                            <TouchableOpacity
+                                style={[styles.modalButton, styles.modalButtonCancel]}
                                 onPress={() => {
-                                    setEditingMessage(null); 
+                                    setEditingMessage(null);
                                     setEditText("");
                                 }}
                             >
                                 <Text style={styles.modalButtonTextCancel}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity 
-                                style={[styles.modalButton, styles.modalButtonSave, (!editText.trim() || editText.trim() === editingMessage.text) && styles.modalButtonDisabled]} 
-                                onPress={saveEditMessage} 
+                            <TouchableOpacity
+                                style={[styles.modalButton, styles.modalButtonSave, (!editText.trim() || editText.trim() === editingMessage.text) && styles.modalButtonDisabled]}
+                                onPress={saveEditMessage}
                                 disabled={!editText.trim() || editText.trim() === editingMessage.text}
                             >
                                 <Text style={styles.modalButtonTextSave}>Save</Text>
@@ -2392,18 +2537,18 @@ const GroupChatScreen: React.FC = () => {
                         <ScrollView>
                             <Text style={styles.messageInfoSectionTitle}>Sent at: {formatTime(new Date(messageInfoData.sent_at))}</Text>
                             <Text style={styles.messageInfoSectionTitle}>Seen by: {messageInfoData.seen_count} / {messageInfoData.total_members}</Text>
-                            
+
                             {messageInfoData.seen_users && messageInfoData.seen_users.length > 0 && (
                                 <View style={{ marginTop: 16 }}>
                                     <Text style={styles.messageInfoSectionTitle}>Seen by:</Text>
                                     {messageInfoData.seen_users.map((seenUser: any, index: number) => (
                                         <Text key={index} style={styles.messageInfoDetailText}>
-                                            • User at {formatTime(new Date(seenUser.seen_at))}
+                                            • {seenUser.name} at {formatTime(new Date(seenUser.seen_at))}
                                         </Text>
                                     ))}
                                 </View>
                             )}
-                            
+
                             {messageInfoData.seen_count === 0 && (
                                 <Text style={styles.messageInfoDetailText}>No one has seen this message yet</Text>
                             )}
@@ -2448,7 +2593,7 @@ const GroupChatScreen: React.FC = () => {
             )}
             {/* Loading indicator for event details */}
             {loadingEventDetails && (
-                <Modal transparent={true} visible={true} onRequestClose={() => {}}>
+                <Modal transparent={true} visible={true} onRequestClose={() => { }}>
                     <View style={styles.loadingOverlay}>
                         <ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
                         <Text style={styles.loadingOverlayText}>Loading Event...</Text>
@@ -2467,23 +2612,23 @@ const styles = StyleSheet.create({
     keyboardAvoidingContainer: { flex: 1, },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#F9FAFB', },
     centeredEmptyList: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 50, minHeight: 200, },
-    
+
     // Error and banner styles
     errorText: { color: '#DC2626', fontSize: 16, textAlign: 'center', },
-    errorBanner: { 
-        backgroundColor: 'rgba(239, 68, 68, 0.1)', 
-        paddingVertical: 8, 
-        paddingHorizontal: 15, 
-        flexDirection: 'row', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        borderBottomWidth: 1, 
-        borderBottomColor: 'rgba(239, 68, 68, 0.2)', 
+    errorBanner: {
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        paddingVertical: 8,
+        paddingHorizontal: 15,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(239, 68, 68, 0.2)',
     },
     errorBannerText: { color: '#B91C1C', fontSize: 13, flexShrink: 1, marginRight: 10, },
     errorBannerClose: { padding: 4, },
     noMessagesText: { color: '#6B7280', fontSize: 14, textAlign: 'center', },
-    
+
     // Message list and containers
     messageList: { flex: 1, paddingHorizontal: 10, backgroundColor: '#F9FAFB', },
     messageListContent: { paddingVertical: 10, flexGrow: 1, justifyContent: 'flex-end', },
@@ -2491,11 +2636,11 @@ const styles = StyleSheet.create({
     messageRowSent: { justifyContent: 'flex-end', marginLeft: '20%', },
     messageRowReceived: { justifyContent: 'flex-start', marginRight: '20%', },
     messageContentContainer: { maxWidth: '100%', },
-    
+
     // Message bubbles
-    messageBubble: { 
-        borderRadius: 18, 
-        minWidth: 30, 
+    messageBubble: {
+        borderRadius: 18,
+        minWidth: 30,
         marginBottom: 2,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 1 },
@@ -2503,49 +2648,49 @@ const styles = StyleSheet.create({
         shadowRadius: 2,
         elevation: 2,
     },
-    messageBubbleSent: { 
-        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', 
-        borderBottomRightRadius: 4, 
-        alignSelf: 'flex-end', 
-        paddingVertical: 10, 
+    messageBubbleSent: {
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        borderBottomRightRadius: 4,
+        alignSelf: 'flex-end',
+        paddingVertical: 10,
         paddingHorizontal: 14,
     },
-    messageBubbleReceived: { 
-        backgroundColor: '#FFFFFF', 
-        borderBottomLeftRadius: 4, 
-        alignSelf: 'flex-start', 
-        paddingVertical: 10, 
+    messageBubbleReceived: {
+        backgroundColor: '#FFFFFF',
+        borderBottomLeftRadius: 4,
+        alignSelf: 'flex-start',
+        paddingVertical: 10,
         paddingHorizontal: 14,
         borderWidth: 1,
         borderColor: '#E5E7EB',
     },
-    
+
     // Legacy bubble styles (keeping for backward compatibility)
-    messageBubbleSentText: { 
-        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', 
-        borderBottomRightRadius: 4, 
-        alignSelf: 'flex-end', 
-        paddingVertical: 10, 
+    messageBubbleSentText: {
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        borderBottomRightRadius: 4,
+        alignSelf: 'flex-end',
+        paddingVertical: 10,
         paddingHorizontal: 14,
     },
-    messageBubbleReceivedText: { 
-        backgroundColor: '#FFFFFF', 
-        borderBottomLeftRadius: 4, 
-        alignSelf: 'flex-start', 
-        paddingVertical: 10, 
+    messageBubbleReceivedText: {
+        backgroundColor: '#FFFFFF',
+        borderBottomLeftRadius: 4,
+        alignSelf: 'flex-start',
+        paddingVertical: 10,
         paddingHorizontal: 14,
         borderWidth: 1,
         borderColor: '#E5E7EB',
     },
-    
+
     // Image messages
-    imageBubble: { 
-        borderRadius: 18, 
-        overflow: 'hidden', 
-        padding: 0, 
-        backgroundColor: 'transparent', 
-        alignSelf: 'flex-start', 
-        maxWidth: 220, 
+    imageBubble: {
+        borderRadius: 18,
+        overflow: 'hidden',
+        padding: 0,
+        backgroundColor: 'transparent',
+        alignSelf: 'flex-start',
+        maxWidth: 220,
         maxHeight: 220,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
@@ -2553,84 +2698,84 @@ const styles = StyleSheet.create({
         shadowRadius: 4,
         elevation: 3,
     },
-    messageBubbleSentImage: { 
-        alignSelf: 'flex-end', 
-        backgroundColor: 'transparent', 
-        borderBottomRightRadius: 4, 
+    messageBubbleSentImage: {
+        alignSelf: 'flex-end',
+        backgroundColor: 'transparent',
+        borderBottomRightRadius: 4,
     },
-    messageBubbleReceivedImage: { 
-        alignSelf: 'flex-start', 
-        backgroundColor: 'transparent', 
-        borderBottomLeftRadius: 4, 
+    messageBubbleReceivedImage: {
+        alignSelf: 'flex-start',
+        backgroundColor: 'transparent',
+        borderBottomLeftRadius: 4,
     },
-    chatImage: { 
-        width: 210, 
-        height: 210, 
-        borderRadius: 16, 
+    chatImage: {
+        width: 210,
+        height: 210,
+        borderRadius: 16,
     },
-    
+
     // Text styles
-    messageText: { 
-        fontSize: 15, 
-        lineHeight: 21, 
-        flexShrink: 1, 
+    messageText: {
+        fontSize: 15,
+        lineHeight: 21,
+        flexShrink: 1,
     },
     messageTextSent: { color: '#FFFFFF', },
     messageTextReceived: { color: '#1F2937', },
-    senderName: { 
-        fontSize: 12, 
-        color: '#6B7280', 
-        marginBottom: 4, 
-        marginLeft: 6, 
+    senderName: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginBottom: 4,
+        marginLeft: 6,
         alignSelf: 'flex-start',
         fontWeight: '500',
     },
-    
+
     // System messages
-    systemMessageContainer: { 
-        alignSelf: 'center', 
-        backgroundColor: 'rgba(107, 114, 128, 0.1)', 
-        borderRadius: 12, 
-        paddingHorizontal: 12, 
-        paddingVertical: 6, 
-        marginVertical: 8, 
-        maxWidth: '80%', 
+    systemMessageContainer: {
+        alignSelf: 'center',
+        backgroundColor: 'rgba(107, 114, 128, 0.1)',
+        borderRadius: 12,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        marginVertical: 8,
+        maxWidth: '80%',
     },
-    systemMessageText: { 
-        fontSize: 12, 
-        color: '#4B5563', 
-        textAlign: 'center', 
+    systemMessageText: {
+        fontSize: 12,
+        color: '#4B5563',
+        textAlign: 'center',
         fontStyle: 'italic',
         fontWeight: '500',
     },
-    
+
     // Time indicators
-    timeText: { 
-        fontSize: 11, 
+    timeText: {
+        fontSize: 11,
         display: 'flex',
         flexDirection: 'row',
         alignItems: 'center',
     },
-    timeTextInsideBubble: { 
+    timeTextInsideBubble: {
         fontSize: 10,
         marginLeft: 8,
         alignSelf: 'flex-end',
         lineHeight: 15,
     },
-    timeTextInsideSentBubble: { 
-        color: 'rgba(255, 255, 255, 0.7)' 
+    timeTextInsideSentBubble: {
+        color: 'rgba(255, 255, 255, 0.7)'
     },
-    timeTextInsideReceivedBubble: { 
+    timeTextInsideReceivedBubble: {
         color: '#6B7280'
     },
-    timeTextSent: { 
-        alignSelf: 'flex-end', 
+    timeTextSent: {
+        alignSelf: 'flex-end',
         marginRight: 8,
         marginTop: 4,
         color: '#9CA3AF',
     },
-    timeTextReceived: { 
-        alignSelf: 'flex-start', 
+    timeTextReceived: {
+        alignSelf: 'flex-start',
         marginLeft: 8,
         marginTop: 4,
         color: '#9CA3AF',
@@ -2642,7 +2787,14 @@ const styles = StyleSheet.create({
         marginTop: 4,
         minHeight: 16,
     },
-    
+    seenByText: {
+        alignSelf: 'flex-end',
+        fontSize: 11,
+        color: '#9CA3AF',
+        marginRight: 8,
+        marginTop: 2,
+    },
+
     // Section headers
     sectionHeader: {
         alignItems: 'center',
@@ -2660,150 +2812,150 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
         letterSpacing: 0.5,
     },
-    
+
     // Input area
-    inputToolbar: { 
-        flexDirection: 'row', 
-        alignItems: 'flex-end', 
-        paddingVertical: 12, 
-        paddingHorizontal: 16, 
-        borderTopWidth: 1, 
-        borderTopColor: '#E5E7EB', 
-        backgroundColor: '#FFFFFF', 
-        paddingBottom: Platform.OS === 'ios' ? 8 : 12, 
+    inputToolbar: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderTopWidth: 1,
+        borderTopColor: '#E5E7EB',
+        backgroundColor: '#FFFFFF',
+        paddingBottom: Platform.OS === 'ios' ? 8 : 12,
     },
-    attachButton: { 
-        width: 44, 
-        height: 44, 
-        justifyContent: 'center', 
-        alignItems: 'center', 
+    attachButton: {
+        width: 44,
+        height: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
         borderRadius: 22,
         backgroundColor: '#F8F9FA',
         borderWidth: 1,
         borderColor: '#E5E7EB',
     },
-    textInput: { 
-        flex: 1, 
-        minHeight: 44, 
-        maxHeight: 120, 
-        backgroundColor: '#F8F9FA', 
-        borderRadius: 22, 
-        paddingHorizontal: 16, 
-        paddingVertical: Platform.OS === 'ios' ? 12 : 10, 
-        fontSize: 16, 
-        marginHorizontal: 8, 
+    textInput: {
+        flex: 1,
+        minHeight: 44,
+        maxHeight: 120,
+        backgroundColor: '#F8F9FA',
+        borderRadius: 22,
+        paddingHorizontal: 16,
+        paddingVertical: Platform.OS === 'ios' ? 12 : 10,
+        fontSize: 16,
+        marginHorizontal: 8,
         color: '#1F2937',
         borderWidth: 1,
         borderColor: '#E5E7EB',
-        textAlignVertical: 'center', 
+        textAlignVertical: 'center',
     },
-    sendButton: { 
-        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', 
-        width: 44, 
-        height: 44, 
-        borderRadius: 22, 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        marginBottom: Platform.OS === 'ios' ? 0 : 1, 
+    sendButton: {
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: Platform.OS === 'ios' ? 0 : 1,
     },
     sendButtonDisabled: { backgroundColor: '#9CA3AF', },
-    
+
     // Header
-    headerTitleContainer: { 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        marginLeft: Platform.OS === 'ios' ? -10 : 0, 
+    headerTitleContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginLeft: Platform.OS === 'ios' ? -10 : 0,
     },
-    headerGroupImage: { 
-        width: 34, 
-        height: 34, 
-        borderRadius: 17, 
-        marginRight: 10, 
-        backgroundColor: '#E5E7EB', 
+    headerGroupImage: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        marginRight: 10,
+        backgroundColor: '#E5E7EB',
     },
-    headerTitleText: { 
-        fontSize: 18, 
-        fontWeight: '600', 
-        color: '#1F2937', 
+    headerTitleText: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#1F2937',
     },
-    headerButtons: { 
-        flexDirection: 'row', 
-        marginRight: Platform.OS === 'ios' ? 5 : 10, 
+    headerButtons: {
+        flexDirection: 'row',
+        marginRight: Platform.OS === 'ios' ? 5 : 10,
     },
-    headerButton: { 
-        paddingHorizontal: 8, 
-        paddingVertical: 6, 
+    headerButton: {
+        paddingHorizontal: 8,
+        paddingVertical: 6,
     },
-    
+
     // Edit modal
-    modalBackdrop: { 
-        flex: 1, 
-        backgroundColor: 'rgba(0,0,0,0.5)', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
+    modalBackdrop: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-    modalContent: { 
-        position: 'absolute', 
-        top: '25%', 
-        left: '8%', 
-        right: '8%', 
-        backgroundColor: 'white', 
-        borderRadius: 16, 
-        padding: 28, 
-        shadowColor: "#000", 
-        shadowOffset: { width: 0, height: 4 }, 
-        shadowOpacity: 0.3, 
-        shadowRadius: 8, 
-        elevation: 8, 
-        width: '84%', 
-        minHeight: 220, 
+    modalContent: {
+        position: 'absolute',
+        top: '25%',
+        left: '8%',
+        right: '8%',
+        backgroundColor: 'white',
+        borderRadius: 16,
+        padding: 28,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 8,
+        width: '84%',
+        minHeight: 220,
     },
-    modalTitle: { 
-        fontSize: 20, 
-        fontWeight: '600', 
-        marginBottom: 24, 
-        textAlign: 'center', 
-        color: '#1F2937', 
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: '600',
+        marginBottom: 24,
+        textAlign: 'center',
+        color: '#1F2937',
     },
-    modalInput: { 
-        borderWidth: 1, 
-        borderColor: '#D1D5DB', 
-        borderRadius: 10, 
-        paddingHorizontal: 16, 
-        paddingVertical: 14, 
-        fontSize: 16, 
-        marginBottom: 28, 
+    modalInput: {
+        borderWidth: 1,
+        borderColor: '#D1D5DB',
+        borderRadius: 10,
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+        fontSize: 16,
+        marginBottom: 28,
     },
-    modalActions: { 
-        flexDirection: 'row', 
-        justifyContent: 'space-between', 
+    modalActions: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
     },
-    modalButton: { 
-        paddingVertical: 12, 
-        paddingHorizontal: 24, 
-        borderRadius: 10, 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        minWidth: 100, 
+    modalButton: {
+        paddingVertical: 12,
+        paddingHorizontal: 24,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        minWidth: 100,
     },
-    modalButtonCancel: { 
-        backgroundColor: '#F3F4F6', 
+    modalButtonCancel: {
+        backgroundColor: '#F3F4F6',
     },
-    modalButtonSave: { 
-        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', 
+    modalButtonSave: {
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
     },
-    modalButtonDisabled: { 
-        backgroundColor: '#D1D5DB', 
+    modalButtonDisabled: {
+        backgroundColor: '#D1D5DB',
     },
-    modalButtonTextCancel: { 
-        color: '#4B5563', 
-        fontWeight: '600', 
+    modalButtonTextCancel: {
+        color: '#4B5563',
+        fontWeight: '600',
     },
-    modalButtonTextSave: { 
-        color: 'white', 
-        fontWeight: '600', 
+    modalButtonTextSave: {
+        color: 'white',
+        fontWeight: '600',
     },
-    
+
     // Image viewer
     imageViewerContainer: {
         flex: 1,
@@ -2838,7 +2990,7 @@ const styles = StyleSheet.create({
     imageViewerButtonDisabled: {
         opacity: 0.5,
     },
-    
+
     // Event sharing composer
     sharedEventContainer: {
         flexDirection: 'row',
@@ -2878,7 +3030,7 @@ const styles = StyleSheet.create({
         borderRadius: 16,
         backgroundColor: '#FFFFFF',
     },
-    
+
     // Enhanced shared event styles
     sharedEventMessageBubble: {
         padding: 14,
@@ -2898,7 +3050,7 @@ const styles = StyleSheet.create({
         elevation: 3,
     },
     sharedEventPreviewImage: {
-        width: '100%', 
+        width: '100%',
         height: 140,
         backgroundColor: '#F3F4F6',
     },
@@ -2916,7 +3068,7 @@ const styles = StyleSheet.create({
         color: '#6B7280',
         marginBottom: 2,
     },
-    
+
     // Error states
     imageErrorOverlay: {
         position: 'absolute',
@@ -2935,7 +3087,7 @@ const styles = StyleSheet.create({
         marginTop: 4,
         textAlign: 'center',
     },
-    
+
     // Loading overlay
     loadingOverlay: {
         flex: 1,
@@ -3230,12 +3382,7 @@ const styles = StyleSheet.create({
         flex: 1,
         alignItems: 'center',
     },
-    onlineMembersText: {
-        fontSize: 12,
-        color: '#22C55E',
-        fontWeight: '500',
-        marginTop: 2,
-    },
+
     typingIndicatorContainer: {
         paddingHorizontal: 15,
         paddingBottom: 5,
