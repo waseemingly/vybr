@@ -438,7 +438,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             cleanup();
             return;
         }
-
+        
         const userId = session.user.id;
         console.log(`[RealtimeContext] Setting up realtime for user: ${userId}`);
 
@@ -477,14 +477,14 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 schema: 'public',
                 table: 'messages',
             },
-            (payload) => {
+                (payload) => {
                                      if (session?.user?.id && (payload.new as any).receiver_id === session.user.id) {
-                         const eventName = 'new_message_notification';
-                         if (listenersRef.current[eventName]) {
-                             listenersRef.current[eventName].forEach(callback => callback(payload));
-                         }
-                     }
-            }
+                        const eventName = 'new_message_notification';
+                        if (listenersRef.current[eventName]) {
+                            listenersRef.current[eventName].forEach(callback => callback(payload));
+                        }
+                    }
+                }
         );
 
         // Subscribe to group message notifications
@@ -495,12 +495,12 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 schema: 'public',
                 table: 'group_chat_messages',
             },
-            (payload) => {
-                const eventName = 'new_group_message_notification';
-                if (listenersRef.current[eventName]) {
-                    listenersRef.current[eventName].forEach(callback => callback(payload));
+                (payload) => {
+                    const eventName = 'new_group_message_notification';
+                    if (listenersRef.current[eventName]) {
+                        listenersRef.current[eventName].forEach(callback => callback(payload));
+                    }
                 }
-            }
         );
 
         // Subscribe to channels
