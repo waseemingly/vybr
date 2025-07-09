@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import {
-    View, StyleSheet, ActivityIndicator, Text, TouchableOpacity,
+    View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Pressable,
     Platform, TextInput, SectionList, KeyboardAvoidingView, Keyboard,
     Modal, Alert, Image, ScrollView, Dimensions,
     RefreshControl, FlatList, StatusBar // Add FlatList and StatusBar
@@ -17,10 +17,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHeaderHeight } from '@react-navigation/elements';
 import UnifiedNotificationService from '@/services/UnifiedNotificationService';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
+import * as Sharing from 'expo-sharing';
+import * as Clipboard from 'expo-clipboard';
 
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { useRealtime } from '@/context/RealtimeContext';
 
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator'; // Adjust path
 import { APP_CONSTANTS } from '@/config/constants';
@@ -349,7 +352,12 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
         const eventIsOver = isSharedEventOver(message.sharedEvent);
 
         return (
-            <View style={[styles.messageRow, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}>
+            <TouchableOpacity
+                style={[styles.messageRowTouchable, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}
+                onLongPress={() => onMessageLongPress(message)}
+                delayLongPress={200}
+                activeOpacity={0.8}
+            >
                 <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
@@ -439,18 +447,25 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                         </View>
                     </View>
                 </View>
-            </View>
+            </TouchableOpacity>
         );
     }
 
     // Image Message
     if (message.image) {
         return (
-            <TouchableOpacity
+            <Pressable
                 style={[styles.messageRowTouchable, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}
-                onLongPress={() => onMessageLongPress(message)}
+                onLongPress={() => {
+                    console.log('[DEBUG] Long press detected on image message:', message._id);
+                    onMessageLongPress(message);
+                }}
+                onPress={() => {
+                    console.log('[DEBUG] Image tap detected for:', message.image);
+                    onImagePress(message.image!);
+                }}
                 delayLongPress={200}
-                activeOpacity={0.8}
+                android_ripple={{ color: 'rgba(0,0,0,0.1)', borderless: false }}
             >
                 <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
@@ -489,11 +504,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                         </TouchableOpacity>
                     )}
 
-                    <TouchableOpacity
-                        style={[styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage, isHighlighted && styles.highlightedImageBubble]}
-                        activeOpacity={0.8}
-                        onPress={() => onImagePress(message.image!)}
-                    >
+                    <View style={[styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage, isHighlighted && styles.highlightedImageBubble]}>
                         <Image
                             source={{ uri: message.image }}
                             style={styles.chatImage}
@@ -507,13 +518,13 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                             </View>
                         )}
                         {message.isEdited && <Text style={styles.editedIndicatorImage}>(edited)</Text>}
-                    </TouchableOpacity>
+                    </View>
                     <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
                         {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />}
                     </Text>
                 </View>
-            </TouchableOpacity>
+            </Pressable>
         );
     }
 
@@ -591,7 +602,7 @@ const GroupChatScreen: React.FC = () => {
     const navigation = useNavigation<GroupChatScreenNavigationProp>();
     const { session } = useAuth();
     const { refreshUnreadCount } = useUnreadCount();
-    // Removed useRealtime since we're using direct Supabase subscriptions like IndividualChatScreen
+    const { subscribeToGroupChat, sendGroupTypingIndicator } = useRealtime();
     const currentUserId = session?.user?.id;
     const { groupId, sharedEventData: initialSharedEventData } = route.params;
 
@@ -637,6 +648,12 @@ const GroupChatScreen: React.FC = () => {
     const [selectedEventDataForModal, setSelectedEventDataForModal] = useState<MappedEvent | null>(null);
     const [eventModalVisible, setEventModalVisible] = useState(false);
     const [loadingEventDetails, setLoadingEventDetails] = useState(false);
+    
+    // Forward functionality states
+    const [forwardModalVisible, setForwardModalVisible] = useState(false);
+    const [forwardMessage, setForwardMessage] = useState<ChatMessage | null>(null);
+    const [availableChats, setAvailableChats] = useState<Array<{id: string, name: string, type: 'individual' | 'group'}>>([]);
+    const [loadingChats, setLoadingChats] = useState(false);
     // --- End State for Event Detail Modal ---
 
     // --- State for message highlighting ---
@@ -1178,13 +1195,10 @@ const GroupChatScreen: React.FC = () => {
 
     const broadcastTyping = useCallback(() => {
         if (!currentUserId || !groupId) return;
-        const channel = supabase.channel(`group_chat_${groupId}`);
-        channel.send({
-            type: 'broadcast',
-            event: 'typing',
-            payload: { sender_id: currentUserId, typing: true },
-        });
-    }, [currentUserId, groupId]);
+        // Use the RealtimeContext typing indicator
+        const senderName = userProfileCache[currentUserId]?.name || 'You';
+        sendGroupTypingIndicator(groupId, true, senderName);
+    }, [currentUserId, groupId, sendGroupTypingIndicator, userProfileCache]);
 
     const shareEventToGroupViaRpc = useCallback(async (eventDataToShare: typeof initialSharedEventData) => {
         if (!currentUserId || !groupId || !eventDataToShare || isUploading) return;
@@ -1354,11 +1368,15 @@ const GroupChatScreen: React.FC = () => {
     const handleTextInputChange = useCallback((text: string) => {
         setInputText(text);
 
-        // Broadcast typing event directly
+        // Broadcast typing event using RealtimeContext
         if (text.trim() && currentUserId && groupId) {
             broadcastTyping();
+        } else if (!text.trim() && currentUserId && groupId) {
+            // Stop typing when input is empty
+            const senderName = userProfileCache[currentUserId]?.name || 'You';
+            sendGroupTypingIndicator(groupId, false, senderName);
         }
-    }, [currentUserId, groupId, broadcastTyping]);
+    }, [currentUserId, groupId, broadcastTyping, sendGroupTypingIndicator, userProfileCache]);
     // --- End Typing Handler ---
 
     //Pick and Send Image
@@ -1504,7 +1522,7 @@ const GroupChatScreen: React.FC = () => {
                 .insert({
                     sender_id: currentUserId,
                     group_id: groupId,
-                    content: null,
+                    content: '[Image]', // Provide default content for image messages
                     image_url: urlData.publicUrl,
                     is_system_message: false,
                     reply_to_message_id: replyToId || null
@@ -1632,26 +1650,212 @@ const GroupChatScreen: React.FC = () => {
         }
     }, [currentUserId, groupId, markMessagesAsSeen]);
 
-    // Real-time Subscription Setup (exactly like IndividualChatScreen)
+    // Real-time Subscription Setup using RealtimeContext
     useEffect(() => {
         if (!currentUserId || !groupId) {
-            return () => { 
-                const channelName = `group_chat_${groupId}`;
-                const messageStatusChannelName = `group_message_status_${groupId}`;
-                supabase.channel(channelName).unsubscribe(); 
-                supabase.channel(messageStatusChannelName).unsubscribe();
-                if (typingTimeoutRef.current) {
-                    typingTimeoutRef.current.forEach(timeout => clearTimeout(timeout));
-                    typingTimeoutRef.current.clear();
-                }
-            };
+            return;
         }
 
-        console.log(`[GroupChatScreen] Subscribing to channel for group: ${groupId}`);
-        const channelName = `group_chat_${groupId}`;
-        const messageChannel = supabase
-            .channel(channelName)
-            .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        console.log(`[GroupChatScreen] Setting up realtime subscription for group: ${groupId}`);
+        
+        const unsubscribe = subscribeToGroupChat(groupId, {
+            onMessage: async (payload: any) => {
+                const newMessageDb = payload.new as DbGroupMessage;
+                if (newMessageDb.sender_id !== currentUserId) {
+                    try {
+                        await supabase.rpc('mark_group_message_delivered', { message_id_input: newMessageDb.id, user_id_input: currentUserId });
+                        await supabase.rpc('mark_group_message_seen', { message_id_input: newMessageDb.id, user_id_input: currentUserId });
+                    } catch (e) { console.error('Exception marking group message status:', e); }
+                }
+                
+                try {
+                    const { data: hiddenCheck, error: hiddenError } = await supabase
+                        .from('user_hidden_messages')
+                        .select('message_id')
+                        .eq('user_id', currentUserId)
+                        .eq('message_id', newMessageDb.id)
+                        .maybeSingle();
+                    if (hiddenError) {
+                        console.warn("Error checking if message is hidden:", hiddenError.message);
+                    } else if (hiddenCheck) {
+                        return;
+                    }
+                } catch (hiddenCheckErr) {
+                    console.warn("Exception checking hidden message status:", hiddenCheckErr);
+                }
+                
+                const rtProfilesMap = new Map<string, UserProfileInfo>();
+                if (newMessageDb.sender_id && !userProfileCache[newMessageDb.sender_id]) {
+                    try {
+                        const { data: p, error } = await supabase
+                            .from('music_lover_profiles')
+                            .select('user_id, first_name, last_name, profile_picture')
+                            .eq('user_id', newMessageDb.sender_id)
+                            .single();
+                        if (error) throw error;
+                        if (p) {
+                            const name = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
+                            const avatar = p.profile_picture || undefined;
+                            userProfileCache[p.user_id] = { name, avatar };
+                            rtProfilesMap.set(p.user_id, p);
+                        }
+                    } catch (err) { console.warn("On-the-fly profile fetch failed:", err) }
+                }
+                
+                const receivedMessage = mapDbMessageToChatMessage(newMessageDb, rtProfilesMap);
+                if (receivedMessage.replyToMessageId) {
+                    try {
+                        const repliedMsg = await fetchMessageById(receivedMessage.replyToMessageId);
+                        if (repliedMsg) {
+                            receivedMessage.replyToMessagePreview = {
+                                text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                senderName: repliedMsg.user.name,
+                                image: repliedMsg.image
+                            };
+                        }
+                    } catch (replyErr) {
+                        console.warn("Error fetching reply preview:", replyErr);
+                    }
+                }
+                
+                setMessages(prevMessages => {
+                    if (prevMessages.some(msg => msg._id === receivedMessage._id)) {
+                        return prevMessages;
+                    }
+                    if (receivedMessage.user._id !== currentUserId) {
+                        receivedMessage.isSeen = true;
+                        receivedMessage.seenAt = new Date();
+                    }
+                    const optimisticIdPattern = `temp_`;
+                    const optimisticIndex = prevMessages.findIndex(m => 
+                        m._id.startsWith(optimisticIdPattern) && 
+                        (m.text === receivedMessage.text || (m.image && receivedMessage.image)) &&
+                        m.replyToMessageId === receivedMessage.replyToMessageId
+                    );
+                    if (optimisticIndex !== -1) {
+                        const newMessages = [...prevMessages];
+                        newMessages[optimisticIndex] = receivedMessage;
+                        return newMessages;
+                    }
+                    return [...prevMessages, receivedMessage];
+                });
+            },
+            onMessageUpdate: async (payload: any) => {
+                const updatedMessageDb = payload.new as DbGroupMessage;
+                try {
+                    const { data: hiddenCheck, error: hiddenError } = await supabase
+                        .from('user_hidden_messages')
+                        .select('message_id')
+                        .eq('user_id', currentUserId)
+                        .eq('message_id', updatedMessageDb.id)
+                        .maybeSingle();
+                    if (hiddenError) {
+                        console.warn("Error checking if updated message is hidden:", hiddenError.message);
+                    } else if (hiddenCheck && !updatedMessageDb.is_deleted) {
+                        return;
+                    }
+                } catch (hiddenCheckErr) {
+                    console.warn("Exception checking hidden status for updated message:", hiddenCheckErr);
+                }
+                
+                const rtProfilesMap = new Map<string, UserProfileInfo>();
+                if (updatedMessageDb.sender_id && !userProfileCache[updatedMessageDb.sender_id]) {
+                    try {
+                        const { data: p, error: profileError } = await supabase
+                            .from('music_lover_profiles')
+                            .select('user_id, first_name, last_name, profile_picture')
+                            .eq('user_id', updatedMessageDb.sender_id)
+                            .single();
+                        if (profileError) throw profileError;
+                        if (p) {
+                            const name = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
+                            const avatar = p.profile_picture || undefined;
+                            userProfileCache[p.user_id] = { name, avatar };
+                            rtProfilesMap.set(p.user_id, p);
+                        }
+                    } catch (err) { console.warn(`[RT-UPDATE] Profile fetch err:`, err); }
+                }
+                
+                const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb, rtProfilesMap);
+                if (updatedMessageUi.replyToMessageId) {
+                    try {
+                        const repliedMsg = await fetchMessageById(updatedMessageUi.replyToMessageId);
+                        if (repliedMsg) {
+                            updatedMessageUi.replyToMessagePreview = {
+                                text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                senderName: repliedMsg.user.name,
+                                image: repliedMsg.image
+                            };
+                        }
+                    } catch (replyErr) {
+                        console.warn("Error fetching reply preview for updated message:", replyErr);
+                    }
+                }
+                
+                setMessages(prev => prev.map(msg => {
+                    if (msg._id === updatedMessageUi._id) {
+                        updatedMessageUi.seenBy = msg.seenBy;
+                        updatedMessageUi.isSeen = msg.isSeen;
+                        updatedMessageUi.seenAt = msg.seenAt;
+                        return updatedMessageUi;
+                    }
+                    return msg;
+                }));
+                
+                if (editingMessage && editingMessage._id === updatedMessageUi._id) {
+                    setEditingMessage(null);
+                    setEditText("");
+                }
+            },
+            onMessageStatus: (payload: any) => {
+                const statusUpdate = payload.new as { 
+                    message_id: string; 
+                    user_id: string;
+                    is_seen: boolean; 
+                    seen_at: string; 
+                    is_delivered: boolean; 
+                    delivered_at: string 
+                };
+                if (!statusUpdate || !statusUpdate.message_id) return;
+                
+                setMessages(prevMessages => {
+                    let needsUpdate = false;
+                    const newMessages = prevMessages.map(msg => {
+                        if (msg._id === statusUpdate.message_id) {
+                            const deliveredChanged = msg.isDelivered !== statusUpdate.is_delivered;
+                            const seenChanged = msg.isSeen !== statusUpdate.is_seen;
+                            if (deliveredChanged || seenChanged) {
+                                needsUpdate = true;
+                                let seenByArray = [...(msg.seenBy || [])];
+                                if (statusUpdate.is_seen && statusUpdate.seen_at) {
+                                    const existingSeenIndex = seenByArray.findIndex(s => s.userId === statusUpdate.user_id);
+                                    const seenEntry = {
+                                        userId: statusUpdate.user_id,
+                                        userName: 'Someone',
+                                        seenAt: new Date(statusUpdate.seen_at)
+                                    };
+                                    if (existingSeenIndex > -1) {
+                                        seenByArray[existingSeenIndex] = seenEntry;
+                                    } else {
+                                        seenByArray.push(seenEntry);
+                                    }
+                                }
+                                return {
+                                    ...msg,
+                                    isDelivered: statusUpdate.is_delivered,
+                                    deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : msg.deliveredAt,
+                                    isSeen: statusUpdate.is_seen,
+                                    seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : msg.seenAt,
+                                    seenBy: seenByArray
+                                };
+                            }
+                        }
+                        return msg;
+                    });
+                    return needsUpdate ? newMessages : prevMessages;
+                });
+            },
+            onTyping: (payload: any) => {
                 if (payload.sender_id !== currentUserId) {
                     setTypingUsers(prev => {
                         const newTypingUsers = new Map(prev);
@@ -1679,226 +1883,29 @@ const GroupChatScreen: React.FC = () => {
                         return newTypingUsers;
                     });
                 }
-            })
-            .on<DbGroupMessage>(
-                'postgres_changes',
-                { event: 'INSERT', schema: 'public', table: 'group_chat_messages', filter: `group_id=eq.${groupId}` },
-                async (payload: any) => {
-                    const newMessageDb = payload.new as DbGroupMessage;
-                    if (newMessageDb.sender_id !== currentUserId) {
-                        try {
-                            await supabase.rpc('mark_group_message_delivered', { message_id_input: newMessageDb.id, user_id_input: currentUserId });
-                            await supabase.rpc('mark_group_message_seen', { message_id_input: newMessageDb.id, user_id_input: currentUserId });
-                        } catch (e) { console.error('Exception marking group message status:', e); }
+            },
+            onTypingStop: (userId: string) => {
+                setTypingUsers(prev => {
+                    const newTypingUsers = new Map(prev);
+                    newTypingUsers.delete(userId);
+                    const timeout = typingTimeoutRef.current.get(userId);
+                    if (timeout) {
+                        clearTimeout(timeout);
+                        typingTimeoutRef.current.delete(userId);
                     }
-                    try {
-                        const { data: hiddenCheck, error: hiddenError } = await supabase
-                            .from('user_hidden_messages')
-                            .select('message_id')
-                            .eq('user_id', currentUserId)
-                            .eq('message_id', newMessageDb.id)
-                            .maybeSingle();
-                        if (hiddenError) {
-                            console.warn("Error checking if message is hidden:", hiddenError.message);
-                        } else if (hiddenCheck) {
-                            return;
-                        }
-                    } catch (hiddenCheckErr) {
-                        console.warn("Exception checking hidden message status:", hiddenCheckErr);
-                    }
-                    const rtProfilesMap = new Map<string, UserProfileInfo>();
-                    if (newMessageDb.sender_id && !userProfileCache[newMessageDb.sender_id]) {
-                        try {
-                            const { data: p, error } = await supabase
-                                .from('music_lover_profiles')
-                                .select('user_id, first_name, last_name, profile_picture')
-                                .eq('user_id', newMessageDb.sender_id)
-                                .single();
-                            if (error) throw error;
-                            if (p) {
-                                const name = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
-                                const avatar = p.profile_picture || undefined;
-                                userProfileCache[p.user_id] = { name, avatar };
-                                rtProfilesMap.set(p.user_id, p);
-                            }
-                        } catch (err) { console.warn("On-the-fly profile fetch failed:", err) }
-                    }
-                    const receivedMessage = mapDbMessageToChatMessage(newMessageDb, rtProfilesMap);
-                    if (receivedMessage.replyToMessageId) {
-                        try {
-                            const repliedMsg = await fetchMessageById(receivedMessage.replyToMessageId);
-                            if (repliedMsg) {
-                                receivedMessage.replyToMessagePreview = {
-                                    text: repliedMsg.image ? '[Image]' : repliedMsg.text,
-                                    senderName: repliedMsg.user.name,
-                                    image: repliedMsg.image
-                                };
-                            }
-                        } catch (replyErr) {
-                            console.warn("Error fetching reply preview:", replyErr);
-                        }
-                    }
-                    setMessages(prevMessages => {
-                        if (prevMessages.some(msg => msg._id === receivedMessage._id)) {
-                            return prevMessages;
-                        }
-                        if (receivedMessage.user._id !== currentUserId) {
-                            receivedMessage.isSeen = true;
-                            receivedMessage.seenAt = new Date();
-                        }
-                        const optimisticIdPattern = `temp_`;
-                        const optimisticIndex = prevMessages.findIndex(m => 
-                            m._id.startsWith(optimisticIdPattern) && 
-                            (m.text === receivedMessage.text || (m.image && receivedMessage.image)) &&
-                            m.replyToMessageId === receivedMessage.replyToMessageId
-                        );
-                        if (optimisticIndex !== -1) {
-                            const newMessages = [...prevMessages];
-                            newMessages[optimisticIndex] = receivedMessage;
-                            return newMessages;
-                        }
-                        return [...prevMessages, receivedMessage];
-                    });
-                }
-            )
-            .on<DbGroupMessage>(
-                'postgres_changes',
-                { event: 'UPDATE', schema: 'public', table: 'group_chat_messages', filter: `group_id=eq.${groupId}` },
-                async (payload: any) => {
-                    const updatedMessageDb = payload.new as DbGroupMessage;
-                    try {
-                        const { data: hiddenCheck, error: hiddenError } = await supabase
-                            .from('user_hidden_messages')
-                            .select('message_id')
-                            .eq('user_id', currentUserId)
-                            .eq('message_id', updatedMessageDb.id)
-                            .maybeSingle();
-                        if (hiddenError) {
-                            console.warn("Error checking if updated message is hidden:", hiddenError.message);
-                        } else if (hiddenCheck && !updatedMessageDb.is_deleted) {
-                            return;
-                        }
-                    } catch (hiddenCheckErr) {
-                        console.warn("Exception checking hidden status for updated message:", hiddenCheckErr);
-                    }
-                    const rtProfilesMap = new Map<string, UserProfileInfo>();
-                    if (updatedMessageDb.sender_id && !userProfileCache[updatedMessageDb.sender_id]) {
-                        try {
-                            const { data: p, error: profileError } = await supabase
-                                .from('music_lover_profiles')
-                                .select('user_id, first_name, last_name, profile_picture')
-                                .eq('user_id', updatedMessageDb.sender_id)
-                                .single();
-                            if (profileError) throw profileError;
-                            if (p) {
-                                const name = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
-                                const avatar = p.profile_picture || undefined;
-                                userProfileCache[p.user_id] = { name, avatar };
-                                rtProfilesMap.set(p.user_id, p);
-                            }
-                        } catch (err) { console.warn(`[RT-UPDATE] Profile fetch err:`, err); }
-                    }
-                    const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb, rtProfilesMap);
-                    if (updatedMessageUi.replyToMessageId) {
-                        try {
-                            const repliedMsg = await fetchMessageById(updatedMessageUi.replyToMessageId);
-                            if (repliedMsg) {
-                                updatedMessageUi.replyToMessagePreview = {
-                                    text: repliedMsg.image ? '[Image]' : repliedMsg.text,
-                                    senderName: repliedMsg.user.name,
-                                    image: repliedMsg.image
-                                };
-                            }
-                        } catch (replyErr) {
-                            console.warn("Error fetching reply preview for updated message:", replyErr);
-                        }
-                    }
-                    setMessages(prev => prev.map(msg => {
-                        if (msg._id === updatedMessageUi._id) {
-                            updatedMessageUi.seenBy = msg.seenBy;
-                            updatedMessageUi.isSeen = msg.isSeen;
-                            updatedMessageUi.seenAt = msg.seenAt;
-                            return updatedMessageUi;
-                        }
-                        return msg;
-                    }));
-                    if (editingMessage && editingMessage._id === updatedMessageUi._id) {
-                        setEditingMessage(null);
-                        setEditText("");
-                    }
-                }
-            )
-            .subscribe((status) => {
-                console.log(`[GroupChatScreen] Message channel subscription status: ${status} for ${channelName}`);
-            });
-
-        const messageStatusChannelName = `group_message_status_${groupId}`;
-        const statusChannel = supabase
-            .channel(messageStatusChannelName)
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'group_message_status', filter: `group_id=eq.${groupId}` },
-                (payload: any) => {
-                    const statusUpdate = payload.new as { 
-                        message_id: string; 
-                        user_id: string;
-                        is_seen: boolean; 
-                        seen_at: string; 
-                        is_delivered: boolean; 
-                        delivered_at: string 
-                    };
-                    if (!statusUpdate || !statusUpdate.message_id) return;
-                    setMessages(prevMessages => {
-                        let needsUpdate = false;
-                        const newMessages = prevMessages.map(msg => {
-                            if (msg._id === statusUpdate.message_id) {
-                                const deliveredChanged = msg.isDelivered !== statusUpdate.is_delivered;
-                                const seenChanged = msg.isSeen !== statusUpdate.is_seen;
-                                if (deliveredChanged || seenChanged) {
-                                    needsUpdate = true;
-                                    let seenByArray = [...(msg.seenBy || [])];
-                                    if (statusUpdate.is_seen && statusUpdate.seen_at) {
-                                        const existingSeenIndex = seenByArray.findIndex(s => s.userId === statusUpdate.user_id);
-                                        const seenEntry = {
-                                            userId: statusUpdate.user_id,
-                                            userName: 'Someone',
-                                            seenAt: new Date(statusUpdate.seen_at)
-                                        };
-                                        if (existingSeenIndex > -1) {
-                                            seenByArray[existingSeenIndex] = seenEntry;
-                                        } else {
-                                            seenByArray.push(seenEntry);
-                                        }
-                                    }
-                                    return {
-                                        ...msg,
-                                        isDelivered: statusUpdate.is_delivered,
-                                        deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : msg.deliveredAt,
-                                        isSeen: statusUpdate.is_seen,
-                                        seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : msg.seenAt,
-                                        seenBy: seenByArray
-                                    };
-                                }
-                            }
-                            return msg;
-                        });
-                        return needsUpdate ? newMessages : prevMessages;
-                    });
-                }
-            )
-            .subscribe((status) => {
-                console.log(`[GroupChatScreen] Status channel subscription status: ${status} for ${messageStatusChannelName}`);
-            });
+                    return newTypingUsers;
+                });
+            }
+        });
 
         return () => {
-            supabase.removeChannel(messageChannel);
-            supabase.removeChannel(statusChannel);
+            unsubscribe();
             if (typingTimeoutRef.current) {
                 typingTimeoutRef.current.forEach(timeout => clearTimeout(timeout));
                 typingTimeoutRef.current.clear();
             }
         };
-    }, [currentUserId, groupId, mapDbMessageToChatMessage, editingMessage]);
+    }, [currentUserId, groupId, mapDbMessageToChatMessage, editingMessage, subscribeToGroupChat]);
 
     // Navigation and Header
     const navigateToGroupInfo = () => { if (!groupId || !currentGroupName) return; navigation.navigate('GroupInfoScreen', { groupId, groupName: currentGroupName ?? 'Group', groupImage: currentGroupImage ?? null }); };
@@ -1907,7 +1914,7 @@ const GroupChatScreen: React.FC = () => {
     // Modal and Actions
     const handleUpdateName = async () => { const n = editingName.trim(); if (!n || n === currentGroupName || isUpdatingName || !groupId) { setIsEditModalVisible(false); return; } setIsUpdatingName(true); try { const { error } = await supabase.rpc('rename_group_chat', { group_id_input: groupId, new_group_name: n }); if (error) throw error; setIsEditModalVisible(false); } catch (e: any) { Alert.alert("Error", `Update fail: ${e.message}`); } finally { setIsUpdatingName(false); } };
 
-    // Removed online status tracking since we're no longer using RealtimeContext
+    // Using RealtimeContext for all realtime functionality
 
     // Effects
     useFocusEffect(useCallback(() => { fetchInitialData(); return () => { }; }, [fetchInitialData]));
@@ -1922,14 +1929,27 @@ const GroupChatScreen: React.FC = () => {
         }
     }, [initialSharedEventData, navigation]);
 
-    // --- Cleanup scroll timeout on unmount ---
+    // --- Cleanup on unmount ---
     useEffect(() => {
         return () => {
+            // Cleanup scroll timeout
             if (scrollTimeoutRef.current) {
                 clearTimeout(scrollTimeoutRef.current);
             }
+            
+            // Stop typing indicator when component unmounts
+            if (currentUserId && groupId) {
+                const senderName = userProfileCache[currentUserId]?.name || 'You';
+                sendGroupTypingIndicator(groupId, false, senderName);
+            }
+            
+            // Cleanup typing timeouts
+            if (typingTimeoutRef.current) {
+                typingTimeoutRef.current.forEach(timeout => clearTimeout(timeout));
+                typingTimeoutRef.current.clear();
+            }
         };
-    }, []);
+    }, [currentUserId, groupId, sendGroupTypingIndicator, userProfileCache]);
 
     const handleImagePress = (imageUri: string) => {
         // Find all image messages
@@ -1954,7 +1974,19 @@ const GroupChatScreen: React.FC = () => {
 
     // --- New Chat Feature Handlers ---
     const handleMessageLongPress = (message: ChatMessage) => {
-        if (message.isSystemMessage || message.isDeleted) return;
+        console.log('[DEBUG] handleMessageLongPress called with message:', {
+            id: message._id,
+            type: message.image ? 'image' : message.sharedEvent ? 'sharedEvent' : 'text',
+            isSystemMessage: message.isSystemMessage,
+            isDeleted: message.isDeleted
+        });
+        
+        if (message.isSystemMessage || message.isDeleted) {
+            console.log('[DEBUG] Message is system or deleted, returning early');
+            return;
+        }
+        
+        console.log('[DEBUG] Setting selected message and showing modal');
         setSelectedMessageForAction(message);
         setMessageActionModalVisible(true);
     };
@@ -2329,6 +2361,375 @@ const GroupChatScreen: React.FC = () => {
 
     const safeAreaEdges: Edge[] = Platform.OS === 'ios' ? ['bottom'] : [];
 
+    // Enhanced cross-platform download and share helpers
+    const downloadImage = async (url: string) => {
+        try {
+            if (Platform.OS === 'web') {
+                // Enhanced web download with file explorer dialog
+                const response = await fetch(url);
+                const blob = await response.blob();
+                const blobUrl = window.URL.createObjectURL(blob);
+                
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = url.split('/').pop()?.split('?')[0] || `image_${Date.now()}.jpg`;
+                link.style.display = 'none';
+                
+                // Trigger file explorer dialog
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Clean up blob URL
+                setTimeout(() => {
+                    window.URL.revokeObjectURL(blobUrl);
+                }, 100);
+                
+                Alert.alert('Download', 'File explorer opened. Choose where to save the image.');
+            } else {
+                // Enhanced mobile download with gallery save option
+                const filename = url.split('/').pop()?.split('?')[0] || `image_${Date.now()}.jpg`;
+                
+                // Show options to user
+                Alert.alert(
+                    'Save Image',
+                    'Choose where to save the image:',
+                    [
+                        {
+                            text: 'Save to Gallery',
+                            onPress: async () => {
+                                try {
+                                    // For mobile, we'll use the share functionality to save to gallery
+                                    if (Sharing && Sharing.isAvailableAsync && (await Sharing.isAvailableAsync())) {
+                                        const fileUri = (FileSystem.cacheDirectory || '/tmp/') + filename;
+                                        
+                                        if (FileSystem.downloadAsync) {
+                                            await FileSystem.downloadAsync(url, fileUri);
+                                            await Sharing.shareAsync(fileUri, {
+                                                mimeType: 'image/jpeg',
+                                                dialogTitle: 'Save to Gallery'
+                                            });
+                                        }
+                                    } else {
+                                        Alert.alert('Gallery Save', 'Gallery save not available on this device.');
+                                    }
+                                } catch (e) {
+                                    const msg = typeof e === 'object' && e && 'message' in e ? (e as any).message : String(e);
+                                    Alert.alert('Save Failed', msg || 'Could not save to gallery.');
+                                }
+                            }
+                        },
+                        {
+                            text: 'Download to Files',
+                            onPress: async () => {
+                                try {
+                                    const fileUri = (FileSystem.cacheDirectory || '/tmp/') + filename;
+                                    
+                                    if (FileSystem.createDownloadResumable) {
+                                        const downloadResumable = FileSystem.createDownloadResumable(url, fileUri);
+                                        const result = await downloadResumable.downloadAsync();
+                                        const uri = (result as any)?.uri || fileUri;
+                                        Alert.alert('Downloaded', `Image saved to: ${uri}`);
+                                    } else if (FileSystem.downloadAsync) {
+                                        const result = await FileSystem.downloadAsync(url, fileUri);
+                                        const uri = (result as any)?.uri || fileUri;
+                                        Alert.alert('Downloaded', `Image saved to: ${uri}`);
+                                    } else {
+                                        Alert.alert('Download not supported on this platform.');
+                                    }
+                                } catch (e) {
+                                    const msg = typeof e === 'object' && e && 'message' in e ? (e as any).message : String(e);
+                                    Alert.alert('Download failed', msg || 'Could not download image.');
+                                }
+                            }
+                        },
+                        {
+                            text: 'Cancel',
+                            style: 'cancel'
+                        }
+                    ]
+                );
+            }
+        } catch (e) {
+            const msg = typeof e === 'object' && e && 'message' in e ? (e as any).message : String(e);
+            Alert.alert('Download failed', msg || 'Could not download image.');
+        }
+    };
+
+    const shareImage = async (url: string) => {
+        try {
+            if (Platform.OS === 'web') {
+                // Web sharing using Web Share API or clipboard fallback
+                if (navigator.share) {
+                    await navigator.share({
+                        title: 'Shared Image',
+                        url: url
+                    });
+                } else if (Clipboard && Clipboard.setStringAsync) {
+                    await Clipboard.setStringAsync(url);
+                    Alert.alert('Copied', 'Image URL copied to clipboard.');
+                } else {
+                    // Fallback for web without clipboard support
+                    const textArea = document.createElement('textarea');
+                    textArea.value = url;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    Alert.alert('Copied', 'Image URL copied to clipboard.');
+                }
+            } else {
+                // Mobile sharing
+                const filename = url.split('/').pop()?.split('?')[0] || `image_${Date.now()}.jpg`;
+                const fileUri = (FileSystem.cacheDirectory || '/tmp/') + filename;
+                
+                if (FileSystem.downloadAsync) {
+                    await FileSystem.downloadAsync(url, fileUri);
+                }
+                
+                if (Sharing && Sharing.isAvailableAsync && (await Sharing.isAvailableAsync())) {
+                    await Sharing.shareAsync(fileUri);
+                } else if (Clipboard && Clipboard.setStringAsync) {
+                    await Clipboard.setStringAsync(url);
+                    Alert.alert('Copied', 'Image URL copied to clipboard.');
+                } else {
+                    Alert.alert('Share not supported on this platform.');
+                }
+            }
+        } catch (e) {
+            const msg = typeof e === 'object' && e && 'message' in e ? (e as any).message : String(e);
+            Alert.alert('Share failed', msg || 'Could not share image.');
+        }
+    };
+
+    // Forward functionality
+    const handleForward = async (message: ChatMessage) => {
+        setForwardMessage(message);
+        setForwardModalVisible(true);
+        setLoadingChats(true);
+        
+        try {
+            console.log('[Forward] Fetching available chats for user:', currentUserId);
+            
+            // Fetch available chats (individual and group) using the same RPC functions as the chat list
+            const [individualChats, groupChats] = await Promise.all([
+                // Get individual chats using the same RPC as the chat list
+                supabase.rpc('get_chat_list_with_unread'),
+                
+                // Get group chats using the same RPC as the chat list
+                supabase.rpc('get_group_chat_list_with_unread')
+            ]);
+            
+            console.log('[Forward] Individual chats result:', individualChats);
+            console.log('[Forward] Group chats result:', groupChats);
+            
+            const chats: Array<{id: string, name: string, type: 'individual' | 'group'}> = [];
+            
+            // Process individual chats
+            if (individualChats.data && individualChats.data.length > 0) {
+                console.log('[Forward] Processing individual chats:', individualChats.data.length);
+                for (const chat of individualChats.data) {
+                    const name = `${chat.partner_first_name || ''} ${chat.partner_last_name || ''}`.trim() || 'User';
+                    chats.push({
+                        id: chat.partner_user_id,
+                        name,
+                        type: 'individual'
+                    });
+                }
+            }
+            
+            // Process group chats
+            if (groupChats.data && groupChats.data.length > 0) {
+                console.log('[Forward] Processing group chats:', groupChats.data.length);
+                for (const chat of groupChats.data) {
+                    if (chat.group_name) {
+                        chats.push({
+                            id: chat.group_id,
+                            name: chat.group_name,
+                            type: 'group'
+                        });
+                    }
+                }
+            }
+            
+            // Filter out current chat
+            const filteredChats = chats.filter(chat => 
+                !(chat.type === 'group' && chat.id === groupId)
+            );
+            
+            console.log('[Forward] Final available chats:', filteredChats);
+            setAvailableChats(filteredChats);
+            
+            if (filteredChats.length === 0) {
+                console.log('[Forward] No available chats found');
+            }
+            
+        } catch (error) {
+            console.error('[Forward] Error fetching chats for forward:', error);
+            Alert.alert('Error', 'Could not load available chats');
+        } finally {
+            setLoadingChats(false);
+        }
+    };
+
+    const forwardMessageToChat = async (chatId: string, chatType: 'individual' | 'group', chatName: string) => {
+        if (!forwardMessage || !currentUserId) return;
+        
+        try {
+            let messageContent = '';
+            let imageUrl = null;
+            let metadata = null;
+            
+            if (forwardMessage.image) {
+                messageContent = '[Image]';
+                imageUrl = forwardMessage.image;
+            } else if (forwardMessage.sharedEvent) {
+                messageContent = `SHARED_EVENT:${forwardMessage.sharedEvent.eventId}:${forwardMessage.sharedEvent.eventTitle} on ${forwardMessage.sharedEvent.eventDate} at ${forwardMessage.sharedEvent.eventVenue}`;
+                metadata = {
+                    shared_event: forwardMessage.sharedEvent
+                };
+            } else {
+                messageContent = forwardMessage.text;
+            }
+            
+            if (chatType === 'individual') {
+                // Forward to individual chat
+                const { data: insertedMessage, error: insertError } = await supabase
+                    .from('messages')
+                    .insert({
+                        sender_id: currentUserId,
+                        receiver_id: chatId,
+                        content: messageContent,
+                        image_url: imageUrl,
+                        metadata: metadata
+                    })
+                    .select('id, created_at')
+                    .single();
+                
+                if (insertError) throw insertError;
+                
+                // Create message status entry
+                await supabase.rpc('create_message_status_entry', {
+                    message_id_input: insertedMessage.id,
+                    receiver_id_input: chatId
+                });
+                
+            } else {
+                // Forward to group chat
+                const { data: insertedMessage, error: insertError } = await supabase
+                    .from('group_chat_messages')
+                    .insert({
+                        sender_id: currentUserId,
+                        group_id: chatId,
+                        content: messageContent,
+                        image_url: imageUrl,
+                        is_system_message: false,
+                        metadata: metadata
+                    })
+                    .select('id, created_at')
+                    .single();
+                
+                if (insertError) throw insertError;
+            }
+            
+            // Close the forward modal first
+            setForwardModalVisible(false);
+            setForwardMessage(null);
+            
+            console.log('[Forward] Successfully forwarded message to:', chatType, chatId, chatName);
+            
+            // Navigate immediately to the destination chat
+            try {
+                if (chatType === 'individual') {
+                    console.log('[Forward] Navigating to individual chat:', chatId);
+                    // Navigate to individual chat
+                    navigation.navigate('IndividualChatScreen', {
+                        matchUserId: chatId,
+                        matchName: chatName,
+                        matchProfilePicture: null,
+                        commonTags: [],
+                        topArtists: [],
+                        topTracks: [],
+                        topGenres: [],
+                        topMoods: [],
+                        isFirstInteractionFromMatches: false
+                    });
+                } else {
+                    console.log('[Forward] Navigating to group chat:', chatId);
+                    // Navigate to group chat
+                    navigation.navigate('GroupChatScreen', {
+                        groupId: chatId,
+                        groupName: chatName,
+                        groupImage: null
+                    });
+                }
+                
+                // Show success message after navigation
+                setTimeout(() => {
+                    Alert.alert('Forwarded Successfully', `Message forwarded to ${chatName}`);
+                }, 500);
+                
+            } catch (navError) {
+                console.error('[Forward] Navigation error:', navError);
+                Alert.alert('Forwarded Successfully', `Message forwarded to ${chatName}. Please navigate to the chat manually.`);
+            }
+            
+        } catch (error: any) {
+            console.error('Error forwarding message:', error);
+            Alert.alert('Error', `Failed to forward message: ${error.message}`);
+        }
+    };
+
+    // Enhanced copy function for cross-platform compatibility
+    const copyToClipboard = async (text: string, successMessage: string) => {
+        try {
+            if (Platform.OS === 'web') {
+                // Try modern Clipboard API first
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(text);
+                    Alert.alert('Copied', successMessage);
+                } else if (Clipboard.setStringAsync) {
+                    // Fallback to Expo Clipboard
+                    await Clipboard.setStringAsync(text);
+                    Alert.alert('Copied', successMessage);
+                } else {
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea');
+                    textArea.value = text;
+                    textArea.style.position = 'fixed';
+                    textArea.style.left = '-999999px';
+                    textArea.style.top = '-999999px';
+                    document.body.appendChild(textArea);
+                    textArea.focus();
+                    textArea.select();
+                    
+                    try {
+                        document.execCommand('copy');
+                        Alert.alert('Copied', successMessage);
+                    } catch (err) {
+                        Alert.alert('Copy Failed', 'Could not copy to clipboard. Please try selecting and copying manually.');
+                    } finally {
+                        document.body.removeChild(textArea);
+                    }
+                }
+            } else {
+                // Mobile platforms
+                if (Clipboard.setStringAsync) {
+                    await Clipboard.setStringAsync(text);
+                    Alert.alert('Copied', successMessage);
+                } else {
+                    Alert.alert('Copy Failed', 'Clipboard not supported on this device.');
+                }
+            }
+        } catch (e) {
+            console.error('Copy to clipboard error:', e);
+            const msg = typeof e === 'object' && e && 'message' in e ? (e as any).message : String(e);
+            Alert.alert('Copy Failed', msg || 'Could not copy to clipboard.');
+        }
+    };
+
+
+
     return (
         <SafeAreaView style={styles.safeArea} edges={safeAreaEdges}>
             <KeyboardAvoidingView style={styles.keyboardAvoidingContainer} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0} >
@@ -2472,6 +2873,33 @@ const GroupChatScreen: React.FC = () => {
                                     <Text style={[styles.actionModalButtonText, { color: '#EF4444' }]}>Delete for Everyone</Text>
                                 </TouchableOpacity>
                             )}
+
+                            <TouchableOpacity style={styles.actionModalButton} onPress={() => {
+                                setMessageActionModalVisible(false);
+                                handleForward(selectedMessageForAction);
+                            }}>
+                                <Feather name="corner-up-right" size={20} color="#3B82F6" style={styles.actionModalIcon} />
+                                <Text style={styles.actionModalButtonText}>Forward</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.actionModalButton} onPress={async () => {
+                                setMessageActionModalVisible(false);
+                                try {
+                                    if (selectedMessageForAction.image) {
+                                        await copyToClipboard(selectedMessageForAction.image, 'Image URL copied to clipboard.');
+                                    } else if (selectedMessageForAction.text) {
+                                        await copyToClipboard(selectedMessageForAction.text, 'Message copied to clipboard.');
+                                    } else if (selectedMessageForAction.sharedEvent) {
+                                        const eventInfo = `${selectedMessageForAction.sharedEvent.eventTitle} - ${selectedMessageForAction.sharedEvent.eventDate} at ${selectedMessageForAction.sharedEvent.eventVenue}`;
+                                        await copyToClipboard(eventInfo, 'Event info copied to clipboard.');
+                                    }
+                                } catch (e) {
+                                    const msg = typeof e === 'object' && e && 'message' in e ? (e as any).message : String(e);
+                                    Alert.alert('Copy failed', msg || 'Could not copy.');
+                                }
+                            }}>
+                                <Feather name="copy" size={20} color="#3B82F6" style={styles.actionModalIcon} />
+                                <Text style={styles.actionModalButtonText}>Copy</Text>
+                            </TouchableOpacity>
                         </>
                     )}
                 </View>
@@ -2564,20 +2992,129 @@ const GroupChatScreen: React.FC = () => {
 
             {/* Image Viewer */}
             {imageViewerVisible && selectedImage && (
-                <ImageViewer
-                    imageUrls={messages.filter(msg => msg.image).map(msg => ({ url: msg.image! }))}
-                    index={selectedImageIndex}
-                    onClick={() => setImageViewerVisible(false)}
-                    onSwipeDown={() => setImageViewerVisible(false)}
-                    enableSwipeDown={true}
-                    enableImageZoom={true}
-                    onChange={(index) => {
-                        if (typeof index === 'number') {
-                            setSelectedImageIndex(index);
-                        }
-                    }}
-                />
+                <Modal visible={true} transparent={true} onRequestClose={() => setImageViewerVisible(false)}>
+                    <ImageViewer
+                        imageUrls={messages.filter(msg => msg.image).map(msg => ({ url: msg.image! }))}
+                        index={selectedImageIndex}
+                        onClick={() => setImageViewerVisible(false)}
+                        onSwipeDown={() => setImageViewerVisible(false)}
+                        enableSwipeDown={true}
+                        enableImageZoom={true}
+                        onChange={(index) => {
+                            if (typeof index === 'number') {
+                                setSelectedImageIndex(index);
+                            }
+                        }}
+                        renderHeader={() => {
+                            const imageList = messages.filter(msg => msg.image);
+                            const current = imageList[selectedImageIndex];
+                            const url = current?.image;
+                            return (
+                                <View style={{ position: 'absolute', top: 40, right: 20, left: 0, zIndex: 10, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                    <TouchableOpacity onPress={() => setImageViewerVisible(false)} style={{ backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, padding: 8, marginRight: 8 }}>
+                                        <Feather name="x" size={28} color="#fff" />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => url && downloadImage(url)} style={{ backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, padding: 8, marginRight: 8 }}>
+                                        <Feather name="download" size={24} color="#fff" />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => url && shareImage(url)} style={{ backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, padding: 8 }}>
+                                        <Feather name="share-2" size={24} color="#fff" />
+                                    </TouchableOpacity>
+                                </View>
+                            );
+                        }}
+                        renderIndicator={(currentIndex, allSize) => (
+                            <View style={{ position: 'absolute', bottom: 40, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 4 }}>
+                                <Text style={{ color: '#fff', fontSize: 16 }}>{currentIndex} / {allSize}</Text>
+                            </View>
+                        )}
+                        backgroundColor="#000"
+                        saveToLocalByLongPress={false}
+                    />
+                </Modal>
             )}
+
+            {/* Forward Modal */}
+            <Modal
+                visible={forwardModalVisible}
+                transparent={true}
+                animationType="slide"
+                onRequestClose={() => {
+                    setForwardModalVisible(false);
+                    setForwardMessage(null);
+                }}
+            >
+                <TouchableOpacity 
+                    style={styles.modalBackdrop} 
+                    activeOpacity={1} 
+                    onPress={() => {
+                        setForwardModalVisible(false);
+                        setForwardMessage(null);
+                    }} 
+                />
+                <View style={styles.forwardModalContent}>
+                    <Text style={styles.forwardModalTitle}>Forward Message</Text>
+                    
+                    {forwardMessage && (
+                        <View style={styles.forwardMessagePreview}>
+                            <Text style={styles.forwardMessagePreviewText}>
+                                {forwardMessage.image ? '[Image]' : 
+                                 forwardMessage.sharedEvent ? `Shared event: ${forwardMessage.sharedEvent.eventTitle}` :
+                                 forwardMessage.text}
+                            </Text>
+                        </View>
+                    )}
+                    
+                    <Text style={styles.forwardModalSubtitle}>Select a chat to forward to:</Text>
+                    
+                    {loadingChats ? (
+                        <View style={styles.forwardLoadingContainer}>
+                            <ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
+                            <Text style={styles.forwardLoadingText}>Loading chats...</Text>
+                        </View>
+                    ) : availableChats.length === 0 ? (
+                        <View style={styles.forwardEmptyContainer}>
+                            <Text style={styles.forwardEmptyText}>No other chats available</Text>
+                            <Text style={styles.forwardEmptyText}>Debug: {JSON.stringify({loadingChats, availableChatsLength: availableChats.length})}</Text>
+                        </View>
+                    ) : (
+                        <ScrollView style={styles.forwardChatsList}>
+                            <Text style={styles.forwardEmptyText}>Debug: Found {availableChats.length} chats</Text>
+                            {availableChats.map((chat) => (
+                                <TouchableOpacity
+                                    key={`${chat.type}-${chat.id}`}
+                                    style={styles.forwardChatItem}
+                                    onPress={() => {
+                                        console.log('[Forward] Chat selected:', chat);
+                                        forwardMessageToChat(chat.id, chat.type, chat.name);
+                                    }}
+                                >
+                                    <View style={styles.forwardChatInfo}>
+                                        <Feather 
+                                            name={chat.type === 'individual' ? 'user' : 'users'} 
+                                            size={20} 
+                                            color="#6B7280" 
+                                            style={styles.forwardChatIcon}
+                                        />
+                                        <Text style={styles.forwardChatName}>{chat.name}</Text>
+                                    </View>
+                                    <Feather name="chevron-right" size={16} color="#9CA3AF" />
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                    )}
+                    
+                    <TouchableOpacity 
+                        style={styles.forwardModalCloseButton} 
+                        onPress={() => {
+                            setForwardModalVisible(false);
+                            setForwardMessage(null);
+                        }}
+                    >
+                        <Text style={styles.forwardModalCloseButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                </View>
+            </Modal>
 
             {/* --- Event Detail Modal --- */}
             {selectedEventDataForModal && (
@@ -3393,6 +3930,102 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#6B7280',
         fontStyle: 'italic',
+    },
+    // Forward modal styles
+    forwardModalContent: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        maxHeight: '80%',
+        backgroundColor: 'white',
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        padding: 24,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 12,
+    },
+    forwardModalTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        marginBottom: 16,
+        color: '#1F2937',
+    },
+    forwardMessagePreview: {
+        backgroundColor: '#F3F4F6',
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 16,
+    },
+    forwardMessagePreviewText: {
+        fontSize: 14,
+        color: '#4B5563',
+        fontStyle: 'italic',
+    },
+    forwardModalSubtitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: 12,
+    },
+    forwardLoadingContainer: {
+        alignItems: 'center',
+        paddingVertical: 40,
+    },
+    forwardLoadingText: {
+        marginTop: 12,
+        fontSize: 14,
+        color: '#6B7280',
+    },
+    forwardEmptyContainer: {
+        alignItems: 'center',
+        paddingVertical: 40,
+    },
+    forwardEmptyText: {
+        fontSize: 14,
+        color: '#6B7280',
+        fontStyle: 'italic',
+    },
+    forwardChatsList: {
+        maxHeight: 300,
+    },
+    forwardChatItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 16,
+        paddingHorizontal: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    forwardChatInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    forwardChatIcon: {
+        marginRight: 12,
+    },
+    forwardChatName: {
+        fontSize: 16,
+        color: '#1F2937',
+        fontWeight: '500',
+    },
+    forwardModalCloseButton: {
+        marginTop: 24,
+        paddingVertical: 14,
+        backgroundColor: '#F3F4F6',
+        borderRadius: 12,
+        alignItems: 'center',
+    },
+    forwardModalCloseButtonText: {
+        color: '#4B5563',
+        fontSize: 16,
+        fontWeight: '600',
     },
 });
 
