@@ -17,8 +17,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHeaderHeight } from '@react-navigation/elements';
 import UnifiedNotificationService from '@/services/UnifiedNotificationService';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
-import * as Sharing from 'expo-sharing';
-import * as Clipboard from 'expo-clipboard';
 
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
@@ -2360,6 +2358,16 @@ const GroupChatScreen: React.FC = () => {
     if (!currentUserId || !groupId) { return <View style={styles.centered}><Text style={styles.errorText}>Missing User/Group Info.</Text></View>; }
 
     const safeAreaEdges: Edge[] = Platform.OS === 'ios' ? ['bottom'] : [];
+
+    // --- Add dynamic imports for Sharing and Clipboard ---
+    let Sharing: any;
+    let Clipboard: any;
+    try {
+        Sharing = require('expo-sharing');
+    } catch {}
+    try {
+        Clipboard = require('expo-clipboard');
+    } catch {}
 
     // Enhanced cross-platform download and share helpers
     const downloadImage = async (url: string) => {

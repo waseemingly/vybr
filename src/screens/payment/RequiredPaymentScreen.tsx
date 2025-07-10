@@ -479,7 +479,7 @@ const RequiredPaymentScreen: React.FC = () => {
             if (!data.url) throw new Error("Could not get Stripe onboarding URL.");
 
             // Redirect to Stripe
-            if (Platform.OS === 'web') {
+            if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
                 window.location.href = data.url;
             } else {
                 await Linking.openURL(data.url);

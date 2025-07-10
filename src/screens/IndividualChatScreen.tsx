@@ -15,8 +15,6 @@ import { decode } from 'base64-arraybuffer';
 import * as FileSystem from 'expo-file-system';
 import ImageViewer from 'react-native-image-zoom-viewer';
 import * as Crypto from 'expo-crypto';
-import * as Clipboard from 'expo-clipboard';
-import * as Sharing from 'expo-sharing';
 
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';

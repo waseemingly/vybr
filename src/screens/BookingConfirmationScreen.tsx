@@ -104,7 +104,7 @@ const WebPaymentForm: React.FC<WebPaymentFormProps> = ({ onPaymentSuccess, onPay
             confirmParams: {
                 // This is where the user will be redirected after 3D Secure authentication.
                 // A dedicated success page is recommended for production.
-                return_url: window.location.href.split('?')[0] + '?payment_success=true',
+                return_url: (typeof window !== 'undefined' && window.location ? window.location.href.split('?')[0] : 'https://vybr.app') + '?payment_success=true',
             },
             redirect: 'if_required', // Only redirect if required for authentication (e.g., 3D Secure).
         });
@@ -245,7 +245,7 @@ const BookingConfirmationScreen: React.FC = () => {
     useEffect(() => {
         if (Platform.OS !== 'web') return;
 
-        const url = new URL(window.location.href);
+        const url = new URL(typeof window !== 'undefined' && window.location ? window.location.href : 'https://vybr.app');
         const paymentSuccess = url.searchParams.get('payment_success');
         const paymentIntentClientSecret = url.searchParams.get('payment_intent_client_secret');
 
@@ -276,8 +276,10 @@ const BookingConfirmationScreen: React.FC = () => {
             finalizeBooking();
 
             // Clean the URL to prevent re-triggering on refresh
-            const cleanUrl = window.location.pathname + window.location.hash;
-            window.history.replaceState({}, document.title, cleanUrl);
+            if (typeof window !== 'undefined' && window.location) {
+                const cleanUrl = window.location.pathname + window.location.hash;
+                window.history.replaceState({}, document.title, cleanUrl);
+            }
         }
     }, [navigation, eventId, quantity]); // Rerun if these key identifiers change
 

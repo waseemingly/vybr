@@ -920,8 +920,8 @@ const usePaymentRequirementCheck = () => {
     userType = 'organizer';
   }
   
-  // Fallback 2: Check URL path (for signup flows)
-  if (!userType && typeof window !== 'undefined') {
+  // Fallback 2: Check URL path (for signup flows) - only on web
+  if (!userType && typeof window !== 'undefined' && Platform.OS === 'web') {
     const currentPath = window.location.pathname;
     if (currentPath.includes('MusicLover')) {
       userType = 'music_lover';
