@@ -496,7 +496,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 }
                 
                 // Fallback 3: Check URL path (for signup flows) - More specific matching (least reliable)
-                if (!userType && typeof window !== 'undefined') {
+                if (!userType && typeof window !== 'undefined' && Platform.OS === 'web') {
                     const currentPath = window.location.pathname;
                     console.log(`[AuthProvider] Checking URL path for user type: ${currentPath}`);
                     
@@ -1585,7 +1585,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         try {
             console.log('[useAuth] 🚀 Starting Google Sign-In...');
             console.log('[useAuth] 📱 Platform:', Platform.OS);
-            console.log('[useAuth] 🌐 Current URL:', typeof window !== 'undefined' ? window.location.href : 'N/A');
+            console.log('[useAuth] 🌐 Current URL:', typeof window !== 'undefined' && window.location ? window.location.href : 'N/A');
             
             if (Platform.OS === 'web') {
                 // For web, use Supabase's built-in OAuth with popup
@@ -1594,7 +1594,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 const { data, error } = await supabase.auth.signInWithOAuth({
                     provider: 'google',
                     options: {
-                        redirectTo: window.location.origin,
+                        redirectTo: typeof window !== 'undefined' && window.location ? window.location.origin : 'https://vybr.app',
                         queryParams: {
                             access_type: 'offline',
                             prompt: 'consent',
@@ -1684,7 +1684,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                     // Try to manually create the user record
                                     console.log('[useAuth] 🔧 Attempting to manually create user record...');
                                     try {
-                                        const currentPath = window.location.pathname;
+                                        const currentPath = Platform.OS === 'web' ? window.location.pathname : '';
                                         const userType = currentPath.includes('MusicLover') ? 'music_lover' : 'organizer';
                                         
                                         const { data: manualUserCreate, error: manualError } = await supabase
@@ -1742,7 +1742,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             // CRITICAL: Set user_type immediately in user metadata
                             // We need to determine if this is for music lover or organizer
                             // Check the current URL path to determine user type
-                            const currentPath = window.location.pathname;
+                            const currentPath = Platform.OS === 'web' ? window.location.pathname : '';
                             const userType = currentPath.includes('MusicLover') ? 'music_lover' : 'organizer';
                             
                             console.log('[useAuth] 🏷️ Setting user_type immediately:', userType, 'based on path:', currentPath);
@@ -1884,7 +1884,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 authListener.subscription.unsubscribe();
                                 
                                 // CRITICAL: Set user_type immediately
-                                const currentPath = window.location.pathname;
+                                const currentPath = Platform.OS === 'web' ? window.location.pathname : '';
                                 const userType = currentPath.includes('MusicLover') ? 'music_lover' : 'organizer';
                                 
                                 console.log('[useAuth] 🏷️ Setting user_type immediately (polling):', userType, 'based on path:', currentPath);

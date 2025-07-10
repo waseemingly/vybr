@@ -4,6 +4,7 @@ import { MessageSquare, User, Search, Calendar, Plus, Heart, LayoutDashboard } f
 import { cn } from '@/lib/utils';
 import { useOrganizerMode } from '@/hooks/useOrganizerMode';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
+import { Platform } from 'react-native';
 
 // Define the type for tab items
 interface TabItem {
@@ -14,7 +15,8 @@ interface TabItem {
 }
 
 const TabBar = () => {
-  const location = useLocation();
+  // Only use useLocation on web platform
+  const location = Platform.OS === 'web' ? useLocation() : { pathname: '/' };
   const { isOrganizerMode } = useOrganizerMode();
   const { unreadCount } = useUnreadCount();
   
