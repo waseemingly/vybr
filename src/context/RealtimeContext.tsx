@@ -189,7 +189,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             console.log('[RealtimeContext] No session, skipping main channel setup');
             return;
         }
-
+        
         const userId = session.user.id;
         console.log(`[RealtimeContext] Setting up main channels for user: ${userId}`);
 
@@ -238,14 +238,14 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 schema: 'public',
                 table: 'messages',
             },
-            (payload) => {
+                (payload) => {
                 if (session?.user?.id && (payload.new as any).receiver_id === session.user.id) {
-                    const eventName = 'new_message_notification';
-                    if (listenersRef.current[eventName]) {
-                        listenersRef.current[eventName].forEach(callback => callback(payload));
+                        const eventName = 'new_message_notification';
+                        if (listenersRef.current[eventName]) {
+                            listenersRef.current[eventName].forEach(callback => callback(payload));
+                        }
                     }
                 }
-            }
         );
 
         // Subscribe to group message notifications
@@ -256,7 +256,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 schema: 'public',
                 table: 'group_chat_messages',
             },
-            (payload) => {
+                (payload) => {
                 const newMessage = payload.new as any;
                 if (session?.user?.id && newMessage.sender_id !== session.user.id) {
                     const eventName = 'new_group_message_notification';
@@ -276,13 +276,13 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 table: 'group_chat_participants',
                 filter: `user_id=eq.${userId}`
             },
-            (payload) => {
+                (payload) => {
                 console.log('[RealtimeContext] Current user added to a group, notifying listeners.', payload);
                 const eventName = 'new_group_added_notification';
-                if (listenersRef.current[eventName]) {
-                    listenersRef.current[eventName].forEach(callback => callback(payload));
+                     if (listenersRef.current[eventName]) {
+                        listenersRef.current[eventName].forEach(callback => callback(payload));
+                    }
                 }
-            }
         );
 
         // Subscribe to channels with error handling
@@ -842,7 +842,10 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             console.log('[RealtimeContext] 🧹 Cleaning up on session change...');
             subscription?.remove();
             cleanup();
-            networkSubscriptionRef.current?.remove();
+            // Correctly call the unsubscribe function
+            if (typeof networkSubscriptionRef.current === 'function') {
+                networkSubscriptionRef.current();
+            }
         };
     }, [session?.user?.id, cleanup, handleAppStateChange, setupMainChannels, handleNetworkChange]);
 
