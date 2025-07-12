@@ -529,7 +529,7 @@ const IndividualChatScreen: React.FC = () => {
     const route = useRoute<IndividualChatScreenRouteProp>();
     const navigation = useNavigation<RootNavigationProp>();
     const { session, musicLoverProfile } = useAuth();
-    const { presenceState, subscribeToIndividualChat, sendIndividualTypingIndicator } = useRealtime();
+    const { presenceState, subscribeToIndividualChat, sendIndividualTypingIndicator, sendBroadcast } = useRealtime();
     const { refreshUnreadCount } = useUnreadCount();
 
     const currentUserIdFromSession = session?.user?.id;
@@ -1077,11 +1077,13 @@ const IndividualChatScreen: React.FC = () => {
                         }
                     }
                 })
-                .select('id, created_at')
+                .select('*')
                 .single();
 
             if (insertError) throw insertError;
             if (!insertedMessage) throw new Error('Failed to insert shared event message.');
+
+            sendBroadcast('individual', matchUserId, 'message', insertedMessage);
 
             // Log event impression
             try {
@@ -1142,7 +1144,7 @@ const IndividualChatScreen: React.FC = () => {
             setError(`Event share fail: ${err.message}`);
             setMessages(prev => prev.filter(msg => msg._id !== tempId));
         }
-    }, [currentUserId, matchUserId, isUploading, markChatAsInitiatedInStorage, replyingToMessage, dynamicMatchName]);
+    }, [currentUserId, matchUserId, isUploading, markChatAsInitiatedInStorage, replyingToMessage, dynamicMatchName, sendBroadcast]);
 
     // --- Send Message (Text only, event sharing uses RPC now) ---
     const sendTextMessage = useCallback(async (text: string) => {
@@ -1184,10 +1186,11 @@ const IndividualChatScreen: React.FC = () => {
                  content: newMessage.text,
                  reply_to_message_id: replyToId || null,
                 };
-             const { data: insertedMessage, error: insertError } = await supabase.from('messages').insert(insertData).select('id, created_at').single(); 
+             const { data: insertedMessage, error: insertError } = await supabase.from('messages').insert(insertData).select('*').single(); 
              if (insertError) { throw insertError; }
 
              if (insertedMessage) {
+                sendBroadcast('individual', matchUserId, 'message', insertedMessage);
                 setMessages(prev => prev.map(msg => 
                     msg._id === tempId ? { ...newMessage, _id: insertedMessage.id, createdAt: new Date(insertedMessage.created_at) } : msg
                 ));
@@ -1224,7 +1227,7 @@ const IndividualChatScreen: React.FC = () => {
              setInputText(newMessage.text); 
              checkMutualInitiation(messages.filter(msg => msg._id !== tempId)); 
          }
-    }, [currentUserId, matchUserId, isBlocked, checkMutualInitiation, markChatAsInitiatedInStorage, messages, replyingToMessage, dynamicMatchName]);
+    }, [currentUserId, matchUserId, isBlocked, checkMutualInitiation, markChatAsInitiatedInStorage, messages, replyingToMessage, dynamicMatchName, sendBroadcast]);
 
     const handleSendPress = () => {
         if (sharedEventMessage && initialSharedEventData?.eventId) {
@@ -1298,7 +1301,7 @@ const IndividualChatScreen: React.FC = () => {
              headerRight: () => (isBlocked ? <View style={{width: 30}} /> : undefined),
              headerStyle: { backgroundColor: 'white' },
          });
-    }, [navigation, route.params.matchName, route.params.matchProfilePicture, matchUserId, isBlocked, isMatchMuted, isChatMutuallyInitiated, isMatchOnline, dynamicMatchName, messages]);
+    }, [navigation, route.params.matchName, route.params.matchProfilePicture, matchUserId, isBlocked, isMatchMuted, isChatMutuallyInitiated, isMatchOnline, dynamicMatchName, messages, sendBroadcast]);
 
     // Fetch initial messages AFTER checking block status
     useEffect(() => {
@@ -1538,7 +1541,17 @@ const IndividualChatScreen: React.FC = () => {
             },
             onMessageStatus: (payload: any) => {
                 const statusUpdate = payload.new;
-                if (!statusUpdate || !statusUpdate.message_id) return;
+                if (!statusUpdate || !statusUpdate.message_id) {
+                    if (statusUpdate.message_ids && Array.isArray(statusUpdate.message_ids) && statusUpdate.seen_by !== currentUserId) {
+                        setMessages(prev => prev.map(msg => {
+                            if (msg.user._id === currentUserId && statusUpdate.message_ids.includes(msg._id)) {
+                                return { ...msg, isSeen: true, seenAt: new Date() };
+                            }
+                            return msg;
+                        }));
+                    }
+                    return;
+                };
                 
                 setMessages(prevMessages => {
                     return prevMessages.map(msg => {
@@ -1566,7 +1579,7 @@ const IndividualChatScreen: React.FC = () => {
         });
 
         return unsubscribe;
-    }, [currentUserId, matchUserId, isBlocked, subscribeToIndividualChat, mapDbMessageToChatMessage, messages, musicLoverProfile?.firstName, dynamicMatchName, checkMutualInitiation, fetchMessageById]);
+    }, [currentUserId, matchUserId, isBlocked, subscribeToIndividualChat, mapDbMessageToChatMessage, messages, musicLoverProfile?.firstName, dynamicMatchName, checkMutualInitiation, fetchMessageById, sendBroadcast]);
 
     // Group messages by date for section headers
     const sections = useMemo(() => {
@@ -1840,7 +1853,7 @@ const IndividualChatScreen: React.FC = () => {
                     image_url: urlData.publicUrl,
                     reply_to_message_id: replyToId || null,
                 })
-                .select('id, created_at, image_url')
+                .select('*')
                 .single();
 
             if (insertError) {
@@ -1849,6 +1862,7 @@ const IndividualChatScreen: React.FC = () => {
             }
 
             if (insertedData) {
+                sendBroadcast('individual', matchUserId, 'message', insertedData);
                 // Update the message with the final data
                 setMessages(prev => prev.map(msg => 
                     msg._id === tempId 
@@ -1894,7 +1908,7 @@ const IndividualChatScreen: React.FC = () => {
         } finally {
             setIsUploading(false);
         }
-    }, [currentUserId, matchUserId, isUploading, replyingToMessage, dynamicMatchName, supabase]); // Added supabase back for now, ensure it is stable
+    }, [currentUserId, matchUserId, isUploading, replyingToMessage, dynamicMatchName, supabase, sendBroadcast]); // Added supabase back for now, ensure it is stable
 
     // Handle shared event data from navigation params (for composing the message)
     useEffect(() => {
@@ -1984,6 +1998,10 @@ const IndividualChatScreen: React.FC = () => {
                 new_content: editText.trim(),
             });
             if (error) throw error;
+            const { data: updatedMessage } = await supabase.from('messages').select('*').eq('id', editingMessage._id).single();
+            if (updatedMessage) {
+                sendBroadcast('individual', matchUserId, 'message_update', updatedMessage);
+            }
             setMessages(prev => prev.map(msg => 
                 msg._id === editingMessage._id 
                 ? { ...msg, text: editText.trim(), isEdited: true, editedAt: new Date() } 
@@ -2003,6 +2021,10 @@ const IndividualChatScreen: React.FC = () => {
                 p_message_id: selectedMessageForAction._id,
             });
             if (error) throw error;
+            const { data: updatedMessage } = await supabase.from('messages').select('*').eq('id', selectedMessageForAction._id).single();
+            if (updatedMessage) {
+                sendBroadcast('individual', matchUserId, 'message_update', updatedMessage);
+            }
             setMessages(prev => prev.filter(msg => msg._id !== selectedMessageForAction!._id));
             setMessageActionModalVisible(false);
             setSelectedMessageForAction(null);
@@ -2021,6 +2043,10 @@ const IndividualChatScreen: React.FC = () => {
                 message_id_input: selectedMessageForAction._id,
             });
             if (error) throw error;
+            const { data: updatedMessage } = await supabase.from('messages').select('*').eq('id', selectedMessageForAction._id).single();
+            if (updatedMessage) {
+                sendBroadcast('individual', matchUserId, 'message_update', updatedMessage);
+            }
             setMessages(prev => prev.map(msg => 
                 msg._id === selectedMessageForAction._id 
                 ? { ...msg, 
@@ -2155,6 +2181,10 @@ const IndividualChatScreen: React.FC = () => {
             if (error) {
                 console.error('Error marking all messages as seen:', error.message);
             } else {
+                sendBroadcast('individual', matchUserId, 'message_status', { 
+                    message_ids: unseenMessagesFromPartner.map(m => m._id),
+                    seen_by: currentUserId
+                });
                 // Optimistically update UI for all unseen messages from this user
                 setMessages(prev => prev.map(m => 
                     m.user._id === matchUserId && !m.isSeen
@@ -2168,7 +2198,7 @@ const IndividualChatScreen: React.FC = () => {
         } catch (e: any) {
             console.error('Exception marking messages as seen:', e.message);
         }
-    }, [currentUserId, matchUserId, messages, refreshUnreadCount]);
+    }, [currentUserId, matchUserId, messages, refreshUnreadCount, sendBroadcast]);
 
     // Call markMessagesAsSeen when the screen focuses and when new messages arrive from the partner
     useFocusEffect(

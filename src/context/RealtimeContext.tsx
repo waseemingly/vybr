@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { RealtimeChannel, RealtimePresenceState } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
@@ -34,8 +34,9 @@ interface RealtimeContextType {
         onTypingStop?: (userId: string) => void;
     }) => () => void;
     
+    sendBroadcast: (chatType: 'individual' | 'group', id: string, event: string, payload: object) => void;
+    
     // Typing indicators
-    sendTypingIndicator: (chatType: 'individual' | 'group', chatId: string, isTyping: boolean) => void;
     sendIndividualTypingIndicator: (matchUserId: string, isTyping: boolean) => void;
     sendGroupTypingIndicator: (groupId: string, isTyping: boolean, senderName?: string) => void;
     
@@ -61,6 +62,9 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const maxReconnectAttempts = 5;
     const reconnectDelay = 2000; // 2 seconds
     
+    // App state
+    const appState = useRef(AppState.currentState);
+
     // Network state
     const [isNetworkConnected, setIsNetworkConnected] = useState(true);
     const networkStateRef = useRef(true);
@@ -173,7 +177,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 setupMainChannels();
             } else if (channelName.startsWith('notifications_for_')) {
                 setupMainChannels(); // This will recreate both channels
-            } else if (channelName.startsWith('individual_chat_')) {
+            } else if (channelName.startsWith('chat_')) {
                 // Individual chat channels are recreated when the component re-subscribes
                 console.log(`[RealtimeContext] Individual chat channel ${channelName} will be recreated on next subscription`);
             } else if (channelName.startsWith('group_chat_')) {
@@ -429,42 +433,27 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Subscribe to new messages
         if (callbacks.onMessage) {
             chatChannel.on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'messages',
-                    filter: `or(and(sender_id.eq.${session.user.id},receiver_id.eq.${matchUserId}),and(sender_id.eq.${matchUserId},receiver_id.eq.${session.user.id}))`
-                },
-                callbacks.onMessage
+                'broadcast',
+                { event: 'message' },
+                (payload) => callbacks.onMessage!({ new: payload.payload })
             );
         }
 
         // Subscribe to message updates
         if (callbacks.onMessageUpdate) {
             chatChannel.on(
-                'postgres_changes',
-                {
-                    event: 'UPDATE',
-                    schema: 'public',
-                    table: 'messages',
-                    filter: `or(and(sender_id.eq.${session.user.id},receiver_id.eq.${matchUserId}),and(sender_id.eq.${matchUserId},receiver_id.eq.${session.user.id}))`
-                },
-                callbacks.onMessageUpdate
+                'broadcast',
+                { event: 'message_update' },
+                (payload) => callbacks.onMessageUpdate!({ new: payload.payload })
             );
         }
 
         // Subscribe to message status updates
         if (callbacks.onMessageStatus) {
             chatChannel.on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'message_status',
-                    filter: `or(sender_id.eq.${session.user.id},receiver_id.eq.${session.user.id})`
-                },
-                callbacks.onMessageStatus
+                'broadcast',
+                { event: 'message_status' },
+                (payload) => callbacks.onMessageStatus!({ new: payload.payload })
             );
         }
 
@@ -559,56 +548,36 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Subscribe to new messages
         if (callbacks.onMessage) {
             chatChannel.on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'group_chat_messages',
-                    filter: `group_id=eq.${groupId}`
-                },
-                callbacks.onMessage
+                'broadcast',
+                { event: 'message' },
+                (payload) => callbacks.onMessage!({ new: payload.payload })
             );
         }
 
         // Subscribe to message updates
         if (callbacks.onMessageUpdate) {
             chatChannel.on(
-                'postgres_changes',
-                {
-                    event: 'UPDATE',
-                    schema: 'public',
-                    table: 'group_chat_messages',
-                    filter: `group_id=eq.${groupId}`
-                },
-                callbacks.onMessageUpdate
+                'broadcast',
+                { event: 'message_update' },
+                (payload) => callbacks.onMessageUpdate!({ new: payload.payload })
             );
         }
 
         // Subscribe to message status updates
         if (callbacks.onMessageStatus) {
             chatChannel.on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'group_message_status',
-                    filter: `group_id=eq.${groupId}`
-                },
-                callbacks.onMessageStatus
+                'broadcast',
+                { event: 'message_status' },
+                (payload) => callbacks.onMessageStatus!({ new: payload.payload })
             );
         }
 
         // Subscribe to group updates
         if (callbacks.onGroupUpdate) {
             chatChannel.on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'group_chat_participants',
-                    filter: `group_id=eq.${groupId}`
-                },
-                callbacks.onGroupUpdate
+                'broadcast',
+                { event: 'group_update' },
+                (payload) => callbacks.onGroupUpdate!({ new: payload.payload })
             );
         }
 
@@ -688,59 +657,26 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         };
     }, [session?.user?.id, handleChannelError]);
 
-    // Send typing indicator
-    const sendTypingIndicator = useCallback((chatType: 'individual' | 'group', chatId: string, isTyping: boolean) => {
+    // Send broadcast message
+    const sendBroadcast = useCallback((chatType: 'individual' | 'group', id: string, event: string, payload: object) => {
         if (!session?.user?.id) return;
 
-        const channelName = chatType === 'individual' 
-            ? `individual_chat_${[session.user.id, chatId].sort().join('_')}`
-            : `group_chat_${chatId}`;
-
-        const chatChannel = chatChannelsRef.current.get(channelName);
-        if (!chatChannel) {
-            console.warn(`[RealtimeContext] No channel found for typing indicator: ${channelName}`);
-            return;
-        }
-
-        // Clear existing timeout for this chat
-        const timeoutKey = `${chatType}_${chatId}`;
-        const existingTimeout = typingTimeoutsRef.current.get(timeoutKey);
-        if (existingTimeout) {
-            clearTimeout(existingTimeout);
-            typingTimeoutsRef.current.delete(timeoutKey);
-        }
-
-        // Send typing indicator
-        chatChannel.send({
-            type: 'broadcast',
-            event: 'typing',
-            payload: {
-                sender_id: session.user.id,
-                chat_id: chatId,
-                chat_type: chatType,
-                typing: isTyping
-            }
-        });
-
-        // Auto-stop typing after 3 seconds if still typing
-        if (isTyping && session.user?.id) {
-            const userId = session.user.id;
-            const timeout = setTimeout(() => {
-                chatChannel.send({
-                    type: 'broadcast',
-                    event: 'typing',
-                    payload: {
-                        sender_id: userId,
-                        chat_id: chatId,
-                        chat_type: chatType,
-                        typing: false
-                    }
-                });
-                typingTimeoutsRef.current.delete(timeoutKey);
-            }, 3000);
-            typingTimeoutsRef.current.set(timeoutKey, timeout);
+        const channelName = chatType === 'individual'
+            ? `chat_${[session.user.id, id].sort().join('_')}`
+            : `group_chat_${id}`;
+        
+        const channel = chatChannelsRef.current.get(channelName);
+        if (channel) {
+            channel.send({
+                type: 'broadcast',
+                event: event,
+                payload: payload
+            });
+        } else {
+            console.warn(`[RealtimeContext] No channel found for broadcast to ${channelName}`);
         }
     }, [session?.user?.id]);
+
 
     const sendIndividualTypingIndicator = useCallback((matchUserId: string, isTyping: boolean) => {
         if (!session?.user?.id) return;
@@ -806,6 +742,15 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Handle app state changes for proper cleanup
     const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
         console.log(`[RealtimeContext] App state changed to: ${nextAppState}`);
+
+        if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+            console.log('[RealtimeContext] App has come to the foreground!');
+            // More robust reconnection
+            cleanup();
+            setTimeout(() => setupMainChannels(), 250);
+        }
+
+        appState.current = nextAppState;
         
         if (!session?.user?.id) {
             console.log(`[RealtimeContext] No session or user ID available for app state change. Session: ${!!session}, User ID: ${session?.user?.id}`);
@@ -820,7 +765,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         } else if (nextAppState === 'active') {
             updateUserStatus(userId, true);
         }
-    }, [session?.user?.id]);
+    }, [session?.user?.id, cleanup, setupMainChannels]);
 
     useEffect(() => {
         if (!session?.user?.id) {
@@ -829,24 +774,69 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             return;
         }
 
-        // Setup main channels
+        const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+            if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && session?.access_token) {
+                console.log('[RealtimeContext] Auth token refreshed, setting realtime auth.');
+                supabase.realtime.setAuth(session.access_token);
+            }
+        });
+
         setupMainChannels();
 
-        // Add app state listener
-        const subscription = AppState.addEventListener('change', handleAppStateChange);
-
-        // Add network connectivity listener
-        networkSubscriptionRef.current = NetInfo.addEventListener(handleNetworkChange);
-
-        return () => {
-            console.log('[RealtimeContext] 🧹 Cleaning up on session change...');
-            subscription?.remove();
-            cleanup();
-            // Correctly call the unsubscribe function
-            if (typeof networkSubscriptionRef.current === 'function') {
-                networkSubscriptionRef.current();
-            }
+        let cleanupFn = () => {
+            authListener.subscription.unsubscribe();
         };
+
+        if (Platform.OS === 'web') {
+            const handleVisibilityChange = () => {
+                if (document.visibilityState === 'visible') {
+                    console.log('[RealtimeContext] Web tab became visible, ensuring connection.');
+                    if (networkStateRef.current) {
+                        // More robust reconnection
+                        cleanup();
+                        setTimeout(() => setupMainChannels(), 250);
+                    }
+                }
+            };
+
+            const handleOnline = () => {
+                console.log('[RealtimeContext] Web became online, ensuring connection.');
+                handleNetworkChange({ isConnected: true, isInternetReachable: true });
+            };
+            const handleOffline = () => {
+                console.log('[RealtimeContext] Web went offline.');
+                handleNetworkChange({ isConnected: false, isInternetReachable: false });
+            };
+
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+            window.addEventListener('online', handleOnline);
+            window.addEventListener('offline', handleOffline);
+
+            cleanupFn = () => {
+                console.log('[RealtimeContext] 🧹 Cleaning up web listeners...');
+                document.removeEventListener('visibilitychange', handleVisibilityChange);
+                window.removeEventListener('online', handleOnline);
+                window.removeEventListener('offline', handleOffline);
+                authListener.subscription.unsubscribe();
+                cleanup();
+            };
+        } else {
+            // Use native listeners
+            const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
+            const netInfoUnsubscribe = NetInfo.addEventListener(handleNetworkChange);
+
+            cleanupFn = () => {
+                console.log('[RealtimeContext] 🧹 Cleaning up native listeners...');
+                appStateSubscription.remove();
+                if (typeof netInfoUnsubscribe === 'function') {
+                    netInfoUnsubscribe();
+                }
+                authListener.subscription.unsubscribe();
+                cleanup();
+            };
+        }
+
+        return cleanupFn;
     }, [session?.user?.id, cleanup, handleAppStateChange, setupMainChannels, handleNetworkChange]);
 
     const contextValue: RealtimeContextType = {
@@ -858,7 +848,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         unsubscribeFromEvent,
         subscribeToIndividualChat,
         subscribeToGroupChat,
-        sendTypingIndicator,
+        sendBroadcast,
         sendIndividualTypingIndicator,
         sendGroupTypingIndicator,
         getGroupMemberPresence,
