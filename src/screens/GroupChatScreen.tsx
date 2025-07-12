@@ -600,7 +600,7 @@ const GroupChatScreen: React.FC = () => {
     const navigation = useNavigation<GroupChatScreenNavigationProp>();
     const { session } = useAuth();
     const { refreshUnreadCount } = useUnreadCount();
-    const { subscribeToGroupChat, sendGroupTypingIndicator } = useRealtime();
+    const { subscribeToGroupChat, sendGroupTypingIndicator, sendBroadcast } = useRealtime();
     const currentUserId = session?.user?.id;
     const { groupId, sharedEventData: initialSharedEventData } = route.params;
 
@@ -1141,12 +1141,14 @@ const GroupChatScreen: React.FC = () => {
             const { data: insertedData, error: insertError } = await supabase
                 .from('group_chat_messages')
                 .insert(insertData)
-                .select('id, created_at') // Select all fields to ensure optimistic update can use them
+                .select('*') 
                 .single();
 
             if (insertError) throw insertError;
 
             if (!insertedData) throw new Error("Text send no confirmation.");
+
+            sendBroadcast('group', groupId, 'message', insertedData);
 
             setMessages(prevMessages => prevMessages.map(msg =>
                 msg._id === tempId ? {
@@ -1189,7 +1191,7 @@ const GroupChatScreen: React.FC = () => {
             setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempId));
             setInputText(trimmedText);
         }
-    }, [currentUserId, groupId, sendError, isUploading, replyingToMessage, userProfileCache, groupMembers, currentGroupName]);
+    }, [currentUserId, groupId, sendError, isUploading, replyingToMessage, userProfileCache, groupMembers, currentGroupName, sendBroadcast]);
 
     const broadcastTyping = useCallback(() => {
         if (!currentUserId || !groupId) return;
@@ -1295,6 +1297,8 @@ const GroupChatScreen: React.FC = () => {
             if (insertError) throw insertError;
             if (!insertedMessage) throw new Error('Failed to insert shared event message to group.');
 
+            sendBroadcast('group', groupId, 'message', insertedMessage);
+
             // Log event impression
             try {
                 await supabase.from('event_impressions').insert({
@@ -1352,7 +1356,7 @@ const GroupChatScreen: React.FC = () => {
             setSendError(`Event share fail: ${err.message}`);
             setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempId));
         }
-    }, [currentUserId, groupId, isUploading, replyingToMessage, userProfileCache, currentGroupName]);
+    }, [currentUserId, groupId, isUploading, replyingToMessage, userProfileCache, currentGroupName, sendBroadcast]);
 
     const handleSendPress = () => {
         if (sharedEventMessage && initialSharedEventData?.eventId) {
@@ -1534,6 +1538,8 @@ const GroupChatScreen: React.FC = () => {
                 throw insertError;
             }
 
+            sendBroadcast('group', groupId, 'message', insertedData);
+
             // Update the message with the final data
             setMessages(prev => prev.map(msg =>
                 msg._id === tempId
@@ -1622,13 +1628,17 @@ const GroupChatScreen: React.FC = () => {
                 if (error) {
                     console.error('Error marking all group messages as seen:', error.message);
                 } else {
+                    sendBroadcast('group', groupId, 'message_status', { 
+                        message_ids: messageIdsToMark, 
+                        seen_by: { userId: currentUserId, userName: userProfileCache[currentUserId]?.name || 'Someone' }
+                    });
                     refreshUnreadCount();
                 }
             }
         } catch (e: any) {
             console.error('Exception marking group messages as seen:', e.message);
         }
-    }, [currentUserId, groupId, messages, refreshUnreadCount]);
+    }, [currentUserId, groupId, messages, refreshUnreadCount, sendBroadcast]);
 
     // Call markMessagesAsSeen when the screen focuses and when new messages arrive from others
     useFocusEffect(
@@ -1806,15 +1816,39 @@ const GroupChatScreen: React.FC = () => {
                 }
             },
             onMessageStatus: (payload: any) => {
-                const statusUpdate = payload.new as { 
-                    message_id: string; 
-                    user_id: string;
-                    is_seen: boolean; 
-                    seen_at: string; 
-                    is_delivered: boolean; 
-                    delivered_at: string 
-                };
-                if (!statusUpdate || !statusUpdate.message_id) return;
+                const statusUpdate = payload.new;
+                if (!statusUpdate) return;
+            
+                if (statusUpdate.message_ids && Array.isArray(statusUpdate.message_ids)) {
+                    // This is a bulk "seen" update
+                    if (statusUpdate.seen_by?.userId === currentUserId) return; // Don't process own updates
+            
+                    setMessages(prev => prev.map(msg => {
+                        if (statusUpdate.message_ids.includes(msg._id)) {
+                            let newSeenBy = [...(msg.seenBy || [])];
+                            if (!newSeenBy.some(s => s.userId === statusUpdate.seen_by.userId)) {
+                                newSeenBy.push({
+                                    userId: statusUpdate.seen_by.userId,
+                                    userName: statusUpdate.seen_by.userName || 'Someone',
+                                    seenAt: new Date()
+                                });
+                            }
+                            const isSeenByCurrentUser = newSeenBy.some(s => s.userId === currentUserId);
+                            const isSeenByOthers = newSeenBy.some(s => s.userId !== currentUserId);
+
+                            return { 
+                                ...msg, 
+                                seenBy: newSeenBy,
+                                // Update top-level isSeen based on who the message is for
+                                isSeen: msg.user._id === currentUserId ? isSeenByOthers : isSeenByCurrentUser
+                            };
+                        }
+                        return msg;
+                    }));
+                    return;
+                }
+
+                if (!statusUpdate.message_id) return;
                 
                 setMessages(prevMessages => {
                     let needsUpdate = false;
@@ -1893,6 +1927,10 @@ const GroupChatScreen: React.FC = () => {
                     }
                     return newTypingUsers;
                 });
+            },
+            onGroupUpdate: (payload: any) => {
+                console.log('[GroupChatScreen] Group update received:', payload.new);
+                fetchInitialData(); // Refetch all data on group update for simplicity
             }
         });
 
@@ -1903,14 +1941,14 @@ const GroupChatScreen: React.FC = () => {
                 typingTimeoutRef.current.clear();
             }
         };
-    }, [currentUserId, groupId, mapDbMessageToChatMessage, editingMessage, subscribeToGroupChat]);
+    }, [currentUserId, groupId, mapDbMessageToChatMessage, editingMessage, subscribeToGroupChat, sendBroadcast]);
 
     // Navigation and Header
     const navigateToGroupInfo = () => { if (!groupId || !currentGroupName) return; navigation.navigate('GroupInfoScreen', { groupId, groupName: currentGroupName ?? 'Group', groupImage: currentGroupImage ?? null }); };
     useEffect(() => { const canAdd = isCurrentUserAdmin || canMembersAddOthers; const canEdit = isCurrentUserAdmin || canMembersEditInfo; const headerColor = APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'; const disabledColor = APP_CONSTANTS?.COLORS?.DISABLED || '#D1D5DB'; navigation.setOptions({ headerTitleAlign: 'center', headerTitle: () => (<TouchableOpacity style={styles.headerTitleContainer} onPress={navigateToGroupInfo} activeOpacity={0.8}><Image source={{ uri: currentGroupImage ?? DEFAULT_GROUP_PIC }} style={styles.headerGroupImage} /><View style={styles.headerTextContainer}><Text style={styles.headerTitleText} numberOfLines={1}>{currentGroupName}</Text></View></TouchableOpacity>), headerRight: () => (<View style={styles.headerButtons}><TouchableOpacity onPress={() => { if (canAdd) navigation.navigate('AddGroupMembersScreen', { groupId, groupName: currentGroupName }); else Alert.alert("Denied", "Admin only"); }} style={styles.headerButton} disabled={!canAdd}><Feather name="user-plus" size={22} color={canAdd ? headerColor : disabledColor} /></TouchableOpacity><TouchableOpacity onPress={() => { if (canEdit) { setEditingName(currentGroupName ?? ''); setIsEditModalVisible(true); } else Alert.alert("Denied", "Admin only"); }} style={styles.headerButton} disabled={!canEdit}><Feather name="edit-2" size={22} color={canEdit ? headerColor : disabledColor} /></TouchableOpacity></View>), headerBackTitleVisible: false, headerShown: true }); }, [navigation, currentGroupName, currentGroupImage, groupId, isCurrentUserAdmin, canMembersAddOthers, canMembersEditInfo]);
 
     // Modal and Actions
-    const handleUpdateName = async () => { const n = editingName.trim(); if (!n || n === currentGroupName || isUpdatingName || !groupId) { setIsEditModalVisible(false); return; } setIsUpdatingName(true); try { const { error } = await supabase.rpc('rename_group_chat', { group_id_input: groupId, new_group_name: n }); if (error) throw error; setIsEditModalVisible(false); } catch (e: any) { Alert.alert("Error", `Update fail: ${e.message}`); } finally { setIsUpdatingName(false); } };
+    const handleUpdateName = async () => { const n = editingName.trim(); if (!n || n === currentGroupName || isUpdatingName || !groupId) { setIsEditModalVisible(false); return; } setIsUpdatingName(true); try { const { error } = await supabase.rpc('rename_group_chat', { group_id_input: groupId, new_group_name: n }); if (error) throw error; sendBroadcast('group', groupId, 'group_update', { type: 'rename', name: n, updated_by: currentUserId }); setIsEditModalVisible(false); } catch (e: any) { Alert.alert("Error", `Update fail: ${e.message}`); } finally { setIsUpdatingName(false); } };
 
     // Using RealtimeContext for all realtime functionality
 
