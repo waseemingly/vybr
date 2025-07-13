@@ -529,7 +529,7 @@ const IndividualChatScreen: React.FC = () => {
     const route = useRoute<IndividualChatScreenRouteProp>();
     const navigation = useNavigation<RootNavigationProp>();
     const { session, musicLoverProfile } = useAuth();
-    const { presenceState, subscribeToIndividualChat, sendIndividualTypingIndicator, sendBroadcast } = useRealtime();
+    const { presenceState, subscribeToIndividualChat, sendIndividualTypingIndicator, sendBroadcast, subscribeToEvent, unsubscribeFromEvent } = useRealtime();
     const { refreshUnreadCount } = useUnreadCount();
 
     const currentUserIdFromSession = session?.user?.id;
@@ -1422,6 +1422,14 @@ const IndividualChatScreen: React.FC = () => {
                         const { error } = await supabase.rpc('mark_message_seen', { message_id_input: newMessageDb.id });
                         if (error) {
                             console.error(`Error marking message ${newMessageDb.id} as seen via RPC:`, error.message);
+                        } else {
+                            // Send broadcast to notify sender about seen status
+                            sendBroadcast('individual', matchUserId, 'message_status', {
+                                message_id: newMessageDb.id,
+                                is_seen: true,
+                                seen_at: new Date().toISOString(),
+                                user_id: currentUserId
+                            });
                         }
                     } catch (e: any) {
                         console.error(`Exception marking message ${newMessageDb.id} as seen:`, e.message);
@@ -1541,7 +1549,9 @@ const IndividualChatScreen: React.FC = () => {
             },
             onMessageStatus: (payload: any) => {
                 const statusUpdate = payload.new;
-                if (!statusUpdate || !statusUpdate.message_id) {
+                if (!statusUpdate) return;
+                
+                // Handle bulk updates (from mark_all_messages_seen_from_user)
                     if (statusUpdate.message_ids && Array.isArray(statusUpdate.message_ids) && statusUpdate.seen_by !== currentUserId) {
                         setMessages(prev => prev.map(msg => {
                             if (msg.user._id === currentUserId && statusUpdate.message_ids.includes(msg._id)) {
@@ -1549,13 +1559,16 @@ const IndividualChatScreen: React.FC = () => {
                             }
                             return msg;
                         }));
-                    }
                     return;
-                };
+                }
+                
+                // Handle single message updates (from broadcast or database)
+                const messageId = statusUpdate.message_id;
+                if (!messageId) return;
                 
                 setMessages(prevMessages => {
                     return prevMessages.map(msg => {
-                        if (msg._id === statusUpdate.message_id) {
+                        if (msg._id === messageId) {
                             return {
                                 ...msg,
                                 isDelivered: statusUpdate.is_delivered,
@@ -1578,8 +1591,37 @@ const IndividualChatScreen: React.FC = () => {
             }
         });
 
-        return unsubscribe;
-    }, [currentUserId, matchUserId, isBlocked, subscribeToIndividualChat, mapDbMessageToChatMessage, messages, musicLoverProfile?.firstName, dynamicMatchName, checkMutualInitiation, fetchMessageById, sendBroadcast]);
+        // Subscribe to database message status updates
+        const handleMessageStatusUpdate = (payload: any) => {
+            const statusUpdate = payload.new;
+            if (!statusUpdate || !statusUpdate.message_id) return;
+            
+            console.log('[IndividualChatScreen] Database message status update:', statusUpdate);
+            
+            // Only update if this status change is for a message in this chat
+            setMessages(prevMessages => {
+                return prevMessages.map(msg => {
+                    if (msg._id === statusUpdate.message_id) {
+                        return {
+                            ...msg,
+                            isDelivered: statusUpdate.is_delivered,
+                            deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : msg.deliveredAt,
+                            isSeen: statusUpdate.is_seen,
+                            seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : msg.seenAt,
+                        };
+                    }
+                    return msg;
+                });
+            });
+        };
+
+        subscribeToEvent('message_status_updated', handleMessageStatusUpdate);
+
+        return () => {
+            unsubscribe();
+            unsubscribeFromEvent('message_status_updated', handleMessageStatusUpdate);
+        };
+    }, [currentUserId, matchUserId, isBlocked, subscribeToIndividualChat, mapDbMessageToChatMessage, messages, musicLoverProfile?.firstName, dynamicMatchName, checkMutualInitiation, fetchMessageById, sendBroadcast, subscribeToEvent, unsubscribeFromEvent]);
 
     // Group messages by date for section headers
     const sections = useMemo(() => {

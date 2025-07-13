@@ -309,25 +309,11 @@ const ProfileScreen: React.FC = () => {
             return;
         }
 
-        // Add debugging for Spotify auth state
-        console.log(`[ProfileScreen] Debug info before checking service connection:`);
-        console.log(`[ProfileScreen] - isSpotifyLoggedIn: ${isSpotifyLoggedIn}`);
-        console.log(`[ProfileScreen] - spotifyAccessToken: ${spotifyAccessToken ? 'PRESENT' : 'MISSING'}`);
-        console.log(`[ProfileScreen] - spotifyAuthLoading: ${spotifyAuthLoading}`);
-        console.log(`[ProfileScreen] - serviceId: ${serviceId}`);
-        console.log(`[ProfileScreen] - hasData: ${hasData}`);
-        console.log(`[ProfileScreen] - userId: ${userId}`);
-
         // Smart connectivity check
         const hasSpotifyAccess = !!spotifyAccessToken || isSpotifyLoggedIn;
         const hasExistingSpotifyData = serviceId === 'spotify' && hasData;
         const isStillLoading = spotifyAuthLoading;
         
-        console.log(`[ProfileScreen] Connectivity analysis:`);
-        console.log(`[ProfileScreen] - hasSpotifyAccess: ${hasSpotifyAccess}`);
-        console.log(`[ProfileScreen] - hasExistingSpotifyData: ${hasExistingSpotifyData}`);
-        console.log(`[ProfileScreen] - isStillLoading: ${isStillLoading}`);
-
         // If Spotify is still loading, wait a moment
         if (isStillLoading) {
             console.log(`[ProfileScreen] Spotify auth is still loading, waiting...`);
@@ -337,7 +323,7 @@ const ProfileScreen: React.FC = () => {
 
         // If no access and no existing data, offer to connect
         if (!hasSpotifyAccess && !hasExistingSpotifyData) {
-            console.warn(`[ProfileScreen] No Spotify access and no existing data. Offering to connect.`);
+            console.log(`[ProfileScreen] Starting Spotify connection process...`);
             Alert.alert(
                 "Spotify Not Connected", 
                 `Your Spotify account is not connected. Would you like to connect it now?`,
@@ -349,17 +335,10 @@ const ProfileScreen: React.FC = () => {
             return;
         }
 
-        // If we have existing data but no current access, offer to reconnect
+        // If we have existing data but no current access, automatically start reconnection
         if (!hasSpotifyAccess && hasExistingSpotifyData) {
-            console.log(`[ProfileScreen] No current access but existing Spotify data found. Offering reconnection...`);
-            Alert.alert(
-                "Spotify Session Expired", 
-                `Your Spotify session has expired. Would you like to reconnect to refresh your music data?`,
-                [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Reconnect", onPress: handleSpotifyReconnect }
-                ]
-            );
+            console.log(`[ProfileScreen] Starting Spotify reconnection process...`);
+            handleSpotifyReconnect();
             return;
         }
 
