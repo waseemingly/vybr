@@ -231,6 +231,17 @@ interface GroupMessageBubbleProps {
     getRepliedMessagePreview: (messageId: string) => ChatMessage['replyToMessagePreview'] | null;
     isHighlighted?: boolean;
 }
+
+const areEqual = (prevProps: GroupMessageBubbleProps, nextProps: GroupMessageBubbleProps) => {
+    // Always re-render if isSeen or seenBy changes
+    return (
+        prevProps.message._id === nextProps.message._id &&
+        prevProps.message.isSeen === nextProps.message.isSeen &&
+        JSON.stringify(prevProps.message.seenBy) === JSON.stringify(nextProps.message.seenBy) &&
+        prevProps.isHighlighted === nextProps.isHighlighted
+    );
+};
+
 const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     message,
     currentUserId,
@@ -245,6 +256,13 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     const senderName = message.user.name;
     const [imageError, setImageError] = useState(false);
     const [hasLoggedImpression, setHasLoggedImpression] = useState(false);
+    
+    // Debug: Log when isSeen changes for sender's messages
+    useEffect(() => {
+        if (isCurrentUser && message.isSeen) {
+            console.log('[GroupMessageBubble] ✅ Rendering seen tick for message:', message._id, 'isSeen:', message.isSeen);
+        }
+    }, [message.isSeen, isCurrentUser, message._id]);
 
     // Log impression for shared events when message bubble comes into view
     useEffect(() => {
@@ -341,7 +359,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
 
     const repliedMessagePreview = message.replyToMessageId ? getRepliedMessagePreview(message.replyToMessageId) : null;
 
-    // Determine the text for the seen status
+    // Determine the text for the seen status (exclude current user from count)
     const seenByCount = message.seenBy?.filter(s => s.userId !== currentUserId).length || 0;
     const seenByText = seenByCount > 0 ? `Seen by ${seenByCount}` : null;
 
@@ -591,7 +609,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     }
 
     return null; // Fallback
-});
+}, areEqual);
 
 
 // --- GroupChatScreen Component ---
@@ -600,7 +618,7 @@ const GroupChatScreen: React.FC = () => {
     const navigation = useNavigation<GroupChatScreenNavigationProp>();
     const { session } = useAuth();
     const { refreshUnreadCount } = useUnreadCount();
-    const { subscribeToGroupChat, sendGroupTypingIndicator, sendBroadcast } = useRealtime();
+    const { subscribeToGroupChat, sendGroupTypingIndicator, sendBroadcast, subscribeToEvent, unsubscribeFromEvent } = useRealtime();
     const currentUserId = session?.user?.id;
     const { groupId, sharedEventData: initialSharedEventData } = route.params;
 
@@ -1034,9 +1052,9 @@ const GroupChatScreen: React.FC = () => {
 
                     const allStatuses = dbMsg.group_message_status || [];
 
-                    // Populate the seenBy array with everyone who has seen the message
+                    // Populate the seenBy array with everyone who has seen the message (excluding sender)
                     chatMsg.seenBy = allStatuses
-                        .filter((s: any) => s.is_seen)
+                        .filter((s: any) => s.is_seen && s.user_id !== dbMsg.sender_id) // Exclude sender from seenBy
                         .map((s: any) => ({
                             userId: s.user_id,
                             userName: newGroupMembers.get(s.user_id)?.name || 'Someone',
@@ -1106,9 +1124,9 @@ const GroupChatScreen: React.FC = () => {
             replyToMessagePreview: replyingToMessagePreview,
             isDelivered: true,
             deliveredAt: new Date(),
-            isSeen: true,
-            seenAt: new Date(),
-            seenBy: [{ userId: currentUserId, userName: 'You', seenAt: new Date() }],
+            isSeen: false, // Sender's message is not "seen" until others see it
+            seenAt: null,
+            seenBy: [], // Sender should not be in seenBy list
         };
 
         setMessages(previousMessages => [...previousMessages, optimisticMessage]);
@@ -1147,6 +1165,30 @@ const GroupChatScreen: React.FC = () => {
             if (insertError) throw insertError;
 
             if (!insertedData) throw new Error("Text send no confirmation.");
+
+            // Create group message status entries for all group members (except sender)
+            const membersToCreateStatusFor = Array.from(groupMembers.keys()).filter(id => id !== currentUserId);
+            if (membersToCreateStatusFor.length > 0) {
+                try {
+                    const statusEntries = membersToCreateStatusFor.map(userId => ({
+                        message_id: insertedData.id,
+                        user_id: userId,
+                        group_id: groupId,
+                        is_delivered: false,
+                        is_seen: false
+                    }));
+
+                    const { error: statusError } = await supabase
+                        .from('group_message_status')
+                        .insert(statusEntries);
+
+                    if (statusError) {
+                        console.warn('Failed to create group message status entries:', statusError);
+                    }
+                } catch (statusErr) {
+                    console.warn('Exception creating group message status entries:', statusErr);
+                }
+            }
 
             sendBroadcast('group', groupId, 'message', insertedData);
 
@@ -1241,9 +1283,9 @@ const GroupChatScreen: React.FC = () => {
             replyToMessagePreview: replyingToMessagePreview,
             isDelivered: true,
             deliveredAt: new Date(),
-            isSeen: true,
-            seenAt: new Date(),
-            seenBy: [{ userId: currentUserId, userName: 'You', seenAt: new Date() }],
+            isSeen: false, // Sender's message is not "seen" until others see it
+            seenAt: null,
+            seenBy: [], // Sender should not be in seenBy list
         };
 
         setMessages(prevMessages => [...prevMessages, optimisticMessage]);
@@ -1296,6 +1338,30 @@ const GroupChatScreen: React.FC = () => {
 
             if (insertError) throw insertError;
             if (!insertedMessage) throw new Error('Failed to insert shared event message to group.');
+
+            // Create group message status entries for all group members (except sender)
+            const membersToCreateStatusFor = Array.from(groupMembers.keys()).filter(id => id !== currentUserId);
+            if (membersToCreateStatusFor.length > 0) {
+                try {
+                    const statusEntries = membersToCreateStatusFor.map(userId => ({
+                        message_id: insertedMessage.id,
+                        user_id: userId,
+                        group_id: groupId,
+                        is_delivered: false,
+                        is_seen: false
+                    }));
+
+                    const { error: statusError } = await supabase
+                        .from('group_message_status')
+                        .insert(statusEntries);
+
+                    if (statusError) {
+                        console.warn('Failed to create group message status entries for shared event:', statusError);
+                    }
+                } catch (statusErr) {
+                    console.warn('Exception creating group message status entries for shared event:', statusErr);
+                }
+            }
 
             sendBroadcast('group', groupId, 'message', insertedMessage);
 
@@ -1460,9 +1526,9 @@ const GroupChatScreen: React.FC = () => {
                 replyToMessagePreview: replyingToMessagePreview,
                 isDelivered: true,
                 deliveredAt: new Date(),
-                isSeen: true,
-                seenAt: new Date(),
-                seenBy: [{ userId: currentUserId, userName: 'You', seenAt: new Date() }],
+                isSeen: false, // Sender's message is not "seen" until others see it
+                seenAt: null,
+                seenBy: [], // Sender should not be in seenBy list
             };
 
             setMessages(prev => [...prev, optimisticMessage]);
@@ -1536,6 +1602,30 @@ const GroupChatScreen: React.FC = () => {
                 // Clean up storage if DB insert fails
                 await supabase.storage.from('group-chat-images').remove([filePath]);
                 throw insertError;
+            }
+
+            // Create group message status entries for all group members (except sender)
+            const membersToCreateStatusFor = Array.from(groupMembers.keys()).filter(id => id !== currentUserId);
+            if (membersToCreateStatusFor.length > 0) {
+                try {
+                    const statusEntries = membersToCreateStatusFor.map(userId => ({
+                        message_id: insertedData.id,
+                        user_id: userId,
+                        group_id: groupId,
+                        is_delivered: false,
+                        is_seen: false
+                    }));
+
+                    const { error: statusError } = await supabase
+                        .from('group_message_status')
+                        .insert(statusEntries);
+
+                    if (statusError) {
+                        console.warn('Failed to create group message status entries for image:', statusError);
+                    }
+                } catch (statusErr) {
+                    console.warn('Exception creating group message status entries for image:', statusErr);
+                }
             }
 
             sendBroadcast('group', groupId, 'message', insertedData);
@@ -1620,14 +1710,15 @@ const GroupChatScreen: React.FC = () => {
         try {
             const messageIdsToMark = unseenMessagesFromOthers.map(msg => msg._id);
             if (messageIdsToMark.length > 0) {
-                const { error } = await supabase.rpc('mark_group_messages_seen', {
-                    message_ids_input: messageIdsToMark,
+                const { error } = await supabase.rpc('mark_all_group_messages_seen', {
+                    group_id_input: groupId,
                     user_id_input: currentUserId
                 });
 
                 if (error) {
                     console.error('Error marking all group messages as seen:', error.message);
                 } else {
+                    console.log('[GroupChatScreen] Successfully marked group messages as seen, broadcasting status update');
                     sendBroadcast('group', groupId, 'message_status', { 
                         message_ids: messageIdsToMark, 
                         seen_by: { userId: currentUserId, userName: userProfileCache[currentUserId]?.name || 'Someone' }
@@ -1669,10 +1760,25 @@ const GroupChatScreen: React.FC = () => {
         const unsubscribe = subscribeToGroupChat(groupId, {
             onMessage: async (payload: any) => {
                 const newMessageDb = payload.new as DbGroupMessage;
+                console.log('[GroupChatScreen] New message received via realtime:', newMessageDb.id, 'from:', newMessageDb.sender_id);
                 if (newMessageDb.sender_id !== currentUserId) {
                     try {
+                        console.log('[GroupChatScreen] Marking new message as delivered and seen');
                         await supabase.rpc('mark_group_message_delivered', { message_id_input: newMessageDb.id, user_id_input: currentUserId });
-                        await supabase.rpc('mark_group_message_seen', { message_id_input: newMessageDb.id, user_id_input: currentUserId });
+                        const { error } = await supabase.rpc('mark_group_message_seen', { message_id_input: newMessageDb.id, user_id_input: currentUserId });
+                        if (!error) {
+                            console.log('[GroupChatScreen] Successfully marked message as seen, broadcasting status update');
+                            // Send broadcast to notify other group members about seen status
+                            sendBroadcast('group', groupId, 'message_status', {
+                                message_id: newMessageDb.id,
+                                is_seen: true,
+                                seen_at: new Date().toISOString(),
+                                user_id: currentUserId,
+                                user_name: userProfileCache[currentUserId]?.name || 'Someone'
+                            });
+                        } else {
+                            console.error('[GroupChatScreen] Error marking message as seen:', error);
+                        }
                     } catch (e) { console.error('Exception marking group message status:', e); }
                 }
                 
@@ -1817,6 +1923,7 @@ const GroupChatScreen: React.FC = () => {
             },
             onMessageStatus: (payload: any) => {
                 const statusUpdate = payload.new;
+                console.log('[GroupChatScreen] Message status update received via broadcast:', statusUpdate);
                 if (!statusUpdate) return;
             
                 if (statusUpdate.message_ids && Array.isArray(statusUpdate.message_ids)) {
@@ -1826,7 +1933,8 @@ const GroupChatScreen: React.FC = () => {
                     setMessages(prev => prev.map(msg => {
                         if (statusUpdate.message_ids.includes(msg._id)) {
                             let newSeenBy = [...(msg.seenBy || [])];
-                            if (!newSeenBy.some(s => s.userId === statusUpdate.seen_by.userId)) {
+                            // Only add to seenBy if it's not the sender
+                            if (statusUpdate.seen_by.userId !== msg.user._id && !newSeenBy.some(s => s.userId === statusUpdate.seen_by.userId)) {
                                 newSeenBy.push({
                                     userId: statusUpdate.seen_by.userId,
                                     userName: statusUpdate.seen_by.userName || 'Someone',
@@ -1835,12 +1943,18 @@ const GroupChatScreen: React.FC = () => {
                             }
                             const isSeenByCurrentUser = newSeenBy.some(s => s.userId === currentUserId);
                             const isSeenByOthers = newSeenBy.some(s => s.userId !== currentUserId);
+                            
+                            const newIsSeen = msg.user._id === currentUserId ? isSeenByOthers : isSeenByCurrentUser;
+                            
+                            if (newIsSeen && !msg.isSeen && msg.user._id === currentUserId) {
+                                console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (bulk):', msg._id, 'seenBy:', newSeenBy.map(s => s.userName));
+                            }
 
                             return { 
                                 ...msg, 
                                 seenBy: newSeenBy,
                                 // Update top-level isSeen based on who the message is for
-                                isSeen: msg.user._id === currentUserId ? isSeenByOthers : isSeenByCurrentUser
+                                isSeen: newIsSeen
                             };
                         }
                         return msg;
@@ -1855,28 +1969,47 @@ const GroupChatScreen: React.FC = () => {
                     const newMessages = prevMessages.map(msg => {
                         if (msg._id === statusUpdate.message_id) {
                             const deliveredChanged = msg.isDelivered !== statusUpdate.is_delivered;
-                            const seenChanged = msg.isSeen !== statusUpdate.is_seen;
-                            if (deliveredChanged || seenChanged) {
+                            // Always update if there's a seen status change, regardless of the current isSeen value
+                            const hasSeenUpdate = statusUpdate.is_seen && statusUpdate.seen_at;
+                            if (deliveredChanged || hasSeenUpdate) {
                                 needsUpdate = true;
                                 let seenByArray = [...(msg.seenBy || [])];
                                 if (statusUpdate.is_seen && statusUpdate.seen_at) {
-                                    const existingSeenIndex = seenByArray.findIndex(s => s.userId === statusUpdate.user_id);
-                                    const seenEntry = {
-                                        userId: statusUpdate.user_id,
-                                        userName: 'Someone',
-                                        seenAt: new Date(statusUpdate.seen_at)
-                                    };
-                                    if (existingSeenIndex > -1) {
-                                        seenByArray[existingSeenIndex] = seenEntry;
-                                    } else {
-                                        seenByArray.push(seenEntry);
+                                    // Only add to seenBy if it's not the sender
+                                    if (statusUpdate.user_id !== msg.user._id) {
+                                        const existingSeenIndex = seenByArray.findIndex(s => s.userId === statusUpdate.user_id);
+                                        const seenEntry = {
+                                            userId: statusUpdate.user_id,
+                                            userName: userProfileCache[statusUpdate.user_id]?.name || 'Someone',
+                                            seenAt: new Date(statusUpdate.seen_at)
+                                        };
+                                        if (existingSeenIndex > -1) {
+                                            seenByArray[existingSeenIndex] = seenEntry;
+                                        } else {
+                                            seenByArray.push(seenEntry);
+                                        }
                                     }
                                 }
+                                
+                                                                    // Update isSeen logic: for sender's messages, isSeen is true if others have seen it
+                                    // For received messages, isSeen is true if current user has seen it
+                                    let isSeen = msg.isSeen;
+                                    if (msg.user._id === currentUserId) {
+                                        // This is the sender's message - isSeen if others have seen it
+                                        isSeen = seenByArray.some(s => s.userId !== currentUserId);
+                                        if (isSeen && !msg.isSeen) {
+                                            console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (postgres):', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
+                                        }
+                                    } else {
+                                        // This is a received message - isSeen if current user has seen it
+                                        isSeen = seenByArray.some(s => s.userId === currentUserId);
+                                    }
+                                
                                 return {
                                     ...msg,
                                     isDelivered: statusUpdate.is_delivered,
                                     deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : msg.deliveredAt,
-                                    isSeen: statusUpdate.is_seen,
+                                    isSeen: isSeen,
                                     seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : msg.seenAt,
                                     seenBy: seenByArray
                                 };
@@ -1934,14 +2067,187 @@ const GroupChatScreen: React.FC = () => {
             }
         });
 
+        // Subscribe to database group message status updates
+        const handleGroupMessageStatusUpdate = (payload: any) => {
+            const statusUpdate = payload.new;
+            if (!statusUpdate || !statusUpdate.message_id) return;
+            
+            console.log('[GroupChatScreen] Database group message status update:', statusUpdate);
+            
+            // Only update if this status change is for a message in this group
+            setMessages(prevMessages => {
+                let needsUpdate = false;
+                const newMessages = prevMessages.map(msg => {
+                    if (msg._id === statusUpdate.message_id) {
+                        const deliveredChanged = msg.isDelivered !== statusUpdate.is_delivered;
+                        // Always update if there's a seen status change, regardless of the current isSeen value
+                        const hasSeenUpdate = statusUpdate.is_seen && statusUpdate.seen_at;
+                        if (deliveredChanged || hasSeenUpdate) {
+                            needsUpdate = true;
+                            let seenByArray = [...(msg.seenBy || [])];
+                            if (statusUpdate.is_seen && statusUpdate.seen_at) {
+                                // Only add to seenBy if it's not the sender
+                                if (statusUpdate.user_id !== msg.user._id) {
+                                    const existingIndex = seenByArray.findIndex(s => s.userId === statusUpdate.user_id);
+                                    const seenInfo = {
+                                        userId: statusUpdate.user_id,
+                                        userName: userProfileCache[statusUpdate.user_id]?.name || 'Someone',
+                                        seenAt: new Date(statusUpdate.seen_at)
+                                    };
+                                    if (existingIndex >= 0) {
+                                        seenByArray[existingIndex] = seenInfo;
+                                    } else {
+                                        seenByArray.push(seenInfo);
+                                    }
+                                }
+                            }
+                            
+                            // Update isSeen logic: for sender's messages, isSeen is true if others have seen it
+                            // For received messages, isSeen is true if current user has seen it
+                            let isSeen = msg.isSeen;
+                            if (msg.user._id === currentUserId) {
+                                // This is the sender's message - isSeen if others have seen it
+                                isSeen = seenByArray.some(s => s.userId !== currentUserId);
+                                if (isSeen && !msg.isSeen) {
+                                    console.log('[GroupChatScreen] ✅ Seen tick should now appear for message:', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
+                                }
+                            } else {
+                                // This is a received message - isSeen if current user has seen it
+                                isSeen = seenByArray.some(s => s.userId === currentUserId);
+                            }
+                            
+                            return {
+                                ...msg,
+                                isDelivered: statusUpdate.is_delivered,
+                                deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : msg.deliveredAt,
+                                isSeen: isSeen,
+                                seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : msg.seenAt,
+                                seenBy: seenByArray
+                            };
+                        }
+                    }
+                    return msg;
+                });
+                return needsUpdate ? newMessages : prevMessages;
+            });
+        };
+
+        // Subscribe to group_message_status table changes for real-time seen updates
+        console.log('[GroupChatScreen] Setting up group_message_status real-time subscription for group:', groupId);
+        const groupMessageStatusSubscription = supabase
+            .channel('group_message_status_changes')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'group_message_status',
+                },
+                async (payload) => {
+                    const statusUpdate = payload.new;
+                    if (!statusUpdate || !statusUpdate.message_id || statusUpdate.group_id !== groupId) return;
+                    
+                    console.log('[GroupChatScreen] Real-time group message status update:', statusUpdate);
+                    
+                    // Fetch the user profile if not in cache
+                    if (statusUpdate.user_id && !userProfileCache[statusUpdate.user_id]) {
+                        try {
+                            const { data: profileData, error: profileError } = await supabase
+                                .from('music_lover_profiles')
+                                .select('user_id, first_name, last_name, profile_picture')
+                                .eq('user_id', statusUpdate.user_id)
+                                .single();
+                            
+                            if (!profileError && profileData) {
+                                const displayName = `${profileData.first_name || ''} ${profileData.last_name || ''}`.trim() || 'User';
+                                userProfileCache[statusUpdate.user_id] = {
+                                    name: displayName,
+                                    avatar: profileData.profile_picture || undefined
+                                };
+                            }
+                        } catch (err) {
+                            console.warn('Error fetching profile for status update:', err);
+                        }
+                    }
+                    
+                    // Update messages state with the new seen status
+                    setMessages(prevMessages => {
+                        let needsUpdate = false;
+                        const newMessages = prevMessages.map(msg => {
+                            if (msg._id === statusUpdate.message_id) {
+                                const deliveredChanged = msg.isDelivered !== statusUpdate.is_delivered;
+                                // Always update if there's a seen status change, regardless of the current isSeen value
+                                const hasSeenUpdate = statusUpdate.is_seen && statusUpdate.seen_at;
+                                
+                                if (deliveredChanged || hasSeenUpdate) {
+                                    needsUpdate = true;
+                                    let seenByArray = [...(msg.seenBy || [])];
+                                    
+                                    if (statusUpdate.is_seen && statusUpdate.seen_at) {
+                                        // Add or update the user in seenBy array (excluding sender)
+                                        if (statusUpdate.user_id !== msg.user._id) {
+                                            const existingIndex = seenByArray.findIndex(s => s.userId === statusUpdate.user_id);
+                                            const seenInfo = {
+                                                userId: statusUpdate.user_id,
+                                                userName: userProfileCache[statusUpdate.user_id]?.name || 'Someone',
+                                                seenAt: new Date(statusUpdate.seen_at)
+                                            };
+                                            if (existingIndex >= 0) {
+                                                seenByArray[existingIndex] = seenInfo;
+                                            } else {
+                                                seenByArray.push(seenInfo);
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Update isSeen logic: for sender's messages, isSeen is true if others have seen it
+                                    // For received messages, isSeen is true if current user has seen it
+                                    let isSeen = msg.isSeen;
+                                    if (msg.user._id === currentUserId) {
+                                        // This is the sender's message - isSeen if others have seen it
+                                        isSeen = seenByArray.some(s => s.userId !== currentUserId);
+                                        if (isSeen && !msg.isSeen) {
+                                            console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (broadcast):', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
+                                        }
+                                    } else {
+                                        // This is a received message - isSeen if current user has seen it
+                                        isSeen = seenByArray.some(s => s.userId === currentUserId);
+                                    }
+                                    
+                                    return {
+                                        ...msg,
+                                        isDelivered: statusUpdate.is_delivered,
+                                        deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : msg.deliveredAt,
+                                        isSeen: isSeen,
+                                        seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : msg.seenAt,
+                                        seenBy: seenByArray
+                                    };
+                                }
+                            }
+                            return msg;
+                        });
+                        return needsUpdate ? newMessages : prevMessages;
+                    });
+                }
+            )
+            .subscribe((status) => {
+                console.log('[GroupChatScreen] group_message_status subscription status:', status);
+            });
+
+        subscribeToEvent('group_message_status_updated', handleGroupMessageStatusUpdate);
+
         return () => {
             unsubscribe();
+            unsubscribeFromEvent('group_message_status_updated', handleGroupMessageStatusUpdate);
+            if (groupMessageStatusSubscription) {
+                supabase.removeChannel(groupMessageStatusSubscription);
+            }
             if (typingTimeoutRef.current) {
                 typingTimeoutRef.current.forEach(timeout => clearTimeout(timeout));
                 typingTimeoutRef.current.clear();
             }
         };
-    }, [currentUserId, groupId, mapDbMessageToChatMessage, editingMessage, subscribeToGroupChat, sendBroadcast]);
+    }, [currentUserId, groupId, mapDbMessageToChatMessage, editingMessage, subscribeToGroupChat, sendBroadcast, subscribeToEvent, unsubscribeFromEvent, userProfileCache]);
 
     // Navigation and Header
     const navigateToGroupInfo = () => { if (!groupId || !currentGroupName) return; navigation.navigate('GroupInfoScreen', { groupId, groupName: currentGroupName ?? 'Group', groupImage: currentGroupImage ?? null }); };
@@ -2676,6 +2982,40 @@ const GroupChatScreen: React.FC = () => {
                     .single();
                 
                 if (insertError) throw insertError;
+                
+                // Create group message status entries for all group members (except sender)
+                const { data: groupMembersData, error: groupMembersError } = await supabase
+                    .from('group_chat_participants')
+                    .select('user_id')
+                    .eq('group_id', chatId);
+                
+                if (!groupMembersError && groupMembersData) {
+                    const membersToCreateStatusFor = groupMembersData
+                        .map(p => p.user_id)
+                        .filter(id => id !== currentUserId);
+                    
+                    if (membersToCreateStatusFor.length > 0) {
+                        try {
+                            const statusEntries = membersToCreateStatusFor.map(userId => ({
+                                message_id: insertedMessage.id,
+                                user_id: userId,
+                                group_id: chatId,
+                                is_delivered: false,
+                                is_seen: false
+                            }));
+
+                            const { error: statusError } = await supabase
+                                .from('group_message_status')
+                                .insert(statusEntries);
+
+                            if (statusError) {
+                                console.warn('Failed to create group message status entries for forwarded message:', statusError);
+                            }
+                        } catch (statusErr) {
+                            console.warn('Exception creating group message status entries for forwarded message:', statusErr);
+                        }
+                    }
+                }
             }
             
             // Close the forward modal first
@@ -2795,7 +3135,7 @@ const GroupChatScreen: React.FC = () => {
                     sections={sections}
                     style={styles.messageList}
                     contentContainerStyle={styles.messageListContent}
-                    keyExtractor={(item) => item._id}
+                    keyExtractor={(item) => `${item._id}-${item.isSeen ? 'seen' : 'unseen'}`}
                     renderItem={({ item }) => (
                         <GroupMessageBubble
                             message={item}

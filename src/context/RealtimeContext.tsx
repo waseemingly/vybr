@@ -289,6 +289,40 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 }
         );
 
+        // Subscribe to message status updates (for seen/delivered status)
+        notificationChannel.on(
+            'postgres_changes',
+            {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'message_status',
+            },
+            (payload) => {
+                console.log('[RealtimeContext] Message status updated:', payload);
+                const eventName = 'message_status_updated';
+                if (listenersRef.current[eventName]) {
+                    listenersRef.current[eventName].forEach(callback => callback(payload));
+                }
+            }
+        );
+
+        // Subscribe to group message status updates (for seen/delivered status)
+        notificationChannel.on(
+            'postgres_changes',
+            {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'group_message_status',
+            },
+            (payload) => {
+                console.log('[RealtimeContext] Group message status updated:', payload);
+                const eventName = 'group_message_status_updated';
+                if (listenersRef.current[eventName]) {
+                    listenersRef.current[eventName].forEach(callback => callback(payload));
+                }
+            }
+        );
+
         // Subscribe to channels with error handling
         Promise.all([
             mainChannel.subscribe(async (status) => {
