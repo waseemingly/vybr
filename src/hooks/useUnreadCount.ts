@@ -18,14 +18,29 @@ export const useUnreadCount = () => {
     }
 
     try {
-      const { data, error } = await supabase.rpc('get_total_unread_count');
-      
-      if (error) {
-        console.error('Error fetching unread count:', error);
-        setUnreadCount(0);
-      } else {
-        setUnreadCount(data || 0);
+      // Call both individual and group chat functions to get complete unread count
+      const [individualResult, groupResult] = await Promise.all([
+        supabase.rpc('get_chat_list_with_unread'),
+        supabase.rpc('get_group_chat_list_with_unread')
+      ]);
+
+      if (individualResult.error) {
+        console.error('Error fetching individual chat unread count:', individualResult.error);
       }
+
+      if (groupResult.error) {
+        console.error('Error fetching group chat unread count:', groupResult.error);
+      }
+
+      // Calculate total unread count by summing unread counts from both lists
+      const individualUnreadCount = individualResult.data?.reduce((sum: number, chat: any) => sum + (chat.unread_count || 0), 0) || 0;
+      const groupUnreadCount = groupResult.data?.reduce((sum: number, chat: any) => sum + (chat.unread_count || 0), 0) || 0;
+      
+      const totalUnreadCount = individualUnreadCount + groupUnreadCount;
+      
+      console.log(`useUnreadCount: Individual unread: ${individualUnreadCount}, Group unread: ${groupUnreadCount}, Total: ${totalUnreadCount}`);
+      
+      setUnreadCount(totalUnreadCount);
     } catch (error) {
       console.error('Exception fetching unread count:', error);
       setUnreadCount(0);

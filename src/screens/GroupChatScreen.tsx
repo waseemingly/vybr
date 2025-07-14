@@ -259,10 +259,15 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     
     // Debug: Log when isSeen changes for sender's messages
     useEffect(() => {
-        if (isCurrentUser && message.isSeen) {
-            console.log('[GroupMessageBubble] ✅ Rendering seen tick for message:', message._id, 'isSeen:', message.isSeen);
+        if (isCurrentUser) {
+            console.log('[GroupMessageBubble] Message seen status:', {
+                messageId: message._id,
+                isSeen: message.isSeen,
+                seenByCount: message.seenBy?.length || 0,
+                seenByUsers: message.seenBy?.map(s => s.userName) || []
+            });
         }
-    }, [message.isSeen, isCurrentUser, message._id]);
+    }, [message.isSeen, message.seenBy, isCurrentUser, message._id]);
 
     // Log impression for shared events when message bubble comes into view
     useEffect(() => {
@@ -359,8 +364,8 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
 
     const repliedMessagePreview = message.replyToMessageId ? getRepliedMessagePreview(message.replyToMessageId) : null;
 
-    // Determine the text for the seen status (exclude current user from count)
-    const seenByCount = message.seenBy?.filter(s => s.userId !== currentUserId).length || 0;
+    // Determine the text for the seen status (exclude sender from count)
+    const seenByCount = message.seenBy?.filter(s => s.userId !== message.user._id).length || 0;
     const seenByText = seenByCount > 0 ? `Seen by ${seenByCount}` : null;
 
     // Shared Event Message
@@ -618,7 +623,7 @@ const GroupChatScreen: React.FC = () => {
     const navigation = useNavigation<GroupChatScreenNavigationProp>();
     const { session } = useAuth();
     const { refreshUnreadCount } = useUnreadCount();
-    const { subscribeToGroupChat, sendGroupTypingIndicator, sendBroadcast, subscribeToEvent, unsubscribeFromEvent } = useRealtime();
+    const { presenceState, subscribeToGroupChat, sendGroupTypingIndicator, sendBroadcast, subscribeToEvent, unsubscribeFromEvent } = useRealtime();
     const currentUserId = session?.user?.id;
     const { groupId, sharedEventData: initialSharedEventData } = route.params;
 
@@ -682,6 +687,10 @@ const GroupChatScreen: React.FC = () => {
     const [isScrollingToMessage, setIsScrollingToMessage] = useState(false);
     const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     // --- End State for scroll management ---
+
+    // --- State for Real-time Features ---
+    const [onlineMembers, setOnlineMembers] = useState<Set<string>>(new Set());
+    // --- End State for Real-time Features ---
 
     // --- Event Press Handler (similar to IndividualChatScreen) ---
     const handleEventPressInternal = async (eventId: string) => {
@@ -1063,12 +1072,12 @@ const GroupChatScreen: React.FC = () => {
 
                     // For messages sent by the current user, isSeen is true if anyone else has seen it.
                     if (chatMsg.user._id === currentUserId) {
-                        chatMsg.isSeen = (chatMsg.seenBy || []).some(s => s.userId !== currentUserId);
+                        chatMsg.isSeen = (chatMsg.seenBy || []).length > 0; // If anyone else has seen it
                     } else {
                         // For messages received by the current user, isSeen is true if they have seen it.
-                        const currentUserStatus = (chatMsg.seenBy || []).find(s => s.userId === currentUserId);
+                        const currentUserStatus = allStatuses.find((s: any) => s.user_id === currentUserId && s.is_seen);
                         chatMsg.isSeen = !!currentUserStatus;
-                        chatMsg.seenAt = currentUserStatus ? currentUserStatus.seenAt : null;
+                        chatMsg.seenAt = currentUserStatus ? new Date(currentUserStatus.seen_at) : null;
                     }
 
                     return chatMsg;
@@ -1190,6 +1199,7 @@ const GroupChatScreen: React.FC = () => {
                 }
             }
 
+            // Send broadcast for typing indicators and other real-time features
             sendBroadcast('group', groupId, 'message', insertedData);
 
             setMessages(prevMessages => prevMessages.map(msg =>
@@ -1241,6 +1251,20 @@ const GroupChatScreen: React.FC = () => {
         const senderName = userProfileCache[currentUserId]?.name || 'You';
         sendGroupTypingIndicator(groupId, true, senderName);
     }, [currentUserId, groupId, sendGroupTypingIndicator, userProfileCache]);
+
+    // Enhanced typing indicator with individual user tracking
+    const handleTextInputChange = useCallback((text: string) => {
+        setInputText(text);
+
+        // Broadcast typing event using RealtimeContext
+        if (text.trim() && currentUserId && groupId) {
+            broadcastTyping();
+        } else if (!text.trim() && currentUserId && groupId) {
+            // Stop typing when input is empty
+            const senderName = userProfileCache[currentUserId]?.name || 'You';
+            sendGroupTypingIndicator(groupId, false, senderName);
+        }
+    }, [currentUserId, groupId, broadcastTyping, sendGroupTypingIndicator, userProfileCache]);
 
     const shareEventToGroupViaRpc = useCallback(async (eventDataToShare: typeof initialSharedEventData) => {
         if (!currentUserId || !groupId || !eventDataToShare || isUploading) return;
@@ -1363,6 +1387,7 @@ const GroupChatScreen: React.FC = () => {
                 }
             }
 
+            // Send broadcast for typing indicators and other real-time features
             sendBroadcast('group', groupId, 'message', insertedMessage);
 
             // Log event impression
@@ -1432,20 +1457,7 @@ const GroupChatScreen: React.FC = () => {
         }
     };
 
-    // --- Typing Handler ---
-    const handleTextInputChange = useCallback((text: string) => {
-        setInputText(text);
 
-        // Broadcast typing event using RealtimeContext
-        if (text.trim() && currentUserId && groupId) {
-            broadcastTyping();
-        } else if (!text.trim() && currentUserId && groupId) {
-            // Stop typing when input is empty
-            const senderName = userProfileCache[currentUserId]?.name || 'You';
-            sendGroupTypingIndicator(groupId, false, senderName);
-        }
-    }, [currentUserId, groupId, broadcastTyping, sendGroupTypingIndicator, userProfileCache]);
-    // --- End Typing Handler ---
 
     //Pick and Send Image
     const pickAndSendImage = async () => {
@@ -1628,6 +1640,7 @@ const GroupChatScreen: React.FC = () => {
                 }
             }
 
+            // Send broadcast for typing indicators and other real-time features
             sendBroadcast('group', groupId, 'message', insertedData);
 
             // Update the message with the final data
@@ -1699,9 +1712,15 @@ const GroupChatScreen: React.FC = () => {
     const markMessagesAsSeen = useCallback(async () => {
         if (!currentUserId || !groupId || messages.length === 0) return;
 
-        const unseenMessagesFromOthers = messages.filter(
-            msg => msg.user._id !== currentUserId && !msg.isSeen && !msg.isSystemMessage
-        );
+        // Find messages from others that haven't been marked as seen by the current user
+        const unseenMessagesFromOthers = messages.filter(msg => {
+            // Skip system messages and our own messages
+            if (msg.isSystemMessage || msg.user._id === currentUserId) return false;
+            
+            // Check if current user has seen this message by looking at seenBy array
+            const hasCurrentUserSeen = msg.seenBy?.some(seen => seen.userId === currentUserId);
+            return !hasCurrentUserSeen;
+        });
 
         if (unseenMessagesFromOthers.length === 0) return;
 
@@ -1710,44 +1729,88 @@ const GroupChatScreen: React.FC = () => {
         try {
             const messageIdsToMark = unseenMessagesFromOthers.map(msg => msg._id);
             if (messageIdsToMark.length > 0) {
-                const { error } = await supabase.rpc('mark_all_group_messages_seen', {
+                // Try the bulk mark function first
+                const { error: bulkError } = await supabase.rpc('mark_all_group_messages_seen', {
                     group_id_input: groupId,
                     user_id_input: currentUserId
                 });
 
-                if (error) {
-                    console.error('Error marking all group messages as seen:', error.message);
+                if (bulkError) {
+                    console.error('Bulk mark failed, trying individual marks:', bulkError.message);
+                    
+                    // Fallback: mark messages individually
+                    for (const messageId of messageIdsToMark) {
+                        try {
+                            const { error: individualError } = await supabase.rpc('mark_group_message_seen', {
+                                message_id_input: messageId,
+                                user_id_input: currentUserId
+                            });
+                            
+                            if (individualError) {
+                                console.error(`Error marking individual message ${messageId} as seen:`, individualError.message);
+                            } else {
+                                console.log(`Successfully marked message ${messageId} as seen`);
+                            }
+                        } catch (individualErr: any) {
+                            console.error(`Exception marking individual message ${messageId} as seen:`, individualErr.message);
+                        }
+                    }
                 } else {
-                    console.log('[GroupChatScreen] Successfully marked group messages as seen, broadcasting status update');
-                    sendBroadcast('group', groupId, 'message_status', { 
-                        message_ids: messageIdsToMark, 
-                        seen_by: { userId: currentUserId, userName: userProfileCache[currentUserId]?.name || 'Someone' }
-                    });
-                    refreshUnreadCount();
+                    console.log('[GroupChatScreen] Successfully marked group messages as seen via bulk operation');
                 }
+                
+                // Always broadcast the status update to ensure real-time updates
+                sendBroadcast('group', groupId, 'message_status', { 
+                    message_ids: messageIdsToMark, 
+                    seen_by: { userId: currentUserId, userName: userProfileCache[currentUserId]?.name || 'Someone' }
+                });
+                refreshUnreadCount();
             }
         } catch (e: any) {
             console.error('Exception marking group messages as seen:', e.message);
         }
     }, [currentUserId, groupId, messages, refreshUnreadCount, sendBroadcast]);
 
-    // Call markMessagesAsSeen when the screen focuses and when new messages arrive from others
+    // Call markMessagesAsSeen when the screen focuses
     useFocusEffect(
         useCallback(() => {
-            markMessagesAsSeen();
+            // Small delay to ensure screen is fully loaded and messages are rendered
+            const timer = setTimeout(() => {
+                markMessagesAsSeen();
+            }, 200);
+            return () => clearTimeout(timer);
         }, [markMessagesAsSeen])
     );
+    
+    // Mark messages as seen when new messages arrive while screen is focused
+    // Use a ref to track if we're currently marking messages to prevent infinite loops
+    const isMarkingMessagesRef = useRef(false);
+    
     useEffect(() => {
-        // Also mark as seen if new messages arrive while screen is focused
-        markMessagesAsSeen();
-    }, [messages, markMessagesAsSeen]);
+        // Only mark as seen if we're not already in the process and there are messages
+        if (!isMarkingMessagesRef.current && messages.length > 0) {
+            isMarkingMessagesRef.current = true;
+            
+            // Use a small delay to batch multiple message arrivals
+            const timer = setTimeout(() => {
+                markMessagesAsSeen().finally(() => {
+                    isMarkingMessagesRef.current = false;
+                });
+            }, 100);
+            
+            return () => clearTimeout(timer);
+        }
+    }, [messages.length, markMessagesAsSeen]); // Only depend on messages.length, not the entire messages array
 
     // Mark messages as seen immediately when component mounts (for notification navigation)
     useEffect(() => {
         if (currentUserId && groupId && messages.length > 0) {
-            markMessagesAsSeen();
+            const timer = setTimeout(() => {
+                markMessagesAsSeen();
+            }, 300); // Slightly longer delay for initial load
+            return () => clearTimeout(timer);
         }
-    }, [currentUserId, groupId, markMessagesAsSeen]);
+    }, [currentUserId, groupId, messages.length, markMessagesAsSeen]);
 
     // Real-time Subscription Setup using RealtimeContext
     useEffect(() => {
@@ -1756,6 +1819,232 @@ const GroupChatScreen: React.FC = () => {
         }
 
         console.log(`[GroupChatScreen] Setting up realtime subscription for group: ${groupId}`);
+        
+        // Subscribe to direct database changes for new messages
+        const groupMessageSubscription = supabase
+            .channel('group_messages_direct')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'group_chat_messages',
+                    filter: `group_id=eq.${groupId}`
+                },
+                async (payload) => {
+                    const newMessageDb = payload.new as DbGroupMessage;
+                    console.log('[GroupChatScreen] New message received via direct DB subscription:', newMessageDb.id, 'from:', newMessageDb.sender_id);
+                    
+                    // Skip if it's our own message (we already have it optimistically)
+                    if (newMessageDb.sender_id === currentUserId) {
+                        return;
+                    }
+                    
+                    if (newMessageDb.sender_id !== currentUserId) {
+                        try {
+                            console.log('[GroupChatScreen] Marking new message as delivered and seen');
+                            await supabase.rpc('mark_group_message_delivered', { message_id_input: newMessageDb.id, user_id_input: currentUserId });
+                            const { error } = await supabase.rpc('mark_group_message_seen', { message_id_input: newMessageDb.id, user_id_input: currentUserId });
+                            if (!error) {
+                                console.log('[GroupChatScreen] Successfully marked message as seen, broadcasting status update');
+                                // Send broadcast to notify other group members about seen status
+                                sendBroadcast('group', groupId, 'message_status', {
+                                    message_id: newMessageDb.id,
+                                    is_seen: true,
+                                    seen_at: new Date().toISOString(),
+                                    user_id: currentUserId,
+                                    user_name: userProfileCache[currentUserId]?.name || 'Someone'
+                                });
+                                
+                                // Also update the message locally to show seen status immediately
+                                setMessages(prevMessages => {
+                                    return prevMessages.map(msg => {
+                                        if (msg._id === newMessageDb.id) {
+                                            const seenByArray = [...(msg.seenBy || [])];
+                                            const seenInfo = {
+                                                userId: currentUserId,
+                                                userName: userProfileCache[currentUserId]?.name || 'Someone',
+                                                seenAt: new Date()
+                                            };
+                                            seenByArray.push(seenInfo);
+                                            
+                                            return {
+                                                ...msg,
+                                                isSeen: true,
+                                                seenAt: new Date(),
+                                                seenBy: seenByArray
+                                            };
+                                        }
+                                        return msg;
+                                    });
+                                });
+                            } else {
+                                console.error('[GroupChatScreen] Error marking message as seen:', error);
+                            }
+                        } catch (e) { console.error('Exception marking group message status:', e); }
+                    }
+                    
+                    try {
+                        const { data: hiddenCheck, error: hiddenError } = await supabase
+                            .from('user_hidden_messages')
+                            .select('message_id')
+                            .eq('user_id', currentUserId)
+                            .eq('message_id', newMessageDb.id)
+                            .maybeSingle();
+                        if (hiddenError) {
+                            console.warn("Error checking if message is hidden:", hiddenError.message);
+                        } else if (hiddenCheck) {
+                            return;
+                        }
+                    } catch (hiddenCheckErr) {
+                        console.warn("Exception checking hidden message status:", hiddenCheckErr);
+                    }
+                    
+                    const rtProfilesMap = new Map<string, UserProfileInfo>();
+                    if (newMessageDb.sender_id && !userProfileCache[newMessageDb.sender_id]) {
+                        try {
+                            const { data: p, error } = await supabase
+                                .from('music_lover_profiles')
+                                .select('user_id, first_name, last_name, profile_picture')
+                                .eq('user_id', newMessageDb.sender_id)
+                                .single();
+                            if (error) throw error;
+                            if (p) {
+                                const name = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
+                                const avatar = p.profile_picture || undefined;
+                                userProfileCache[p.user_id] = { name, avatar };
+                                rtProfilesMap.set(p.user_id, p);
+                            }
+                        } catch (err) { console.warn("On-the-fly profile fetch failed:", err) }
+                    }
+                    
+                    const receivedMessage = mapDbMessageToChatMessage(newMessageDb, rtProfilesMap);
+                    if (receivedMessage.replyToMessageId) {
+                        try {
+                            const repliedMsg = await fetchMessageById(receivedMessage.replyToMessageId);
+                            if (repliedMsg) {
+                                receivedMessage.replyToMessagePreview = {
+                                    text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                    senderName: repliedMsg.user.name,
+                                    image: repliedMsg.image
+                                };
+                            }
+                        } catch (replyErr) {
+                            console.warn("Error fetching reply preview:", replyErr);
+                        }
+                    }
+                    
+                    setMessages(prevMessages => {
+                        if (prevMessages.some(msg => msg._id === receivedMessage._id)) {
+                            return prevMessages;
+                        }
+                        if (receivedMessage.user._id !== currentUserId) {
+                            receivedMessage.isSeen = true;
+                            receivedMessage.seenAt = new Date();
+                        }
+                        const optimisticIdPattern = `temp_`;
+                        const optimisticIndex = prevMessages.findIndex(m => 
+                            m._id.startsWith(optimisticIdPattern) && 
+                            (m.text === receivedMessage.text || (m.image && receivedMessage.image)) &&
+                            m.replyToMessageId === receivedMessage.replyToMessageId
+                        );
+                        if (optimisticIndex !== -1) {
+                            const newMessages = [...prevMessages];
+                            newMessages[optimisticIndex] = receivedMessage;
+                            return newMessages;
+                        }
+                        return [...prevMessages, receivedMessage];
+                    });
+                }
+            )
+            .subscribe((status) => {
+                console.log('[GroupChatScreen] Direct DB subscription status:', status);
+            });
+
+        // Subscribe to message updates (edits, deletes)
+        const groupMessageUpdateSubscription = supabase
+            .channel('group_messages_update')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'group_chat_messages',
+                    filter: `group_id=eq.${groupId}`
+                },
+                async (payload) => {
+                    const updatedMessageDb = payload.new as DbGroupMessage;
+                    console.log('[GroupChatScreen] Message update received via direct DB subscription:', updatedMessageDb.id);
+                    
+                    try {
+                        const { data: hiddenCheck, error: hiddenError } = await supabase
+                            .from('user_hidden_messages')
+                            .select('message_id')
+                            .eq('user_id', currentUserId)
+                            .eq('message_id', updatedMessageDb.id)
+                            .maybeSingle();
+                        if (hiddenError) {
+                            console.warn("Error checking if updated message is hidden:", hiddenError.message);
+                        } else if (hiddenCheck && !updatedMessageDb.is_deleted) {
+                            return;
+                        }
+                    } catch (hiddenCheckErr) {
+                        console.warn("Exception checking hidden status for updated message:", hiddenCheckErr);
+                    }
+                    
+                    const rtProfilesMap = new Map<string, UserProfileInfo>();
+                    if (updatedMessageDb.sender_id && !userProfileCache[updatedMessageDb.sender_id]) {
+                        try {
+                            const { data: p, error: profileError } = await supabase
+                                .from('music_lover_profiles')
+                                .select('user_id, first_name, last_name, profile_picture')
+                                .eq('user_id', updatedMessageDb.sender_id)
+                                .single();
+                            if (profileError) throw profileError;
+                            if (p) {
+                                const name = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'User';
+                                const avatar = p.profile_picture || undefined;
+                                userProfileCache[p.user_id] = { name, avatar };
+                                rtProfilesMap.set(p.user_id, p);
+                            }
+                        } catch (err) { console.warn(`[RT-UPDATE] Profile fetch err:`, err); }
+                    }
+                    
+                    const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb, rtProfilesMap);
+                    if (updatedMessageUi.replyToMessageId) {
+                        try {
+                            const repliedMsg = await fetchMessageById(updatedMessageUi.replyToMessageId);
+                            if (repliedMsg) {
+                                updatedMessageUi.replyToMessagePreview = {
+                                    text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                    senderName: repliedMsg.user.name,
+                                    image: repliedMsg.image
+                                };
+                            }
+                        } catch (replyErr) {
+                            console.warn("Error fetching reply preview for updated message:", replyErr);
+                        }
+                    }
+                    
+                    setMessages(prev => prev.map(msg => {
+                        if (msg._id === updatedMessageUi._id) {
+                            updatedMessageUi.seenBy = msg.seenBy;
+                            updatedMessageUi.isSeen = msg.isSeen;
+                            updatedMessageUi.seenAt = msg.seenAt;
+                            return updatedMessageUi;
+                        }
+                        return msg;
+                    }));
+                    
+                    if (editingMessage && editingMessage._id === updatedMessageUi._id) {
+                        setEditingMessage(null);
+                        setEditText("");
+                    }
+                }
+            )
+            .subscribe((status) => {
+                console.log('[GroupChatScreen] Message update subscription status:', status);
+            });
         
         const unsubscribe = subscribeToGroupChat(groupId, {
             onMessage: async (payload: any) => {
@@ -1775,6 +2064,29 @@ const GroupChatScreen: React.FC = () => {
                                 seen_at: new Date().toISOString(),
                                 user_id: currentUserId,
                                 user_name: userProfileCache[currentUserId]?.name || 'Someone'
+                            });
+                            
+                            // Also update the message locally to show seen status immediately
+                            setMessages(prevMessages => {
+                                return prevMessages.map(msg => {
+                                    if (msg._id === newMessageDb.id) {
+                                        const seenByArray = [...(msg.seenBy || [])];
+                                        const seenInfo = {
+                                            userId: currentUserId,
+                                            userName: userProfileCache[currentUserId]?.name || 'Someone',
+                                            seenAt: new Date()
+                                        };
+                                        seenByArray.push(seenInfo);
+                                        
+                                        return {
+                                            ...msg,
+                                            isSeen: true,
+                                            seenAt: new Date(),
+                                            seenBy: seenByArray
+                                        };
+                                    }
+                                    return msg;
+                                });
                             });
                         } else {
                             console.error('[GroupChatScreen] Error marking message as seen:', error);
@@ -1942,9 +2254,8 @@ const GroupChatScreen: React.FC = () => {
                                 });
                             }
                             const isSeenByCurrentUser = newSeenBy.some(s => s.userId === currentUserId);
-                            const isSeenByOthers = newSeenBy.some(s => s.userId !== currentUserId);
                             
-                            const newIsSeen = msg.user._id === currentUserId ? isSeenByOthers : isSeenByCurrentUser;
+                            const newIsSeen = msg.user._id === currentUserId ? newSeenBy.length > 0 : isSeenByCurrentUser;
                             
                             if (newIsSeen && !msg.isSeen && msg.user._id === currentUserId) {
                                 console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (bulk):', msg._id, 'seenBy:', newSeenBy.map(s => s.userName));
@@ -1991,19 +2302,19 @@ const GroupChatScreen: React.FC = () => {
                                     }
                                 }
                                 
-                                                                    // Update isSeen logic: for sender's messages, isSeen is true if others have seen it
-                                    // For received messages, isSeen is true if current user has seen it
-                                    let isSeen = msg.isSeen;
-                                    if (msg.user._id === currentUserId) {
-                                        // This is the sender's message - isSeen if others have seen it
-                                        isSeen = seenByArray.some(s => s.userId !== currentUserId);
-                                        if (isSeen && !msg.isSeen) {
-                                            console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (postgres):', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
-                                        }
-                                    } else {
-                                        // This is a received message - isSeen if current user has seen it
-                                        isSeen = seenByArray.some(s => s.userId === currentUserId);
-                                    }
+                                                                                                // Update isSeen logic: for sender's messages, isSeen is true if others have seen it
+                            // For received messages, isSeen is true if current user has seen it
+                            let isSeen = msg.isSeen;
+                            if (msg.user._id === currentUserId) {
+                                // This is the sender's message - isSeen if others have seen it
+                                isSeen = seenByArray.some(s => s.userId !== currentUserId); // If anyone else has seen it
+                                if (isSeen && !msg.isSeen) {
+                                    console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (postgres):', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
+                                }
+                            } else {
+                                // This is a received message - isSeen if current user has seen it
+                                isSeen = seenByArray.some(s => s.userId === currentUserId);
+                            }
                                 
                                 return {
                                     ...msg,
@@ -2109,7 +2420,7 @@ const GroupChatScreen: React.FC = () => {
                                 // This is the sender's message - isSeen if others have seen it
                                 isSeen = seenByArray.some(s => s.userId !== currentUserId);
                                 if (isSeen && !msg.isSeen) {
-                                    console.log('[GroupChatScreen] ✅ Seen tick should now appear for message:', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
+                                    console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (database):', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
                                 }
                             } else {
                                 // This is a received message - isSeen if current user has seen it
@@ -2205,7 +2516,7 @@ const GroupChatScreen: React.FC = () => {
                                     let isSeen = msg.isSeen;
                                     if (msg.user._id === currentUserId) {
                                         // This is the sender's message - isSeen if others have seen it
-                                        isSeen = seenByArray.some(s => s.userId !== currentUserId);
+                                        isSeen = seenByArray.some(s => s.userId !== currentUserId); // If anyone else has seen it
                                         if (isSeen && !msg.isSeen) {
                                             console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (broadcast):', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
                                         }
@@ -2242,6 +2553,12 @@ const GroupChatScreen: React.FC = () => {
             if (groupMessageStatusSubscription) {
                 supabase.removeChannel(groupMessageStatusSubscription);
             }
+            if (groupMessageSubscription) {
+                supabase.removeChannel(groupMessageSubscription);
+            }
+            if (groupMessageUpdateSubscription) {
+                supabase.removeChannel(groupMessageUpdateSubscription);
+            }
             if (typingTimeoutRef.current) {
                 typingTimeoutRef.current.forEach(timeout => clearTimeout(timeout));
                 typingTimeoutRef.current.clear();
@@ -2251,7 +2568,71 @@ const GroupChatScreen: React.FC = () => {
 
     // Navigation and Header
     const navigateToGroupInfo = () => { if (!groupId || !currentGroupName) return; navigation.navigate('GroupInfoScreen', { groupId, groupName: currentGroupName ?? 'Group', groupImage: currentGroupImage ?? null }); };
-    useEffect(() => { const canAdd = isCurrentUserAdmin || canMembersAddOthers; const canEdit = isCurrentUserAdmin || canMembersEditInfo; const headerColor = APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'; const disabledColor = APP_CONSTANTS?.COLORS?.DISABLED || '#D1D5DB'; navigation.setOptions({ headerTitleAlign: 'center', headerTitle: () => (<TouchableOpacity style={styles.headerTitleContainer} onPress={navigateToGroupInfo} activeOpacity={0.8}><Image source={{ uri: currentGroupImage ?? DEFAULT_GROUP_PIC }} style={styles.headerGroupImage} /><View style={styles.headerTextContainer}><Text style={styles.headerTitleText} numberOfLines={1}>{currentGroupName}</Text></View></TouchableOpacity>), headerRight: () => (<View style={styles.headerButtons}><TouchableOpacity onPress={() => { if (canAdd) navigation.navigate('AddGroupMembersScreen', { groupId, groupName: currentGroupName }); else Alert.alert("Denied", "Admin only"); }} style={styles.headerButton} disabled={!canAdd}><Feather name="user-plus" size={22} color={canAdd ? headerColor : disabledColor} /></TouchableOpacity><TouchableOpacity onPress={() => { if (canEdit) { setEditingName(currentGroupName ?? ''); setIsEditModalVisible(true); } else Alert.alert("Denied", "Admin only"); }} style={styles.headerButton} disabled={!canEdit}><Feather name="edit-2" size={22} color={canEdit ? headerColor : disabledColor} /></TouchableOpacity></View>), headerBackTitleVisible: false, headerShown: true }); }, [navigation, currentGroupName, currentGroupImage, groupId, isCurrentUserAdmin, canMembersAddOthers, canMembersEditInfo]);
+    useEffect(() => { 
+        const canAdd = isCurrentUserAdmin || canMembersAddOthers; 
+        const canEdit = isCurrentUserAdmin || canMembersEditInfo; 
+        const headerColor = APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'; 
+        const disabledColor = APP_CONSTANTS?.COLORS?.DISABLED || '#D1D5DB'; 
+        
+        // Calculate online member count
+        const onlineCount = onlineMembers.size;
+        const totalMembers = groupMembers.size;
+        
+        // Ensure we have a proper group name
+        const displayGroupName = currentGroupName || route.params.groupName || 'Group Chat';
+        
+        navigation.setOptions({ 
+            headerTitleAlign: 'center', 
+            headerTitle: () => (
+                <TouchableOpacity style={styles.headerTitleContainer} onPress={navigateToGroupInfo} activeOpacity={0.8}>
+                    <View style={styles.headerImageContainer}>
+                        <Image source={{ uri: currentGroupImage ?? route.params.groupImage ?? DEFAULT_GROUP_PIC }} style={styles.headerGroupImage} />
+                        {onlineCount > 0 && (
+                            <View style={styles.onlineIndicator}>
+                                <Text style={styles.onlineIndicatorText}>{onlineCount}</Text>
+                            </View>
+                        )}
+                    </View>
+                    <View style={styles.headerTextContainer}>
+                        <Text style={styles.headerTitleText} numberOfLines={1}>{displayGroupName}</Text>
+                        {totalMembers > 0 && (
+                            <Text style={styles.headerSubtitleText}>
+                                {onlineCount > 0 ? `${onlineCount} online` : `${totalMembers} members`}
+                            </Text>
+                        )}
+                    </View>
+                </TouchableOpacity>
+            ), 
+            headerRight: () => (
+                <View style={styles.headerButtons}>
+                    <TouchableOpacity 
+                        onPress={() => { 
+                            if (canAdd) navigation.navigate('AddGroupMembersScreen', { groupId, groupName: displayGroupName }); 
+                            else Alert.alert("Denied", "Admin only"); 
+                        }} 
+                        style={styles.headerButton} 
+                        disabled={!canAdd}
+                    >
+                        <Feather name="user-plus" size={22} color={canAdd ? headerColor : disabledColor} />
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                        onPress={() => { 
+                            if (canEdit) { 
+                                setEditingName(displayGroupName); 
+                                setIsEditModalVisible(true); 
+                            } else Alert.alert("Denied", "Admin only"); 
+                        }} 
+                        style={styles.headerButton} 
+                        disabled={!canEdit}
+                    >
+                        <Feather name="edit-2" size={22} color={canEdit ? headerColor : disabledColor} />
+                    </TouchableOpacity>
+                </View>
+            ), 
+            headerBackTitleVisible: false, 
+            headerShown: true 
+        }); 
+    }, [navigation, currentGroupName, currentGroupImage, groupId, isCurrentUserAdmin, canMembersAddOthers, canMembersEditInfo, onlineMembers, groupMembers, route.params.groupName, route.params.groupImage]);
 
     // Modal and Actions
     const handleUpdateName = async () => { const n = editingName.trim(); if (!n || n === currentGroupName || isUpdatingName || !groupId) { setIsEditModalVisible(false); return; } setIsUpdatingName(true); try { const { error } = await supabase.rpc('rename_group_chat', { group_id_input: groupId, new_group_name: n }); if (error) throw error; sendBroadcast('group', groupId, 'group_update', { type: 'rename', name: n, updated_by: currentUserId }); setIsEditModalVisible(false); } catch (e: any) { Alert.alert("Error", `Update fail: ${e.message}`); } finally { setIsUpdatingName(false); } };
@@ -2260,6 +2641,16 @@ const GroupChatScreen: React.FC = () => {
 
     // Effects
     useFocusEffect(useCallback(() => { fetchInitialData(); return () => { }; }, [fetchInitialData]));
+
+    // Ensure group name is set properly when entering via notification
+    useEffect(() => {
+        if (route.params.groupName && !currentGroupName) {
+            setCurrentGroupName(route.params.groupName);
+        }
+        if (route.params.groupImage && !currentGroupImage) {
+            setCurrentGroupImage(route.params.groupImage);
+        }
+    }, [route.params.groupName, route.params.groupImage, currentGroupName, currentGroupImage]);
 
     // Handle shared event data
     useEffect(() => {
@@ -2270,6 +2661,25 @@ const GroupChatScreen: React.FC = () => {
             navigation.setParams({ sharedEventData: { ...initialSharedEventData, isSharing: false } });
         }
     }, [initialSharedEventData, navigation]);
+
+
+
+    // --- Online Presence Tracking ---
+    useEffect(() => {
+        if (!currentUserId || !groupId) return;
+        
+        // Get online status for all group members
+        const memberIds = Array.from(groupMembers.keys());
+        const onlineStatus = new Set<string>();
+        
+        memberIds.forEach(memberId => {
+            if (presenceState[memberId] && presenceState[memberId].length > 0) {
+                onlineStatus.add(memberId);
+            }
+        });
+        
+        setOnlineMembers(onlineStatus);
+    }, [presenceState, groupMembers, currentUserId, groupId]);
 
     // --- Cleanup on unmount ---
     useEffect(() => {
@@ -2432,52 +2842,54 @@ const GroupChatScreen: React.FC = () => {
         setLoadingMessageInfo(true);
         setMessageInfoVisible(true);
         try {
-            // Get group member count and message status information
-            const [memberCountResult, statusResult] = await Promise.all([
-                // Get total group member count
-                supabase
-                    .from('group_chat_participants')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('group_id', groupId),
-
-                // Get message status for all members
-                supabase
-                    .from('group_message_status')
-                    .select('user_id, is_seen, seen_at, is_delivered, delivered_at')
-                    .eq('message_id', selectedMessageForAction._id)
-            ]);
+            // Get group member count
+            const memberCountResult = await supabase
+                .from('group_chat_participants')
+                .select('*', { count: 'exact', head: true })
+                .eq('group_id', groupId);
 
             if (memberCountResult.error) {
                 throw memberCountResult.error;
             }
 
-            if (statusResult.error) {
-                throw statusResult.error;
-            }
-
             const totalMembers = memberCountResult.count || 0;
-            const statusData = statusResult.data || [];
 
-            // Count delivered and seen
-            const deliveredCount = statusData.filter(s => s.is_delivered).length;
-            const seenCount = statusData.filter(s => s.is_seen).length;
+            // Use the current message's seenBy data from state (which is updated in real-time)
+            const currentMessage = messages.find(msg => msg._id === selectedMessageForAction._id);
+            const seenByData = currentMessage?.seenBy || [];
+            
+            console.log('[GroupChatScreen] Message info - current message:', {
+                messageId: selectedMessageForAction._id,
+                isSeen: currentMessage?.isSeen,
+                seenByCount: seenByData.length,
+                seenByData: seenByData.map(s => ({ userId: s.userId, userName: s.userName }))
+            });
+            
+            // Convert seenBy data to the format expected by the modal
+            const seenUsers = seenByData.map(s => ({
+                user_id: s.userId,
+                name: s.userName,
+                seen_at: s.seenAt.toISOString()
+            }));
 
-            // Get seen details for display, now with names
-            const seenUsers = statusData
-                .filter(s => s.is_seen && s.seen_at)
-                .map(s => ({
-                    user_id: s.user_id,
-                    name: groupMembers.get(s.user_id)?.name || 'User',
-                    seen_at: s.seen_at
-                }));
+            // Find the senderId
+            const senderId = selectedMessageForAction.user._id;
+            // Exclude sender from group members
+            const totalMembersExcludingSender = Array.from(groupMembers.keys()).filter(id => id !== senderId).length;
+            // Exclude sender from seen users
+            const seenUsersExcludingSender = (selectedMessageForAction.seenBy || []).filter(s => s.userId !== senderId).map(s => ({
+                user_id: s.userId,
+                name: s.userName,
+                seen_at: s.seenAt.toISOString()
+            }));
 
             setMessageInfoData({
                 message_id: selectedMessageForAction._id,
                 sent_at: selectedMessageForAction.createdAt.toISOString(),
-                total_members: totalMembers,
-                delivered_count: deliveredCount,
-                seen_count: seenCount,
-                seen_users: seenUsers
+                total_members: totalMembersExcludingSender,
+                delivered_count: totalMembersExcludingSender, // All members except sender
+                seen_count: seenUsersExcludingSender.length,
+                seen_users: seenUsersExcludingSender
             });
         } catch (err: any) {
             console.error("Error fetching group message info:", err);
@@ -2508,6 +2920,31 @@ const GroupChatScreen: React.FC = () => {
         }
         return null;
     };
+
+    // Refresh message info data when messages update (for live timestamp updates)
+    useEffect(() => {
+        if (messageInfoVisible && messageInfoData && messages.length > 0) {
+            const currentMessage = messages.find(msg => msg._id === messageInfoData.message_id);
+            if (currentMessage) {
+                const senderId = currentMessage.user._id;
+                const seenUsersExcludingSender = (currentMessage.seenBy || []).filter(s => s.userId !== senderId).map(s => ({
+                    user_id: s.userId,
+                    name: s.userName,
+                    seen_at: s.seenAt.toISOString()
+                }));
+                setMessageInfoData((prev: any) => ({
+                    ...prev,
+                    seen_count: seenUsersExcludingSender.length,
+                    seen_users: seenUsersExcludingSender
+                }));
+                console.log('[GroupChatScreen] Updated message info in real-time:', {
+                    messageId: currentMessage._id,
+                    seenCount: seenUsersExcludingSender.length,
+                    seenUsers: seenUsersExcludingSender.map(u => u.name)
+                });
+            }
+        }
+    }, [messages, messageInfoVisible, messageInfoData]);
 
     // Helper to fetch a single message by ID (e.g., for reply previews if not in current `messages` state)
     const fetchMessageById = async (messageId: string): Promise<ChatMessage | null> => {
@@ -3130,12 +3567,14 @@ const GroupChatScreen: React.FC = () => {
                     </View>
                 )}
 
+
+
                 <SectionList
                     ref={flatListRef}
                     sections={sections}
                     style={styles.messageList}
                     contentContainerStyle={styles.messageListContent}
-                    keyExtractor={(item) => `${item._id}-${item.isSeen ? 'seen' : 'unseen'}`}
+                    keyExtractor={(item) => `${item._id}-${item.isSeen ? 'seen' : 'unseen'}-${item.seenBy?.length || 0}`}
                     renderItem={({ item }) => (
                         <GroupMessageBubble
                             message={item}
@@ -3356,7 +3795,7 @@ const GroupChatScreen: React.FC = () => {
                                 <View style={{ marginTop: 16 }}>
                                     <Text style={styles.messageInfoSectionTitle}>Seen by:</Text>
                                     {messageInfoData.seen_users.map((seenUser: any, index: number) => (
-                                        <Text key={index} style={styles.messageInfoDetailText}>
+                                        <Text key={`${seenUser.user_id}-${seenUser.seen_at}`} style={styles.messageInfoDetailText}>
                                             • {seenUser.name} at {formatTime(new Date(seenUser.seen_at))}
                                         </Text>
                                     ))}
@@ -4412,6 +4851,35 @@ const styles = StyleSheet.create({
         color: '#4B5563',
         fontSize: 16,
         fontWeight: '600',
+    },
+
+    // Online presence styles
+    headerImageContainer: {
+        position: 'relative',
+        marginRight: 10,
+    },
+    onlineIndicator: {
+        position: 'absolute',
+        bottom: -2,
+        right: -2,
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+        backgroundColor: '#22C55E',
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    onlineIndicatorText: {
+        color: '#FFFFFF',
+        fontSize: 10,
+        fontWeight: 'bold',
+    },
+    headerSubtitleText: {
+        fontSize: 11,
+        color: '#6B7280',
+        marginTop: 2,
     },
 });
 
