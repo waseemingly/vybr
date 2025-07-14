@@ -239,6 +239,17 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
     const isCurrentUser = message.user._id === currentUserId;
     const [imageError, setImageError] = useState(false);
     const [hasLoggedImpression, setHasLoggedImpression] = useState(false);
+    
+    // Debug: Log when isSeen changes for sender's messages
+    useEffect(() => {
+        if (isCurrentUser) {
+            console.log('[MessageBubble] Message seen status:', {
+                messageId: message._id,
+                isSeen: message.isSeen,
+                seenAt: message.seenAt
+            });
+        }
+    }, [message.isSeen, message.seenAt, isCurrentUser, message._id]);
     const navigation = useNavigation<RootNavigationProp>();
 
     // Log impression for shared events when message bubble comes into view
@@ -594,6 +605,10 @@ const IndividualChatScreen: React.FC = () => {
     const [isUserScrolling, setIsUserScrolling] = useState(false);
     const [isNearBottom, setIsNearBottom] = useState(true);
     const [isScrollingToMessage, setIsScrollingToMessage] = useState(false);
+    const [showScrollToBottomFAB, setShowScrollToBottomFAB] = useState(false);
+    const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
+    const [earliestUnreadMessageId, setEarliestUnreadMessageId] = useState<string | null>(null);
+    const [hasScrolledToUnread, setHasScrolledToUnread] = useState(false);
     const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     // --- End State for scroll management ---
@@ -1406,6 +1421,197 @@ const IndividualChatScreen: React.FC = () => {
 
         console.log(`[IndividualChatScreen] Setting up realtime subscription for ${matchUserId}`);
         
+        // Subscribe to direct database changes for new messages (similar to GroupChatScreen)
+        const individualMessageSubscription = supabase
+            .channel('individual_messages_direct')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'messages',
+                    filter: `or(and(sender_id.eq.${currentUserId},receiver_id.eq.${matchUserId}),and(sender_id.eq.${matchUserId},receiver_id.eq.${currentUserId}))`
+                },
+                async (payload) => {
+                    const newMessageDb = payload.new as DbMessage;
+                    console.log('[IndividualChatScreen] New message received via direct DB subscription:', newMessageDb.id, 'from:', newMessageDb.sender_id);
+                    
+                    // Skip if it's our own message (we already have it optimistically)
+                    if (newMessageDb.sender_id === currentUserId) {
+                        return;
+                    }
+                    
+                    // Skip if it's our own message (we already have it optimistically)
+                    if (newMessageDb.sender_id === currentUserId) {
+                        return;
+                    }
+                    
+                    // If the message is from the other user, mark it as seen immediately
+                    if (newMessageDb.sender_id === matchUserId) {
+                        try {
+                            const { error } = await supabase.rpc('mark_message_seen', { message_id_input: newMessageDb.id });
+                            if (error) {
+                                console.error(`Error marking message ${newMessageDb.id} as seen via RPC:`, error.message);
+                            } else {
+                                // Send broadcast to notify sender about seen status
+                                sendBroadcast('individual', matchUserId, 'message_status', {
+                                    message_id: newMessageDb.id,
+                                    is_seen: true,
+                                    seen_at: new Date().toISOString(),
+                                    user_id: currentUserId
+                                });
+                                
+                                // Also update the message locally to show seen status immediately
+                                setMessages(prevMessages => {
+                                    return prevMessages.map(msg => {
+                                        if (msg._id === newMessageDb.id) {
+                                            return {
+                                                ...msg,
+                                                isSeen: true,
+                                                seenAt: new Date()
+                                            };
+                                        }
+                                        return msg;
+                                    });
+                                });
+                            }
+                        } catch (e: any) {
+                            console.error(`Exception marking message ${newMessageDb.id} as seen:`, e.message);
+                        }
+                    }
+
+                    // Check if message is hidden for current user
+                    try {
+                        const { data: hiddenCheck, error: hiddenError } = await supabase
+                            .from('user_hidden_messages')
+                            .select('message_id')
+                            .eq('user_id', currentUserId)
+                            .eq('message_id', newMessageDb.id)
+                            .maybeSingle();
+                        
+                        if (hiddenError) {
+                            console.warn("Error checking if message is hidden:", hiddenError.message);
+                        } else if (hiddenCheck) {
+                            console.log("Message is hidden for current user, skipping");
+                            return; // Skip if hidden
+                        }
+                    } catch (hiddenCheckErr) {
+                        console.warn("Exception checking hidden message status:", hiddenCheckErr);
+                    }
+
+                    const receivedMessage = mapDbMessageToChatMessage(newMessageDb);
+                    
+                    // Add reply preview if it exists
+                    if (receivedMessage.replyToMessageId) {
+                        try {
+                            const repliedMsg = messages.find(m => m._id === receivedMessage.replyToMessageId) || await fetchMessageById(receivedMessage.replyToMessageId);
+                            if (repliedMsg) {
+                                receivedMessage.replyToMessagePreview = {
+                                    text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                    senderName: repliedMsg.user._id === currentUserId ? musicLoverProfile?.firstName || 'You' : dynamicMatchName,
+                                    image: repliedMsg.image
+                                };
+                            }
+                        } catch (replyErr) {
+                            console.warn("Error fetching reply preview:", replyErr);
+                        }
+                    }
+
+                    setMessages(prevMessages => {
+                        // Prevent duplicate messages
+                        if (prevMessages.some(msg => msg._id === receivedMessage._id)) {
+                            return prevMessages;
+                        }
+                        
+                        // Optimistically update seen status in the UI
+                        if (receivedMessage.user._id === matchUserId) {
+                            receivedMessage.isSeen = true;
+                            receivedMessage.seenAt = new Date();
+                        }
+
+                        // Replace temp message or add new message
+                        const existingMsgIndex = prevMessages.findIndex(msg => msg._id.startsWith('temp_') && msg.text === receivedMessage.text && msg.replyToMessageId === receivedMessage.replyToMessageId);
+                        if (existingMsgIndex !== -1) {
+                            const newMessages = [...prevMessages];
+                            newMessages[existingMsgIndex] = receivedMessage;
+                            checkMutualInitiation(newMessages); // Check mutual initiation with the new state
+                            return newMessages;
+                        }
+                        
+                        const finalMessages = [...prevMessages, receivedMessage];
+                        checkMutualInitiation(finalMessages); // Check mutual initiation with the new state
+                        return finalMessages;
+                    });
+                }
+            )
+            .subscribe((status) => {
+                console.log('[IndividualChatScreen] Direct DB subscription status:', status);
+            });
+
+        // Subscribe to message updates (edits, deletes)
+        const individualMessageUpdateSubscription = supabase
+            .channel('individual_messages_update')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'messages',
+                    filter: `or(and(sender_id.eq.${currentUserId},receiver_id.eq.${matchUserId}),and(sender_id.eq.${matchUserId},receiver_id.eq.${currentUserId}))`
+                },
+                async (payload) => {
+                    const updatedMessageDb = payload.new as DbMessage;
+                    console.log('[IndividualChatScreen] Message update received via direct DB subscription:', updatedMessageDb.id);
+                    
+                    // Check if message update is relevant (e.g., not hidden, unless it's a delete for everyone)
+                    try {
+                        const { data: hiddenCheck, error: hiddenError } = await supabase
+                            .from('user_hidden_messages')
+                            .select('message_id')
+                            .eq('user_id', currentUserId)
+                            .eq('message_id', updatedMessageDb.id)
+                            .maybeSingle();
+                        
+                        if (hiddenError) {
+                            console.warn("Error checking if updated message is hidden:", hiddenError.message);
+                        } else if (hiddenCheck && !updatedMessageDb.is_deleted) {
+                            console.log("Updated message is hidden for current user, skipping unless delete");
+                            return;
+                        }
+                    } catch (hiddenCheckErr) {
+                        console.warn("Exception checking hidden status for updated message:", hiddenCheckErr);
+                    }
+
+                    const updatedMessageUi = mapDbMessageToChatMessage(updatedMessageDb);
+                    
+                    // Add reply preview if it exists
+                    if (updatedMessageUi.replyToMessageId) {
+                        try {
+                            const repliedMsg = messages.find(m => m._id === updatedMessageUi.replyToMessageId) || await fetchMessageById(updatedMessageUi.replyToMessageId);
+                            if (repliedMsg) {
+                                updatedMessageUi.replyToMessagePreview = {
+                                    text: repliedMsg.image ? '[Image]' : repliedMsg.text,
+                                    senderName: repliedMsg.user._id === currentUserId ? musicLoverProfile?.firstName || 'You' : dynamicMatchName,
+                                    image: repliedMsg.image
+                                };
+                            }
+                        } catch (replyErr) {
+                            console.warn("Error fetching reply preview for updated message:", replyErr);
+                        }
+                    }
+
+                    setMessages(prev => prev.map(msg => {
+                        if (msg._id === updatedMessageUi._id) {
+                            return { ...msg, ...updatedMessageUi };
+                        }
+                        return msg;
+                    }));
+                }
+            )
+            .subscribe((status) => {
+                console.log('[IndividualChatScreen] Message update subscription status:', status);
+            });
+        
         const unsubscribe = subscribeToIndividualChat(matchUserId, {
             onMessage: async (payload: any) => {
                 if (isBlocked) {
@@ -1571,6 +1777,7 @@ const IndividualChatScreen: React.FC = () => {
                 if (statusUpdate.message_ids && Array.isArray(statusUpdate.message_ids) && statusUpdate.seen_by !== currentUserId) {
                     setMessages(prev => prev.map(msg => {
                         if (msg.user._id === currentUserId && statusUpdate.message_ids.includes(msg._id)) {
+                            console.log('[IndividualChatScreen] ✅ Seen tick should now appear for message (bulk):', msg._id);
                             return { ...msg, isSeen: true, seenAt: new Date() };
                         }
                         return msg;
@@ -1591,6 +1798,12 @@ const IndividualChatScreen: React.FC = () => {
                             
                             if (deliveredChanged || seenChanged) {
                                 needsUpdate = true;
+                                
+                                // Add debug logging for seen status changes
+                                if (seenChanged && statusUpdate.is_seen && msg.user._id === currentUserId) {
+                                    console.log('[IndividualChatScreen] ✅ Seen tick should now appear for message (broadcast):', msg._id);
+                                }
+                                
                                 return {
                                     ...msg,
                                     isDelivered: statusUpdate.is_delivered,
@@ -1632,6 +1845,12 @@ const IndividualChatScreen: React.FC = () => {
                         
                         if (deliveredChanged || seenChanged) {
                             needsUpdate = true;
+                            
+                            // Add debug logging for seen status changes
+                            if (seenChanged && statusUpdate.is_seen && msg.user._id === currentUserId) {
+                                console.log('[IndividualChatScreen] ✅ Seen tick should now appear for message (database):', msg._id);
+                            }
+                            
                             return {
                                 ...msg,
                                 isDelivered: statusUpdate.is_delivered,
@@ -1674,6 +1893,12 @@ const IndividualChatScreen: React.FC = () => {
                                 
                                 if (deliveredChanged || seenChanged) {
                                     needsUpdate = true;
+                                    
+                                    // Add debug logging for seen status changes
+                                    if (seenChanged && statusUpdate.is_seen && msg.user._id === currentUserId) {
+                                        console.log('[IndividualChatScreen] ✅ Seen tick should now appear for message:', msg._id);
+                                    }
+                                    
                                     return {
                                         ...msg,
                                         isDelivered: statusUpdate.is_delivered,
@@ -1699,6 +1924,8 @@ const IndividualChatScreen: React.FC = () => {
             unsubscribe();
             unsubscribeFromEvent('message_status_updated', handleMessageStatusUpdate);
             messageStatusSubscription.unsubscribe();
+            individualMessageSubscription.unsubscribe();
+            individualMessageUpdateSubscription.unsubscribe();
         };
     }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage, checkMutualInitiation, messages, musicLoverProfile?.firstName, dynamicMatchName, sendBroadcast, subscribeToIndividualChat, subscribeToEvent, unsubscribeFromEvent]);
 
@@ -1798,6 +2025,74 @@ const IndividualChatScreen: React.FC = () => {
         }
     }, [isUserScrolling, isScrollingToMessage, isNearBottom, sections.length, messages.length]);
 
+    // --- Scroll to Bottom FAB Handler ---
+    const handleScrollToBottom = useCallback(() => {
+        if (flatListRef.current && sections.length > 0 && messages.length > 0) {
+            try {
+                const sectionListRef = flatListRef.current as any;
+                sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: true });
+                setShowScrollToBottomFAB(false);
+            } catch (error) {
+                console.warn('Scroll to bottom failed:', error);
+            }
+        }
+    }, [sections.length, messages.length]);
+
+    // --- Find and Scroll to Earliest Unread Message ---
+    const findAndScrollToEarliestUnread = useCallback(() => {
+        if (!currentUserId || !matchUserId || hasScrolledToUnread) {
+            console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: Early return', { currentUserId, matchUserId, hasScrolledToUnread });
+            return;
+        }
+
+        console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: Starting search for unread messages');
+        
+        // Find the earliest unread message from the partner
+        const unreadMessages = messages.filter(msg => 
+            msg.user._id === matchUserId && !msg.isSeen
+        );
+
+        console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: Found unread messages', unreadMessages.length);
+
+        if (unreadMessages.length === 0) {
+            // No unread messages, scroll to bottom
+            console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: No unread messages, scrolling to bottom');
+            handleAutoScrollToBottom();
+            setHasScrolledToUnread(true);
+            return;
+        }
+
+        // Find the earliest unread message
+        const earliestUnread = unreadMessages.reduce((earliest, current) => 
+            current.createdAt < earliest.createdAt ? current : earliest
+        );
+
+        console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: Scrolling to earliest unread message', earliestUnread._id);
+        
+        setEarliestUnreadMessageId(earliestUnread._id);
+        setHasUnreadMessages(true);
+        setHasScrolledToUnread(true);
+
+        // Scroll to the earliest unread message
+        handleScrollToMessage(earliestUnread._id);
+    }, [currentUserId, matchUserId, messages, hasScrolledToUnread, handleScrollToMessage, handleAutoScrollToBottom]);
+
+    // Handle scroll to unread messages when messages are loaded and seen status is updated
+    useEffect(() => {
+        console.log('[IndividualChatScreen] useEffect for scroll to unread:', { messagesLength: messages.length, loading, hasScrolledToUnread });
+        if (messages.length > 0 && !loading && !hasScrolledToUnread) {
+            // Wait for seen status to be properly updated before determining unread messages
+            const timer = setTimeout(() => {
+                // Double-check that we haven't already scrolled to unread
+                if (!hasScrolledToUnread) {
+                    console.log('[IndividualChatScreen] Triggering findAndScrollToEarliestUnread after delay');
+                    findAndScrollToEarliestUnread();
+                }
+            }, 500); // Increased delay to ensure seen status is updated
+            return () => clearTimeout(timer);
+        }
+    }, [messages.length, loading, hasScrolledToUnread, findAndScrollToEarliestUnread]);
+
     // --- Scroll Event Handlers ---
     const handleScrollBeginDrag = useCallback(() => {
         setIsUserScrolling(true);
@@ -1818,7 +2113,10 @@ const IndividualChatScreen: React.FC = () => {
         const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
         const isAtBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 100; // 100px threshold
         setIsNearBottom(isAtBottom);
-    }, [isScrollingToMessage]);
+        
+        // Show/hide scroll to bottom FAB based on position
+        setShowScrollToBottomFAB(!isAtBottom && messages.length > 0);
+    }, [isScrollingToMessage, messages.length]);
     // --- End Scroll Event Handlers ---
 
     // Add image viewer handlers
@@ -2380,54 +2678,64 @@ const IndividualChatScreen: React.FC = () => {
     useFocusEffect(
         useCallback(() => {
             console.log('[IndividualChatScreen] Screen focused, checking and updating seen status');
-            
-            // First check and update seen status for messages loaded from database
             const checkTimer = setTimeout(() => {
-                checkAndUpdateSeenStatus();
+                if (hasScrolledToUnread) checkAndUpdateSeenStatus();
             }, 100);
-            
-            // Then mark any remaining unseen messages as seen
             const markTimer = setTimeout(() => {
-                markMessagesAsSeen();
+                if (hasScrolledToUnread) markMessagesAsSeen();
             }, 300);
-            
             return () => {
                 clearTimeout(checkTimer);
                 clearTimeout(markTimer);
             };
-        }, [checkAndUpdateSeenStatus, markMessagesAsSeen])
+        }, [checkAndUpdateSeenStatus, markMessagesAsSeen, hasScrolledToUnread])
     );
 
     // Also mark as seen when new messages arrive while screen is focused
     useEffect(() => {
-        // Only trigger if we have messages and they're from the partner
         const hasNewMessagesFromPartner = messages.some(msg => 
             msg.user._id === matchUserId && !msg.isSeen
         );
-        
-        if (hasNewMessagesFromPartner) {
-            const timer = setTimeout(() => {
-                markMessagesAsSeen();
-            }, 100);
-            return () => clearTimeout(timer);
+        if (hasNewMessagesFromPartner && hasScrolledToUnread) {
+            markMessagesAsSeen();
         }
-    }, [messages.length, markMessagesAsSeen, matchUserId]); // Only depend on messages.length and matchUserId
+    }, [messages.length, markMessagesAsSeen, matchUserId, hasScrolledToUnread]);
 
     // Mark messages as seen immediately when component mounts (for notification navigation)
     useEffect(() => {
-        if (currentUserId && matchUserId && messages.length > 0) {
+        if (currentUserId && matchUserId && messages.length > 0 && hasScrolledToUnread) {
             const timer = setTimeout(() => {
                 checkAndUpdateSeenStatus();
                 markMessagesAsSeen();
             }, 200);
             return () => clearTimeout(timer);
         }
-    }, [currentUserId, matchUserId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen]);
+    }, [currentUserId, matchUserId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen, hasScrolledToUnread]);
+
+    // Reset unread state when all messages are seen
+    useEffect(() => {
+        if (messages.length > 0) {
+            const hasUnseenMessages = messages.some(msg => 
+                msg.user._id === matchUserId && !msg.isSeen
+            );
+            
+            if (!hasUnseenMessages && hasUnreadMessages) {
+                setHasUnreadMessages(false);
+                setEarliestUnreadMessageId(null);
+            }
+            
+            // If we haven't scrolled to unread yet and there are no unseen messages, scroll to bottom
+            if (!hasScrolledToUnread && !hasUnseenMessages) {
+                setHasScrolledToUnread(true);
+                handleAutoScrollToBottom();
+            }
+        }
+    }, [messages, matchUserId, hasUnreadMessages, hasScrolledToUnread, handleAutoScrollToBottom]);
 
     // Handle app state changes (when app comes back from background)
     useEffect(() => {
         const handleAppStateChange = (nextAppState: string) => {
-            if (nextAppState === 'active' && currentUserId && matchUserId && messages.length > 0) {
+            if (nextAppState === 'active' && currentUserId && matchUserId && messages.length > 0 && hasScrolledToUnread) {
                 console.log('[IndividualChatScreen] App became active, checking seen status');
                 // Small delay to ensure the app is fully active
                 setTimeout(() => {
@@ -2439,7 +2747,7 @@ const IndividualChatScreen: React.FC = () => {
 
         const subscription = AppState.addEventListener('change', handleAppStateChange);
         return () => subscription?.remove();
-    }, [currentUserId, matchUserId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen]);
+    }, [currentUserId, matchUserId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen, hasScrolledToUnread]);
 
     // --- Render Logic ---
     if (loading && messages.length === 0 && !isBlocked) {
@@ -2926,9 +3234,17 @@ const IndividualChatScreen: React.FC = () => {
                             isHighlighted={item._id === highlightedMessageId}
                         />
                     )}
-                    renderSectionHeader={({ section: { title } }) => (
+                    renderSectionHeader={({ section: { title, data } }) => (
                         <View style={styles.sectionHeader}>
                             <Text style={styles.sectionHeaderText}>{title}</Text>
+                            {/* New Messages Divider */}
+                            {hasUnreadMessages && data.some((msg: ChatMessage) => msg._id === earliestUnreadMessageId) && (
+                                <View style={styles.newMessagesDivider}>
+                                    <View style={styles.newMessagesDividerLine} />
+                                    <Text style={styles.newMessagesDividerText}>New Messages</Text>
+                                    <View style={styles.newMessagesDividerLine} />
+                                </View>
+                            )}
                         </View>
                     )}
                     onContentSizeChange={handleAutoScrollToBottom}
@@ -2942,6 +3258,17 @@ const IndividualChatScreen: React.FC = () => {
                     onScrollEndDrag={handleScrollEndDrag}
                     onScroll={handleScroll}
                 />
+
+                {/* Scroll to Bottom FAB */}
+                {showScrollToBottomFAB && (
+                    <TouchableOpacity
+                        style={styles.scrollToBottomFAB}
+                        onPress={handleScrollToBottom}
+                        activeOpacity={0.8}
+                    >
+                        <Feather name="chevron-down" size={24} color="#FFFFFF" />
+                    </TouchableOpacity>
+                )}
 
                 {/* Replying To Preview */} 
                 {replyingToMessage && (
@@ -4070,6 +4397,45 @@ const styles = StyleSheet.create({
         color: '#4B5563',
         fontSize: 16,
         fontWeight: '600',
+    },
+    // New Messages Divider styles
+    newMessagesDivider: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 8,
+        marginBottom: 4,
+    },
+    newMessagesDividerLine: {
+        flex: 1,
+        height: 1,
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        opacity: 0.6,
+    },
+    newMessagesDividerText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        marginHorizontal: 8,
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    // Scroll to Bottom FAB styles
+    scrollToBottomFAB: {
+        position: 'absolute',
+        bottom: 100,
+        right: 20,
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+        elevation: 5,
+        zIndex: 1000,
     },
 });
 
