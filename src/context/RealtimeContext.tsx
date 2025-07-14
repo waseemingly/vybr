@@ -73,14 +73,14 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const updateUserStatus = async (userId: string, isOnline: boolean) => {
         // Add a guard to prevent calling the function with an invalid userId
         if (!userId || typeof userId !== 'string' || userId.trim() === '') {
-            console.warn(`[RealtimeContext] updateUserStatus called with invalid userId: ${userId}. Aborting.`);
+            // console.warn(`[RealtimeContext] updateUserStatus called with invalid userId: ${userId}. Aborting.`);
             return;
         }
         
         // Additional validation to ensure userId is a valid UUID format
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
         if (!uuidRegex.test(userId)) {
-            console.warn(`[RealtimeContext] updateUserStatus called with invalid UUID format: ${userId}. Aborting.`);
+            // console.warn(`[RealtimeContext] updateUserStatus called with invalid UUID format: ${userId}. Aborting.`);
             return;
         }
         
@@ -89,13 +89,13 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 body: { userId, isOnline },
             });
         } catch (error) {
-            console.error('Error updating user status:', error);
+            // console.error('Error updating user status:', error);
         }
     };
 
     // Enhanced cleanup function
     const cleanup = useCallback(() => {
-        console.log(`[RealtimeContext] Cleaning up ${channelsRef.current.length} main channels and ${chatChannelsRef.current.size} chat channels.`);
+        // console.log(`[RealtimeContext] Cleaning up ${channelsRef.current.length} main channels and ${chatChannelsRef.current.size} chat channels.`);
         
         // Clear reconnection timeouts
         if (reconnectTimeoutRef.current) {
@@ -115,7 +115,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             try {
                 supabase.removeChannel(ch);
             } catch (error) {
-                console.warn('[RealtimeContext] Error removing chat channel:', error);
+                // console.warn('[RealtimeContext] Error removing chat channel:', error);
             }
         });
         chatChannelsRef.current.clear();
@@ -125,7 +125,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             try {
                 supabase.removeChannel(ch);
             } catch (error) {
-                console.warn('[RealtimeContext] Error removing main channel:', error);
+                // console.warn('[RealtimeContext] Error removing main channel:', error);
             }
         });
         channelsRef.current = [];
@@ -139,18 +139,18 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Reconnection handler
     const handleChannelError = useCallback((channelName: string, channel: RealtimeChannel) => {
-        console.warn(`[RealtimeContext] Channel error detected for: ${channelName}`);
+        // console.warn(`[RealtimeContext] Channel error detected for: ${channelName}`);
         
         // Don't attempt reconnection if network is down
         if (!networkStateRef.current) {
-            console.log(`[RealtimeContext] Network is down, skipping reconnection for ${channelName}`);
+            // console.log(`[RealtimeContext] Network is down, skipping reconnection for ${channelName}`);
             return;
         }
         
         const currentAttempts = reconnectAttemptsRef.current.get(channelName) || 0;
         
         if (currentAttempts >= maxReconnectAttempts) {
-            console.error(`[RealtimeContext] Max reconnection attempts reached for ${channelName}. Giving up.`);
+            // console.error(`[RealtimeContext] Max reconnection attempts reached for ${channelName}. Giving up.`);
             reconnectAttemptsRef.current.delete(channelName);
             return;
         }
@@ -158,19 +158,19 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const nextAttempt = currentAttempts + 1;
         reconnectAttemptsRef.current.set(channelName, nextAttempt);
         
-        console.log(`[RealtimeContext] Attempting to reconnect ${channelName} (attempt ${nextAttempt}/${maxReconnectAttempts})`);
+        // console.log(`[RealtimeContext] Attempting to reconnect ${channelName} (attempt ${nextAttempt}/${maxReconnectAttempts})`);
         
         // Remove the failed channel
         try {
             supabase.removeChannel(channel);
         } catch (error) {
-            console.warn(`[RealtimeContext] Error removing failed channel ${channelName}:`, error);
+            // console.warn(`[RealtimeContext] Error removing failed channel ${channelName}:`, error);
         }
         
         // Schedule reconnection
         const delay = reconnectDelay * Math.pow(2, currentAttempts); // Exponential backoff
         reconnectTimeoutRef.current = setTimeout(() => {
-            console.log(`[RealtimeContext] Reconnecting ${channelName} after ${delay}ms delay`);
+            // console.log(`[RealtimeContext] Reconnecting ${channelName} after ${delay}ms delay`);
             
             // Recreate the channel based on its type
             if (channelName === 'user_presence') {
@@ -179,10 +179,10 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 setupMainChannels(); // This will recreate both channels
             } else if (channelName.startsWith('chat_')) {
                 // Individual chat channels are recreated when the component re-subscribes
-                console.log(`[RealtimeContext] Individual chat channel ${channelName} will be recreated on next subscription`);
+                // console.log(`[RealtimeContext] Individual chat channel ${channelName} will be recreated on next subscription`);
             } else if (channelName.startsWith('group_chat_')) {
                 // Group chat channels are recreated when the component re-subscribes
-                console.log(`[RealtimeContext] Group chat channel ${channelName} will be recreated on next subscription`);
+                // console.log(`[RealtimeContext] Group chat channel ${channelName} will be recreated on next subscription`);
             }
         }, delay);
     }, []);
@@ -190,19 +190,19 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Setup main channels with error handling
     const setupMainChannels = useCallback(() => {
         if (!session?.user?.id) {
-            console.log('[RealtimeContext] No session, skipping main channel setup');
+            // console.log('[RealtimeContext] No session, skipping main channel setup');
             return;
         }
         
         const userId = session.user.id;
-        console.log(`[RealtimeContext] Setting up main channels for user: ${userId}`);
+        // console.log(`[RealtimeContext] Setting up main channels for user: ${userId}`);
 
         // Clean up existing channels first
         channelsRef.current.forEach(ch => {
             try {
                 supabase.removeChannel(ch);
             } catch (error) {
-                console.warn('[RealtimeContext] Error removing existing channel:', error);
+                // console.warn('[RealtimeContext] Error removing existing channel:', error);
             }
         });
         channelsRef.current = [];
@@ -219,18 +219,18 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Handle presence sync
         mainChannel.on('presence', { event: 'sync' }, () => {
             const newPresenceState = mainChannel.presenceState();
-            console.log('[RealtimeContext] 📡 Presence synced, users online:', Object.keys(newPresenceState));
+            // console.log('[RealtimeContext] 📡 Presence synced, users online:', Object.keys(newPresenceState));
             setPresenceState(newPresenceState);
         });
 
         // Handle presence joins
         mainChannel.on('presence', { event: 'join' }, ({ key, newPresences }) => {
-            console.log('[RealtimeContext] 👋 User joined:', key, newPresences);
+            // console.log('[RealtimeContext] 👋 User joined:', key, newPresences);
         });
 
         // Handle presence leaves
         mainChannel.on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
-            console.log('[RealtimeContext] 👋 User left:', key, leftPresences);
+            // console.log('[RealtimeContext] 👋 User left:', key, leftPresences);
         });
 
         // Subscribe to message notifications
@@ -281,7 +281,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 filter: `user_id=eq.${userId}`
             },
                 (payload) => {
-                console.log('[RealtimeContext] Current user added to a group, notifying listeners.', payload);
+                // console.log('[RealtimeContext] Current user added to a group, notifying listeners.', payload);
                 const eventName = 'new_group_added_notification';
                      if (listenersRef.current[eventName]) {
                         listenersRef.current[eventName].forEach(callback => callback(payload));
@@ -298,7 +298,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 table: 'message_status',
             },
             (payload) => {
-                console.log('[RealtimeContext] Message status updated:', payload);
+                // console.log('[RealtimeContext] Message status updated:', payload);
                 const eventName = 'message_status_updated';
                 if (listenersRef.current[eventName]) {
                     listenersRef.current[eventName].forEach(callback => callback(payload));
@@ -315,7 +315,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 table: 'group_message_status',
             },
             (payload) => {
-                console.log('[RealtimeContext] Group message status updated:', payload);
+                // console.log('[RealtimeContext] Group message status updated:', payload);
                 const eventName = 'group_message_status_updated';
                 if (listenersRef.current[eventName]) {
                     listenersRef.current[eventName].forEach(callback => callback(payload));
@@ -326,9 +326,9 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Subscribe to channels with error handling
         Promise.all([
             mainChannel.subscribe(async (status) => {
-                console.log(`[RealtimeContext] Main channel subscription status: ${status}`);
+                // console.log(`[RealtimeContext] Main channel subscription status: ${status}`);
                 if (status === 'SUBSCRIBED') {
-                    console.log('[RealtimeContext] ✅ Successfully subscribed to main presence channel');
+                    // console.log('[RealtimeContext] ✅ Successfully subscribed to main presence channel');
                     setChannel(mainChannel);
                     
                     // Reset reconnection attempts on successful connection
@@ -340,26 +340,26 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                             user_id: userId,
                             online_at: new Date().toISOString(),
                         });
-                        console.log('[RealtimeContext] ✅ Initial presence tracked');
+                        // console.log('[RealtimeContext] ✅ Initial presence tracked');
                         
                         // Update database status
                         await updateUserStatus(userId, true);
                     } catch (error) {
-                        console.error('[RealtimeContext] ❌ Error tracking initial presence:', error);
+                        // console.error('[RealtimeContext] ❌ Error tracking initial presence:', error);
                     }
                 } else if (status === 'CHANNEL_ERROR') {
-                    console.error('[RealtimeContext] ❌ Main channel error');
+                    // console.error('[RealtimeContext] ❌ Main channel error');
                     handleChannelError('user_presence', mainChannel);
                 }
             }),
             notificationChannel.subscribe((status) => {
-                console.log(`[RealtimeContext] Notification channel subscription status: ${status}`);
+                // console.log(`[RealtimeContext] Notification channel subscription status: ${status}`);
                 if (status === 'SUBSCRIBED') {
-                    console.log('[RealtimeContext] ✅ Successfully subscribed to notification channel');
+                    // console.log('[RealtimeContext] ✅ Successfully subscribed to notification channel');
                     // Reset reconnection attempts on successful connection
                     reconnectAttemptsRef.current.delete(`notifications_for_${userId}`);
                 } else if (status === 'CHANNEL_ERROR') {
-                    console.error('[RealtimeContext] ❌ Notification channel error');
+                    // console.error('[RealtimeContext] ❌ Notification channel error');
                     handleChannelError(`notifications_for_${userId}`, notificationChannel);
                 }
             })
@@ -376,11 +376,11 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         networkStateRef.current = isConnected;
         setIsNetworkConnected(isConnected);
         
-        console.log(`[RealtimeContext] Network state changed: ${wasConnected} -> ${isConnected}`);
+        // console.log(`[RealtimeContext] Network state changed: ${wasConnected} -> ${isConnected}`);
         
         if (!wasConnected && isConnected) {
             // Network came back online, attempt to reconnect all channels
-            console.log('[RealtimeContext] Network restored, attempting to reconnect channels...');
+            // console.log('[RealtimeContext] Network restored, attempting to reconnect channels...');
             
             // Clear any existing reconnection timeouts
             if (reconnectTimeoutRef.current) {
@@ -400,7 +400,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
         } else if (wasConnected && !isConnected) {
             // Network went down, clear reconnection attempts
-            console.log('[RealtimeContext] Network lost, clearing reconnection attempts');
+            // console.log('[RealtimeContext] Network lost, clearing reconnection attempts');
             reconnectAttemptsRef.current.clear();
             
             if (reconnectTimeoutRef.current) {
@@ -412,30 +412,30 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const trackStatus = useCallback(async (status: object): Promise<string> => {
         if (!channel) {
-            console.warn('[RealtimeContext] No channel available for tracking status');
+            // console.warn('[RealtimeContext] No channel available for tracking status');
             return 'error';
         }
         try {
             const result = await channel.track(status);
-            console.log('[RealtimeContext] ✅ Status tracked successfully');
+            // console.log('[RealtimeContext] ✅ Status tracked successfully');
             return result;
         } catch (error) {
-            console.error('[RealtimeContext] ❌ Error tracking status:', error);
+            // console.error('[RealtimeContext] ❌ Error tracking status:', error);
             return 'error';
         }
     }, [channel]);
 
     const untrackStatus = useCallback(async (): Promise<string> => {
         if (!channel) {
-            console.warn('[RealtimeContext] No channel available for untracking status');
+            // console.warn('[RealtimeContext] No channel available for untracking status');
             return 'error';
         }
         try {
             const result = await channel.untrack();
-            console.log('[RealtimeContext] ✅ Status untracked successfully');
+            // console.log('[RealtimeContext] ✅ Status untracked successfully');
             return result;
         } catch (error) {
-            console.error('[RealtimeContext] ❌ Error untracking status:', error);
+            // console.error('[RealtimeContext] ❌ Error untracking status:', error);
             return 'error';
         }
     }, [channel]);
@@ -449,7 +449,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         onTypingStop?: () => void;
     }) => {
         if (!session?.user?.id) {
-            console.warn('[RealtimeContext] No user session for individual chat subscription');
+            // console.warn('[RealtimeContext] No user session for individual chat subscription');
             return () => {};
         }
 
@@ -457,11 +457,11 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         
         // Check if channel already exists
         if (chatChannelsRef.current.has(channelName)) {
-            console.log(`[RealtimeContext] Reusing existing individual chat channel: ${channelName}`);
+            // console.log(`[RealtimeContext] Reusing existing individual chat channel: ${channelName}`);
             return () => {};
         }
 
-        console.log(`[RealtimeContext] Creating individual chat channel: ${channelName}`);
+        // console.log(`[RealtimeContext] Creating individual chat channel: ${channelName}`);
         const chatChannel = supabase.channel(channelName);
 
         // Subscribe to new messages
@@ -517,13 +517,13 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
 
         chatChannel.subscribe((status) => {
-            console.log(`[RealtimeContext] Individual chat channel ${channelName} status:`, status);
+            // console.log(`[RealtimeContext] Individual chat channel ${channelName} status:`, status);
             if (status === 'SUBSCRIBED') {
-                console.log(`[RealtimeContext] ✅ Successfully subscribed to individual chat: ${channelName}`);
+                // console.log(`[RealtimeContext] ✅ Successfully subscribed to individual chat: ${channelName}`);
                 // Reset reconnection attempts on successful connection
                 reconnectAttemptsRef.current.delete(channelName);
             } else if (status === 'CHANNEL_ERROR') {
-                console.error(`[RealtimeContext] ❌ Individual chat channel error: ${channelName}`);
+                // console.error(`[RealtimeContext] ❌ Individual chat channel error: ${channelName}`);
                 handleChannelError(channelName, chatChannel);
             }
         });
@@ -532,7 +532,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         // Return cleanup function
         return () => {
-            console.log(`[RealtimeContext] Cleaning up individual chat channel: ${channelName}`);
+            // console.log(`[RealtimeContext] Cleaning up individual chat channel: ${channelName}`);
             if (chatChannelsRef.current.has(channelName)) {
                 try {
                     supabase.removeChannel(chatChannel);
@@ -548,7 +548,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                         typingTimeoutsRef.current.delete(timeoutKey);
                     }
                 } catch (error) {
-                    console.warn(`[RealtimeContext] Error cleaning up individual chat channel ${channelName}:`, error);
+                    // console.warn(`[RealtimeContext] Error cleaning up individual chat channel ${channelName}:`, error);
                 }
             }
         };
@@ -564,7 +564,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         onTypingStop?: (userId: string) => void;
     }) => {
         if (!session?.user?.id) {
-            console.warn('[RealtimeContext] No user session for group chat subscription');
+            // console.warn('[RealtimeContext] No user session for group chat subscription');
             return () => {};
         }
 
@@ -572,11 +572,11 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         
         // Check if channel already exists
         if (chatChannelsRef.current.has(channelName)) {
-            console.log(`[RealtimeContext] Reusing existing group chat channel: ${channelName}`);
+            // console.log(`[RealtimeContext] Reusing existing group chat channel: ${channelName}`);
             return () => {};
         }
 
-        console.log(`[RealtimeContext] Creating group chat channel: ${channelName}`);
+        // console.log(`[RealtimeContext] Creating group chat channel: ${channelName}`);
         const chatChannel = supabase.channel(channelName);
 
         // Subscribe to new messages
@@ -653,13 +653,13 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
 
         chatChannel.subscribe((status) => {
-            console.log(`[RealtimeContext] Group chat channel ${channelName} status:`, status);
+            // console.log(`[RealtimeContext] Group chat channel ${channelName} status:`, status);
             if (status === 'SUBSCRIBED') {
-                console.log(`[RealtimeContext] ✅ Successfully subscribed to group chat: ${channelName}`);
+                // console.log(`[RealtimeContext] ✅ Successfully subscribed to group chat: ${channelName}`);
                 // Reset reconnection attempts on successful connection
                 reconnectAttemptsRef.current.delete(channelName);
             } else if (status === 'CHANNEL_ERROR') {
-                console.error(`[RealtimeContext] ❌ Group chat channel error: ${channelName}`);
+                // console.error(`[RealtimeContext] ❌ Group chat channel error: ${channelName}`);
                 handleChannelError(channelName, chatChannel);
             }
         });
@@ -668,7 +668,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         // Return cleanup function
         return () => {
-            console.log(`[RealtimeContext] Cleaning up group chat channel: ${channelName}`);
+            // console.log(`[RealtimeContext] Cleaning up group chat channel: ${channelName}`);
             if (chatChannelsRef.current.has(channelName)) {
                 try {
                     supabase.removeChannel(chatChannel);
@@ -685,7 +685,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                         }
                     });
                 } catch (error) {
-                    console.warn(`[RealtimeContext] Error cleaning up group chat channel ${channelName}:`, error);
+                    // console.warn(`[RealtimeContext] Error cleaning up group chat channel ${channelName}:`, error);
                 }
             }
         };
@@ -707,7 +707,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 payload: payload
             });
         } else {
-            console.warn(`[RealtimeContext] No channel found for broadcast to ${channelName}`);
+            // console.warn(`[RealtimeContext] No channel found for broadcast to ${channelName}`);
         }
     }, [session?.user?.id]);
 
@@ -763,22 +763,22 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             listenersRef.current[eventName] = [];
         }
         listenersRef.current[eventName].push(callback);
-        console.log(`[RealtimeContext] Subscribed to event: ${eventName}, total listeners: ${listenersRef.current[eventName].length}`);
+        // console.log(`[RealtimeContext] Subscribed to event: ${eventName}, total listeners: ${listenersRef.current[eventName].length}`);
     }, []);
 
     const unsubscribeFromEvent = useCallback((eventName: string, callback: ListenerCallback) => {
         if (listenersRef.current[eventName]) {
             listenersRef.current[eventName] = listenersRef.current[eventName].filter(cb => cb !== callback);
-            console.log(`[RealtimeContext] Unsubscribed from event: ${eventName}, remaining listeners: ${listenersRef.current[eventName].length}`);
+            // console.log(`[RealtimeContext] Unsubscribed from event: ${eventName}, remaining listeners: ${listenersRef.current[eventName].length}`);
         }
     }, []);
 
     // Handle app state changes for proper cleanup
     const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
-        console.log(`[RealtimeContext] App state changed to: ${nextAppState}`);
+        // console.log(`[RealtimeContext] App state changed to: ${nextAppState}`);
 
         if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
-            console.log('[RealtimeContext] App has come to the foreground!');
+            // console.log('[RealtimeContext] App has come to the foreground!');
             // More robust reconnection
             cleanup();
             setTimeout(() => setupMainChannels(), 250);
@@ -787,12 +787,12 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         appState.current = nextAppState;
         
         if (!session?.user?.id) {
-            console.log(`[RealtimeContext] No session or user ID available for app state change. Session: ${!!session}, User ID: ${session?.user?.id}`);
+            // console.log(`[RealtimeContext] No session or user ID available for app state change. Session: ${!!session}, User ID: ${session?.user?.id}`);
             return;
         }
 
         const userId = session.user.id;
-        console.log(`[RealtimeContext] Updating user status for app state change. User ID: ${userId}, State: ${nextAppState}`);
+        // console.log(`[RealtimeContext] Updating user status for app state change. User ID: ${userId}, State: ${nextAppState}`);
 
         if (nextAppState === 'background' || nextAppState === 'inactive') {
             updateUserStatus(userId, false);
@@ -803,14 +803,14 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     useEffect(() => {
         if (!session?.user?.id) {
-            console.log('[RealtimeContext] No session, cleaning up...');
+            // console.log('[RealtimeContext] No session, cleaning up...');
             cleanup();
             return;
         }
 
         const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
             if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && session?.access_token) {
-                console.log('[RealtimeContext] Auth token refreshed, setting realtime auth.');
+                // console.log('[RealtimeContext] Auth token refreshed, setting realtime auth.');
                 supabase.realtime.setAuth(session.access_token);
             }
         });
@@ -824,7 +824,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (Platform.OS === 'web') {
             const handleVisibilityChange = () => {
                 if (document.visibilityState === 'visible') {
-                    console.log('[RealtimeContext] Web tab became visible, ensuring connection.');
+                    // console.log('[RealtimeContext] Web tab became visible, ensuring connection.');
                     if (networkStateRef.current) {
                         // More robust reconnection
                         cleanup();
@@ -834,11 +834,11 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             };
 
             const handleOnline = () => {
-                console.log('[RealtimeContext] Web became online, ensuring connection.');
+                // console.log('[RealtimeContext] Web became online, ensuring connection.');
                 handleNetworkChange({ isConnected: true, isInternetReachable: true });
             };
             const handleOffline = () => {
-                console.log('[RealtimeContext] Web went offline.');
+                // console.log('[RealtimeContext] Web went offline.');
                 handleNetworkChange({ isConnected: false, isInternetReachable: false });
             };
 
@@ -847,7 +847,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             window.addEventListener('offline', handleOffline);
 
             cleanupFn = () => {
-                console.log('[RealtimeContext] 🧹 Cleaning up web listeners...');
+                // console.log('[RealtimeContext] 🧹 Cleaning up web listeners...');
                 document.removeEventListener('visibilitychange', handleVisibilityChange);
                 window.removeEventListener('online', handleOnline);
                 window.removeEventListener('offline', handleOffline);
@@ -860,7 +860,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             const netInfoUnsubscribe = NetInfo.addEventListener(handleNetworkChange);
 
             cleanupFn = () => {
-                console.log('[RealtimeContext] 🧹 Cleaning up native listeners...');
+                // console.log('[RealtimeContext] 🧹 Cleaning up native listeners...');
                 appStateSubscription.remove();
                 if (typeof netInfoUnsubscribe === 'function') {
                     netInfoUnsubscribe();
