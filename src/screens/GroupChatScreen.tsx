@@ -685,6 +685,10 @@ const GroupChatScreen: React.FC = () => {
     const [isUserScrolling, setIsUserScrolling] = useState(false);
     const [isNearBottom, setIsNearBottom] = useState(true);
     const [isScrollingToMessage, setIsScrollingToMessage] = useState(false);
+    const [showScrollToBottomFAB, setShowScrollToBottomFAB] = useState(false);
+    const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
+    const [earliestUnreadMessageId, setEarliestUnreadMessageId] = useState<string | null>(null);
+    const [hasScrolledToUnread, setHasScrolledToUnread] = useState(false);
     const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     // --- End State for scroll management ---
 
@@ -1916,14 +1920,10 @@ const GroupChatScreen: React.FC = () => {
             if (hasUnseenMessagesFromOthers) {
                 isMarkingMessagesRef.current = true;
                 
-                // Use a small delay to batch multiple message arrivals
-                const timer = setTimeout(() => {
-                    markMessagesAsSeen().finally(() => {
-                        isMarkingMessagesRef.current = false;
-                    });
-                }, 100);
-                
-                return () => clearTimeout(timer);
+                // Mark as seen immediately for better UX
+                markMessagesAsSeen().finally(() => {
+                    isMarkingMessagesRef.current = false;
+                });
             }
         }
     }, [messages.length, markMessagesAsSeen, currentUserId]); // Only depend on messages.length, not the entire messages array
@@ -1955,6 +1955,8 @@ const GroupChatScreen: React.FC = () => {
         const subscription = AppState.addEventListener('change', handleAppStateChange);
         return () => subscription?.remove();
     }, [currentUserId, groupId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen]);
+
+
 
     // Real-time Subscription Setup using RealtimeContext
     useEffect(() => {
@@ -3266,6 +3268,98 @@ const GroupChatScreen: React.FC = () => {
         }
     }, [isUserScrolling, isScrollingToMessage, isNearBottom, sections.length, messages.length]);
 
+    // --- Scroll to Bottom FAB Handler ---
+    const handleScrollToBottom = useCallback(() => {
+        if (flatListRef.current && sections.length > 0 && messages.length > 0) {
+            try {
+                const sectionListRef = flatListRef.current as any;
+                sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: true });
+                setShowScrollToBottomFAB(false);
+            } catch (error) {
+                console.warn('Scroll to bottom failed:', error);
+            }
+        }
+    }, [sections.length, messages.length]);
+
+    // --- Find and Scroll to Earliest Unread Message ---
+    const findAndScrollToEarliestUnread = useCallback(() => {
+        if (!currentUserId || !groupId || hasScrolledToUnread) {
+            console.log('[GroupChatScreen] findAndScrollToEarliestUnread: Early return', { currentUserId, groupId, hasScrolledToUnread });
+            return;
+        }
+
+        console.log('[GroupChatScreen] findAndScrollToEarliestUnread: Starting search for unread messages');
+        
+        // Find the earliest unread message from others (not system messages)
+        const unreadMessages = messages.filter(msg => 
+            !msg.isSystemMessage && 
+            msg.user._id !== currentUserId && 
+            !msg.seenBy?.some(seen => seen.userId === currentUserId)
+        );
+
+        console.log('[GroupChatScreen] findAndScrollToEarliestUnread: Found unread messages', unreadMessages.length);
+
+        if (unreadMessages.length === 0) {
+            // No unread messages, scroll to bottom
+            console.log('[GroupChatScreen] findAndScrollToEarliestUnread: No unread messages, scrolling to bottom');
+            handleAutoScrollToBottom();
+            setHasScrolledToUnread(true);
+            return;
+        }
+
+        // Find the earliest unread message
+        const earliestUnread = unreadMessages.reduce((earliest, current) => 
+            current.createdAt < earliest.createdAt ? current : earliest
+        );
+
+        console.log('[GroupChatScreen] findAndScrollToEarliestUnread: Scrolling to earliest unread message', earliestUnread._id);
+        
+        setEarliestUnreadMessageId(earliestUnread._id);
+        setHasUnreadMessages(true);
+        setHasScrolledToUnread(true);
+
+        // Scroll to the earliest unread message
+        handleScrollToMessage(earliestUnread._id);
+    }, [currentUserId, groupId, messages, hasScrolledToUnread, handleScrollToMessage, handleAutoScrollToBottom]);
+
+    // Reset unread state when all messages are seen
+    useEffect(() => {
+        if (messages.length > 0) {
+            const hasUnseenMessages = messages.some(msg => 
+                !msg.isSystemMessage && 
+                msg.user._id !== currentUserId && 
+                !msg.seenBy?.some(seen => seen.userId === currentUserId)
+            );
+            
+            if (!hasUnseenMessages && hasUnreadMessages) {
+                setHasUnreadMessages(false);
+                setEarliestUnreadMessageId(null);
+            }
+            
+            // If we haven't scrolled to unread yet and there are no unseen messages, scroll to bottom
+            if (!hasScrolledToUnread && !hasUnseenMessages) {
+                setHasScrolledToUnread(true);
+                handleAutoScrollToBottom();
+            }
+        }
+    }, [messages, currentUserId, hasUnreadMessages, hasScrolledToUnread, handleAutoScrollToBottom]);
+
+    // Handle scroll to unread messages when messages are loaded and seen status is updated
+    useEffect(() => {
+        console.log('[GroupChatScreen] useEffect for scroll to unread:', { messagesLength: messages.length, loading, hasScrolledToUnread });
+        if (messages.length > 0 && !loading && !hasScrolledToUnread) {
+            // Wait for seen status to be properly updated before determining unread messages
+            const timer = setTimeout(() => {
+                // Double-check that we haven't already scrolled to unread
+                if (!hasScrolledToUnread) {
+                    console.log('[GroupChatScreen] Triggering findAndScrollToEarliestUnread after delay');
+                    findAndScrollToEarliestUnread();
+                }
+            }, 500); // Increased delay to ensure seen status is updated
+            return () => clearTimeout(timer);
+        }
+    }, [messages.length, loading, hasScrolledToUnread, findAndScrollToEarliestUnread]);
+
     // --- Scroll Event Handlers ---
     const handleScrollBeginDrag = useCallback(() => {
         setIsUserScrolling(true);
@@ -3286,7 +3380,10 @@ const GroupChatScreen: React.FC = () => {
         const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
         const isAtBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 100; // 100px threshold
         setIsNearBottom(isAtBottom);
-    }, [isScrollingToMessage]);
+        
+        // Show/hide scroll to bottom FAB based on position
+        setShowScrollToBottomFAB(!isAtBottom && messages.length > 0);
+    }, [isScrollingToMessage, messages.length]);
     // --- End Scroll Event Handlers ---
 
     // --- Render Logic ---
@@ -3743,9 +3840,17 @@ const GroupChatScreen: React.FC = () => {
                             isHighlighted={item._id === highlightedMessageId}
                         />
                     )}
-                    renderSectionHeader={({ section: { title } }) => (
+                    renderSectionHeader={({ section: { title, data } }) => (
                         <View style={styles.sectionHeader}>
                             <Text style={styles.sectionHeaderText}>{title}</Text>
+                            {/* New Messages Divider */}
+                            {hasUnreadMessages && data.some((msg: ChatMessage) => msg._id === earliestUnreadMessageId) && (
+                                <View style={styles.newMessagesDivider}>
+                                    <View style={styles.newMessagesDividerLine} />
+                                    <Text style={styles.newMessagesDividerText}>New Messages</Text>
+                                    <View style={styles.newMessagesDividerLine} />
+                                </View>
+                            )}
                         </View>
                     )}
                     onContentSizeChange={handleAutoScrollToBottom}
@@ -3759,6 +3864,17 @@ const GroupChatScreen: React.FC = () => {
                     onScrollEndDrag={handleScrollEndDrag}
                     onScroll={handleScroll}
                 />
+
+                {/* Scroll to Bottom FAB */}
+                {showScrollToBottomFAB && (
+                    <TouchableOpacity
+                        style={styles.scrollToBottomFAB}
+                        onPress={handleScrollToBottom}
+                        activeOpacity={0.8}
+                    >
+                        <Feather name="chevron-down" size={24} color="#FFFFFF" />
+                    </TouchableOpacity>
+                )}
 
                 {/* Replying To Preview */}
                 {replyingToMessage && (
@@ -5036,6 +5152,45 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: '#6B7280',
         marginTop: 2,
+    },
+    // New Messages Divider styles
+    newMessagesDivider: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 8,
+        marginBottom: 4,
+    },
+    newMessagesDividerLine: {
+        flex: 1,
+        height: 1,
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        opacity: 0.6,
+    },
+    newMessagesDividerText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        marginHorizontal: 8,
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    // Scroll to Bottom FAB styles
+    scrollToBottomFAB: {
+        position: 'absolute',
+        bottom: 100,
+        right: 20,
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+        elevation: 5,
+        zIndex: 1000,
     },
 });
 
