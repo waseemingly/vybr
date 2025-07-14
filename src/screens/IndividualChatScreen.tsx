@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffe
 import {
     View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Pressable,
     Platform, TextInput, SectionList, KeyboardAvoidingView, Keyboard,
-    Image, Alert, Modal, ScrollView
+    Image, Alert, Modal, ScrollView, AppState
 } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -1430,6 +1430,20 @@ const IndividualChatScreen: React.FC = () => {
                                 seen_at: new Date().toISOString(),
                                 user_id: currentUserId
                             });
+                            
+                            // Also update the message locally to show seen status immediately
+                            setMessages(prevMessages => {
+                                return prevMessages.map(msg => {
+                                    if (msg._id === newMessageDb.id) {
+                                        return {
+                                            ...msg,
+                                            isSeen: true,
+                                            seenAt: new Date()
+                                        };
+                                    }
+                                    return msg;
+                                });
+                            });
                         }
                     } catch (e: any) {
                         console.error(`Exception marking message ${newMessageDb.id} as seen:`, e.message);
@@ -1551,14 +1565,16 @@ const IndividualChatScreen: React.FC = () => {
                 const statusUpdate = payload.new;
                 if (!statusUpdate) return;
                 
+                console.log('[IndividualChatScreen] Message status update received via broadcast:', statusUpdate);
+                
                 // Handle bulk updates (from mark_all_messages_seen_from_user)
-                    if (statusUpdate.message_ids && Array.isArray(statusUpdate.message_ids) && statusUpdate.seen_by !== currentUserId) {
-                        setMessages(prev => prev.map(msg => {
-                            if (msg.user._id === currentUserId && statusUpdate.message_ids.includes(msg._id)) {
-                                return { ...msg, isSeen: true, seenAt: new Date() };
-                            }
-                            return msg;
-                        }));
+                if (statusUpdate.message_ids && Array.isArray(statusUpdate.message_ids) && statusUpdate.seen_by !== currentUserId) {
+                    setMessages(prev => prev.map(msg => {
+                        if (msg.user._id === currentUserId && statusUpdate.message_ids.includes(msg._id)) {
+                            return { ...msg, isSeen: true, seenAt: new Date() };
+                        }
+                        return msg;
+                    }));
                     return;
                 }
                 
@@ -1567,18 +1583,26 @@ const IndividualChatScreen: React.FC = () => {
                 if (!messageId) return;
                 
                 setMessages(prevMessages => {
-                    return prevMessages.map(msg => {
+                    let needsUpdate = false;
+                    const newMessages = prevMessages.map(msg => {
                         if (msg._id === messageId) {
-                            return {
-                                ...msg,
-                                isDelivered: statusUpdate.is_delivered,
-                                deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : msg.deliveredAt,
-                                isSeen: statusUpdate.is_seen,
-                                seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : msg.seenAt,
-                            };
+                            const deliveredChanged = msg.isDelivered !== statusUpdate.is_delivered;
+                            const seenChanged = msg.isSeen !== statusUpdate.is_seen;
+                            
+                            if (deliveredChanged || seenChanged) {
+                                needsUpdate = true;
+                                return {
+                                    ...msg,
+                                    isDelivered: statusUpdate.is_delivered,
+                                    deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : msg.deliveredAt,
+                                    isSeen: statusUpdate.is_seen,
+                                    seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : msg.seenAt,
+                                };
+                            }
                         }
                         return msg;
                     });
+                    return needsUpdate ? newMessages : prevMessages;
                 });
             },
             onTyping: (payload: any) => {
@@ -1591,7 +1615,7 @@ const IndividualChatScreen: React.FC = () => {
             }
         });
 
-        // Subscribe to database message status updates
+        // Subscribe to database message status updates (similar to GroupChatScreen)
         const handleMessageStatusUpdate = (payload: any) => {
             const statusUpdate = payload.new;
             if (!statusUpdate || !statusUpdate.message_id) return;
@@ -1600,28 +1624,83 @@ const IndividualChatScreen: React.FC = () => {
             
             // Only update if this status change is for a message in this chat
             setMessages(prevMessages => {
-                return prevMessages.map(msg => {
+                let needsUpdate = false;
+                const newMessages = prevMessages.map(msg => {
                     if (msg._id === statusUpdate.message_id) {
-                        return {
-                            ...msg,
-                            isDelivered: statusUpdate.is_delivered,
-                            deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : msg.deliveredAt,
-                            isSeen: statusUpdate.is_seen,
-                            seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : msg.seenAt,
-                        };
+                        const deliveredChanged = msg.isDelivered !== statusUpdate.is_delivered;
+                        const seenChanged = msg.isSeen !== statusUpdate.is_seen;
+                        
+                        if (deliveredChanged || seenChanged) {
+                            needsUpdate = true;
+                            return {
+                                ...msg,
+                                isDelivered: statusUpdate.is_delivered,
+                                deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : msg.deliveredAt,
+                                isSeen: statusUpdate.is_seen,
+                                seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : msg.seenAt,
+                            };
+                        }
                     }
                     return msg;
                 });
+                return needsUpdate ? newMessages : prevMessages;
             });
         };
+
+        // Subscribe to individual message status table changes for real-time seen updates
+        console.log('[IndividualChatScreen] Setting up message_status real-time subscription for individual chat');
+        const messageStatusSubscription = supabase
+            .channel('individual_message_status_changes')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'message_status',
+                },
+                async (payload) => {
+                    const statusUpdate = payload.new;
+                    if (!statusUpdate || !statusUpdate.message_id) return;
+                    
+                    console.log('[IndividualChatScreen] Real-time message status update:', statusUpdate);
+                    
+                    // Only update if this status change is for a message in this chat
+                    setMessages(prevMessages => {
+                        let needsUpdate = false;
+                        const newMessages = prevMessages.map(msg => {
+                            if (msg._id === statusUpdate.message_id) {
+                                const deliveredChanged = msg.isDelivered !== statusUpdate.is_delivered;
+                                const seenChanged = msg.isSeen !== statusUpdate.is_seen;
+                                
+                                if (deliveredChanged || seenChanged) {
+                                    needsUpdate = true;
+                                    return {
+                                        ...msg,
+                                        isDelivered: statusUpdate.is_delivered,
+                                        deliveredAt: statusUpdate.delivered_at ? new Date(statusUpdate.delivered_at) : msg.deliveredAt,
+                                        isSeen: statusUpdate.is_seen,
+                                        seenAt: statusUpdate.seen_at ? new Date(statusUpdate.seen_at) : msg.seenAt,
+                                    };
+                                }
+                            }
+                            return msg;
+                        });
+                        return needsUpdate ? newMessages : prevMessages;
+                    });
+                }
+            )
+            .subscribe((status) => {
+                console.log('[IndividualChatScreen] Message status subscription status:', status);
+            });
 
         subscribeToEvent('message_status_updated', handleMessageStatusUpdate);
 
         return () => {
             unsubscribe();
             unsubscribeFromEvent('message_status_updated', handleMessageStatusUpdate);
+            messageStatusSubscription.unsubscribe();
         };
-    }, [currentUserId, matchUserId, isBlocked, subscribeToIndividualChat, mapDbMessageToChatMessage, messages, musicLoverProfile?.firstName, dynamicMatchName, checkMutualInitiation, fetchMessageById, sendBroadcast, subscribeToEvent, unsubscribeFromEvent]);
+    }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage, checkMutualInitiation, messages, musicLoverProfile?.firstName, dynamicMatchName, sendBroadcast, subscribeToIndividualChat, subscribeToEvent, unsubscribeFromEvent]);
 
     // Group messages by date for section headers
     const sections = useMemo(() => {
@@ -2242,24 +2321,125 @@ const IndividualChatScreen: React.FC = () => {
         }
     }, [currentUserId, matchUserId, messages, refreshUnreadCount, sendBroadcast]);
 
+    // Enhanced function to check and update seen status for messages loaded from database
+    const checkAndUpdateSeenStatus = useCallback(async () => {
+        if (!currentUserId || !matchUserId || messages.length === 0) return;
+
+        // Check if any messages from the partner are marked as unseen in our local state
+        // but might actually be seen in the database
+        const potentiallyUnseenMessages = messages.filter(
+            msg => msg.user._id === matchUserId && !msg.isSeen
+        );
+
+        if (potentiallyUnseenMessages.length === 0) return;
+
+        console.log(`[IndividualChatScreen] Checking seen status for ${potentiallyUnseenMessages.length} messages from ${matchUserId}`);
+
+        try {
+            // Fetch the actual seen status from the database for these messages
+            const messageIds = potentiallyUnseenMessages.map(msg => msg._id);
+            const { data: statusData, error: statusError } = await supabase
+                .from('message_status')
+                .select('message_id, is_seen, seen_at')
+                .in('message_id', messageIds)
+                .eq('receiver_id', currentUserId);
+
+            if (statusError) {
+                console.error('Error fetching message status:', statusError);
+                return;
+            }
+
+            // Update messages that are actually seen in the database
+            const seenMessageIds = new Set(
+                statusData
+                    ?.filter(status => status.is_seen)
+                    .map(status => status.message_id) || []
+            );
+
+            if (seenMessageIds.size > 0) {
+                console.log(`[IndividualChatScreen] Found ${seenMessageIds.size} messages that are actually seen in database`);
+                
+                setMessages(prev => prev.map(msg => {
+                    if (msg.user._id === matchUserId && seenMessageIds.has(msg._id) && !msg.isSeen) {
+                        const status = statusData?.find(s => s.message_id === msg._id);
+                        return {
+                            ...msg,
+                            isSeen: true,
+                            seenAt: status?.seen_at ? new Date(status.seen_at) : new Date()
+                        };
+                    }
+                    return msg;
+                }));
+            }
+        } catch (e: any) {
+            console.error('Exception checking seen status:', e.message);
+        }
+    }, [currentUserId, matchUserId, messages]);
+
     // Call markMessagesAsSeen when the screen focuses and when new messages arrive from the partner
     useFocusEffect(
         useCallback(() => {
-            markMessagesAsSeen();
-        }, [markMessagesAsSeen])
+            console.log('[IndividualChatScreen] Screen focused, checking and updating seen status');
+            
+            // First check and update seen status for messages loaded from database
+            const checkTimer = setTimeout(() => {
+                checkAndUpdateSeenStatus();
+            }, 100);
+            
+            // Then mark any remaining unseen messages as seen
+            const markTimer = setTimeout(() => {
+                markMessagesAsSeen();
+            }, 300);
+            
+            return () => {
+                clearTimeout(checkTimer);
+                clearTimeout(markTimer);
+            };
+        }, [checkAndUpdateSeenStatus, markMessagesAsSeen])
     );
 
     // Also mark as seen when new messages arrive while screen is focused
     useEffect(() => {
-        markMessagesAsSeen();
-    }, [messages, markMessagesAsSeen]);
+        // Only trigger if we have messages and they're from the partner
+        const hasNewMessagesFromPartner = messages.some(msg => 
+            msg.user._id === matchUserId && !msg.isSeen
+        );
+        
+        if (hasNewMessagesFromPartner) {
+            const timer = setTimeout(() => {
+                markMessagesAsSeen();
+            }, 100);
+            return () => clearTimeout(timer);
+        }
+    }, [messages.length, markMessagesAsSeen, matchUserId]); // Only depend on messages.length and matchUserId
 
     // Mark messages as seen immediately when component mounts (for notification navigation)
     useEffect(() => {
         if (currentUserId && matchUserId && messages.length > 0) {
-            markMessagesAsSeen();
+            const timer = setTimeout(() => {
+                checkAndUpdateSeenStatus();
+                markMessagesAsSeen();
+            }, 200);
+            return () => clearTimeout(timer);
         }
-    }, [currentUserId, matchUserId, markMessagesAsSeen]);
+    }, [currentUserId, matchUserId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen]);
+
+    // Handle app state changes (when app comes back from background)
+    useEffect(() => {
+        const handleAppStateChange = (nextAppState: string) => {
+            if (nextAppState === 'active' && currentUserId && matchUserId && messages.length > 0) {
+                console.log('[IndividualChatScreen] App became active, checking seen status');
+                // Small delay to ensure the app is fully active
+                setTimeout(() => {
+                    checkAndUpdateSeenStatus();
+                    markMessagesAsSeen();
+                }, 500);
+            }
+        };
+
+        const subscription = AppState.addEventListener('change', handleAppStateChange);
+        return () => subscription?.remove();
+    }, [currentUserId, matchUserId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen]);
 
     // --- Render Logic ---
     if (loading && messages.length === 0 && !isBlocked) {

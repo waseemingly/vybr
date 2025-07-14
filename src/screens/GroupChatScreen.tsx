@@ -3,7 +3,7 @@ import {
     View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Pressable,
     Platform, TextInput, SectionList, KeyboardAvoidingView, Keyboard,
     Modal, Alert, Image, ScrollView, Dimensions,
-    RefreshControl, FlatList, StatusBar // Add FlatList and StatusBar
+    RefreshControl, FlatList, StatusBar, AppState // Add AppState for background/foreground detection
 } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -1712,6 +1712,8 @@ const GroupChatScreen: React.FC = () => {
     const markMessagesAsSeen = useCallback(async () => {
         if (!currentUserId || !groupId || messages.length === 0) return;
 
+        console.log(`[GroupChatScreen] markMessagesAsSeen called with ${messages.length} messages`);
+
         // Find messages from others that haven't been marked as seen by the current user
         const unseenMessagesFromOthers = messages.filter(msg => {
             // Skip system messages and our own messages
@@ -1722,9 +1724,13 @@ const GroupChatScreen: React.FC = () => {
             return !hasCurrentUserSeen;
         });
 
-        if (unseenMessagesFromOthers.length === 0) return;
+        if (unseenMessagesFromOthers.length === 0) {
+            console.log(`[GroupChatScreen] No unseen messages from others found`);
+            return;
+        }
 
         console.log(`[GroupChatScreen] Marking ${unseenMessagesFromOthers.length} messages as seen in group ${groupId}`);
+        console.log(`[GroupChatScreen] Message IDs to mark:`, unseenMessagesFromOthers.map(m => m._id));
 
         try {
             const messageIdsToMark = unseenMessagesFromOthers.map(msg => msg._id);
@@ -1771,15 +1777,126 @@ const GroupChatScreen: React.FC = () => {
         }
     }, [currentUserId, groupId, messages, refreshUnreadCount, sendBroadcast]);
 
+    // Enhanced function to check and update seen status for messages loaded from database
+    const checkAndUpdateSeenStatus = useCallback(async () => {
+        if (!currentUserId || !groupId || messages.length === 0) return;
+
+        console.log(`[GroupChatScreen] checkAndUpdateSeenStatus called with ${messages.length} messages`);
+
+        // Find messages from others that might be marked as unseen in our local state
+        // but might actually be seen in the database
+        const potentiallyUnseenMessages = messages.filter(msg => {
+            // Skip system messages and our own messages
+            if (msg.isSystemMessage || msg.user._id === currentUserId) return false;
+            
+            // Check if current user has seen this message by looking at seenBy array
+            const hasCurrentUserSeen = msg.seenBy?.some(seen => seen.userId === currentUserId);
+            return !hasCurrentUserSeen;
+        });
+
+        if (potentiallyUnseenMessages.length === 0) {
+            console.log(`[GroupChatScreen] No potentially unseen messages found`);
+            return;
+        }
+
+        console.log(`[GroupChatScreen] Checking seen status for ${potentiallyUnseenMessages.length} messages in group ${groupId}`);
+        console.log(`[GroupChatScreen] Message IDs to check:`, potentiallyUnseenMessages.map(m => m._id));
+
+        try {
+            // Fetch the actual seen status from the database for these messages
+            const messageIds = potentiallyUnseenMessages.map(msg => msg._id);
+            const { data: statusData, error: statusError } = await supabase
+                .from('group_message_status')
+                .select('message_id, is_seen, seen_at, user_id')
+                .in('message_id', messageIds)
+                .eq('user_id', currentUserId)
+                .eq('group_id', groupId);
+
+            if (statusError) {
+                console.error('Error fetching group message status:', statusError);
+                return;
+            }
+
+            // Update messages that are actually seen in the database
+            const seenMessageIds = new Set(
+                statusData
+                    ?.filter(status => status.is_seen)
+                    .map(status => status.message_id) || []
+            );
+
+            if (seenMessageIds.size > 0) {
+                console.log(`[GroupChatScreen] Found ${seenMessageIds.size} messages that are actually seen in database`);
+                console.log(`[GroupChatScreen] Seen message IDs:`, Array.from(seenMessageIds));
+                
+                setMessages(prev => prev.map(msg => {
+                    if (msg.user._id !== currentUserId && !msg.isSystemMessage && seenMessageIds.has(msg._id)) {
+                        const status = statusData?.find(s => s.message_id === msg._id);
+                        const currentSeenBy = [...(msg.seenBy || [])];
+                        
+                        // Add current user to seenBy if not already there
+                        if (!currentSeenBy.some(s => s.userId === currentUserId)) {
+                            currentSeenBy.push({
+                                userId: currentUserId,
+                                userName: userProfileCache[currentUserId]?.name || 'You',
+                                seenAt: status?.seen_at ? new Date(status.seen_at) : new Date()
+                            });
+                        }
+                        
+                        // Update isSeen logic: for sender's messages, isSeen is true if others have seen it
+                        // For received messages, isSeen is true if current user has seen it
+                        let isSeen = msg.isSeen;
+                        if (msg.user._id === currentUserId) {
+                            // This is the sender's message - isSeen if others have seen it
+                            isSeen = currentSeenBy.some(s => s.userId !== currentUserId);
+                        } else {
+                            // This is a received message - isSeen if current user has seen it
+                            isSeen = currentSeenBy.some(s => s.userId === currentUserId);
+                        }
+                        
+                        console.log(`[GroupChatScreen] Updating message ${msg._id}: isSeen=${isSeen}, seenBy count=${currentSeenBy.length}`);
+                        
+                        return {
+                            ...msg,
+                            isSeen: isSeen,
+                            seenAt: status?.seen_at ? new Date(status.seen_at) : new Date(),
+                            seenBy: currentSeenBy
+                        };
+                    }
+                    return msg;
+                }));
+            } else {
+                console.log(`[GroupChatScreen] No messages found to be seen in database`);
+            }
+        } catch (e: any) {
+            console.error('Exception checking group seen status:', e.message);
+        }
+    }, [currentUserId, groupId, messages, userProfileCache]);
+
     // Call markMessagesAsSeen when the screen focuses
     useFocusEffect(
         useCallback(() => {
-            // Small delay to ensure screen is fully loaded and messages are rendered
-            const timer = setTimeout(() => {
+            console.log('[GroupChatScreen] Screen focused, checking and updating seen status');
+            console.log('[GroupChatScreen] Current messages count:', messages.length);
+            console.log('[GroupChatScreen] Current user ID:', currentUserId);
+            console.log('[GroupChatScreen] Group ID:', groupId);
+            
+            // First check and update seen status for messages loaded from database
+            const checkTimer = setTimeout(() => {
+                console.log('[GroupChatScreen] Running checkAndUpdateSeenStatus...');
+                checkAndUpdateSeenStatus();
+            }, 100);
+            
+            // Then mark any remaining unseen messages as seen
+            const markTimer = setTimeout(() => {
+                console.log('[GroupChatScreen] Running markMessagesAsSeen...');
                 markMessagesAsSeen();
-            }, 200);
-            return () => clearTimeout(timer);
-        }, [markMessagesAsSeen])
+            }, 300);
+            
+            return () => {
+                clearTimeout(checkTimer);
+                clearTimeout(markTimer);
+            };
+        }, [checkAndUpdateSeenStatus, markMessagesAsSeen, messages.length, currentUserId, groupId])
     );
     
     // Mark messages as seen when new messages arrive while screen is focused
@@ -1789,28 +1906,55 @@ const GroupChatScreen: React.FC = () => {
     useEffect(() => {
         // Only mark as seen if we're not already in the process and there are messages
         if (!isMarkingMessagesRef.current && messages.length > 0) {
-            isMarkingMessagesRef.current = true;
+            // Check if there are any unseen messages from others
+            const hasUnseenMessagesFromOthers = messages.some(msg => {
+                if (msg.isSystemMessage || msg.user._id === currentUserId) return false;
+                const hasCurrentUserSeen = msg.seenBy?.some(seen => seen.userId === currentUserId);
+                return !hasCurrentUserSeen;
+            });
             
-            // Use a small delay to batch multiple message arrivals
-            const timer = setTimeout(() => {
-                markMessagesAsSeen().finally(() => {
-                    isMarkingMessagesRef.current = false;
-                });
-            }, 100);
-            
-            return () => clearTimeout(timer);
+            if (hasUnseenMessagesFromOthers) {
+                isMarkingMessagesRef.current = true;
+                
+                // Use a small delay to batch multiple message arrivals
+                const timer = setTimeout(() => {
+                    markMessagesAsSeen().finally(() => {
+                        isMarkingMessagesRef.current = false;
+                    });
+                }, 100);
+                
+                return () => clearTimeout(timer);
+            }
         }
-    }, [messages.length, markMessagesAsSeen]); // Only depend on messages.length, not the entire messages array
+    }, [messages.length, markMessagesAsSeen, currentUserId]); // Only depend on messages.length, not the entire messages array
 
     // Mark messages as seen immediately when component mounts (for notification navigation)
     useEffect(() => {
         if (currentUserId && groupId && messages.length > 0) {
             const timer = setTimeout(() => {
+                checkAndUpdateSeenStatus();
                 markMessagesAsSeen();
-            }, 300); // Slightly longer delay for initial load
+            }, 200); // Slightly longer delay for initial load
             return () => clearTimeout(timer);
         }
-    }, [currentUserId, groupId, messages.length, markMessagesAsSeen]);
+    }, [currentUserId, groupId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen]);
+
+    // Handle app state changes (when app comes back from background)
+    useEffect(() => {
+        const handleAppStateChange = (nextAppState: string) => {
+            if (nextAppState === 'active' && currentUserId && groupId && messages.length > 0) {
+                console.log('[GroupChatScreen] App became active, checking seen status');
+                // Small delay to ensure the app is fully active
+                setTimeout(() => {
+                    checkAndUpdateSeenStatus();
+                    markMessagesAsSeen();
+                }, 500);
+            }
+        };
+
+        const subscription = AppState.addEventListener('change', handleAppStateChange);
+        return () => subscription?.remove();
+    }, [currentUserId, groupId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen]);
 
     // Real-time Subscription Setup using RealtimeContext
     useEffect(() => {
@@ -1941,6 +2085,12 @@ const GroupChatScreen: React.FC = () => {
                         if (receivedMessage.user._id !== currentUserId) {
                             receivedMessage.isSeen = true;
                             receivedMessage.seenAt = new Date();
+                            // Add current user to seenBy array for received messages
+                            receivedMessage.seenBy = [{
+                                userId: currentUserId,
+                                userName: userProfileCache[currentUserId]?.name || 'You',
+                                seenAt: new Date()
+                            }];
                         }
                         const optimisticIdPattern = `temp_`;
                         const optimisticIndex = prevMessages.findIndex(m => 
@@ -2151,6 +2301,12 @@ const GroupChatScreen: React.FC = () => {
                     if (receivedMessage.user._id !== currentUserId) {
                         receivedMessage.isSeen = true;
                         receivedMessage.seenAt = new Date();
+                        // Add current user to seenBy array for received messages
+                        receivedMessage.seenBy = [{
+                            userId: currentUserId,
+                            userName: userProfileCache[currentUserId]?.name || 'You',
+                            seenAt: new Date()
+                        }];
                     }
                     const optimisticIdPattern = `temp_`;
                     const optimisticIndex = prevMessages.findIndex(m => 
