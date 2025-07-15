@@ -377,7 +377,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     // Fetch on mount and when session changes
     useEffect(() => {
         fetchData();
-    }, [fetchData]);
+    }, [session?.user?.id]);
 
     // Enhanced real-time useEffect for smooth updates
     useEffect(() => {
@@ -402,7 +402,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 // Fetch the full list to get all profile details for the new chat.
                 if (chatIndex === -1) {
                     console.log('ChatsTabs: New conversation detected, fetching full list.');
-                    fetchData();
+                    // Use setTimeout to avoid calling fetchData during render
+                    setTimeout(() => fetchData(), 0);
                     return currentList; 
                 }
 
@@ -437,7 +438,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 // If user was just added to group, fetch list to get details
                 if (chatIndex === -1) {
                     console.log('ChatsTabs: New group chat detected, fetching full list.');
-                    fetchData();
+                    // Use setTimeout to avoid calling fetchData during render
+                    setTimeout(() => fetchData(), 0);
                     return currentList;
                 }
 
@@ -459,14 +461,16 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
 
         const handleNewGroupAdded = (payload: any) => {
             console.log('ChatsTabs: Current user was added to a group, refreshing chat list.', payload);
-            fetchData();
+            // Use setTimeout to avoid calling fetchData during render
+            setTimeout(() => fetchData(), 0);
         };
 
         // For status updates (e.g., "seen"), a refresh is still the most reliable way 
         // to ensure all unread counts across all chats are accurate.
         const handleStatusUpdate = (payload: any) => {
             console.log('ChatsTabs: Status update received, refreshing data for accurate counts.', payload);
-            fetchData();
+            // Use setTimeout to avoid calling fetchData during render
+            setTimeout(() => fetchData(), 0);
         };
 
         // Subscribe to events
@@ -484,7 +488,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             unsubscribeFromEvent('group_message_status_updated', handleStatusUpdate);
             unsubscribeFromEvent('new_group_added_notification', handleNewGroupAdded);
         };
-    }, [subscribeToEvent, unsubscribeFromEvent, fetchData, session?.user?.id]);
+    }, [subscribeToEvent, unsubscribeFromEvent, session?.user?.id]);
 
     // Fetch data when the screen comes into focus (this is still useful)
     useFocusEffect(
@@ -493,13 +497,13 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             // ...
             fetchData();
             // ...
-        }, [fetchData]) // I'll fix the dependency array if needed
+        }, [session?.user?.id]) // Remove fetchData from dependency array
     );
 
     // Handle pull-to-refresh
     const onRefresh = useCallback(() => {
         fetchData(true);
-    }, [fetchData]);
+    }, []);
 
     // Handle long press to delete chat
     const handleChatLongPress = useCallback((chatItem: ChatItem) => {
@@ -676,7 +680,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             console.log("ChatsTabs: Refreshing data after opening chat");
             fetchData();
         }, 1500);
-    }, [markChatMessagesAsSeen, onChatOpen, fetchData]);
+    }, [markChatMessagesAsSeen, onChatOpen]);
 
     // Filter data based on search query and active tab
     const filteredListData = useMemo((): ChatItem[] => {
