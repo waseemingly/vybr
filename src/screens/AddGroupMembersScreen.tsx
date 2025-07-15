@@ -27,7 +27,14 @@ interface SelectableFriend {
 
 const DEFAULT_PROFILE_PIC = APP_CONSTANTS.DEFAULT_PROFILE_PIC;
 
-type AddMembersRouteProp = RouteProp<RootStackParamList, 'AddGroupMembersScreen'>;
+type AddMembersRouteProp = RouteProp<RootStackParamList & {
+    AddGroupMembersScreen: {
+        groupId: string;
+        groupName?: string | null;
+        onCloseChat?: () => void; // Add onCloseChat for web chat panel
+        cameFromGroupInfo?: boolean; // Track if we came from GroupInfoScreen
+    }
+}, 'AddGroupMembersScreen'>;
 type AddMembersNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const AddGroupMembersScreen = () => {
@@ -110,6 +117,46 @@ const AddGroupMembersScreen = () => {
 
     // Fetch on focus
     useFocusEffect(useCallback(() => { fetchPotentialMembers(); }, [fetchPotentialMembers]));
+
+    // Set up header configuration with proper back navigation
+    useEffect(() => {
+        navigation.setOptions({
+            headerShown: true,
+            headerTitle: 'Add Members',
+            headerTitleAlign: 'center',
+            headerBackTitleVisible: false,
+            headerLeft: () => (
+                <TouchableOpacity 
+                    onPress={() => {
+                        // Check if we're in web chat panel mode
+                        if (Platform.OS === 'web' && route.params.onCloseChat) {
+                            // If we came from GroupInfoScreen, go back to GroupInfo
+                            if (route.params.cameFromGroupInfo) {
+                                (navigation as any).navigate('GroupInfo', {
+                                    groupId,
+                                    groupName: groupName || 'Group',
+                                    groupImage: null
+                                });
+                            } else {
+                                // Otherwise go back to GroupChat
+                                (navigation as any).navigate('GroupChat', {
+                                    groupId,
+                                    groupName: groupName || 'Group',
+                                    groupImage: null
+                                });
+                            }
+                        } else {
+                            navigation.goBack();
+                        }
+                    }} 
+                    style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}
+                >
+                    <Feather name="chevron-left" size={26} color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
+                </TouchableOpacity>
+            ),
+            headerStyle: { backgroundColor: 'white' },
+        });
+    }, [navigation, route.params.onCloseChat, route.params.cameFromGroupInfo, groupId, groupName]);
 
     // Toggle selection
     const toggleUserSelection = (userId: string) => { setSelectedUsers(prev => { const n = new Set(prev); if (n.has(userId)) n.delete(userId); else n.add(userId); return n; }); };

@@ -41,6 +41,7 @@ type IndividualChatScreenRouteProp = RouteProp<RootStackParamList & {
     topGenres?: string[];
     topMoods?: string[];
     isFirstInteractionFromMatches?: boolean;
+    onCloseChat?: () => void; // Add onCloseChat for web chat panel
     sharedEventData?: {
       eventId: string;
       eventTitle: string;
@@ -1272,7 +1273,17 @@ const IndividualChatScreen: React.FC = () => {
              headerTitleAlign: 'center',
              headerBackTitleVisible: false,
              headerLeft: () => (
-                 <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}>
+                 <TouchableOpacity 
+                     onPress={() => {
+                         // Check if we're in web chat panel mode
+                         if (Platform.OS === 'web' && route.params.onCloseChat) {
+                             route.params.onCloseChat();
+                         } else {
+                             navigation.goBack();
+                         }
+                     }} 
+                     style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}
+                 >
                      <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} />
                  </TouchableOpacity>
              ),
@@ -1281,13 +1292,24 @@ const IndividualChatScreen: React.FC = () => {
                      onPress={() => {
                          if (isChatMutuallyInitiated) {
                              if (matchUserId) {
-                                 navigation.navigate('OtherUserProfileScreen', {
-                                     userId: matchUserId,
-                                     fromChat: true,
-                                     chatImages: messages
-                                         .filter(msg => msg.image)
-                                         .map(msg => msg.image!)
-                                 });
+                                 // Check if we're in web chat panel mode and use appropriate navigation
+                                 if (Platform.OS === 'web' && route.params.onCloseChat) {
+                                     (navigation as any).navigate('OtherUserProfile', {
+                                         userId: matchUserId,
+                                         fromChat: true,
+                                         chatImages: messages
+                                             .filter(msg => msg.image)
+                                             .map(msg => msg.image!)
+                                     });
+                                 } else {
+                                     navigation.navigate('OtherUserProfileScreen', {
+                                         userId: matchUserId,
+                                         fromChat: true,
+                                         chatImages: messages
+                                             .filter(msg => msg.image)
+                                             .map(msg => msg.image!)
+                                     });
+                                 }
                              }
                          } else {
                              Alert.alert(
@@ -2011,36 +2033,19 @@ const IndividualChatScreen: React.FC = () => {
 
     // --- Smart Auto-Scroll Handler ---
     const handleAutoScrollToBottom = useCallback(() => {
-        console.log('[IndividualChatScreen] handleAutoScrollToBottom called:', { 
-            isUserScrolling, 
-            isScrollingToMessage, 
-            sectionsLength: sections.length, 
-            messagesLength: messages.length,
-            hasFlatListRef: !!flatListRef.current
-        });
-        
-        if (isUserScrolling || isScrollingToMessage) {
-            console.log('[IndividualChatScreen] Auto-scroll blocked: user scrolling or scrolling to message');
-            return; // Don't auto-scroll if user is scrolling
+        if (isUserScrolling || isScrollingToMessage || !isNearBottom) {
+            return; // Don't auto-scroll if user is scrolling, scrolling to message, or not near bottom
         }
-        
+
         if (flatListRef.current && sections.length > 0 && messages.length > 0) {
             try {
-                console.log('[IndividualChatScreen] Attempting auto-scroll to bottom');
                 const sectionListRef = flatListRef.current as any;
                 sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: false });
-                console.log('[IndividualChatScreen] Auto-scroll to bottom completed');
             } catch (error) {
                 console.warn('Auto-scroll failed:', error);
             }
-        } else {
-            console.log('[IndividualChatScreen] Auto-scroll conditions not met:', {
-                hasFlatListRef: !!flatListRef.current,
-                sectionsLength: sections.length,
-                messagesLength: messages.length
-            });
         }
-    }, [isUserScrolling, isScrollingToMessage, sections.length, messages.length]);
+    }, [isUserScrolling, isScrollingToMessage, isNearBottom, sections.length, messages.length]);
 
     // --- Scroll to Bottom FAB Handler ---
     const handleScrollToBottom = useCallback(() => {
@@ -2057,31 +2062,17 @@ const IndividualChatScreen: React.FC = () => {
 
     // --- Find and Scroll to Earliest Unread Message ---
     const findAndScrollToEarliestUnread = useCallback(() => {
-        console.log('[IndividualChatScreen] findAndScrollToEarliestUnread called:', { 
-            currentUserId, 
-            matchUserId, 
-            hasScrolledToUnread, 
-            messagesLength: messages.length 
-        });
-        
         if (!currentUserId || !matchUserId || hasScrolledToUnread) {
-            console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: Early return', { currentUserId, matchUserId, hasScrolledToUnread });
             return;
         }
 
-        console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: Starting search for unread messages');
-        
         // Find the earliest unread message from the partner
         const unreadMessages = messages.filter(msg => 
             msg.user._id === matchUserId && !msg.isSeen
         );
 
-        console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: Found unread messages', unreadMessages.length);
-        console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: Unread message IDs:', unreadMessages.map(m => ({ id: m._id, isSeen: m.isSeen })));
-
         if (unreadMessages.length === 0) {
             // No unread messages, scroll to bottom
-            console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: No unread messages, scrolling to bottom');
             handleAutoScrollToBottom();
             setHasScrolledToUnread(true);
             return;
@@ -2091,8 +2082,6 @@ const IndividualChatScreen: React.FC = () => {
         const earliestUnread = unreadMessages.reduce((earliest, current) => 
             current.createdAt < earliest.createdAt ? current : earliest
         );
-
-        console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: Scrolling to earliest unread message', earliestUnread._id);
         
         setEarliestUnreadMessageId(earliestUnread._id);
         setHasUnreadMessages(true);
@@ -2104,36 +2093,15 @@ const IndividualChatScreen: React.FC = () => {
 
     // Handle scroll to unread messages when messages are loaded and seen status is updated
     useEffect(() => {
-        console.log('[IndividualChatScreen] useEffect for scroll to unread:', { 
-            messagesLength: messages.length, 
-            loading, 
-            hasScrolledToUnread,
-            currentUserId,
-            matchUserId
-        });
-        
         if (messages.length > 0 && !loading && !hasScrolledToUnread) {
-            console.log('[IndividualChatScreen] Conditions met for scroll to unread, setting timer');
             // Wait for seen status to be properly updated before determining unread messages
             const timer = setTimeout(() => {
                 // Double-check that we haven't already scrolled to unread
                 if (!hasScrolledToUnread) {
-                    console.log('[IndividualChatScreen] Triggering findAndScrollToEarliestUnread after delay');
                     findAndScrollToEarliestUnread();
-                } else {
-                    console.log('[IndividualChatScreen] Already scrolled to unread, skipping');
                 }
             }, 500); // Increased delay to ensure seen status is updated
-            return () => {
-                console.log('[IndividualChatScreen] Clearing scroll to unread timer');
-                clearTimeout(timer);
-            };
-        } else {
-            console.log('[IndividualChatScreen] Conditions not met for scroll to unread:', {
-                hasMessages: messages.length > 0,
-                notLoading: !loading,
-                notScrolledToUnread: !hasScrolledToUnread
-            });
+            return () => clearTimeout(timer);
         }
     }, [messages.length, loading, hasScrolledToUnread, findAndScrollToEarliestUnread, currentUserId, matchUserId]);
 
@@ -2162,6 +2130,26 @@ const IndividualChatScreen: React.FC = () => {
         setShowScrollToBottomFAB(!isAtBottom && messages.length > 0);
     }, [isScrollingToMessage, messages.length]);
     // --- End Scroll Event Handlers ---
+
+    // Reset unread state when all messages are seen
+    useEffect(() => {
+        if (messages.length > 0) {
+            const hasUnseenMessages = messages.some(msg => 
+                msg.user._id === matchUserId && !msg.isSeen
+            );
+            
+            if (!hasUnseenMessages && hasUnreadMessages) {
+                setHasUnreadMessages(false);
+                setEarliestUnreadMessageId(null);
+            }
+            
+            // If we haven't scrolled to unread yet and there are no unseen messages, scroll to bottom
+            if (!hasScrolledToUnread && !hasUnseenMessages) {
+                setHasScrolledToUnread(true);
+                handleAutoScrollToBottom();
+            }
+        }
+    }, [messages, matchUserId, hasUnreadMessages, hasScrolledToUnread, handleAutoScrollToBottom]);
 
     // Add image viewer handlers
     const handleImagePress = (imageUrl: string) => {
