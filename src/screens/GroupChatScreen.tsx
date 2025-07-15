@@ -144,6 +144,7 @@ type GroupChatScreenRouteProp = RouteProp<RootStackParamList & {
         groupId: string;
         groupName?: string | null;
         groupImage?: string | null;
+        onCloseChat?: () => void; // Add onCloseChat for web chat panel
         sharedEventData?: {
             eventId: string;
             eventTitle: string;
@@ -2726,7 +2727,24 @@ const GroupChatScreen: React.FC = () => {
     }, [currentUserId, groupId, mapDbMessageToChatMessage, editingMessage, subscribeToGroupChat, sendBroadcast, subscribeToEvent, unsubscribeFromEvent, userProfileCache]);
 
     // Navigation and Header
-    const navigateToGroupInfo = () => { if (!groupId || !currentGroupName) return; navigation.navigate('GroupInfoScreen', { groupId, groupName: currentGroupName ?? 'Group', groupImage: currentGroupImage ?? null }); };
+    const navigateToGroupInfo = () => { 
+        if (!groupId || !currentGroupName) return; 
+        // Check if we're in web chat panel mode and use appropriate navigation
+        if (Platform.OS === 'web' && route.params.onCloseChat) {
+            (navigation as any).navigate('GroupInfo', { 
+                groupId, 
+                groupName: currentGroupName ?? 'Group', 
+                groupImage: currentGroupImage ?? null,
+                onCloseChat: route.params.onCloseChat // Pass the onCloseChat function
+            }); 
+        } else {
+            navigation.navigate('GroupInfoScreen', { 
+                groupId, 
+                groupName: currentGroupName ?? 'Group', 
+                groupImage: currentGroupImage ?? null 
+            }); 
+        }
+    };
     useEffect(() => { 
         const canAdd = isCurrentUserAdmin || canMembersAddOthers; 
         const canEdit = isCurrentUserAdmin || canMembersEditInfo; 
@@ -2741,7 +2759,22 @@ const GroupChatScreen: React.FC = () => {
         const displayGroupName = currentGroupName || route.params.groupName || 'Group Chat';
         
         navigation.setOptions({ 
-            headerTitleAlign: 'center', 
+            headerTitleAlign: 'center',
+            headerLeft: () => (
+                <TouchableOpacity 
+                    onPress={() => {
+                        // Check if we're in web chat panel mode
+                        if (Platform.OS === 'web' && route.params.onCloseChat) {
+                            route.params.onCloseChat();
+                        } else {
+                            navigation.goBack();
+                        }
+                    }} 
+                    style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}
+                >
+                    <Feather name="chevron-left" size={26} color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
+                </TouchableOpacity>
+            ),
             headerTitle: () => (
                 <TouchableOpacity style={styles.headerTitleContainer} onPress={navigateToGroupInfo} activeOpacity={0.8}>
                     <View style={styles.headerImageContainer}>
@@ -2766,8 +2799,24 @@ const GroupChatScreen: React.FC = () => {
                 <View style={styles.headerButtons}>
                     <TouchableOpacity 
                         onPress={() => { 
-                            if (canAdd) navigation.navigate('AddGroupMembersScreen', { groupId, groupName: displayGroupName }); 
-                            else Alert.alert("Denied", "Admin only"); 
+                            if (canAdd) {
+                                // Check if we're in web chat panel mode and use appropriate navigation
+                                if (Platform.OS === 'web' && route.params.onCloseChat) {
+                                    (navigation as any).navigate('AddGroupMembers', { 
+                                        groupId, 
+                                        groupName: displayGroupName,
+                                        cameFromGroupInfo: false // Coming from GroupChat, not GroupInfo
+                                    });
+                                } else {
+                                    navigation.navigate('AddGroupMembersScreen', { 
+                                        groupId, 
+                                        groupName: displayGroupName,
+                                        cameFromGroupInfo: false // Coming from GroupChat, not GroupInfo
+                                    });
+                                }
+                            } else {
+                                Alert.alert("Denied", "Admin only"); 
+                            }
                         }} 
                         style={styles.headerButton} 
                         disabled={!canAdd}
@@ -2791,7 +2840,7 @@ const GroupChatScreen: React.FC = () => {
             headerBackTitleVisible: false, 
             headerShown: true 
         }); 
-    }, [navigation, currentGroupName, currentGroupImage, groupId, isCurrentUserAdmin, canMembersAddOthers, canMembersEditInfo, onlineMembers, groupMembers, route.params.groupName, route.params.groupImage]);
+    }, [navigation, currentGroupName, currentGroupImage, groupId, isCurrentUserAdmin, canMembersAddOthers, canMembersEditInfo, onlineMembers, groupMembers, route.params.groupName, route.params.groupImage, route.params.onCloseChat]);
 
     // Modal and Actions
     const handleUpdateName = async () => { const n = editingName.trim(); if (!n || n === currentGroupName || isUpdatingName || !groupId) { setIsEditModalVisible(false); return; } setIsUpdatingName(true); try { const { error } = await supabase.rpc('rename_group_chat', { group_id_input: groupId, new_group_name: n }); if (error) throw error; sendBroadcast('group', groupId, 'group_update', { type: 'rename', name: n, updated_by: currentUserId }); setIsEditModalVisible(false); } catch (e: any) { Alert.alert("Error", `Update fail: ${e.message}`); } finally { setIsUpdatingName(false); } };

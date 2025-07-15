@@ -19,7 +19,14 @@ import { APP_CONSTANTS } from '@/config/constants';               // Adjust path
 // --- End Adjust Paths ---
 
 // --- Types ---
-type GroupInfoScreenRouteProp = RouteProp<RootStackParamList, 'GroupInfoScreen'>;
+type GroupInfoScreenRouteProp = RouteProp<RootStackParamList & {
+    GroupInfoScreen: {
+        groupId: string;
+        groupName: string;
+        groupImage: string | null;
+        onCloseChat?: () => void; // Add onCloseChat for web chat panel
+    }
+}, 'GroupInfoScreen'>;
 type GroupInfoScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GroupInfoScreen'>;
 
 const DEFAULT_PROFILE_PIC = APP_CONSTANTS?.DEFAULT_PROFILE_PIC || 'https://via.placeholder.com/40';
@@ -90,6 +97,32 @@ const GroupInfoScreen = () => {
     // Fetch data AND media on focus/mount
     useFocusEffect( useCallback(() => { fetchGroupInfo(); fetchMedia(); return () => {}; }, [fetchGroupInfo, fetchMedia]) );
 
+    // Set up header configuration
+    useEffect(() => {
+        navigation.setOptions({
+            headerShown: true,
+            headerTitle: 'Group Info',
+            headerTitleAlign: 'center',
+            headerBackTitleVisible: false,
+            headerLeft: () => (
+                <TouchableOpacity 
+                    onPress={() => {
+                        // Check if we're in web chat panel mode and use appropriate navigation
+                        if (Platform.OS === 'web' && route.params.onCloseChat) {
+                            route.params.onCloseChat();
+                        } else {
+                            navigation.goBack();
+                        }
+                    }} 
+                    style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}
+                >
+                    <Feather name="chevron-left" size={26} color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
+                </TouchableOpacity>
+            ),
+            headerStyle: { backgroundColor: 'white' },
+        });
+    }, [navigation, route.params.onCloseChat]);
+
     // --- Image Update Logic ---
     const pickAndUpdateImage = async () => {
          if (!(isCurrentUserAdmin || groupDetails?.can_members_edit_info) || processingAction) return;
@@ -129,7 +162,16 @@ const GroupInfoScreen = () => {
 
     // --- Render Member Item ---
     const renderMemberItem = ({ item }: { item: GroupMember }) => {
-        const name = `${item.profile.first_name || ''} ${item.profile.last_name || ''}`.trim() || item.profile.username || `User (${item.user_id.substring(0,4)})`; const isSelf = item.user_id === currentUserId; const handlePressMember = () => { if (!isSelf) { navigation.push('OtherUserProfileScreen', { userId: item.user_id }); } };
+        const name = `${item.profile.first_name || ''} ${item.profile.last_name || ''}`.trim() || item.profile.username || `User (${item.user_id.substring(0,4)})`; const isSelf = item.user_id === currentUserId; const handlePressMember = () => { 
+            if (!isSelf) { 
+                // Check if we're in web chat panel mode and use appropriate navigation
+                if (Platform.OS === 'web' && route.params.onCloseChat) {
+                    (navigation as any).navigate('OtherUserProfile', { userId: item.user_id });
+                } else {
+                    navigation.push('OtherUserProfileScreen', { userId: item.user_id }); 
+                }
+            } 
+        };
         return ( <TouchableOpacity style={styles.memberItem} onPress={handlePressMember} disabled={isSelf} activeOpacity={isSelf ? 1 : 0.7}><RNImage source={{ uri: item.profile.profile_picture ?? DEFAULT_PROFILE_PIC }} style={styles.memberAvatar} /><View style={styles.memberInfo}><Text style={styles.memberName}>{name} {isSelf ? '(You)' : ''}</Text>{item.is_admin && <Text style={styles.adminBadge}>Admin</Text>}</View>{isCurrentUserAdmin && !isSelf && ( <View style={styles.memberActions}><TouchableOpacity style={styles.actionButton} onPress={() => { handleSetAdminStatus(item.user_id, name, !item.is_admin); }}><Feather name={item.is_admin ? "arrow-down-circle" : "arrow-up-circle"} size={20} color={item.is_admin ? "#F59E0B" : "#10B981"} /></TouchableOpacity><TouchableOpacity style={styles.actionButton} onPress={() => { handleRemoveMember(item.user_id, name); }}><Feather name="x-circle" size={20} color="#EF4444" /></TouchableOpacity></View> )}{processingAction === `remove_${item.user_id}` || processingAction === `admin_${item.user_id}` ? ( <ActivityIndicator size="small" color="#6B7280" style={styles.memberProcessingIndicator}/> ) : null}</TouchableOpacity> );
     };
 
@@ -194,7 +236,22 @@ const GroupInfoScreen = () => {
                 </View>
 
                  {/* Add Members Button */}
-                 <TouchableOpacity style={styles.actionRow} onPress={() => navigation.navigate('AddGroupMembersScreen', { groupId, groupName: groupDetails.group_name })} disabled={!isCurrentUserAdmin && !groupDetails.can_members_add_others} >
+                 <TouchableOpacity style={styles.actionRow} onPress={() => {
+                     // Check if we're in web chat panel mode and use appropriate navigation
+                     if (Platform.OS === 'web' && route.params.onCloseChat) {
+                         (navigation as any).navigate('AddGroupMembers', { 
+                             groupId, 
+                             groupName: groupDetails.group_name,
+                             cameFromGroupInfo: true // Mark that we came from GroupInfoScreen
+                         });
+                     } else {
+                         navigation.navigate('AddGroupMembersScreen', { 
+                             groupId, 
+                             groupName: groupDetails.group_name,
+                             cameFromGroupInfo: true // Mark that we came from GroupInfoScreen
+                         });
+                     }
+                 }} disabled={!isCurrentUserAdmin && !groupDetails.can_members_add_others} >
                      <Feather name="user-plus" size={22} color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} style={styles.actionIcon} />
                      <Text style={styles.actionText}>Add Members</Text>
                      <Feather name="chevron-right" size={20} color="#9CA3AF" />

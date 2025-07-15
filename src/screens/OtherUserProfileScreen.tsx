@@ -476,10 +476,18 @@ const OtherUserProfileScreen: React.FC = () => {
                 <TouchableOpacity
                     onPress={() => {
                         if (profileUserId && profileUserNameForChat && canChat) {
-                           navigation.navigate('IndividualChatScreen', {
-                               matchUserId: profileUserId,
-                               matchName: profileUserNameForChat
-                           });
+                           // Check if we're in web chat panel mode and use appropriate navigation
+                           if (Platform.OS === 'web' && route.params.fromChat) {
+                               (navigation as any).navigate('IndividualChat', {
+                                   matchUserId: profileUserId,
+                                   matchName: profileUserNameForChat
+                               });
+                           } else {
+                               navigation.navigate('IndividualChatScreen', {
+                                   matchUserId: profileUserId,
+                                   matchName: profileUserNameForChat
+                               });
+                           }
                         } else {
                            console.warn("Cannot navigate to chat:", { profileUserId, profileUserNameForChat, canChat });
                            if (!canChat) {
