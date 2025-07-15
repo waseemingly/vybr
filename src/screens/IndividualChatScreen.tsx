@@ -2011,19 +2011,36 @@ const IndividualChatScreen: React.FC = () => {
 
     // --- Smart Auto-Scroll Handler ---
     const handleAutoScrollToBottom = useCallback(() => {
-        if (isUserScrolling || isScrollingToMessage || !isNearBottom) {
-            return; // Don't auto-scroll if user is scrolling or not near bottom
+        console.log('[IndividualChatScreen] handleAutoScrollToBottom called:', { 
+            isUserScrolling, 
+            isScrollingToMessage, 
+            sectionsLength: sections.length, 
+            messagesLength: messages.length,
+            hasFlatListRef: !!flatListRef.current
+        });
+        
+        if (isUserScrolling || isScrollingToMessage) {
+            console.log('[IndividualChatScreen] Auto-scroll blocked: user scrolling or scrolling to message');
+            return; // Don't auto-scroll if user is scrolling
         }
         
         if (flatListRef.current && sections.length > 0 && messages.length > 0) {
             try {
+                console.log('[IndividualChatScreen] Attempting auto-scroll to bottom');
                 const sectionListRef = flatListRef.current as any;
                 sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: false });
+                console.log('[IndividualChatScreen] Auto-scroll to bottom completed');
             } catch (error) {
                 console.warn('Auto-scroll failed:', error);
             }
+        } else {
+            console.log('[IndividualChatScreen] Auto-scroll conditions not met:', {
+                hasFlatListRef: !!flatListRef.current,
+                sectionsLength: sections.length,
+                messagesLength: messages.length
+            });
         }
-    }, [isUserScrolling, isScrollingToMessage, isNearBottom, sections.length, messages.length]);
+    }, [isUserScrolling, isScrollingToMessage, sections.length, messages.length]);
 
     // --- Scroll to Bottom FAB Handler ---
     const handleScrollToBottom = useCallback(() => {
@@ -2040,6 +2057,13 @@ const IndividualChatScreen: React.FC = () => {
 
     // --- Find and Scroll to Earliest Unread Message ---
     const findAndScrollToEarliestUnread = useCallback(() => {
+        console.log('[IndividualChatScreen] findAndScrollToEarliestUnread called:', { 
+            currentUserId, 
+            matchUserId, 
+            hasScrolledToUnread, 
+            messagesLength: messages.length 
+        });
+        
         if (!currentUserId || !matchUserId || hasScrolledToUnread) {
             console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: Early return', { currentUserId, matchUserId, hasScrolledToUnread });
             return;
@@ -2053,6 +2077,7 @@ const IndividualChatScreen: React.FC = () => {
         );
 
         console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: Found unread messages', unreadMessages.length);
+        console.log('[IndividualChatScreen] findAndScrollToEarliestUnread: Unread message IDs:', unreadMessages.map(m => ({ id: m._id, isSeen: m.isSeen })));
 
         if (unreadMessages.length === 0) {
             // No unread messages, scroll to bottom
@@ -2079,19 +2104,38 @@ const IndividualChatScreen: React.FC = () => {
 
     // Handle scroll to unread messages when messages are loaded and seen status is updated
     useEffect(() => {
-        console.log('[IndividualChatScreen] useEffect for scroll to unread:', { messagesLength: messages.length, loading, hasScrolledToUnread });
+        console.log('[IndividualChatScreen] useEffect for scroll to unread:', { 
+            messagesLength: messages.length, 
+            loading, 
+            hasScrolledToUnread,
+            currentUserId,
+            matchUserId
+        });
+        
         if (messages.length > 0 && !loading && !hasScrolledToUnread) {
+            console.log('[IndividualChatScreen] Conditions met for scroll to unread, setting timer');
             // Wait for seen status to be properly updated before determining unread messages
             const timer = setTimeout(() => {
                 // Double-check that we haven't already scrolled to unread
                 if (!hasScrolledToUnread) {
                     console.log('[IndividualChatScreen] Triggering findAndScrollToEarliestUnread after delay');
                     findAndScrollToEarliestUnread();
+                } else {
+                    console.log('[IndividualChatScreen] Already scrolled to unread, skipping');
                 }
             }, 500); // Increased delay to ensure seen status is updated
-            return () => clearTimeout(timer);
+            return () => {
+                console.log('[IndividualChatScreen] Clearing scroll to unread timer');
+                clearTimeout(timer);
+            };
+        } else {
+            console.log('[IndividualChatScreen] Conditions not met for scroll to unread:', {
+                hasMessages: messages.length > 0,
+                notLoading: !loading,
+                notScrolledToUnread: !hasScrolledToUnread
+            });
         }
-    }, [messages.length, loading, hasScrolledToUnread, findAndScrollToEarliestUnread]);
+    }, [messages.length, loading, hasScrolledToUnread, findAndScrollToEarliestUnread, currentUserId, matchUserId]);
 
     // --- Scroll Event Handlers ---
     const handleScrollBeginDrag = useCallback(() => {
@@ -2611,13 +2655,13 @@ const IndividualChatScreen: React.FC = () => {
                         : m
                 ));
                 
-                // Refresh unread count immediately
-                refreshUnreadCount();
+                // Note: refreshUnreadCount() removed to prevent infinite loop
+                // The unread count will be updated automatically through real-time subscriptions
             }
         } catch (e: any) {
             console.error('Exception marking messages as seen:', e.message);
         }
-    }, [currentUserId, matchUserId, messages, refreshUnreadCount, sendBroadcast]);
+    }, [currentUserId, matchUserId, messages, sendBroadcast]);
 
     // Enhanced function to check and update seen status for messages loaded from database
     const checkAndUpdateSeenStatus = useCallback(async () => {
@@ -2678,39 +2722,62 @@ const IndividualChatScreen: React.FC = () => {
     useFocusEffect(
         useCallback(() => {
             console.log('[IndividualChatScreen] Screen focused, checking and updating seen status');
+            console.log('[IndividualChatScreen] Current messages count:', messages.length);
+            console.log('[IndividualChatScreen] Current user ID:', currentUserId);
+            console.log('[IndividualChatScreen] Match user ID:', matchUserId);
+            
+            // First check and update seen status for messages loaded from database
             const checkTimer = setTimeout(() => {
-                if (hasScrolledToUnread) checkAndUpdateSeenStatus();
+                console.log('[IndividualChatScreen] Running checkAndUpdateSeenStatus...');
+                checkAndUpdateSeenStatus();
             }, 100);
+            
+            // Then mark any remaining unseen messages as seen
             const markTimer = setTimeout(() => {
-                if (hasScrolledToUnread) markMessagesAsSeen();
+                console.log('[IndividualChatScreen] Running markMessagesAsSeen...');
+                markMessagesAsSeen();
             }, 300);
+            
             return () => {
                 clearTimeout(checkTimer);
                 clearTimeout(markTimer);
             };
-        }, [checkAndUpdateSeenStatus, markMessagesAsSeen, hasScrolledToUnread])
+        }, [checkAndUpdateSeenStatus, markMessagesAsSeen, messages.length, currentUserId, matchUserId])
     );
 
     // Also mark as seen when new messages arrive while screen is focused
+    // Use a ref to track if we're currently marking messages to prevent infinite loops
+    const isMarkingMessagesRef = useRef(false);
+    
     useEffect(() => {
-        const hasNewMessagesFromPartner = messages.some(msg => 
-            msg.user._id === matchUserId && !msg.isSeen
-        );
-        if (hasNewMessagesFromPartner && hasScrolledToUnread) {
-            markMessagesAsSeen();
+        // Only mark as seen if we're not already in the process and there are messages
+        if (!isMarkingMessagesRef.current && messages.length > 0) {
+            // Check if there are any unseen messages from the partner
+            const hasUnseenMessagesFromPartner = messages.some(msg => 
+                msg.user._id === matchUserId && !msg.isSeen
+            );
+            
+            if (hasUnseenMessagesFromPartner) {
+                isMarkingMessagesRef.current = true;
+                
+                // Mark as seen immediately for better UX
+                markMessagesAsSeen().finally(() => {
+                    isMarkingMessagesRef.current = false;
+                });
+            }
         }
-    }, [messages.length, markMessagesAsSeen, matchUserId, hasScrolledToUnread]);
+    }, [messages.length, markMessagesAsSeen, matchUserId]); // Only depend on messages.length, not the entire messages array
 
     // Mark messages as seen immediately when component mounts (for notification navigation)
     useEffect(() => {
-        if (currentUserId && matchUserId && messages.length > 0 && hasScrolledToUnread) {
+        if (currentUserId && matchUserId && messages.length > 0) {
             const timer = setTimeout(() => {
                 checkAndUpdateSeenStatus();
                 markMessagesAsSeen();
-            }, 200);
+            }, 200); // Slightly longer delay for initial load
             return () => clearTimeout(timer);
         }
-    }, [currentUserId, matchUserId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen, hasScrolledToUnread]);
+    }, [currentUserId, matchUserId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen]);
 
     // Reset unread state when all messages are seen
     useEffect(() => {
@@ -2735,7 +2802,7 @@ const IndividualChatScreen: React.FC = () => {
     // Handle app state changes (when app comes back from background)
     useEffect(() => {
         const handleAppStateChange = (nextAppState: string) => {
-            if (nextAppState === 'active' && currentUserId && matchUserId && messages.length > 0 && hasScrolledToUnread) {
+            if (nextAppState === 'active' && currentUserId && matchUserId && messages.length > 0) {
                 console.log('[IndividualChatScreen] App became active, checking seen status');
                 // Small delay to ensure the app is fully active
                 setTimeout(() => {
@@ -2747,7 +2814,7 @@ const IndividualChatScreen: React.FC = () => {
 
         const subscription = AppState.addEventListener('change', handleAppStateChange);
         return () => subscription?.remove();
-    }, [currentUserId, matchUserId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen, hasScrolledToUnread]);
+    }, [currentUserId, matchUserId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen]);
 
     // --- Render Logic ---
     if (loading && messages.length === 0 && !isBlocked) {
@@ -3221,7 +3288,7 @@ const IndividualChatScreen: React.FC = () => {
                     sections={sections}
                     style={styles.messageList}
                     contentContainerStyle={styles.messageListContent}
-                    keyExtractor={(item) => item._id}
+                    keyExtractor={(item) => `${item._id}-${item.isSeen ? 'seen' : 'unseen'}`}
                     renderItem={({ item }) => (
                         <MessageBubble 
                             message={item} 

@@ -1774,12 +1774,13 @@ const GroupChatScreen: React.FC = () => {
                     message_ids: messageIdsToMark, 
                     seen_by: { userId: currentUserId, userName: userProfileCache[currentUserId]?.name || 'Someone' }
                 });
-                refreshUnreadCount();
+                // Note: refreshUnreadCount() removed to prevent infinite loop
+                // The unread count will be updated automatically through real-time subscriptions
             }
         } catch (e: any) {
             console.error('Exception marking group messages as seen:', e.message);
         }
-    }, [currentUserId, groupId, messages, refreshUnreadCount, sendBroadcast]);
+    }, [currentUserId, groupId, messages, sendBroadcast]);
 
     // Enhanced function to check and update seen status for messages loaded from database
     const checkAndUpdateSeenStatus = useCallback(async () => {

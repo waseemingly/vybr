@@ -79,7 +79,7 @@ export const useUnreadCount = () => {
       unsubscribeFromEvent('message_status_updated', handleMessageUpdate);
       unsubscribeFromEvent('group_message_status_updated', handleMessageUpdate);
     };
-  }, [session?.user?.id, subscribeToEvent, unsubscribeFromEvent, handleMessageUpdate, fetchUnreadCount]);
+  }, [session?.user?.id, subscribeToEvent, unsubscribeFromEvent, handleMessageUpdate]);
 
   // Provide a manual refresh function for when messages are read
   const refreshUnreadCount = useCallback(() => {
