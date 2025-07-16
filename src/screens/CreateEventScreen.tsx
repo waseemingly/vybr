@@ -14,6 +14,7 @@ import { Picker } from '@react-native-picker/picker';
 import { supabase } from "../lib/supabase"; // Using common path convention
 import { useAuth } from "../hooks/useAuth";   // Using common path convention
 import { useNavigation } from "@react-navigation/native";
+import { decode } from 'base64-arraybuffer'; // Add import for base64 decoding
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Country, State, City } from 'country-state-city'; // Added import
 import ImageCropper from '../components/ImageCropper'; // Add ImageCropper
@@ -318,7 +319,7 @@ const CreateEventScreen: React.FC = () => {
                 aspect: Platform.OS !== 'web' ? [1, 1] : undefined, // Enforce 1:1 aspect ratio for cropping on mobile
                 quality: 0.7,
                 allowsMultipleSelection: Platform.OS !== 'web', // Only allow multiple on mobile for now
-                base64: Platform.OS === 'web', // Request base64 on web for cropping
+                base64: true, // Request base64 on BOTH web and mobile for consistent handling
             });
 
             if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -335,8 +336,8 @@ const CreateEventScreen: React.FC = () => {
                     const assetsToAdd: ImageAsset[] = newAssets.map(a => {
                         const cleanMimeType = getCleanImageMimeType(a.mimeType);
 
-                        // Use base64 to construct data URI only if cleanMimeType is valid
-                        const uri = Platform.OS === 'web' && (a as any).base64 && cleanMimeType
+                        // Use base64 to construct data URI for BOTH web and mobile
+                        const uri = (a as any).base64 && cleanMimeType
                             ? `data:${cleanMimeType};base64,${(a as any).base64}`
                             : a.uri;
                         
@@ -382,7 +383,20 @@ const CreateEventScreen: React.FC = () => {
         setTempImageUri(null);
     };
    const removeImage = (index: number) => { setImageAssets(p => { const n = [...p]; n.splice(index, 1); return n; }); };
-   const base64ToArrayBuffer = (base64: string): ArrayBuffer => { try{ const b = Buffer.from(base64, 'base64'); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); } catch(e){ console.error("Base64 Err:",e); throw new Error("Failed image process."); } };
+   const base64ToArrayBuffer = (base64: string): ArrayBuffer => { 
+     try { 
+       // For React Native, use a more robust base64 to ArrayBuffer conversion
+       const binaryString = atob(base64);
+       const bytes = new Uint8Array(binaryString.length);
+       for (let i = 0; i < binaryString.length; i++) {
+         bytes[i] = binaryString.charCodeAt(i);
+       }
+       return bytes.buffer;
+     } catch(e) { 
+       console.error("Base64 Err:", e); 
+       throw new Error("Failed image process."); 
+     } 
+   };
    const uploadSingleImage = async (userId: string, asset: ImageAsset): Promise<string | null> => { 
      const { uri, mimeType: assetMimeTypeFromPicker, fileName: originalFileName } = asset; 
      try { 
@@ -470,37 +484,65 @@ const CreateEventScreen: React.FC = () => {
         return urlData?.publicUrl ?? null;
 
        } else { // Native
-         const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }); 
-         if (!base64) throw new Error("Failed to read image file as base64 (Native)."); 
-         arrayBuffer = base64ToArrayBuffer(base64); 
-         if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty for native upload."); 
+         // For mobile, use the same data URI approach as web for consistency
+         console.log(`[ImageUpload NATIVE] Using data URI approach for mobile upload`);
          
-         // For native, the assetMimeTypeFromPicker is often more reliable or the primary source.
-         // Re-evaluate actualMimeTypeForUpload based on it, if different from the initial `finalMimeType`
-         const cleanedNativeMimeType = getCleanImageMimeType(assetMimeTypeFromPicker);
-         if (cleanedNativeMimeType) {
-             actualMimeTypeForUpload = cleanedNativeMimeType;
+         if (uri.startsWith('data:')) {
+           // Handle data URI (same as web)
+           const base64Data = uri.split(',')[1];
+           if (!base64Data) throw new Error("Invalid data URI format for mobile upload.");
+           arrayBuffer = base64ToArrayBuffer(base64Data);
+           const dataUriMimeType = uri.match(/data:(.*?);base64/)?.[1];
+           if (dataUriMimeType) {
+                const cleanedDataUriMimeType = getCleanImageMimeType(dataUriMimeType);
+                if (cleanedDataUriMimeType) actualMimeTypeForUpload = cleanedDataUriMimeType;
+           }
          } else {
-            // If picker's type is bad, stick with the previously derived `finalMimeType`
-            actualMimeTypeForUpload = finalMimeType; 
+           // Fallback to fetch approach for non-data URIs
+           const response = await fetch(uri);
+           if (!response.ok) throw new Error(`Failed to fetch mobile URI: ${response.status} ${response.statusText}`);
+           arrayBuffer = await response.arrayBuffer();
+           const contentTypeHeader = response.headers.get('content-type');
+           if (contentTypeHeader) {
+                const cleanedHeaderMimeType = getCleanImageMimeType(contentTypeHeader);
+                if (cleanedHeaderMimeType) actualMimeTypeForUpload = cleanedHeaderMimeType;
+           }
          }
-         // Ensure it's a fallback if still undefined (though `finalMimeType` should have a default)
+         
+         if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty for native upload.");
          if (!actualMimeTypeForUpload) actualMimeTypeForUpload = 'image/jpeg';
 
+         console.log(`[ImageUpload NATIVE] ArrayBuffer size: ${arrayBuffer.byteLength} bytes`);
+         console.log(`[ImageUpload NATIVE] Original MIME type from picker: ${assetMimeTypeFromPicker}`);
+         console.log(`[ImageUpload NATIVE] Final MIME type for upload: ${actualMimeTypeForUpload}`);
 
-         console.log(`[ImageUpload NATIVE] Uploading with path: ${filePath}, contentType: ${actualMimeTypeForUpload}`);
+         // Get signed URL for upload
+         const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+            .from("event_posters")
+            .createSignedUploadUrl(filePath);
 
-         const { data: uploadData, error: uploadError } = await supabase.storage.from("event_posters").upload(filePath, arrayBuffer, { 
-           cacheControl: "3600", 
-           upsert: false, 
-           contentType: actualMimeTypeForUpload
-         }); 
-         if (uploadError) {
-            console.error("[ImageUpload NATIVE] Supabase Upload Error Details:", uploadError);
-            throw new Error(`Supabase upload error: ${uploadError.message}`); 
+         if (signedUrlError) {
+             console.error("[ImageUpload NATIVE] Supabase Signed URL Error:", signedUrlError);
+             throw new Error(`Supabase signed URL error: ${signedUrlError.message}`);
          }
-         if (!uploadData?.path) throw new Error("Upload succeeded but no path returned from Supabase (NATIVE)."); 
-         const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(uploadData.path); 
+         if (!signedUrlData?.signedUrl) throw new Error("No signed URL returned (NATIVE).");
+
+         // Upload using signed URL with ArrayBuffer directly (React Native compatible)
+         const uploadResponse = await fetch(signedUrlData.signedUrl, {
+             method: 'PUT',
+             headers: {
+                 'Content-Type': actualMimeTypeForUpload,
+             },
+             body: arrayBuffer,
+         });
+
+         if (!uploadResponse.ok) {
+             const errorBody = await uploadResponse.text();
+             console.error("[ImageUpload NATIVE] Manual Fetch Upload Error:", uploadResponse.status, errorBody);
+             throw new Error(`Manual fetch upload failed: ${uploadResponse.status} ${errorBody}`);
+         }
+         
+         const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(filePath);
          return urlData?.publicUrl ?? null;
        }
      } catch (e: any) { 
