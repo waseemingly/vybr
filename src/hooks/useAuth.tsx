@@ -17,7 +17,6 @@ import * as FileSystem from 'expo-file-system';
 // Import permission function from expo-image-picker (needed by context consumer)
 import { requestMediaLibraryPermissionsAsync } from 'expo-image-picker';
 import { Buffer } from 'buffer'; // Import Buffer for robust Base64 handling
-import { decode } from 'base64-arraybuffer'; // Add import for base64 decoding
 import { createClient } from '@supabase/supabase-js';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import * as WebBrowser from 'expo-web-browser';
@@ -254,16 +253,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         return true; // Assume granted or not needed on web
     };
 
-    // --- Base64 to ArrayBuffer Helper using native atob ---
+    // --- Base64 to ArrayBuffer Helper using Buffer ---
     const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
         try {
-            // For React Native, use a more robust base64 to ArrayBuffer conversion
-            const binaryString = atob(base64);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-            return bytes.buffer;
+            const buf = Buffer.from(base64, 'base64');
+            // Create ArrayBuffer from Buffer's underlying ArrayBuffer
+            return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
         } catch (error) {
             console.error("Error in base64ToArrayBuffer:", error);
             throw new Error("Failed to decode base64 string."); // Re-throw

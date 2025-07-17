@@ -25,7 +25,7 @@ type OrganizerSignUpNavigationProp = NavigationProp<RootStackParamList>;
 // type Step = 'account-details' | 'profile-details' | 'payment';
 type BusinessType = 'venue' | 'promoter' | 'artist_management' | 'festival_organizer' | 'other' | 'F&B' | 'club' | 'party' | '';
 // Correct the Step type definition based on usage in the component
-type Step = 'company-name' | 'profile-details' | 'account-details';
+type Step = 'company-name' | 'profile-details';
 
 // Define window width for animations (Assuming SCREEN_WIDTH is needed)
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -76,15 +76,10 @@ const OrganizerSignUpFlow = () => {
   const navigation = useNavigation<OrganizerSignUpNavigationProp>();
   // Get new functions from useAuth
   const { 
-    signUp, 
     createOrganizerProfile, 
     requestMediaLibraryPermissions, 
     loading: authLoading, 
-    checkEmailExists, 
-    // verifyEmailIsReal, // Removed email verification function
-    signInWithGoogle, // Add Google Sign-In function
-    verifyGoogleAuthCompleted, // Add verifyGoogleAuthCompleted function
-    updateUserMetadata, // Add function to update user metadata
+    // Remove unused functions: signUp, checkEmailExists, signInWithGoogle, verifyGoogleAuthCompleted, updateUserMetadata
   } = useAuth();
 
   const [formData, setFormData] = useState({
@@ -109,16 +104,11 @@ const OrganizerSignUpFlow = () => {
   const [slideAnim] = useState(new Animated.Value(0));
   const [isTermsModalVisible, setIsTermsModalVisible] = useState(false);
 
-  // Add state to hold Google User ID
-  const [googleUserId, setGoogleUserId] = useState<string | null>(null);
-
   // Web cropping state
   const [showCropper, setShowCropper] = useState(false);
   const [tempImageUri, setTempImageUri] = useState<string | null>(null);
 
-  // Email validation state
-  const [emailStatus, setEmailStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'error'>('idle');
-  const [emailFeedback, setEmailFeedback] = useState('');
+  // Remove email validation state since authentication happens in LoginScreen
 
   // Request permissions on mount
   useEffect(() => {
@@ -257,72 +247,7 @@ const OrganizerSignUpFlow = () => {
     setTempImageUri(null);
   };
 
-  // Handle Google Sign-In
-  const handleGoogleSignIn = async () => {
-    try {
-      setIsLoading(true);
-      setError('');
-      
-      console.log('[OrganizerSignUpFlow] Starting Google Sign-In...');
-      const result = await signInWithGoogle();
-      
-      if ('error' in result) {
-        // Check for cancellation
-        if ((result.error as any)?.cancelled) {
-          console.log('[OrganizerSignUpFlow] Google Sign-In was cancelled by the user.');
-          return;
-        }
-        console.error('[OrganizerSignUpFlow] Google Sign-In error:', result.error);
-        setError(result.error.message || 'Failed to sign in with Google');
-        return;
-      }
-      
-      if ('user' in result && result.user) {
-        const { user } = result;
-        console.log('[OrganizerSignUpFlow] Google Sign-In successful, user:', user.id);
-        
-        // Ensure user type is set to organizer
-        await updateUserMetadata('organizer');
-        
-        // Create the organizer profile directly
-        const profileData = {
-          userId: user.id,
-          companyName: formData.companyName,
-          // Email is automatically fetched from the session
-          logoUri: formData.logoUri,
-          logoMimeType: formData.logoMimeType,
-          phoneNumber: formData.phoneNumber,
-          businessType: formData.businessType || undefined,
-          bio: formData.bio,
-          website: formData.website,
-          capacity: formData.businessType === 'F&B' ? parseInt(formData.capacity, 10) : undefined,
-          openingHours: formData.businessType === 'F&B' ? (formData.openingHours ?? undefined) : undefined,
-        };
-        
-        console.log('[OrganizerSignUpFlow] Creating profile for Google user:', profileData);
-        const profileResult = await createOrganizerProfile(profileData);
-        
-        if ('error' in profileResult && profileResult.error) {
-          console.error('[OrganizerSignUpFlow] Google user profile creation error:', profileResult.error);
-          setError(profileResult.error.message || 'Failed to create profile for Google user');
-          return;
-        }
-        
-        console.log('[OrganizerSignUpFlow] Organizer profile created successfully');
-        
-        // Force a re-render by resetting to MainApp, which will trigger the payment check
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'MainApp' }],
-        });
-      }
-    } catch (error: any) {
-      console.error('[OrganizerSignUpFlow] Google sign-in error:', error);
-      setError(error.message || 'Failed to sign in with Google');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Remove handleGoogleSignIn function - authentication happens in LoginScreen
 
   // Complete signup process - Updated Flow
   const handleCompleteSignup = async () => {
@@ -330,24 +255,20 @@ const OrganizerSignUpFlow = () => {
     setError(''); // Clear previous errors
 
     try {
-      let userId = googleUserId;
-
-      // Step 1: Sign up the user (Auth + User Type) if not a Google sign-in
-      if (!userId) {
-        console.error('No user ID available. Google sign-in is required.');
-        setError('Google sign-in is required to create an organizer account.');
+      // Get the current authenticated user from session
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData?.session?.user?.id) {
+        console.error('[OrganizerSignUpFlow] No authenticated user found');
+        setError('You must be signed in to create an organizer account. Please sign in first.');
         setIsLoading(false);
         return;
       }
 
-      // Ensure we have a userId before proceeding
-      if (!userId) {
-        throw new Error("Could not get a user ID to create the profile.");
-      }
+      const userId = sessionData.session.user.id;
+      console.log('[OrganizerSignUpFlow] Using authenticated user ID:', userId);
 
       // Get email from the authenticated user session
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData?.session?.user?.email) {
+      if (!sessionData.session.user.email) {
         console.error('[OrganizerSignUpFlow] Could not get email from session');
         throw new Error("Could not retrieve your email from Google. Please try again.");
       }
@@ -370,23 +291,23 @@ const OrganizerSignUpFlow = () => {
         capacity: formData.businessType === 'F&B' ? parseInt(formData.capacity, 10) : undefined,
         openingHours: formData.businessType === 'F&B' ? (formData.openingHours ?? undefined) : undefined,
       };
-      console.log('[OrganizerSignUpFlow] Creating profile for Google user:', profileData);
+      console.log('[OrganizerSignUpFlow] Creating profile for authenticated user:', profileData);
       const profileResult = await createOrganizerProfile(profileData);
       if ('error' in profileResult && profileResult.error) {
-        console.error('[OrganizerSignUpFlow] Google user profile creation error:', profileResult.error);
-        throw new Error(profileResult.error.message || 'Failed to create profile for Google user');
+        console.error('[OrganizerSignUpFlow] Profile creation error:', profileResult.error);
+        throw new Error(profileResult.error.message || 'Failed to create organizer profile');
       }
 
        console.log('Organizer profile created/updated successfully.');
 
       // Step 3: Signup and Profile creation successful!
       // Redirect to RequiredPaymentScreen - the AppNavigator will handle the detection
-      console.log('Organizer sign up flow complete. The app will automatically redirect to payment setup.');
+      console.log('Organizer sign up flow complete. Redirecting to payment setup.');
       
-      // Force a re-render by resetting to MainApp, which will trigger the payment check
-      navigation.reset({
+      // Navigate to PaymentRequired stack for payment setup
+      (navigation as any).reset({
         index: 0,
-        routes: [{ name: 'MainApp' }],
+        routes: [{ name: 'PaymentRequired' }],
       });
 
     } catch (err: any) {
@@ -410,13 +331,10 @@ const OrganizerSignUpFlow = () => {
       
       case 'profile-details':
         if (validateProfileDetailsStep()) {
-          goToNextStep('account-details');
+          // Create organizer profile and then navigate to payment
+          console.log('[OrganizerSignUpFlow] 🏢 Organizer profile validation passed - creating profile...');
+          await handleCompleteSignup();
         }
-        break;
-
-      case 'account-details':
-        // No validation needed for account details step
-        // Google Sign-In button handles everything
         break;
     }
   };
@@ -463,167 +381,130 @@ const OrganizerSignUpFlow = () => {
   );
 
   // Render account details step with Google Sign-In only
-  const renderAccountDetailsStep = () => (
-    <View style={styles.stepContent}>
-      <Text style={styles.stepTitle}>Connect Your Account</Text>
-      <Text style={styles.stepDescription}>Sign in with Google to complete your profile</Text>
-
-      {/* Google Sign-In Button */}
-      <TouchableOpacity 
-        style={styles.googleSignInButton}
-        onPress={handleGoogleSignIn}
-        disabled={isLoading || authLoading}
-      >
-        <View style={styles.googleButtonContent}>
-          {/* Use appropriate Google icon here */}
-          <Feather name="mail" size={20} color="#4285F4" style={styles.googleIcon} />
-          <Text style={styles.googleSignInText}>Sign in with Google</Text>
-        </View>
-      </TouchableOpacity>
-
-      {/* Information text */}
-      <Text style={styles.googleInfoText}>
-        We use Google for secure authentication. Your email will be used to create your account and for important notifications.
-      </Text>
-
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-      {isLoading && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
-          <Text style={styles.loadingText}>Creating your account...</Text>
-        </View>
-      )}
-    </View>
-  );
-
-  // Render contact and branding step (Update Logo Upload)
   const renderProfileDetailsStep = () => (
-      <View style={styles.stepContent}>
-          <Text style={styles.stepTitle}>Contact & Branding</Text>
+    <View style={styles.stepContent}>
+      <Text style={styles.stepTitle}>Contact & Branding</Text>
 
-          <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Phone Number (Optional)</Text>
-              <TextInput
-                  style={styles.input}
-                  placeholder="Enter your phone number"
-                  value={formData.phoneNumber}
-                  onChangeText={(text) => handleChange('phoneNumber', text)}
-                  keyboardType="phone-pad"
-              />
-          </View>
+      <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Phone Number (Optional)</Text>
+          <TextInput
+              style={styles.input}
+              placeholder="Enter your phone number"
+              value={formData.phoneNumber}
+              onChangeText={(text) => handleChange('phoneNumber', text)}
+              keyboardType="phone-pad"
+          />
+      </View>
 
-          <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Business Type</Text>
-              <View style={styles.businessTypeContainer}>
-                  {(['venue', 'promoter', 'F&B', 'festival_organizer', 'club','party','other'] as BusinessType[]).map((type) => (
-                      <TouchableOpacity
-                          key={type}
-                          style={[
-                              styles.businessTypeOption,
-                              formData.businessType === type && styles.businessTypeSelected
-                          ]}
-                          onPress={() => handleChange('businessType', type)}
-                      >
-                          <Text style={[
-                              styles.businessTypeText,
-                              formData.businessType === type && styles.businessTypeTextSelected
-                          ]}>
-                              {type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                          </Text>
-                      </TouchableOpacity>
-                  ))}
-              </View>
-          </View>
-
-          {formData.businessType === 'F&B' && (
-              <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Venue Capacity</Text>
-                  <TextInput
-                      style={styles.input}
-                      placeholder="Enter total capacity"
-                      value={formData.capacity}
-                      onChangeText={(text) => handleChange('capacity', text)}
-                      keyboardType="number-pad"
-                  />
-              </View>
-          )}
-
-          {formData.businessType === 'F&B' && (
-             <OpeningHoursEditor
-                  openingHours={formData.openingHours}
-                  onOpeningHoursChange={(hours) => handleChange('openingHours', hours)}
-              />
-          )}
-
-          <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Website (Optional)</Text>
-              <TextInput
-                  style={styles.input}
-                  placeholder="Enter your website URL"
-                  value={formData.website}
-                  onChangeText={(text) => handleChange('website', text)}
-                  keyboardType="url"
-                  autoCapitalize="none"
-              />
-          </View>
-
-          <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Bio (Optional)</Text>
-              <TextInput
-                  style={[styles.input, styles.bioInput]}
-                  placeholder="Tell us about your organization (max 500 chars)"
-                  value={formData.bio}
-                  onChangeText={(text) => handleChange('bio', text)}
-                  multiline
-                  numberOfLines={4}
-                  maxLength={500} // Add a reasonable limit
-                  textAlignVertical="top" // Ensure text starts at the top
-              />
-          </View>
-
-          {/* --- Updated Logo Section --- */}
-          <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Logo (Optional)</Text>
-              <View style={styles.logoContainer}>
-                  {/* Use logoPreview which holds the local URI */}
-                  {formData.logoPreview ? (
-                      <Image source={{ uri: formData.logoPreview }} style={styles.logoPreview} />
-                  ) : (
-                      <View style={styles.logoPlaceholder}>
-                          <Feather name="image" size={40} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                      </View>
-                  )}
-
+      <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Business Type</Text>
+          <View style={styles.businessTypeContainer}>
+              {(['venue', 'promoter', 'F&B', 'festival_organizer', 'club','party','other'] as BusinessType[]).map((type) => (
                   <TouchableOpacity
-                      style={styles.uploadButton}
-                      onPress={handleLogoPick} // Changed to pick, not upload directly
-                      disabled={uploading} // Keep disabled state if needed for visual feedback during pick? (optional)
+                      key={type}
+                      style={[
+                          styles.businessTypeOption,
+                          formData.businessType === type && styles.businessTypeSelected
+                      ]}
+                      onPress={() => handleChange('businessType', type)}
                   >
-                      {/* Text changes based on whether a logo is selected */}
-                      <Text style={styles.uploadButtonText}>
-                          {formData.logoPreview ? 'Change Logo' : 'Select Logo'}
+                      <Text style={[
+                          styles.businessTypeText,
+                          formData.businessType === type && styles.businessTypeTextSelected
+                      ]}>
+                          {type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                       </Text>
                   </TouchableOpacity>
-              </View>
+              ))}
           </View>
-          {/* --- End Updated Logo Section --- */}
-
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </View>
+
+      {formData.businessType === 'F&B' && (
+          <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Venue Capacity</Text>
+              <TextInput
+                  style={styles.input}
+                  placeholder="Enter total capacity"
+                  value={formData.capacity}
+                  onChangeText={(text) => handleChange('capacity', text)}
+                  keyboardType="number-pad"
+              />
+          </View>
+      )}
+
+      {formData.businessType === 'F&B' && (
+         <OpeningHoursEditor
+              openingHours={formData.openingHours}
+              onOpeningHoursChange={(hours) => handleChange('openingHours', hours)}
+          />
+      )}
+
+      <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Website (Optional)</Text>
+          <TextInput
+              style={styles.input}
+              placeholder="Enter your website URL"
+              value={formData.website}
+              onChangeText={(text) => handleChange('website', text)}
+              keyboardType="url"
+              autoCapitalize="none"
+          />
+      </View>
+
+      <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Bio (Optional)</Text>
+          <TextInput
+              style={[styles.input, styles.bioInput]}
+              placeholder="Tell us about your organization (max 500 chars)"
+              value={formData.bio}
+              onChangeText={(text) => handleChange('bio', text)}
+              multiline
+              numberOfLines={4}
+              maxLength={500} // Add a reasonable limit
+              textAlignVertical="top" // Ensure text starts at the top
+          />
+      </View>
+
+      {/* --- Updated Logo Section --- */}
+      <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Logo (Optional)</Text>
+          <View style={styles.logoContainer}>
+              {/* Use logoPreview which holds the local URI */}
+              {formData.logoPreview ? (
+                  <Image source={{ uri: formData.logoPreview }} style={styles.logoPreview} />
+              ) : (
+                  <View style={styles.logoPlaceholder}>
+                      <Feather name="image" size={40} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                  </View>
+              )}
+
+              <TouchableOpacity
+                  style={styles.uploadButton}
+                  onPress={handleLogoPick} // Changed to pick, not upload directly
+                  disabled={uploading} // Keep disabled state if needed for visual feedback during pick? (optional)
+              >
+                  {/* Text changes based on whether a logo is selected */}
+                  <Text style={styles.uploadButtonText}>
+                      {formData.logoPreview ? 'Change Logo' : 'Select Logo'}
+                  </Text>
+              </TouchableOpacity>
+          </View>
+      </View>
+      {/* --- End Updated Logo Section --- */}
+
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    </View>
   );
 
   // Render current step with appropriate button action/text
   const renderCurrentStep = () => {
     // Determine if the main action button should be disabled
-    const isButtonDisabled = isLoading || authLoading || 
-      (currentStep === 'account-details' && emailStatus === 'checking');
+    const isButtonDisabled = isLoading || authLoading;
 
     // Determine button text
     let buttonText = 'Continue';
     if (currentStep === 'company-name') buttonText = 'Continue';
-    if (currentStep === 'profile-details') buttonText = 'Continue to Account';
-    if (currentStep === 'account-details') buttonText = 'Complete Sign Up';
+    if (currentStep === 'profile-details') buttonText = 'Continue to Payment';
 
     // Determine which function the button calls
     const buttonAction = handleStepSubmit;
@@ -631,12 +512,10 @@ const OrganizerSignUpFlow = () => {
     switch (currentStep) {
       case 'company-name':
       case 'profile-details':
-      case 'account-details':
         return (
           <View style={styles.stepContainer}>
             {currentStep === 'company-name' && renderCompanyNameStep()}
             {currentStep === 'profile-details' && renderProfileDetailsStep()}
-            {currentStep === 'account-details' && renderAccountDetailsStep()}
 
             <TouchableOpacity
               style={[
@@ -686,7 +565,7 @@ const OrganizerSignUpFlow = () => {
                         // Navigate back to landing page from first step
                         navigation.goBack(); // Use goBack instead of navigate to specific screen
                     } else {
-                        const steps: Step[] = ['company-name', 'profile-details', 'account-details'];
+                        const steps: Step[] = ['company-name', 'profile-details'];
                         const currentIndex = steps.indexOf(currentStep);
                         if (currentIndex > 0) {
                             // Go back to previous step with animation
@@ -703,7 +582,6 @@ const OrganizerSignUpFlow = () => {
             <View style={styles.stepIndicatorContainer}>
                 <View style={[styles.stepIndicator, currentStep === 'company-name' ? styles.stepIndicatorActive : {}]} />
                 <View style={[styles.stepIndicator, currentStep === 'profile-details' ? styles.stepIndicatorActive : {}]} />
-                <View style={[styles.stepIndicator, currentStep === 'account-details' ? styles.stepIndicatorActive : {}]} />
             </View>
             {/* Add a placeholder view to balance the header */}
             <View style={{ width: 28 }} />

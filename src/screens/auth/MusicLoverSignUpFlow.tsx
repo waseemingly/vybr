@@ -28,7 +28,7 @@ import ImageCropper from '@/components/ImageCropper'; // Add ImageCropper
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator'; // Import stack param lists
 
 // Step types
-type Step = 'username' | 'profile-details' | 'streaming-service' | 'subscription' | 'account-details' | 'payment';
+type Step = 'username' | 'profile-details' | 'streaming-service' | 'subscription';
 type SubscriptionTier = 'free' | 'premium' | '';
 type StreamingServiceId = 'spotify' | 'apple_music' | 'youtubemusic' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | ''; // Updated 'youtube_music' to 'youtubemusic'
 
@@ -542,18 +542,6 @@ const MusicLoverSignUpFlow = () => {
         return '';
     };
 
-    const validateAccountDetailsStep = (): boolean => {
-        console.log('[MusicLoverSignUpFlow] Validating Account Details Step...');
-        // No fields to validate in this step anymore as it's only Google Sign-In
-        return true;
-    };
-
-    // Get error message for general errors, not username/email specific feedback
-    const getAccountDetailsError = (): string => {
-        // No fields to validate, so no errors to return
-        return '';
-    };
-
     const validateProfileDetailsStep = (): boolean => {
         console.log('[MusicLoverSignUpFlow] Validating Profile Details Step...');
         
@@ -611,73 +599,6 @@ const MusicLoverSignUpFlow = () => {
         if (!formData.subscriptionTier) {
             return 'Please select a subscription tier (Free or Premium).';
         }
-        return '';
-    };
-
-    const validatePaymentStep = (): boolean => {
-        console.log('[MusicLoverSignUpFlow] Validating Payment Step...');
-        
-        // Don't set error state here
-        const { cardNumber, expiry, cvv, name } = formData.paymentInfo;
-        
-        if (!cardNumber.trim() || !/^\d{13,19}$/.test(cardNumber.replace(/\s/g, ''))) return false;
-
-        if (!expiry.trim() || !/^(0[1-9]|1[0-2])\/?([0-9]{2})$/.test(expiry)) return false;
-        const expiryMatch = expiry.match(/^(0[1-9]|1[0-2])\/?([0-9]{2})$/);
-        if (expiryMatch) {
-            const expMonth = parseInt(expiryMatch[1], 10);
-            const expYearShort = parseInt(expiryMatch[2], 10);
-            const currentYear = new Date().getFullYear();
-            const currentMonth = new Date().getMonth() + 1;
-            const expYear = 2000 + expYearShort;
-            if (expYear < currentYear || (expYear === currentYear && expMonth < currentMonth)) {
-                return false;
-            }
-        } else {
-            return false;
-        }
-
-        if (!cvv.trim() || !/^\d{3,4}$/.test(cvv)) return false;
-        if (!name.trim()) return false;
-        
-        console.log('[MusicLoverSignUpFlow] Payment Step Validation PASSED.');
-        return true;
-    };
-
-    // Get error message without setting state
-    const getPaymentError = (): string => {
-        const { cardNumber, expiry, cvv, name } = formData.paymentInfo;
-        
-        if (!cardNumber.trim() || !/^\d{13,19}$/.test(cardNumber.replace(/\s/g, ''))) {
-            return 'Please enter a valid card number (13-19 digits)';
-        }
-
-        if (!expiry.trim() || !/^(0[1-9]|1[0-2])\/?([0-9]{2})$/.test(expiry)) {
-            return 'Please enter expiry date as MM/YY';
-        }
-        
-        const expiryMatch = expiry.match(/^(0[1-9]|1[0-2])\/?([0-9]{2})$/);
-        if (expiryMatch) {
-            const expMonth = parseInt(expiryMatch[1], 10);
-            const expYearShort = parseInt(expiryMatch[2], 10);
-            const currentYear = new Date().getFullYear();
-            const currentMonth = new Date().getMonth() + 1;
-            const expYear = 2000 + expYearShort;
-            if (expYear < currentYear || (expYear === currentYear && expMonth < currentMonth)) {
-                return 'Card expiry date has passed';
-            }
-        } else {
-            return 'Invalid expiry date format (MM/YY)';
-        }
-
-        if (!cvv.trim() || !/^\d{3,4}$/.test(cvv)) {
-            return 'Please enter a valid CVV (3 or 4 digits)';
-        }
-        
-        if (!name.trim()) {
-            return 'Please enter the cardholder name';
-        }
-        
         return '';
     };
 
@@ -963,18 +884,6 @@ const MusicLoverSignUpFlow = () => {
                     stepErrorMessage = getSubscriptionError();
                 }
                 break;
-            case 'account-details':
-                // This step is now just for showing the Google Sign-In button.
-                // The actual sign-in is handled by `handleGoogleSignIn`, not this submit function.
-                // So, no validation is needed here. We can assume the user will click the Google button.
-                currentStepIsValid = true; 
-                break;
-            case 'payment':
-                currentStepIsValid = validatePaymentStep();
-                if (!currentStepIsValid) {
-                    stepErrorMessage = getPaymentError();
-                }
-                break;
         }
         
         // Set error if any from non-username/email issues
@@ -1001,30 +910,25 @@ const MusicLoverSignUpFlow = () => {
                 goToNextStep('subscription');
                 break;
             case 'subscription':
-                goToNextStep('account-details');
-                break;
-            case 'account-details':
-                // The user needs to click the Google button. This continue button shouldn't do anything
-                // for this step, or it should be hidden.
-                // The actual completion logic is in `handleGoogleSignIn`.
-                break;
-            case 'payment':
-                // Premium users should now go directly to PremiumSignupScreen after Google sign-in
-                // If they somehow reach this step, redirect them to the payment screen
-                if (formData.subscriptionTier === 'premium') {
-                    console.log('[MusicLoverSignUpFlow] 💎 Premium user reached payment step - redirecting to PremiumSignupScreen...');
+                // Handle based on subscription tier
+                if (formData.subscriptionTier === 'free') {
+                    // Free users complete signup immediately
+                    console.log('[MusicLoverSignUpFlow] 🆓 Free user selected - completing signup...');
+                    await handleFreeSignupCompletion();
+                } else if (formData.subscriptionTier === 'premium') {
+                    // Premium users need to create profile first, then go to payment
+                    console.log('[MusicLoverSignUpFlow] 💎 Premium user selected - creating profile then redirecting to payment...');
                     const { data: { session } } = await supabase.auth.getSession();
                     if (session?.user) {
-                        navigation.navigate('PremiumSignupScreen', {
-                            userEmail: session.user.email || '',
-                            userId: session.user.id
+                        await handleCreateProfileForPayment(session.user.id);
+                        // Navigate to PaymentRequired stack for payment setup
+                        (navigation as any).reset({
+                            index: 0,
+                            routes: [{ name: 'PaymentRequired' }],
                         });
                     } else {
-                        setError('Please sign in with Google first');
+                        setError('You must be signed in to create a premium account. Please sign in first.');
                     }
-                } else {
-                    // This shouldn't happen for free users as they don't have a payment step
-                    setError('Free users should not reach the payment step');
                 }
                 break;
         }
@@ -1114,47 +1018,6 @@ const MusicLoverSignUpFlow = () => {
             
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
             <Text style={styles.requiredText}>* Required fields</Text>
-        </View>
-    );
-
-    const renderAccountDetailsStep = () => (
-        <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Complete Your Profile</Text>
-            <Text style={styles.stepDescription}>Sign in with Google to securely create your account.</Text>
-
-            {/* Google Sign-In Button */}
-            <TouchableOpacity 
-                style={styles.googleSignInButton}
-                onPress={handleGoogleSignIn}
-                disabled={isLoading || authLoading}
-            >
-                <View style={styles.googleButtonContent}>
-                    {/* Use appropriate Google icon here */}
-                    <Feather name="lock" size={20} color="#4285F4" style={styles.googleIcon} />
-                    <Text style={styles.googleSignInText}>Continue with Google</Text>
-                </View>
-            </TouchableOpacity>
-
-            <Text style={styles.secureNote}>
-                By continuing, you link your Google account to Vybr. We will use your email to create and manage your account.
-            </Text>
-
-            {/* Debug button for troubleshooting */}
-            {false && (
-                <TouchableOpacity 
-                    style={[styles.googleSignInButton, { backgroundColor: '#FF6B6B', marginTop: 10 }]} 
-                    onPress={runFullDiagnostics}
-                >
-                    <View style={styles.googleButtonContent}>
-                        <Feather name="activity" size={20} color="#FFFFFF" style={styles.googleIcon} />
-                        <Text style={[styles.googleSignInText, { color: '#FFFFFF' }]}>
-                            🔍 Run Diagnostics
-                        </Text>
-                    </View>
-                </TouchableOpacity>
-            )}
-
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
         </View>
     );
 
@@ -1820,7 +1683,10 @@ const MusicLoverSignUpFlow = () => {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                    style={[styles.primaryButton, (!formData.selectedStreamingService) && styles.primaryButtonDisabled]}
+                    style={[
+                        styles.primaryButton,
+                        (!formData.selectedStreamingService) && styles.primaryButtonDisabled
+                    ]}
                     onPress={() => {
                         if (validateStreamingServiceStep()) {
                             goToNextStep('subscription');
@@ -1930,18 +1796,14 @@ const MusicLoverSignUpFlow = () => {
                         styles.primaryButton,
                         (!formData.subscriptionTier || isLoading) && styles.primaryButtonDisabled
                     ]}
-                    onPress={() => {
-                        if (formData.subscriptionTier) {
-                            goToNextStep('account-details');
-                        }
-                    }}
+                    onPress={handleStepSubmit}
                     disabled={!formData.subscriptionTier || isLoading}
                 >
                     {isLoading ? (
                         <ActivityIndicator color="white" />
                     ) : (
                         <Text style={styles.primaryButtonText}>
-                            Continue to Account Setup
+                            {formData.subscriptionTier === 'free' ? 'Complete Sign Up' : 'Continue to Payment'}
                         </Text>
                     )}
                 </TouchableOpacity>
@@ -1951,37 +1813,8 @@ const MusicLoverSignUpFlow = () => {
         </View>
     );
 
-    const renderPaymentStep = () => (
-        <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Premium Payment</Text>
-            <Text style={styles.stepDescription}> Enter payment details for Vybr Premium ($4.99/month). {'\n'}(This is a simulation - no real charge will occur) </Text>
-            {/* Card Number */}
-            <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Card Number *</Text>
-                <TextInput style={styles.input} placeholder="XXXX XXXX XXXX XXXX" value={formData.paymentInfo.cardNumber} onChangeText={(text) => handleChange('paymentInfo.cardNumber', text)} keyboardType="number-pad" maxLength={19} returnKeyType="next" blurOnSubmit={false} />
-            </View>
-            {/* Expiry and CVV */}
-            <View style={styles.rowContainer}>
-                <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
-                    <Text style={styles.inputLabel}>Expiry Date *</Text>
-                    <TextInput style={styles.input} placeholder="MM/YY" value={formData.paymentInfo.expiry} onChangeText={(text) => handleChange('paymentInfo.expiry', text)} keyboardType="number-pad" maxLength={5} returnKeyType="next" blurOnSubmit={false} />
-                </View>
-                <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
-                    <Text style={styles.inputLabel}>CVV *</Text>
-                    <TextInput style={styles.input} placeholder="CVV" value={formData.paymentInfo.cvv} onChangeText={(text) => handleChange('paymentInfo.cvv', text)} keyboardType="number-pad" maxLength={4} secureTextEntry returnKeyType="next" blurOnSubmit={false} />
-                </View>
-            </View>
-            {/* Cardholder Name */}
-            <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Cardholder Name *</Text>
-                <TextInput style={styles.input} placeholder="Name as it appears on card" value={formData.paymentInfo.name} onChangeText={(text) => handleChange('paymentInfo.name', text)} autoCapitalize="words" returnKeyType="done" onSubmitEditing={handleStepSubmit} />
-            </View>
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-            <Text style={styles.requiredText}>* Required fields</Text>
-        </View>
-    );
+    // --- Render Functions for Steps ---
 
-    // Render current step selector and action button
     const renderCurrentStep = () => {
         const isButtonDisabled = isLoading || authLoading || isSpotifyLoading || 
             (currentStep === 'subscription' && !formData.subscriptionTier) ||
@@ -1992,15 +1825,13 @@ const MusicLoverSignUpFlow = () => {
         if (currentStep === 'username') buttonText = 'Continue';
         if (currentStep === 'profile-details') buttonText = 'Continue';
         if (currentStep === 'streaming-service') buttonText = 'Choose Subscription';
-        if (currentStep === 'subscription') buttonText = 'Continue to Account Setup';
-        if (currentStep === 'account-details') buttonText = 'Complete Setup';
-        if (currentStep === 'payment') buttonText = 'Complete Premium Sign Up';
+        if (currentStep === 'subscription') {
+            buttonText = formData.subscriptionTier === 'free' ? 'Complete Sign Up' : 'Continue to Payment';
+        }
 
         // Pre-compute validation states
         const isUsernameValid = currentStep === 'username' ? validateUsernameStep() : true;
-        const isAccountValid = currentStep === 'account-details' ? validateAccountDetailsStep() : true;
         const isProfileValid = currentStep === 'profile-details' ? validateProfileDetailsStep() : true;
-        const isPaymentValid = currentStep === 'payment' ? validatePaymentStep() : true;
 
         return (
             <View style={styles.stepContainer}>
@@ -2009,8 +1840,6 @@ const MusicLoverSignUpFlow = () => {
                     {currentStep === 'profile-details' && renderProfileDetailsStep()}
                     {currentStep === 'streaming-service' && renderStreamingServiceStep()}
                     {currentStep === 'subscription' && renderSubscriptionStep()}
-                    {currentStep === 'account-details' && renderAccountDetailsStep()}
-                    {currentStep === 'payment' && renderPaymentStep()}
                 </Animated.View>
 
                 {/* Action Button - Show for steps that need it */}
@@ -2022,7 +1851,6 @@ const MusicLoverSignUpFlow = () => {
                                 (isLoading || authLoading || isSpotifyLoading || 
                                 (currentStep === 'username' && !isUsernameValid) ||
                                 (currentStep === 'profile-details' && !isProfileValid) ||
-                                (currentStep === 'payment' && !isPaymentValid) ||
                                 (currentStep === 'username' && (usernameStatus === 'checking' || usernameStatus === 'invalid'))
                                 ) && styles.continueButtonDisabled
                             ]}
@@ -2037,7 +1865,6 @@ const MusicLoverSignUpFlow = () => {
                                 isLoading || authLoading || isSpotifyLoading ||
                                 (currentStep === 'username' && !isUsernameValid) ||
                                 (currentStep === 'profile-details' && !isProfileValid) ||
-                                (currentStep === 'payment' && !isPaymentValid) ||
                                 (currentStep === 'username' && (usernameStatus === 'checking' || usernameStatus === 'invalid'))
                             }
                             activeOpacity={0.8}
@@ -2071,7 +1898,7 @@ const MusicLoverSignUpFlow = () => {
                                 navigation.goBack(); // Use goBack instead of navigate
                             } else {
                                 // For other steps, go to previous step
-                                const steps: Step[] = ['username', 'profile-details', 'streaming-service', 'subscription', 'account-details', 'payment'];
+                                const steps: Step[] = ['username', 'profile-details', 'streaming-service', 'subscription'];
                                 const currentIndex = steps.indexOf(currentStep);
                                 if (currentIndex > 0) {
                                     goToPreviousStep(steps[currentIndex - 1]);
@@ -2086,34 +1913,21 @@ const MusicLoverSignUpFlow = () => {
                             styles.stepIndicator, 
                             currentStep === 'username' ? styles.stepIndicatorCurrent : 
                             (currentStep === 'profile-details' || currentStep === 'streaming-service' || 
-                            currentStep === 'subscription' || currentStep === 'account-details' || currentStep === 'payment') ? styles.stepIndicatorActive : {}
+                            currentStep === 'subscription') ? styles.stepIndicatorActive : {}
                         ]} />
                         <View style={[
                             styles.stepIndicator, 
                             currentStep === 'profile-details' ? styles.stepIndicatorCurrent : 
-                            (currentStep === 'streaming-service' || currentStep === 'subscription' || 
-                            currentStep === 'account-details' || currentStep === 'payment') ? styles.stepIndicatorActive : {}
+                            (currentStep === 'streaming-service' || currentStep === 'subscription') ? styles.stepIndicatorActive : {}
                         ]} />
                         <View style={[
                             styles.stepIndicator, 
                             currentStep === 'streaming-service' ? styles.stepIndicatorCurrent : 
-                            (currentStep === 'subscription' || currentStep === 'account-details' || 
-                            currentStep === 'payment') ? styles.stepIndicatorActive : {}
+                            currentStep === 'subscription' ? styles.stepIndicatorActive : {}
                         ]} />
                         <View style={[
                             styles.stepIndicator, 
-                            currentStep === 'subscription' ? styles.stepIndicatorCurrent : 
-                            (currentStep === 'account-details' || currentStep === 'payment') ? 
-                            styles.stepIndicatorActive : {}
-                        ]} />
-                        <View style={[
-                            styles.stepIndicator, 
-                            currentStep === 'account-details' ? styles.stepIndicatorCurrent : 
-                            currentStep === 'payment' ? styles.stepIndicatorActive : {}
-                        ]} />
-                        <View style={[
-                            styles.stepIndicator, 
-                            currentStep === 'payment' ? styles.stepIndicatorCurrent : {}
+                            currentStep === 'subscription' ? styles.stepIndicatorCurrent : {}
                         ]} />
                     </View>
                     {/* Add a placeholder view to balance the header */}

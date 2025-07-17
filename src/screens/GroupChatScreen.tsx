@@ -4004,23 +4004,6 @@ const GroupChatScreen: React.FC = () => {
                                 </TouchableOpacity>
                             )}
 
-                            <TouchableOpacity style={styles.actionModalButton} onPress={handleShowMessageInfo}>
-                                <Feather name="info" size={20} color="#3B82F6" style={styles.actionModalIcon} />
-                                <Text style={styles.actionModalButtonText}>Info</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity style={styles.actionModalButton} onPress={handleDeleteForMe}>
-                                <Feather name="trash" size={20} color="#EF4444" style={styles.actionModalIcon} />
-                                <Text style={[styles.actionModalButtonText, { color: '#EF4444' }]}>Delete for Me</Text>
-                            </TouchableOpacity>
-
-                            {(selectedMessageForAction.user._id === currentUserId || isCurrentUserAdmin) && (
-                                <TouchableOpacity style={styles.actionModalButton} onPress={handleDeleteForEveryone}>
-                                    <Feather name="trash-2" size={20} color="#EF4444" style={styles.actionModalIcon} />
-                                    <Text style={[styles.actionModalButtonText, { color: '#EF4444' }]}>Delete for Everyone</Text>
-                                </TouchableOpacity>
-                            )}
-
                             <TouchableOpacity style={styles.actionModalButton} onPress={() => {
                                 setMessageActionModalVisible(false);
                                 handleForward(selectedMessageForAction);
@@ -4047,6 +4030,23 @@ const GroupChatScreen: React.FC = () => {
                                 <Feather name="copy" size={20} color="#3B82F6" style={styles.actionModalIcon} />
                                 <Text style={styles.actionModalButtonText}>Copy</Text>
                             </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.actionModalButton} onPress={handleShowMessageInfo}>
+                                <Feather name="info" size={20} color="#3B82F6" style={styles.actionModalIcon} />
+                                <Text style={styles.actionModalButtonText}>Info</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.actionModalButton} onPress={handleDeleteForMe}>
+                                <Feather name="trash" size={20} color="#EF4444" style={styles.actionModalIcon} />
+                                <Text style={[styles.actionModalButtonText, { color: '#EF4444' }]}>Delete for Me</Text>
+                            </TouchableOpacity>
+
+                            {(selectedMessageForAction.user._id === currentUserId || isCurrentUserAdmin) && (
+                                <TouchableOpacity style={styles.actionModalButton} onPress={handleDeleteForEveryone}>
+                                    <Feather name="trash-2" size={20} color="#EF4444" style={styles.actionModalIcon} />
+                                    <Text style={[styles.actionModalButtonText, { color: '#EF4444' }]}>Delete for Everyone</Text>
+                                </TouchableOpacity>
+                            )}
                         </>
                     )}
                 </View>
