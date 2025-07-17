@@ -1,138 +1,151 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, TouchableOpacity, Animated, Dimensions, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { APP_CONSTANTS } from '@/config/constants';
+import { authStyles } from '@/styles/authStyles';
+
+const { width, height } = Dimensions.get('window');
+const isWeb = Platform.OS === 'web';
 
 const LandingScreen = () => {
   const navigation = useNavigation<any>();
+  const fadeAnim = new Animated.Value(0);
+  const slideAnim = new Animated.Value(50);
+  const scaleAnim = new Animated.Value(0.8);
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={authStyles.container}>
       <LinearGradient
-        colors={[`${APP_CONSTANTS.COLORS.PRIMARY}05`, 'white']}
-        style={styles.gradient}
+        colors={[
+          `${APP_CONSTANTS.COLORS.PRIMARY}08`,
+          `${APP_CONSTANTS.COLORS.PRIMARY}03`,
+          'white'
+        ]}
+        style={authStyles.gradient}
       >
-        <View style={styles.logoContainer}>
-          <Text style={styles.logoText}>vybr</Text>
-        </View>
+        {/* Decorative background elements */}
+        <View style={authStyles.decorativeCircle1} />
+        <View style={authStyles.decorativeCircle2} />
+        <View style={authStyles.decorativeCircle3} />
+        {isWeb && <View style={authStyles.decorativeCircle4} />}
+        {isWeb && <View style={authStyles.decorativeCircle5} />}
 
-        <Text style={styles.subtitle}>{APP_CONSTANTS.CONFIG.APP_SLOGAN}</Text>
-
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity 
-            style={styles.button}
-            onPress={() => navigation.navigate('MusicLoverLogin')}
+        <Animated.View 
+          style={[
+            authStyles.contentContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
+        >
+          {/* Logo Section */}
+          <Animated.View 
+            style={[
+              authStyles.logoContainer,
+              { transform: [{ scale: scaleAnim }] }
+            ]}
           >
-            <Feather 
-              name="music" 
-              size={24} 
-              color={APP_CONSTANTS.COLORS.PRIMARY} 
-              style={styles.buttonIcon} 
-            />
-            <Text style={styles.buttonText}>Log in as Music Lover</Text>
-          </TouchableOpacity>
+            <View style={authStyles.logoBackground}>
+              <Text style={authStyles.logoText}>vybr</Text>
+            </View>
+            <Text style={authStyles.tagline}>Where music meets connection</Text>
+          </Animated.View>
 
-          <TouchableOpacity 
-            style={styles.button}
-            onPress={() => navigation.navigate('OrganizerLogin')}
-          >
-            <Feather 
-              name="calendar" 
-              size={24} 
-              color={APP_CONSTANTS.COLORS.PRIMARY} 
-              style={styles.buttonIcon} 
-            />
-            <Text style={styles.buttonText}>Log in as Organiser</Text>
-          </TouchableOpacity>
-        </View>
+          {/* Main Description */}
+          <View style={authStyles.descriptionContainer}>
+            <Text style={authStyles.description}>
+              Discover events, connect with music lovers, and experience unforgettable moments together
+            </Text>
+          </View>
 
-        <View style={styles.signupLinksContainer}>
-          <TouchableOpacity 
-            onPress={() => navigation.navigate('MusicLoverSignUpFlow')}
-          >
-            <Text style={styles.signupLink}>Sign up as music lover</Text>
-          </TouchableOpacity>
+          {/* Action Buttons */}
+          <View style={authStyles.buttonContainer}>
+            <TouchableOpacity 
+              style={authStyles.button}
+              onPress={() => navigation.navigate('MusicLoverLogin')}
+              activeOpacity={0.8}
+            >
+              <View style={authStyles.buttonContent}>
+                <View style={authStyles.buttonIconContainer}>
+                  <Feather 
+                    name="music" 
+                    size={24} 
+                    color={APP_CONSTANTS.COLORS.PRIMARY} 
+                  />
+                </View>
+                <View style={authStyles.buttonTextContainer}>
+                  <Text style={authStyles.buttonTitle}>Music Lover</Text>
+                  <Text style={authStyles.buttonSubtitle}>Login / Sign up with Google</Text>
+                </View>
+                <Feather 
+                  name="chevron-right" 
+                  size={20} 
+                  color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} 
+                />
+              </View>
+            </TouchableOpacity>
 
-          <TouchableOpacity 
-            onPress={() => navigation.navigate('OrganizerSignUpFlow')}
-          >
-            <Text style={styles.signupLink}>Sign up as organiser</Text>
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity 
+              style={authStyles.button}
+              onPress={() => navigation.navigate('OrganizerLogin')}
+              activeOpacity={0.8}
+            >
+              <View style={authStyles.buttonContent}>
+                <View style={authStyles.buttonIconContainer}>
+                  <Feather 
+                    name="calendar" 
+                    size={24} 
+                    color={APP_CONSTANTS.COLORS.PRIMARY} 
+                  />
+                </View>
+                <View style={authStyles.buttonTextContainer}>
+                  <Text style={authStyles.buttonTitle}>Event Organizer</Text>
+                  <Text style={authStyles.buttonSubtitle}>Login / Sign up with Google</Text>
+                </View>
+                <Feather 
+                  name="chevron-right" 
+                  size={20} 
+                  color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} 
+                />
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* Footer */}
+          <View style={authStyles.footer}>
+            <Text style={authStyles.footerText}>
+              Join thousands of music enthusiasts and event organizers
+            </Text>
+          </View>
+        </Animated.View>
       </LinearGradient>
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: 'white',
-  },
-  gradient: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  logoText: {
-    fontSize: 42,
-    fontWeight: 'bold',
-    color: APP_CONSTANTS.COLORS.PRIMARY,
-    marginTop: 10,
-    fontFamily: 'SF Pro Display, Inter, sans-serif',
-  },
-  subtitle: {
-    fontSize: 18,
-    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-    marginBottom: 60,
-    fontFamily: 'Inter, sans-serif',
-  },
-  buttonContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  button: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'white',
-    width: '100%',
-    paddingVertical: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-  },
-  buttonIcon: {
-    marginRight: 12,
-  },
-  signupLinksContainer: {
-    alignItems: 'center',
-  },
-  signupLink: {
-    fontSize: 16,
-    color: APP_CONSTANTS.COLORS.PRIMARY,
-    textDecorationLine: 'underline',
-    marginBottom: 12,
-    fontWeight: '500',
-  },
-});
 
 export default LandingScreen; 

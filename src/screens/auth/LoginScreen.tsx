@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/useAuth';
 import { APP_CONSTANTS } from '@/config/constants';
+import { authStyles } from '@/styles/authStyles';
 
 // Props for login screen - can be music lover or organizer
 interface LoginScreenProps {
@@ -54,197 +55,176 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
   };
   
   const getTitle = () => {
-    return userType === 'music_lover' ? 'Music Lover Login' : 'Organizer Login';
+    return userType === 'music_lover' ? 'Welcome Back' : 'Welcome Back';
+  };
+
+  const getSubtitle = () => {
+    return userType === 'music_lover' 
+      ? 'Sign in to discover events and connect with music lovers'
+      : 'Sign in to manage your events and connect with attendees';
+  };
+
+  const getUserTypeLabel = () => {
+    return userType === 'music_lover' ? 'Music Lover' : 'Event Organizer';
   };
   
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={authStyles.container}>
       <LinearGradient
-        colors={[`${APP_CONSTANTS.COLORS.PRIMARY}05`, 'white']}
-        style={styles.gradient}
+        colors={[
+          `${APP_CONSTANTS.COLORS.PRIMARY}08`,
+          `${APP_CONSTANTS.COLORS.PRIMARY}03`,
+          'white'
+        ]}
+        style={authStyles.gradient}
       >
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
+        {/* Decorative background elements */}
+        <View style={authStyles.decorativeCircle1} />
+        <View style={authStyles.decorativeCircle2} />
+        <View style={authStyles.decorativeCircle3} />
+        {Platform.OS === 'web' && <View style={authStyles.decorativeCircle4} />}
+        {Platform.OS === 'web' && <View style={authStyles.decorativeCircle5} />}
+
+        {/* Back button positioned outside main container */}
+        <TouchableOpacity 
+          style={{ 
+            position: 'absolute',
+            top: Platform.OS === 'web' ? 40 : 20,
+            left: Platform.OS === 'web' ? 40 : 20,
+            padding: 8,
+            borderRadius: 8,
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.1,
+            shadowRadius: 2,
+            elevation: 2,
+            zIndex: 10,
+          }}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.7}
         >
-          <View style={styles.header}>
-            <TouchableOpacity 
-              style={styles.backButton}
-              onPress={() => navigation.goBack()}
-            >
-              <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
-            </TouchableOpacity>
+          <Feather name="arrow-left" size={20} color={APP_CONSTANTS.COLORS.PRIMARY} />
+        </TouchableOpacity>
+
+        {/* Main content container - centered like landing screen */}
+        <View style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingHorizontal: Platform.OS === 'web' ? 40 : 24,
+          paddingVertical: Platform.OS === 'web' ? 60 : 20,
+        }}>
+          {/* Logo Section - positioned at same location as landing screen */}
+          <View style={{
+            alignItems: 'center',
+            marginBottom: Platform.OS === 'web' ? 48 : 32,
+            marginTop: Platform.OS === 'web' ? 40 : 0,
+          }}>
+            <View style={authStyles.logoBackground}>
+              <Text style={authStyles.logoText}>vybr</Text>
+            </View>
+            <Text style={authStyles.tagline}>Where music meets connection</Text>
           </View>
           
-          <View style={styles.logoContainer}>
-            <Text style={styles.logoText}>vybr</Text>
-          </View>
-          
-          <View style={styles.contentContainer}>
-            <Text style={styles.title}>{getTitle()}</Text>
+          {/* Content - centered and properly spaced */}
+          <View style={{ 
+            width: '100%', 
+            alignItems: 'center',
+            maxWidth: Platform.OS === 'web' ? 600 : 400,
+          }}>
+            <Text style={authStyles.title}>{getTitle()}</Text>
+            <Text style={authStyles.subtitle}>{getSubtitle()}</Text>
             
-            <View style={styles.formContainer}>
-              {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {/* User Type Badge */}
+            <View style={{
+              backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}10`,
+              paddingHorizontal: Platform.OS === 'web' ? 16 : 12,
+              paddingVertical: Platform.OS === 'web' ? 6 : 4,
+              borderRadius: Platform.OS === 'web' ? 16 : 12,
+              marginBottom: Platform.OS === 'web' ? 32 : 24,
+              borderWidth: 1,
+              borderColor: `${APP_CONSTANTS.COLORS.PRIMARY}20`,
+            }}>
+              <Text style={{
+                fontSize: Platform.OS === 'web' ? 12 : 10,
+                fontWeight: '600',
+                color: APP_CONSTANTS.COLORS.PRIMARY,
+                fontFamily: 'Inter, sans-serif',
+              }}>
+                {getUserTypeLabel()}
+              </Text>
+            </View>
+            
+            <View style={{ width: '100%', alignItems: 'center' }}>
+              {error ? (
+                <View style={{
+                  backgroundColor: `${APP_CONSTANTS.COLORS.ERROR}10`,
+                  borderWidth: 1,
+                  borderColor: `${APP_CONSTANTS.COLORS.ERROR}20`,
+                  borderRadius: Platform.OS === 'web' ? 10 : 8,
+                  padding: Platform.OS === 'web' ? 12 : 10,
+                  marginBottom: Platform.OS === 'web' ? 20 : 16,
+                  width: '100%',
+                }}>
+                  <Text style={authStyles.errorText}>{error}</Text>
+                </View>
+              ) : null}
               
               <TouchableOpacity
-                style={styles.googleSignInButton}
+                style={[
+                  authStyles.button, 
+                  isLoading && authStyles.disabledButton,
+                  {
+                    backgroundColor: 'white',
+                    borderWidth: 1,
+                    borderColor: APP_CONSTANTS.COLORS.BORDER_LIGHT,
+                    marginBottom: Platform.OS === 'web' ? 20 : 16,
+                  }
+                ]}
                 onPress={handleGoogleSignIn}
                 disabled={isLoading}
+                activeOpacity={0.8}
               >
-                <View style={styles.googleButtonContent}>
-                  <Feather name="mail" size={20} color="#4285F4" style={styles.googleIcon} />
-                  <Text style={styles.googleSignInText}>Sign in with Google</Text>
+                <View style={authStyles.buttonContent}>
+                  <View style={authStyles.buttonIconContainer}>
+                    <Feather name="mail" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                  </View>
+                  <View style={authStyles.buttonTextContainer}>
+                    <Text style={authStyles.buttonTitle}>Continue with Google</Text>
+                    <Text style={authStyles.buttonSubtitle}>Secure authentication</Text>
+                  </View>
+                  <Feather 
+                    name="chevron-right" 
+                    size={20} 
+                    color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} 
+                  />
                 </View>
               </TouchableOpacity>
               
-              <Text style={styles.infoText}>
+              <Text style={{
+                color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+                fontSize: Platform.OS === 'web' ? 12 : 10,
+                textAlign: 'center',
+                paddingHorizontal: Platform.OS === 'web' ? 20 : 16,
+                lineHeight: Platform.OS === 'web' ? 16 : 14,
+                fontFamily: 'Inter, sans-serif',
+              }}>
                 We use Google for secure authentication. Your email will be used to create your account and for important notifications.
               </Text>
               
               {isLoading && (
-                <View style={styles.loadingContainer}>
+                <View style={authStyles.loadingContainer}>
                   <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
-                  <Text style={styles.loadingText}>Signing in...</Text>
+                  <Text style={authStyles.loadingText}>Signing in...</Text>
                 </View>
               )}
-              
-              <View style={styles.signupContainer}>
-                <Text style={styles.signupText}>Don't have an account? </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    if (userType === 'music_lover') {
-                      navigation.navigate('MusicLoverSignUpFlow' as never);
-                    } else {
-                      navigation.navigate('OrganizerSignUpFlow' as never);
-                    }
-                  }}
-                >
-                  <Text style={styles.signupLink}>Sign Up</Text>
-                </TouchableOpacity>
-              </View>
             </View>
           </View>
-        </ScrollView>
+        </View>
       </LinearGradient>
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: APP_CONSTANTS.COLORS.BACKGROUND,
-  },
-  gradient: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  backButton: {
-    padding: 4,
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  logoText: {
-    fontSize: 42,
-    fontWeight: 'bold',
-    color: APP_CONSTANTS.COLORS.PRIMARY,
-    fontFamily: 'SF Pro Display, Inter, sans-serif',
-  },
-  contentContainer: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 32,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-    marginBottom: 32,
-    textAlign: 'center',
-  },
-  formContainer: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  errorText: {
-    color: APP_CONSTANTS.COLORS.ERROR,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  googleSignInButton: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 20,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1.5,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    width: '100%',
-  },
-  googleButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  googleIcon: {
-    marginRight: 10,
-  },
-  googleSignInText: {
-    color: '#444',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  infoText: {
-    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-    fontSize: 14,
-    marginTop: 10,
-    marginBottom: 20,
-    textAlign: 'center',
-    paddingHorizontal: 20,
-  },
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-  },
-  loadingText: {
-    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-    fontSize: 14,
-    marginLeft: 10,
-  },
-  signupContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 24,
-  },
-  signupText: {
-    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-    fontSize: 14,
-  },
-  signupLink: {
-    color: APP_CONSTANTS.COLORS.PRIMARY,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-});
 
 export default LoginScreen; 
