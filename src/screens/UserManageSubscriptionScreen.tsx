@@ -26,11 +26,11 @@ interface PlanDetailProps {
 const PlanDetail: React.FC<PlanDetailProps> = ({ label, value }) => {
     console.log('[DEBUG] PlanDetail render:', { label, value, valueType: typeof value });
     return (
-        <View style={styles.planDetailItem}>
-            <Text style={styles.planDetailLabel}>{label}:</Text>
+    <View style={styles.planDetailItem}>
+        <Text style={styles.planDetailLabel}>{label}:</Text>
             <Text style={styles.planDetailValue}>{value}</Text>
-        </View>
-    );
+    </View>
+);
 };
 
 const UserManageSubscriptionScreen: React.FC = () => {
@@ -57,13 +57,13 @@ const UserManageSubscriptionScreen: React.FC = () => {
     });
 
     useEffect(() => {
-        const fetchSubscriptionDetails = async () => {
-            if (!userId) {
-                setIsLoading(false);
-                return;
-            }
-            setIsLoading(true);
-            try {
+    const fetchSubscriptionDetails = async () => {
+        if (!userId) {
+            setIsLoading(false);
+            return;
+        }
+        setIsLoading(true);
+        try {
                 // --- TODO: Replace with your actual subscription fetching logic ---
                 // This might involve querying a 'subscriptions' table or checking
                 // the music_lover_profiles table for status and renewal dates.
@@ -71,102 +71,131 @@ const UserManageSubscriptionScreen: React.FC = () => {
                 if (isPremium) {
                     // Fetch details for premium user
                     // const { data, error } = await supabase.from('subscriptions')...
-                    setSubscriptionStatus('active');
-                    setPlanName('Vybr Premium');
+                setSubscriptionStatus('active');
+                setPlanName('Vybr Premium');
                     // Simulate fetching a renewal date
                     const nextMonth = new Date();
                     nextMonth.setMonth(nextMonth.getMonth() + 1);
                     setRenewalDate(nextMonth.toLocaleDateString());
-                } else {
-                    setSubscriptionStatus('free');
-                    setPlanName('Free Tier');
-                    setRenewalDate(null);
-                }
+            } else {
+                setSubscriptionStatus('free');
+                setPlanName('Free Tier');
+                setRenewalDate(null);
+            }
                 // --- End of placeholder logic ---
 
             } catch (error: unknown) {
-                console.error("Error fetching subscription details:", error);
-                Alert.alert("Error", "Could not load your subscription details.");
+            console.error("Error fetching subscription details:", error);
+            Alert.alert("Error", "Could not load your subscription details.");
                 setSubscriptionStatus('error'); // Indicate an error state
-            } finally {
-                setIsLoading(false);
-            }
-        };
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
-        fetchSubscriptionDetails();
+            fetchSubscriptionDetails();
     }, [userId, isPremium]); // Re-run if userId or premium status changes
 
     const handleCancelSubscription = () => {
-        if (!userId || !isPremium || subscriptionStatus !== 'active') return;
+        console.log('[DEBUG] Cancel button clicked on platform:', Platform.OS);
+        console.log('[DEBUG] Current state:', { userId, isPremium, subscriptionStatus });
+        
+        if (!userId || !isPremium || subscriptionStatus !== 'active') {
+            console.log('[DEBUG] Early return - conditions not met');
+            return;
+        }
+        
+        console.log('[DEBUG] About to show Alert.alert');
 
-        Alert.alert(
-            "Cancel Subscription",
-            "Are you sure you want to cancel your Premium subscription? This will immediately downgrade your account to the Free Tier.",
-            [
-                { text: "Keep Subscription", style: "cancel" },
-                {
-                    text: "Confirm Cancellation",
-                    style: "destructive",
-                    onPress: async () => {
-                        setIsCanceling(true);
-                        // Ensure session and user ID exist before proceeding
-                        if (!session?.user?.id) {
-                            Alert.alert("Error", "User session is invalid. Cannot update.");
-                            console.error("Cancellation failed: userId is missing from session.", session);
-                            setIsCanceling(false);
-                            return;
-                        }
-                        const currentUserId = session.user.id;
-                        console.log(`Attempting downgrade for userId: ${currentUserId}`);
-
-                        try {
-                            
-                            const { error: updateError } = await supabase
-                                .from('music_lover_profiles')
-                                .update({ 'is_premium': false })
-                                .eq('user_id', currentUserId); // Use currentUserId directly, ensure 'user_id' matches your DB column
-
-                            if (updateError) {
-                                console.error('Supabase update error:', updateError);
-                                // Throw the specific error to be caught below
-                                throw new Error(`Supabase Error: ${updateError.message} (Code: ${updateError.code})`); 
-                            }
-
-                            // --- Update UI state immediately ---
-                            console.log('Supabase update successful, updating UI state.');
-                            setSubscriptionStatus('free');
-                            setPlanName('Free Tier');
-                            setRenewalDate(null);
-                            
-                            // Refresh user profile data to reflect the change
-                            await refreshUserProfile();
-                            
-                            Alert.alert(
-                                "Subscription Cancelled", 
-                                "Your subscription has been cancelled and your account has been downgraded to Free Tier.",
-                                [
-                                    {
-                                        text: "Go to Matches",
-                                        onPress: () => {
-                                            // Navigate back to the main app and go to profile tab
-                                            navigation.navigate('MainApp' as never, { screen: 'Profile' } as never);
-                                        }
-                                    }
-                                ]
-                            );
-
-                        } catch (error: unknown) {
-                            console.error("Detailed error canceling subscription:", error);
-                            // Show the specific error message in the alert
-                            const errorMessage = error instanceof Error ? error.message : 'Unknown error. Please contact support.';
-                            Alert.alert("Cancellation Failed", `Could not update your subscription status. Reason: ${errorMessage}`);
-                        } finally {
-                            setIsCanceling(false);
-                        }
+        // For web, use window.confirm instead of Alert.alert
+        if (Platform.OS === 'web') {
+            const confirmed = window.confirm("Are you sure you want to cancel your Premium subscription? This will immediately downgrade your account to the Free Tier.");
+            if (confirmed) {
+                performCancellation();
+            }
+        } else {
+            Alert.alert(
+                "Cancel Subscription",
+                "Are you sure you want to cancel your Premium subscription? This will immediately downgrade your account to the Free Tier.",
+                [
+                    { text: "Keep Subscription", style: "cancel" },
+                    {
+                        text: "Confirm Cancellation",
+                        style: "destructive",
+                        onPress: performCancellation
                     }
-                }
-            ]
-        );
+                ]
+            );
+        }
+    };
+
+    const performCancellation = async () => {
+        setIsCanceling(true);
+        // Ensure session and user ID exist before proceeding
+        if (!session?.user?.id) {
+            Alert.alert("Error", "User session is invalid. Cannot update.");
+            console.error("Cancellation failed: userId is missing from session.", session);
+            setIsCanceling(false);
+            return;
+        }
+        const currentUserId = session.user.id;
+        console.log(`Attempting downgrade for userId: ${currentUserId}`);
+
+        try {
+            
+            const { error: updateError } = await supabase
+                .from('music_lover_profiles')
+                .update({ 'is_premium': false })
+                .eq('user_id', currentUserId); // Use currentUserId directly, ensure 'user_id' matches your DB column
+
+            if (updateError) {
+                console.error('Supabase update error:', updateError);
+                // Throw the specific error to be caught below
+                throw new Error(`Supabase Error: ${updateError.message} (Code: ${updateError.code})`); 
+            }
+
+            // --- Update UI state immediately ---
+            console.log('Supabase update successful, updating UI state.');
+            setSubscriptionStatus('free');
+            setPlanName('Free Tier');
+            setRenewalDate(null);
+            
+            // Refresh user profile data to reflect the change
+            await refreshUserProfile();
+            
+            // Show success message - use different approach for web vs mobile
+            if (Platform.OS === 'web') {
+                alert("Subscription Cancelled! Your subscription has been cancelled and your account has been downgraded to Free Tier.");
+                // Navigate back to the main app and go to profile tab
+                navigation.navigate('MainApp' as never, { screen: 'Profile' } as never);
+            } else {
+                Alert.alert(
+                    "Subscription Cancelled", 
+                    "Your subscription has been cancelled and your account has been downgraded to Free Tier.",
+                    [
+                        {
+                            text: "Go to Matches",
+                            onPress: () => {
+                                // Navigate back to the main app and go to profile tab
+                                navigation.navigate('MainApp' as never, { screen: 'Profile' } as never);
+                            }
+                        }
+                    ]
+                );
+            }
+
+        } catch (error: unknown) {
+            console.error("Detailed error canceling subscription:", error);
+            // Show the specific error message in the alert
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error. Please contact support.';
+            if (Platform.OS === 'web') {
+                alert(`Cancellation Failed: Could not update your subscription status. Reason: ${errorMessage}`);
+            } else {
+                Alert.alert("Cancellation Failed", `Could not update your subscription status. Reason: ${errorMessage}`);
+            }
+        } finally {
+            setIsCanceling(false);
+        }
     };
 
     const navigateToUpgrade = () => {
@@ -230,7 +259,7 @@ const UserManageSubscriptionScreen: React.FC = () => {
                             <Text style={styles.planDetailLabel}>Status:</Text>
                             <Text style={[styles.statusText, getStatusStyle()]}>
                                 {getStatusText()}
-                            </Text>
+                             </Text>
                         </View>
                     </View>
                 </View>
