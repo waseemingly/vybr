@@ -65,7 +65,7 @@ const OrganizerLoginScreen = () => {
         {Platform.OS === 'web' && <View style={authStyles.decorativeCircle5} />}
 
         {/* Back button positioned outside main container */}
-        <TouchableOpacity 
+          <TouchableOpacity 
           style={{ 
             position: 'absolute',
             top: Platform.OS === 'web' ? 40 : 20,
@@ -80,11 +80,11 @@ const OrganizerLoginScreen = () => {
             elevation: 2,
             zIndex: 10,
           }}
-          onPress={() => navigation.goBack()}
+            onPress={() => navigation.goBack()}
           activeOpacity={0.7}
-        >
+          >
           <Feather name="arrow-left" size={20} color={APP_CONSTANTS.COLORS.PRIMARY} />
-        </TouchableOpacity>
+          </TouchableOpacity>
 
         {/* Main content container - centered like landing screen */}
         <View style={{
@@ -149,8 +149,8 @@ const OrganizerLoginScreen = () => {
                   <Text style={authStyles.errorText}>{error}</Text>
                 </View>
               ) : null}
-              
-              <TouchableOpacity
+            
+            <TouchableOpacity
                 style={[
                   authStyles.button, 
                   isLoading && authStyles.disabledButton,
@@ -161,10 +161,10 @@ const OrganizerLoginScreen = () => {
                     marginBottom: Platform.OS === 'web' ? 20 : 16,
                   }
                 ]}
-                onPress={handleGoogleSignIn}
-                disabled={isLoading}
+              onPress={handleGoogleSignIn}
+              disabled={isLoading}
                 activeOpacity={0.8}
-              >
+            >
                 <View style={authStyles.buttonContent}>
                   <View style={authStyles.buttonIconContainer}>
                     <Feather name="mail" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
@@ -178,9 +178,9 @@ const OrganizerLoginScreen = () => {
                     size={20} 
                     color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} 
                   />
-                </View>
-              </TouchableOpacity>
-              
+              </View>
+            </TouchableOpacity>
+            
               <Text style={{
                 color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
                 fontSize: Platform.OS === 'web' ? 12 : 10,
@@ -189,15 +189,15 @@ const OrganizerLoginScreen = () => {
                 lineHeight: Platform.OS === 'web' ? 16 : 14,
                 fontFamily: 'Inter, sans-serif',
               }}>
-                We use Google for secure authentication. Your email will be used to create your account and for important notifications.
-              </Text>
-              
-              {isLoading && (
+              We use Google for secure authentication. Your email will be used to create your account and for important notifications.
+            </Text>
+            
+            {isLoading && (
                 <View style={authStyles.loadingContainer}>
                   <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
                   <Text style={authStyles.loadingText}>Signing in...</Text>
-                </View>
-              )}
+              </View>
+            )}
             </View>
           </View>
         </View>

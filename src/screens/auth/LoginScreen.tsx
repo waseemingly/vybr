@@ -86,7 +86,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
         {Platform.OS === 'web' && <View style={authStyles.decorativeCircle5} />}
 
         {/* Back button positioned outside main container */}
-        <TouchableOpacity 
+            <TouchableOpacity 
           style={{ 
             position: 'absolute',
             top: Platform.OS === 'web' ? 40 : 20,
@@ -101,11 +101,11 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
             elevation: 2,
             zIndex: 10,
           }}
-          onPress={() => navigation.goBack()}
+              onPress={() => navigation.goBack()}
           activeOpacity={0.7}
-        >
+            >
           <Feather name="arrow-left" size={20} color={APP_CONSTANTS.COLORS.PRIMARY} />
-        </TouchableOpacity>
+            </TouchableOpacity>
 
         {/* Main content container - centered like landing screen */}
         <View style={{
@@ -154,8 +154,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
               }}>
                 {getUserTypeLabel()}
               </Text>
-            </View>
-            
+          </View>
+          
             <View style={{ width: '100%', alignItems: 'center' }}>
               {error ? (
                 <View style={{

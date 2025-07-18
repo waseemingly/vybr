@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
     View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
     ActivityIndicator, Alert, Animated, Image, Platform,
-    Dimensions, Keyboard
+    Dimensions, Keyboard, Easing
 } from 'react-native';
 import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -26,14 +26,16 @@ import TermsModal from '@/components/TermsModal'; // Import the new modal
 import ImageCropper from '@/components/ImageCropper'; // Add ImageCropper
 // Import navigation types
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator'; // Import stack param lists
+import { authStyles } from '@/styles/authStyles'; // Import authStyles
+
+// Define window width for animations
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const isWeb = Platform.OS === 'web';
 
 // Step types
 type Step = 'username' | 'profile-details' | 'streaming-service' | 'subscription';
 type SubscriptionTier = 'free' | 'premium' | '';
 type StreamingServiceId = 'spotify' | 'apple_music' | 'youtubemusic' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | ''; // Updated 'youtube_music' to 'youtubemusic'
-
-// Define window width for animations
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // Define Streaming Services Data - UPDATED with correct service IDs
 const STREAMING_SERVICES = [
@@ -185,6 +187,7 @@ const MusicLoverSignUpFlow = () => {
     const [isLoading, setIsLoading] = useState(false); // Component-level loading (e.g., payment sim)
     const [error, setError] = useState('');
     const slideAnim = useRef(new Animated.Value(0)).current; // Animation value
+    const fadeAnim = useRef(new Animated.Value(1)).current; // Fade animation value
 
     // Add state to hold Google User ID
     const [googleUserId, setGoogleUserId] = useState<string | null>(null);
@@ -482,10 +485,50 @@ const MusicLoverSignUpFlow = () => {
 
     // Animation functions for step transitions
     const goToNextStep = (nextStep: Step) => {
-        Animated.timing(slideAnim, { toValue: -SCREEN_WIDTH, duration: 300, useNativeDriver: true }).start(() => {
+        // Create a smooth transition sequence
+        Animated.sequence([
+            // Fade out current content
+            Animated.timing(fadeAnim, {
+                toValue: 0,
+                duration: 150,
+                easing: Easing.out(Easing.cubic),
+                useNativeDriver: true
+            }),
+            // Slide out to the left while fading
+            Animated.parallel([
+                Animated.timing(slideAnim, {
+                    toValue: -SCREEN_WIDTH * 0.2,
+                    duration: 250,
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: true
+                }),
+                Animated.timing(fadeAnim, {
+                    toValue: 0,
+                    duration: 250,
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: true
+                })
+            ])
+        ]).start(() => {
             setCurrentStep(nextStep);
-            slideAnim.setValue(SCREEN_WIDTH); // Move off-screen to the right
-            Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(); // Slide in from right
+            // Reset position and fade
+            slideAnim.setValue(SCREEN_WIDTH * 0.2);
+            fadeAnim.setValue(0);
+            // Slide in from right with fade in
+            Animated.parallel([
+                Animated.timing(slideAnim, {
+                    toValue: 0,
+                    duration: 350,
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: true
+                }),
+                Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 350,
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: true
+                })
+            ]).start();
         });
     };
     const goToPreviousStep = (prevStep: Step) => {
@@ -505,9 +548,49 @@ const MusicLoverSignUpFlow = () => {
         
         setCurrentStep(prevStep); // Update state immediately
         
-        Animated.timing(slideAnim, { toValue: SCREEN_WIDTH, duration: 300, useNativeDriver: true }).start(() => {
-            slideAnim.setValue(-SCREEN_WIDTH); // Move off-screen to the left
-            Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(); // Slide in from left
+        // Create a smooth transition sequence for going back
+        Animated.sequence([
+            // Fade out current content
+            Animated.timing(fadeAnim, {
+                toValue: 0,
+                duration: 150,
+                easing: Easing.out(Easing.cubic),
+                useNativeDriver: true
+            }),
+            // Slide out to the right while fading
+            Animated.parallel([
+                Animated.timing(slideAnim, {
+                    toValue: SCREEN_WIDTH * 0.2,
+                    duration: 250,
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: true
+                }),
+                Animated.timing(fadeAnim, {
+                    toValue: 0,
+                    duration: 250,
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: true
+                })
+            ])
+        ]).start(() => {
+            // Reset position and fade
+            slideAnim.setValue(-SCREEN_WIDTH * 0.2);
+            fadeAnim.setValue(0);
+            // Slide in from left with fade in
+            Animated.parallel([
+                Animated.timing(slideAnim, {
+                    toValue: 0,
+                    duration: 350,
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: true
+                }),
+                Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 350,
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: true
+                })
+            ]).start();
         });
     };
 
@@ -937,16 +1020,16 @@ const MusicLoverSignUpFlow = () => {
     // --- Render Functions for Steps ---
 
     const renderUsernameStep = () => (
-        <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Tell Us About You</Text>
-            <Text style={styles.stepDescription}>Let's start with your basic information</Text>
+        <View style={authStyles.signupStepContent}>
+            <Text style={authStyles.signupStepTitle}>Create Your Account</Text>
+            <Text style={authStyles.signupStepDescription}>Let's start with your basic information</Text>
             
             {/* First/Last Name Row */}
-            <View style={styles.rowContainer}>
-                <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
-                    <Text style={styles.inputLabel}>First Name *</Text>
+            <View style={authStyles.signupRowContainer}>
+                <View style={[authStyles.signupInputContainer, { flex: 1, marginRight: isWeb ? 8 : 4 }]}>
+                    <Text style={authStyles.signupInputLabel}>First Name *</Text>
                     <TextInput 
-                        style={styles.input} 
+                        style={authStyles.signupInput} 
                         placeholder="First Name" 
                         value={formData.firstName} 
                         onChangeText={(text) => handleChange('firstName', text)} 
@@ -956,11 +1039,11 @@ const MusicLoverSignUpFlow = () => {
                         onSubmitEditing={() => lastNameInputRef.current?.focus()}
                     />
                 </View>
-                <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
-                    <Text style={styles.inputLabel}>Last Name *</Text>
+                <View style={[authStyles.signupInputContainer, { flex: 1, marginLeft: isWeb ? 8 : 4 }]}>
+                    <Text style={authStyles.signupInputLabel}>Last Name *</Text>
                     <TextInput 
                         ref={lastNameInputRef}
-                        style={styles.input} 
+                        style={authStyles.signupInput} 
                         placeholder="Last Name" 
                         value={formData.lastName} 
                         onChangeText={(text) => handleChange('lastName', text)} 
@@ -973,17 +1056,17 @@ const MusicLoverSignUpFlow = () => {
             </View>
             
             {/* Username */}
-            <View style={styles.inputContainer}>
-                <View style={styles.labelRow}>
-                    <Text style={styles.inputLabel}>Username *</Text>
-                    {usernameStatus === 'checking' && <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={styles.inlineLoader} />}
+            <View style={authStyles.signupInputContainer}>
+                <View style={authStyles.signupLabelRow}>
+                    <Text style={authStyles.signupInputLabel}>Username *</Text>
+                    {usernameStatus === 'checking' && <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={authStyles.signupInlineLoader} />}
                 </View>
                 <TextInput 
                     ref={usernameInputRef}
                     style={[
-                        styles.input,
-                        usernameStatus === 'invalid' && styles.inputError,
-                        usernameStatus === 'valid' && styles.inputValid,
+                        authStyles.signupInput,
+                        usernameStatus === 'invalid' && authStyles.signupInputError,
+                        usernameStatus === 'valid' && authStyles.signupInputValid,
                     ]}
                     placeholder="Choose a unique username (no spaces)" 
                     value={formData.username} 
@@ -994,61 +1077,82 @@ const MusicLoverSignUpFlow = () => {
                     onBlur={handleUsernameBlur}
                 />
                 {usernameFeedback ? <Text style={[
-                    styles.feedbackText, 
-                    usernameStatus === 'valid' && styles.feedbackTextValid,
-                    (usernameStatus === 'invalid' || usernameStatus === 'error') && styles.feedbackTextError,
+                    authStyles.signupFeedbackText, 
+                    usernameStatus === 'valid' && authStyles.signupFeedbackTextValid,
+                    (usernameStatus === 'invalid' || usernameStatus === 'error') && authStyles.signupFeedbackTextError,
                 ]}>{usernameFeedback}</Text> : null}
             </View>
 
-            <View style={styles.termsContainer}>
+            <View style={authStyles.signupTermsContainer}>
                 <TouchableOpacity
-                    style={[styles.checkbox, formData.termsAccepted && styles.checkboxChecked]}
+                    style={[authStyles.signupCheckbox, formData.termsAccepted && authStyles.signupCheckboxChecked]}
                     onPress={() => handleChange('termsAccepted', !formData.termsAccepted)}
                     activeOpacity={0.7}
                 >
                     {formData.termsAccepted && <Feather name="check" size={14} color="white" />}
                 </TouchableOpacity>
-                <Text style={styles.termsText}>
+                <Text style={authStyles.signupTermsText}>
                     I agree to the{' '}
-                    <Text style={styles.termsLink} onPress={() => setIsTermsModalVisible(true)}>{/* Open modal */}
+                    <Text style={authStyles.signupTermsLink} onPress={() => setIsTermsModalVisible(true)}>{/* Open modal */}
                         Terms and Conditions
                     </Text> *
                 </Text>
             </View>
             
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-            <Text style={styles.requiredText}>* Required fields</Text>
+            {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
+            <Text style={authStyles.signupRequiredText}>* Required fields</Text>
+            
+            {/* Continue Button */}
+            <TouchableOpacity
+                style={[
+                    authStyles.signupContinueButton,
+                    (isLoading || authLoading || usernameStatus !== 'valid') && authStyles.signupContinueButtonDisabled
+                ]}
+                onPress={async () => {
+                    Keyboard.dismiss();
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    handleStepSubmit();
+                }}
+                disabled={isLoading || authLoading || usernameStatus !== 'valid'}
+                activeOpacity={0.8}
+            >
+                {isLoading || authLoading ? (
+                    <ActivityIndicator color="white" size="small" />
+                ) : (
+                    <Text style={authStyles.signupContinueButtonText}>Continue</Text>
+                )}
+            </TouchableOpacity>
         </View>
     );
 
     const renderProfileDetailsStep = () => (
-        <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Tell Us About You</Text>
-            <Text style={styles.stepDescription}> Help others connect with your vibe! (All fields optional below) </Text>
+        <View style={authStyles.signupStepContent}>
+            <Text style={authStyles.signupStepTitle}>Tell Us About You</Text>
+            <Text style={authStyles.signupStepDescription}>Help others connect with your vibe! (All fields optional below)</Text>
             {/* Profile Picture */}
-            <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Profile Picture</Text>
-                <View style={styles.profilePicContainer}>
+            <View style={authStyles.signupInputContainer}>
+                <Text style={authStyles.signupInputLabel}>Profile Picture</Text>
+                <View style={authStyles.signupProfilePicContainer}>
                     {formData.profilePicturePreview ? (
-                       <Image source={{ uri: formData.profilePicturePreview }} style={styles.profilePicPreview} />
+                       <Image source={{ uri: formData.profilePicturePreview }} style={authStyles.signupProfilePicPreview} />
                     ) : (
-                       <View style={styles.profilePicPlaceholder}>
+                       <View style={authStyles.signupProfilePicPlaceholder}>
                           <Feather name="user" size={40} color={APP_CONSTANTS.COLORS.PRIMARY_DARK} />
                        </View>
                     )}
-                    <TouchableOpacity style={styles.uploadButton} onPress={handleProfilePicPick} activeOpacity={0.8}>
+                    <TouchableOpacity style={authStyles.signupUploadButton} onPress={handleProfilePicPick} activeOpacity={0.8}>
                         <Feather name="camera" size={16} color="white" style={{ marginRight: 8 }} />
-                        <Text style={styles.uploadButtonText}>
+                        <Text style={authStyles.signupUploadButtonText}>
                             {formData.profilePicturePreview ? 'Change Picture' : 'Select Picture'}
                         </Text>
                     </TouchableOpacity>
                 </View>
             </View>
             {/* Age */}
-            <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Age</Text>
+            <View style={authStyles.signupInputContainer}>
+                <Text style={authStyles.signupInputLabel}>Age</Text>
                 <TextInput 
-                    style={styles.input} 
+                    style={authStyles.signupInput} 
                     placeholder="e.g. 25" 
                     value={formData.age} 
                     onChangeText={(text) => handleChange('age', text.replace(/\D/g, ''))} 
@@ -1060,8 +1164,8 @@ const MusicLoverSignUpFlow = () => {
             </View>
             
             {/* Location Section - Country Dropdown */}
-            <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Country</Text>
+            <View style={authStyles.signupInputContainer}>
+                <Text style={authStyles.signupInputLabel}>Country</Text>
                 <View style={styles.pickerContainer}>
                     <Picker
                         selectedValue={formData.countryCode}
@@ -1082,8 +1186,8 @@ const MusicLoverSignUpFlow = () => {
             
             {/* State/Province Dropdown - Only show if country is selected and not Singapore */}
             {formData.countryCode && formData.countryCode !== 'SG' && (
-                <View style={styles.inputContainer}>
-                    <Text style={styles.inputLabel}>State/Province</Text>
+                <View style={authStyles.signupInputContainer}>
+                    <Text style={authStyles.signupInputLabel}>State/Province</Text>
                     <View style={styles.pickerContainer}>
                         <Picker
                             selectedValue={formData.stateCode}
@@ -1106,8 +1210,8 @@ const MusicLoverSignUpFlow = () => {
             
             {/* City Dropdown - Only show if state is selected */}
             {formData.stateCode && (
-                <View style={styles.inputContainer}>
-                    <Text style={styles.inputLabel}>City</Text>
+                <View style={authStyles.signupInputContainer}>
+                    <Text style={authStyles.signupInputLabel}>City</Text>
                     <View style={styles.pickerContainer}>
                         <Picker
                             selectedValue={formData.cityName}
@@ -1129,28 +1233,49 @@ const MusicLoverSignUpFlow = () => {
             )}
             
             {/* Bio Section */}
-            <Text style={[styles.inputLabel, styles.bioHeader]}> Music Bio (Share your sound!) </Text>
-            <View style={styles.inputContainer}>
-                <Text style={styles.inputLabelSmall}>Your first concert / favorite music memory?</Text>
-                <TextInput style={styles.inputBio} value={formData.bio.firstSong} onChangeText={(text) => handleChange('bio.firstSong', text)} placeholder="That unforgettable show..." multiline returnKeyType="next" blurOnSubmit={false} />
+            <Text style={[authStyles.signupInputLabel, authStyles.signupBioHeader]}>Music Bio (Share your sound!)</Text>
+            <View style={authStyles.signupInputContainer}>
+                <Text style={authStyles.signupInputLabelSmall}>Your first concert / favorite music memory?</Text>
+                <TextInput style={authStyles.signupInputBio} value={formData.bio.firstSong} onChangeText={(text) => handleChange('bio.firstSong', text)} placeholder="That unforgettable show..." multiline returnKeyType="next" blurOnSubmit={false} />
             </View>
-            <View style={styles.inputContainer}>
-                <Text style={styles.inputLabelSmall}>Go-to song right now?</Text>
-                <TextInput style={styles.inputBio} value={formData.bio.goToSong} onChangeText={(text) => handleChange('bio.goToSong', text)} placeholder="The track on repeat..." returnKeyType="next" blurOnSubmit={false} />
+            <View style={authStyles.signupInputContainer}>
+                <Text style={authStyles.signupInputLabelSmall}>Go-to song right now?</Text>
+                <TextInput style={authStyles.signupInputBio} value={formData.bio.goToSong} onChangeText={(text) => handleChange('bio.goToSong', text)} placeholder="The track on repeat..." returnKeyType="next" blurOnSubmit={false} />
             </View>
-            <View style={styles.inputContainer}>
-                <Text style={styles.inputLabelSmall}>An album everyone should listen to?</Text>
-                <TextInput style={styles.inputBio} value={formData.bio.mustListenAlbum} onChangeText={(text) => handleChange('bio.mustListenAlbum', text)} placeholder="Your essential pick..." returnKeyType="next" blurOnSubmit={false} />
+            <View style={authStyles.signupInputContainer}>
+                <Text style={authStyles.signupInputLabelSmall}>An album everyone should listen to?</Text>
+                <TextInput style={authStyles.signupInputBio} value={formData.bio.mustListenAlbum} onChangeText={(text) => handleChange('bio.mustListenAlbum', text)} placeholder="Your essential pick..." returnKeyType="next" blurOnSubmit={false} />
             </View>
-            <View style={styles.inputContainer}>
-                <Text style={styles.inputLabelSmall}>Dream concert lineup?</Text>
-                <TextInput style={styles.inputBio} value={formData.bio.dreamConcert} onChangeText={(text) => handleChange('bio.dreamConcert', text)} placeholder="Headliner? Opener?" returnKeyType="next" blurOnSubmit={false} />
+            <View style={authStyles.signupInputContainer}>
+                <Text style={authStyles.signupInputLabelSmall}>Dream concert lineup?</Text>
+                <TextInput style={authStyles.signupInputBio} value={formData.bio.dreamConcert} onChangeText={(text) => handleChange('bio.dreamConcert', text)} placeholder="Headliner? Opener?" returnKeyType="next" blurOnSubmit={false} />
             </View>
-            <View style={styles.inputContainer}>
-                <Text style={styles.inputLabelSmall}>Describe your music taste in a few words?</Text>
-                <TextInput style={styles.inputBio} value={formData.bio.musicTaste} onChangeText={(text) => handleChange('bio.musicTaste', text)} placeholder="Indie rock, 90s hip hop, electronic..." returnKeyType="done" onSubmitEditing={handleStepSubmit} />
+            <View style={authStyles.signupInputContainer}>
+                <Text style={authStyles.signupInputLabelSmall}>Describe your music taste in a few words?</Text>
+                <TextInput style={authStyles.signupInputBio} value={formData.bio.musicTaste} onChangeText={(text) => handleChange('bio.musicTaste', text)} placeholder="Indie rock, 90s hip hop, electronic..." returnKeyType="done" onSubmitEditing={handleStepSubmit} />
             </View>
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
+            
+            {/* Back/Continue Buttons */}
+            <View style={authStyles.signupButtonContainer}>
+                <TouchableOpacity 
+                    style={authStyles.signupSecondaryButton} 
+                    onPress={() => goToPreviousStep('username')}
+                >
+                    <Text style={authStyles.signupSecondaryButtonText}>Back</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[
+                        authStyles.signupPrimaryButton,
+                        (isLoading || authLoading) && authStyles.signupPrimaryButtonDisabled
+                    ]}
+                    onPress={handleStepSubmit}
+                    disabled={isLoading || authLoading}
+                >
+                    <Text style={authStyles.signupPrimaryButtonText}>Continue</Text>
+                </TouchableOpacity>
+            </View>
         </View>
     );
 
@@ -1587,30 +1712,57 @@ const MusicLoverSignUpFlow = () => {
     // --- Render Functions for Steps ---
 
     const renderStreamingServiceStep = () => (
-        <ScrollView 
-            style={{ width: '100%' }} 
-            contentContainerStyle={{ 
-                flexGrow: 1, 
-                alignItems: 'center', 
-                paddingHorizontal: 20,
-                paddingBottom: 20
-            }}
-        >
-            <Text style={styles.stepTitle}>Music Services</Text>
-            <Text style={styles.stepSubtitle}>What streaming service do you use most?</Text>
-            {/* Removed: !showYTMCookieInput && ( ... ) wrapper */}
-            <View style={styles.streamingServicesGrid}> 
+        <View style={authStyles.signupStepContent}>
+            <Text style={authStyles.signupStepTitle}>Music Services</Text>
+            <Text style={authStyles.signupStepSubtitle}>What streaming service do you use most?</Text>
+            
+            {/* Create a proper 2-column grid */}
+            <View style={{ 
+                width: '100%', 
+                flexDirection: 'row', 
+                flexWrap: 'wrap', 
+                justifyContent: 'space-between',
+                marginBottom: isWeb ? 24 : 20
+            }}> 
                 {STREAMING_SERVICES.map((service) => (
                     <TouchableOpacity 
                         key={service.id} 
                         style={[
-                                styles.serviceCard,
-                                formData.selectedStreamingService === service.id && styles.selectedServiceCard
+                            {
+                                width: '48%',
+                                aspectRatio: 1,
+                                borderRadius: isWeb ? 16 : 12,
+                                borderWidth: 1.5,
+                                borderColor: formData.selectedStreamingService === service.id ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.BORDER,
+                                padding: isWeb ? 16 : 12,
+                                marginBottom: isWeb ? 20 : 16,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                position: 'relative',
+                                elevation: 2,
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
+                                shadowOpacity: 0.08,
+                                shadowRadius: isWeb ? 8 : 4,
+                                backgroundColor: formData.selectedStreamingService === service.id ? `${APP_CONSTANTS.COLORS.PRIMARY}10` : 'white',
+                            }
                         ]} 
                         onPress={() => handleStreamingServiceSelect(service.id as StreamingServiceId)}
-                        // Removed: disabled={ytmAuthInProgress}
                         >
-                        <View style={[styles.serviceIconContainer, { backgroundColor: service.color }]}>
+                        <View style={[{
+                            width: isWeb ? 72 : 60,
+                            height: isWeb ? 72 : 60,
+                            borderRadius: isWeb ? 36 : 30,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            marginBottom: isWeb ? 16 : 12,
+                            elevation: 3,
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
+                            shadowOpacity: 0.1,
+                            shadowRadius: isWeb ? 8 : 4,
+                            backgroundColor: service.color
+                        }]}>
                             {service.iconSet === 'FontAwesome' && (
                                 <FontAwesome name={service.icon as any} size={28} color="#FFF" />
                             )}
@@ -1621,9 +1773,30 @@ const MusicLoverSignUpFlow = () => {
                                 <Feather name={service.icon as any} size={28} color="#FFF" />
                             )}
                         </View>
-                        <Text style={styles.serviceName}>{service.name}</Text>
+                        <Text style={{
+                            fontSize: isWeb ? 14 : 13,
+                            color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+                            fontWeight: '500',
+                            textAlign: 'center',
+                            fontFamily: 'Inter, sans-serif',
+                        }}>{service.name}</Text>
                         {formData.selectedStreamingService === service.id && (
-                            <View style={styles.checkmarkBadge}>
+                            <View style={{
+                                position: 'absolute',
+                                top: isWeb ? 12 : 8,
+                                right: isWeb ? 12 : 8,
+                                backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+                                borderRadius: isWeb ? 16 : 12,
+                                width: isWeb ? 32 : 24,
+                                height: isWeb ? 32 : 24,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                elevation: 4,
+                                shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
+                                shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
+                                shadowOpacity: 0.3,
+                                shadowRadius: isWeb ? 8 : 4,
+                            }}>
                                 <Feather name="check" size={16} color="#FFFFFF" />
                             </View>
                         )}
@@ -1632,18 +1805,67 @@ const MusicLoverSignUpFlow = () => {
 
                 <TouchableOpacity 
                     style={[
-                            styles.serviceCard,
-                            formData.selectedStreamingService === 'None' && styles.selectedServiceCard
+                        {
+                            width: '48%',
+                            aspectRatio: 1,
+                            borderRadius: isWeb ? 16 : 12,
+                            borderWidth: 1.5,
+                            borderColor: formData.selectedStreamingService === 'None' ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.BORDER,
+                            padding: isWeb ? 16 : 12,
+                            marginBottom: isWeb ? 20 : 16,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            position: 'relative',
+                            elevation: 2,
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
+                            shadowOpacity: 0.08,
+                            shadowRadius: isWeb ? 8 : 4,
+                            backgroundColor: formData.selectedStreamingService === 'None' ? `${APP_CONSTANTS.COLORS.PRIMARY}10` : 'white',
+                        }
                     ]} 
                     onPress={() => handleStreamingServiceSelect('None')}
-                    // Removed: disabled={ytmAuthInProgress}
                     >
-                    <View style={[styles.serviceIconContainer, { backgroundColor: '#5C5C5C' }]}>
+                    <View style={[{
+                        width: isWeb ? 72 : 60,
+                        height: isWeb ? 72 : 60,
+                        borderRadius: isWeb ? 36 : 30,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginBottom: isWeb ? 16 : 12,
+                        elevation: 3,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: isWeb ? 8 : 4,
+                        backgroundColor: '#5C5C5C'
+                    }]}>
                         <Feather name="zap-off" size={28} color="#FFF" />
                     </View>
-                    <Text style={styles.serviceName}>None / Other</Text>
+                    <Text style={{
+                        fontSize: isWeb ? 14 : 13,
+                        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+                        fontWeight: '500',
+                        textAlign: 'center',
+                        fontFamily: 'Inter, sans-serif',
+                    }}>None / Other</Text>
                     {formData.selectedStreamingService === 'None' && (
-                        <View style={styles.checkmarkBadge}>
+                        <View style={{
+                            position: 'absolute',
+                            top: isWeb ? 12 : 8,
+                            right: isWeb ? 12 : 8,
+                            backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+                            borderRadius: isWeb ? 16 : 12,
+                            width: isWeb ? 32 : 24,
+                            height: isWeb ? 32 : 24,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            elevation: 4,
+                            shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
+                            shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
+                            shadowOpacity: 0.3,
+                            shadowRadius: isWeb ? 8 : 4,
+                        }}>
                             <Feather name="check" size={16} color="#FFFFFF" />
                         </View>
                     )}
@@ -1655,13 +1877,13 @@ const MusicLoverSignUpFlow = () => {
             
             {/* Spotify specific UI feedback */}
             {isSpotifyLoading && formData.selectedStreamingService === 'spotify' && (
-                <View style={styles.loadingContainer}>
+                <View style={authStyles.loadingContainer}>
                     <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
-                    <Text style={styles.loadingText}>Connecting to Spotify...</Text>
+                    <Text style={authStyles.loadingText}>Connecting to Spotify...</Text>
                 </View>
             )}
             {spotifyError && formData.selectedStreamingService === 'spotify' && (
-                 <Text style={[styles.errorText, { marginTop: 10 }]}>{spotifyError}</Text>
+                 <Text style={[authStyles.signupErrorText, { marginTop: 10 }]}>{spotifyError}</Text>
             )}
             {isSpotifyLoggedIn && formData.selectedStreamingService === 'spotify' && (
                 <View style={styles.successMessageContainer}>
@@ -1671,21 +1893,21 @@ const MusicLoverSignUpFlow = () => {
             )}
 
             {/* General error display */}
-            {error && !spotifyError && <Text style={[styles.errorText, { marginTop: 10 }]}>{error}</Text>} 
+            {error && !spotifyError && <Text style={[authStyles.signupErrorText, { marginTop: 10 }]}>{error}</Text>} 
 
             {/* Main Back/Continue Buttons */}
-            <View style={styles.buttonContainer}> 
+            <View style={authStyles.signupButtonContainer}> 
                 <TouchableOpacity 
-                    style={styles.secondaryButton} 
+                    style={authStyles.signupSecondaryButton} 
                     onPress={() => goToPreviousStep('profile-details')}
                 >
-                    <Text style={styles.secondaryButtonText}>Back</Text>
+                    <Text style={authStyles.signupSecondaryButtonText}>Back</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                     style={[
-                        styles.primaryButton,
-                        (!formData.selectedStreamingService) && styles.primaryButtonDisabled
+                        authStyles.signupPrimaryButton,
+                        (!formData.selectedStreamingService) && authStyles.signupPrimaryButtonDisabled
                     ]}
                     onPress={() => {
                         if (validateStreamingServiceStep()) {
@@ -1694,30 +1916,30 @@ const MusicLoverSignUpFlow = () => {
                     }}
                     disabled={!formData.selectedStreamingService}
                 >
-                    <Text style={styles.primaryButtonText}>Continue</Text>
+                    <Text style={authStyles.signupPrimaryButtonText}>Continue</Text>
                 </TouchableOpacity>
             </View>
-        </ScrollView>
+        </View>
     );
 
     // Improved subscription plan selection UI
     const renderSubscriptionStep = () => (
-        <View style={styles.stepContainer}>
-            <Text style={styles.stepTitle}>Choose Your Plan</Text>
-            <Text style={styles.stepSubtitle}>Select a subscription plan that works for you</Text>
+        <View style={authStyles.signupStepContainer}>
+            <Text style={authStyles.signupStepTitle}>Choose Your Plan</Text>
+            <Text style={authStyles.signupStepSubtitle}>Select a subscription plan that works for you</Text>
 
-            <View style={styles.subscriptionOptionsContainer}>
+            <View style={authStyles.signupSubscriptionOptionsContainer}>
                 {/* Free Tier */}
                 <TouchableOpacity
                     style={[
-                        styles.subscriptionCard,
-                        formData.subscriptionTier === 'free' && styles.selectedSubscriptionCard
+                        authStyles.signupSubscriptionCard,
+                        formData.subscriptionTier === 'free' && authStyles.signupSelectedSubscriptionCard
                     ]}
                     onPress={() => handleSubscriptionChange('free')}
                 >
-                    <View style={styles.planHeader}>
-                        <Text style={styles.planTitle}>Free</Text>
-                        <Text style={styles.planPrice}>$0/month</Text>
+                    <View style={authStyles.signupPlanHeader}>
+                        <Text style={authStyles.signupPlanTitle}>Free</Text>
+                        <Text style={authStyles.signupPlanPrice}>$0/month</Text>
                     </View>
                     
                     <View style={styles.planFeaturesList}>
@@ -1745,15 +1967,15 @@ const MusicLoverSignUpFlow = () => {
                 {/* Premium Tier */}
                 <TouchableOpacity
                     style={[
-                        styles.subscriptionCard,
+                        authStyles.signupSubscriptionCard,
                         styles.premiumCard,
-                        formData.subscriptionTier === 'premium' && styles.selectedSubscriptionCard
+                        formData.subscriptionTier === 'premium' && authStyles.signupSelectedSubscriptionCard
                     ]}
                     onPress={() => handleSubscriptionChange('premium')}
                 >
-                    <View style={styles.planHeader}>
-                        <Text style={styles.planTitle}>Premium</Text>
-                        <Text style={styles.planPrice}>$4.99/month</Text>
+                    <View style={authStyles.signupPlanHeader}>
+                        <Text style={authStyles.signupPlanTitle}>Premium</Text>
+                        <Text style={authStyles.signupPlanPrice}>$4.99/month</Text>
                     </View>
                     
                     <View style={styles.planFeaturesList}>
@@ -1783,18 +2005,18 @@ const MusicLoverSignUpFlow = () => {
                 </TouchableOpacity>
             </View>
 
-            <View style={styles.buttonContainer}>
+            <View style={authStyles.signupButtonContainer}>
                 <TouchableOpacity 
-                    style={styles.secondaryButton} 
+                    style={authStyles.signupSecondaryButton} 
                     onPress={() => goToPreviousStep('streaming-service')}
                 >
-                    <Text style={styles.secondaryButtonText}>Back</Text>
+                    <Text style={authStyles.signupSecondaryButtonText}>Back</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                     style={[
-                        styles.primaryButton,
-                        (!formData.subscriptionTier || isLoading) && styles.primaryButtonDisabled
+                        authStyles.signupPrimaryButton,
+                        (!formData.subscriptionTier || isLoading) && authStyles.signupPrimaryButtonDisabled
                     ]}
                     onPress={handleStepSubmit}
                     disabled={!formData.subscriptionTier || isLoading}
@@ -1802,102 +2024,56 @@ const MusicLoverSignUpFlow = () => {
                     {isLoading ? (
                         <ActivityIndicator color="white" />
                     ) : (
-                        <Text style={styles.primaryButtonText}>
+                        <Text style={authStyles.signupPrimaryButtonText}>
                             {formData.subscriptionTier === 'free' ? 'Complete Sign Up' : 'Continue to Payment'}
                         </Text>
                     )}
                 </TouchableOpacity>
             </View>
 
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
         </View>
     );
 
     // --- Render Functions for Steps ---
 
     const renderCurrentStep = () => {
-        const isButtonDisabled = isLoading || authLoading || isSpotifyLoading || 
-            (currentStep === 'subscription' && !formData.subscriptionTier) ||
-            (currentStep === 'username' && usernameStatus !== 'valid');
-
-        // Compute button text based on current step
-        let buttonText = 'Continue';
-        if (currentStep === 'username') buttonText = 'Continue';
-        if (currentStep === 'profile-details') buttonText = 'Continue';
-        if (currentStep === 'streaming-service') buttonText = 'Choose Subscription';
-        if (currentStep === 'subscription') {
-            buttonText = formData.subscriptionTier === 'free' ? 'Complete Sign Up' : 'Continue to Payment';
-        }
-
-        // Pre-compute validation states
-        const isUsernameValid = currentStep === 'username' ? validateUsernameStep() : true;
-        const isProfileValid = currentStep === 'profile-details' ? validateProfileDetailsStep() : true;
-
         return (
-            <View style={styles.stepContainer}>
-                <Animated.View style={[styles.animatedContainer, { transform: [{ translateX: slideAnim }] }]} >
-                    {currentStep === 'username' && renderUsernameStep()}
-                    {currentStep === 'profile-details' && renderProfileDetailsStep()}
-                    {currentStep === 'streaming-service' && renderStreamingServiceStep()}
-                    {currentStep === 'subscription' && renderSubscriptionStep()}
-                </Animated.View>
-
-                {/* Action Button - Show for steps that need it */}
-                {currentStep !== 'streaming-service' && currentStep !== 'subscription' && ( 
-                    <View style={styles.stickyButtonContainer}>
-                        <TouchableOpacity
-                            style={[
-                                styles.continueButton, 
-                                (isLoading || authLoading || isSpotifyLoading || 
-                                (currentStep === 'username' && !isUsernameValid) ||
-                                (currentStep === 'profile-details' && !isProfileValid) ||
-                                (currentStep === 'username' && (usernameStatus === 'checking' || usernameStatus === 'invalid'))
-                                ) && styles.continueButtonDisabled
-                            ]}
-                            onPress={async () => { 
-                                if (currentStep === 'username') {
-                                    Keyboard.dismiss();
-                                    await new Promise(resolve => setTimeout(resolve, 100)); 
-                                }
-                                handleStepSubmit();
-                            }}
-                            disabled={
-                                isLoading || authLoading || isSpotifyLoading ||
-                                (currentStep === 'username' && !isUsernameValid) ||
-                                (currentStep === 'profile-details' && !isProfileValid) ||
-                                (currentStep === 'username' && (usernameStatus === 'checking' || usernameStatus === 'invalid'))
-                            }
-                            activeOpacity={0.8}
-                        >
-                            {isLoading || authLoading || isSpotifyLoading ? (
-                                <ActivityIndicator color="white" size="small" />
-                            ) : (
-                                <Text style={styles.continueButtonText}>{buttonText}</Text>
-                            )}
-                        </TouchableOpacity>
-                    </View>
-                )}
+            <View style={authStyles.signupStepContainer}>
+                {currentStep === 'username' && renderUsernameStep()}
+                {currentStep === 'profile-details' && renderProfileDetailsStep()}
+                {currentStep === 'streaming-service' && renderStreamingServiceStep()}
+                {currentStep === 'subscription' && renderSubscriptionStep()}
             </View>
         );
     };
 
-    // Main Return JSX Structure - remove the duplicate button
+    // Main Return JSX Structure - web: wide form; mobile: as before
     return (
-        <LinearGradient 
-            colors={['#F7F9FC', '#E8EDFC']} 
-            style={styles.gradient}
-        >
-            <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-                <View style={styles.header}>
+        <SafeAreaView style={authStyles.signupContainer} edges={['top', 'bottom']}>
+            <LinearGradient 
+                colors={[
+                    `${APP_CONSTANTS.COLORS.PRIMARY}08`,
+                    `${APP_CONSTANTS.COLORS.PRIMARY}03`,
+                    'white'
+                ]} 
+                style={authStyles.signupGradient}
+            >
+                {/* Decorative background elements */}
+                <View style={authStyles.decorativeCircle1} />
+                <View style={authStyles.decorativeCircle2} />
+                <View style={authStyles.decorativeCircle3} />
+                {isWeb && <View style={authStyles.decorativeCircle4} />}
+                {isWeb && <View style={authStyles.decorativeCircle5} />}
+
+                <View style={authStyles.signupHeader}>
                     {/* Add back button to header */}
                     <TouchableOpacity
-                        style={styles.backButton}
+                        style={authStyles.signupBackButton}
                         onPress={() => {
                             if (currentStep === 'username') {
-                                // Navigate back to landing page from first step
-                                navigation.goBack(); // Use goBack instead of navigate
+                                navigation.goBack();
                             } else {
-                                // For other steps, go to previous step
                                 const steps: Step[] = ['username', 'profile-details', 'streaming-service', 'subscription'];
                                 const currentIndex = steps.indexOf(currentStep);
                                 if (currentIndex > 0) {
@@ -1908,51 +2084,67 @@ const MusicLoverSignUpFlow = () => {
                     >
                         <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
                     </TouchableOpacity>
-                    <View style={styles.stepIndicatorContainer}>
+                    <View style={authStyles.signupStepIndicatorContainer}>
                         <View style={[
-                            styles.stepIndicator, 
-                            currentStep === 'username' ? styles.stepIndicatorCurrent : 
+                            authStyles.signupStepIndicator, 
+                            currentStep === 'username' ? authStyles.signupStepIndicatorCurrent : 
                             (currentStep === 'profile-details' || currentStep === 'streaming-service' || 
-                            currentStep === 'subscription') ? styles.stepIndicatorActive : {}
+                            currentStep === 'subscription') ? authStyles.signupStepIndicatorActive : {}
                         ]} />
                         <View style={[
-                            styles.stepIndicator, 
-                            currentStep === 'profile-details' ? styles.stepIndicatorCurrent : 
-                            (currentStep === 'streaming-service' || currentStep === 'subscription') ? styles.stepIndicatorActive : {}
+                            authStyles.signupStepIndicator, 
+                            currentStep === 'profile-details' ? authStyles.signupStepIndicatorCurrent : 
+                            (currentStep === 'streaming-service' || currentStep === 'subscription') ? authStyles.signupStepIndicatorActive : {}
                         ]} />
                         <View style={[
-                            styles.stepIndicator, 
-                            currentStep === 'streaming-service' ? styles.stepIndicatorCurrent : 
-                            currentStep === 'subscription' ? styles.stepIndicatorActive : {}
+                            authStyles.signupStepIndicator, 
+                            currentStep === 'streaming-service' ? authStyles.signupStepIndicatorCurrent : 
+                            currentStep === 'subscription' ? authStyles.signupStepIndicatorActive : {}
                         ]} />
                         <View style={[
-                            styles.stepIndicator, 
-                            currentStep === 'subscription' ? styles.stepIndicatorCurrent : {}
+                            authStyles.signupStepIndicator, 
+                            currentStep === 'subscription' ? authStyles.signupStepIndicatorCurrent : {}
                         ]} />
                     </View>
-                    {/* Add a placeholder view to balance the header */}
                     <View style={{ width: 24 }} />
                 </View>
-                <ScrollView contentContainerStyle={styles.scrollContentContainer}>
-                    <Animated.View style={[styles.stepsSlider, { transform: [{ translateX: slideAnim }] }]}>
-                        {renderCurrentStep()}
-                    </Animated.View>
-                </ScrollView>
-                {/* REMOVED duplicate global action button */}
+
+                {/* Web: wide form wrapper; Mobile: as before */}
+                <View style={isWeb ? authStyles.formWrapperWeb : undefined}>
+                    <ScrollView 
+                        contentContainerStyle={authStyles.signupScrollContentContainer} 
+                        style={{ width: '100%' }}
+                        showsVerticalScrollIndicator={false}
+                    >
+                        <Animated.View 
+                            style={[
+                                authStyles.signupStepsSlider, 
+                                { 
+                                    transform: [{ translateX: slideAnim }],
+                                    opacity: fadeAnim,
+                                    width: '100%',
+                                    minHeight: '100%'
+                                }
+                            ]}
+                        > 
+                            {renderCurrentStep()}
+                        </Animated.View>
+                    </ScrollView>
+                </View>
+
                 <TermsModal visible={isTermsModalVisible} onClose={() => setIsTermsModalVisible(false)} termsText={termsAndConditionsText} />
-                
                 {/* Web Image Cropper */}
                 {Platform.OS === 'web' && (
                     <ImageCropper
                         visible={showCropper}
                         imageUri={tempImageUri || ''}
-                        aspectRatio={[4, 5]} // 4:5 aspect ratio for profile picture
+                        aspectRatio={[4, 5]}
                         onCrop={handleCroppedImage}
                         onCancel={handleCropperCancel}
                     />
                 )}
-            </SafeAreaView>
-        </LinearGradient>
+            </LinearGradient>
+        </SafeAreaView>
     );
 };
 
