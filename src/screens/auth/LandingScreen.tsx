@@ -81,21 +81,21 @@ const LandingScreen = () => {
             <Text style={authStyles.description}>
               Discover events, connect with music lovers, and experience unforgettable moments together
             </Text>
-          </View>
+        </View>
 
           {/* Action Buttons */}
           <View style={authStyles.buttonContainer}>
-            <TouchableOpacity 
+          <TouchableOpacity 
               style={authStyles.button}
-              onPress={() => navigation.navigate('MusicLoverLogin')}
+            onPress={() => navigation.navigate('MusicLoverLogin')}
               activeOpacity={0.8}
-            >
+          >
               <View style={authStyles.buttonContent}>
                 <View style={authStyles.buttonIconContainer}>
-                  <Feather 
-                    name="music" 
-                    size={24} 
-                    color={APP_CONSTANTS.COLORS.PRIMARY} 
+            <Feather 
+              name="music" 
+              size={24} 
+              color={APP_CONSTANTS.COLORS.PRIMARY} 
                   />
                 </View>
                 <View style={authStyles.buttonTextContainer}>
@@ -108,19 +108,19 @@ const LandingScreen = () => {
                   color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} 
                 />
               </View>
-            </TouchableOpacity>
+          </TouchableOpacity>
 
-            <TouchableOpacity 
+          <TouchableOpacity 
               style={authStyles.button}
-              onPress={() => navigation.navigate('OrganizerLogin')}
+            onPress={() => navigation.navigate('OrganizerLogin')}
               activeOpacity={0.8}
-            >
+          >
               <View style={authStyles.buttonContent}>
                 <View style={authStyles.buttonIconContainer}>
-                  <Feather 
-                    name="calendar" 
-                    size={24} 
-                    color={APP_CONSTANTS.COLORS.PRIMARY} 
+            <Feather 
+              name="calendar" 
+              size={24} 
+              color={APP_CONSTANTS.COLORS.PRIMARY} 
                   />
                 </View>
                 <View style={authStyles.buttonTextContainer}>
@@ -133,8 +133,8 @@ const LandingScreen = () => {
                   color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} 
                 />
               </View>
-            </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
+        </View>
 
           {/* Footer */}
           <View style={authStyles.footer}>

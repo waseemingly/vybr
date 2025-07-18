@@ -1,6 +1,6 @@
 // components/Auth/OrganizerSignUpFlow.tsx (or wherever it resides)
 import React, { useState, useEffect, useRef } from 'react'; // Add useRef
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image, Platform, Dimensions, Keyboard } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image, Platform, Dimensions, Keyboard, Easing } from 'react-native';
 import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -18,6 +18,9 @@ import type { OpeningHours } from '@/hooks/useAuth'; // <-- ADD THIS
 // Import the RootStackParamList to properly type the navigation
 import type { RootStackParamList } from '@/navigation/AppNavigator'; // Adjust the import path as needed
 
+// Import shared auth styles
+import { authStyles } from '@/styles/authStyles';
+
 // Define the navigation prop type
 type OrganizerSignUpNavigationProp = NavigationProp<RootStackParamList>;
 
@@ -29,6 +32,7 @@ type Step = 'company-name' | 'profile-details';
 
 // Define window width for animations (Assuming SCREEN_WIDTH is needed)
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const isWeb = Platform.OS === 'web';
 
 // --- Placeholder Terms Text (Defined outside component) ---
 const termsAndConditionsText = `**Vybr Organizer Terms & Conditions (Placeholder)**
@@ -102,6 +106,7 @@ const OrganizerSignUpFlow = () => {
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false); // Keep for logo upload UI feedback
   const [slideAnim] = useState(new Animated.Value(0));
+  const [fadeAnim] = useState(new Animated.Value(1));
   const [isTermsModalVisible, setIsTermsModalVisible] = useState(false);
 
   // Web cropping state
@@ -138,19 +143,39 @@ const OrganizerSignUpFlow = () => {
   };
 
   const goToNextStep = (nextStep: Step) => {
-    // ... (keep existing animation implementation)
-    Animated.timing(slideAnim, {
-      toValue: -400,
-      duration: 300,
-      useNativeDriver: true,
-    }).start(() => {
-      setCurrentStep(nextStep);
-      slideAnim.setValue(400);
+    // Enhanced animation with fade and slide effect
+    Animated.parallel([
       Animated.timing(slideAnim, {
+        toValue: -SCREEN_WIDTH,
+        duration: 400,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.cubic),
+      }),
+      Animated.timing(fadeAnim, {
         toValue: 0,
         duration: 300,
         useNativeDriver: true,
-      }).start();
+        easing: Easing.out(Easing.cubic),
+      }),
+    ]).start(() => {
+      setCurrentStep(nextStep);
+      slideAnim.setValue(SCREEN_WIDTH);
+      fadeAnim.setValue(0);
+      
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
+        }),
+      ]).start();
     });
   };
 
@@ -341,25 +366,25 @@ const OrganizerSignUpFlow = () => {
 
   // Render company name step
   const renderCompanyNameStep = () => (
-    <View style={styles.stepContent}>
-      <Text style={styles.stepTitle}>Company Name</Text>
-      <Text style={styles.stepDescription}>Let's start with your company's name</Text>
+    <View style={authStyles.signupStepContent}>
+      <Text style={authStyles.signupStepTitle}>Company Name</Text>
+      <Text style={authStyles.signupStepDescription}>Let's start with your company's name</Text>
 
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Company Name</Text>
+      <View style={authStyles.signupInputContainer}>
+        <Text style={authStyles.signupInputLabel}>Company Name</Text>
         <TextInput
-          style={styles.input}
+          style={authStyles.signupInput}
           placeholder="Enter your company name"
           value={formData.companyName}
           onChangeText={(text) => handleChange('companyName', text)}
         />
       </View>
 
-      <View style={styles.termsContainer}>
+      <View style={authStyles.signupTermsContainer}>
         <TouchableOpacity
           style={[
-            styles.checkbox,
-            formData.termsAccepted && styles.checkboxChecked
+            authStyles.signupCheckbox,
+            formData.termsAccepted && authStyles.signupCheckboxChecked
           ]}
           onPress={() => handleChange('termsAccepted', !formData.termsAccepted)}
         >
@@ -367,107 +392,27 @@ const OrganizerSignUpFlow = () => {
             <Feather name="check" size={14} color="white" />
           )}
         </TouchableOpacity>
-        <Text style={styles.termsText}>
+        <Text style={authStyles.signupTermsText}>
           I agree to the{' '}
-          <Text style={styles.termsLink} onPress={() => setIsTermsModalVisible(true)}>
+          <Text style={authStyles.signupTermsLink} onPress={() => setIsTermsModalVisible(true)}>
             Organizer Terms and Conditions
           </Text> *
         </Text>
       </View>
 
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      <Text style={styles.requiredText}>* Required fields</Text>
+      {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
+      <Text style={authStyles.signupRequiredText}>* Required fields</Text>
     </View>
   );
 
   // Render account details step with Google Sign-In only
   const renderProfileDetailsStep = () => (
-    <View style={styles.stepContent}>
-      <Text style={styles.stepTitle}>Contact & Branding</Text>
+    <View style={authStyles.signupStepContent}>
+      <Text style={authStyles.signupStepTitle}>Contact & Branding</Text>
 
-      <View style={styles.inputContainer}>
-          <Text style={styles.inputLabel}>Phone Number (Optional)</Text>
-          <TextInput
-              style={styles.input}
-              placeholder="Enter your phone number"
-              value={formData.phoneNumber}
-              onChangeText={(text) => handleChange('phoneNumber', text)}
-              keyboardType="phone-pad"
-          />
-      </View>
-
-      <View style={styles.inputContainer}>
-          <Text style={styles.inputLabel}>Business Type</Text>
-          <View style={styles.businessTypeContainer}>
-              {(['venue', 'promoter', 'F&B', 'festival_organizer', 'club','party','other'] as BusinessType[]).map((type) => (
-                  <TouchableOpacity
-                      key={type}
-                      style={[
-                          styles.businessTypeOption,
-                          formData.businessType === type && styles.businessTypeSelected
-                      ]}
-                      onPress={() => handleChange('businessType', type)}
-                  >
-                      <Text style={[
-                          styles.businessTypeText,
-                          formData.businessType === type && styles.businessTypeTextSelected
-                      ]}>
-                          {type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                      </Text>
-                  </TouchableOpacity>
-              ))}
-          </View>
-      </View>
-
-      {formData.businessType === 'F&B' && (
-          <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Venue Capacity</Text>
-              <TextInput
-                  style={styles.input}
-                  placeholder="Enter total capacity"
-                  value={formData.capacity}
-                  onChangeText={(text) => handleChange('capacity', text)}
-                  keyboardType="number-pad"
-              />
-          </View>
-      )}
-
-      {formData.businessType === 'F&B' && (
-         <OpeningHoursEditor
-              openingHours={formData.openingHours}
-              onOpeningHoursChange={(hours) => handleChange('openingHours', hours)}
-          />
-      )}
-
-      <View style={styles.inputContainer}>
-          <Text style={styles.inputLabel}>Website (Optional)</Text>
-          <TextInput
-              style={styles.input}
-              placeholder="Enter your website URL"
-              value={formData.website}
-              onChangeText={(text) => handleChange('website', text)}
-              keyboardType="url"
-              autoCapitalize="none"
-          />
-      </View>
-
-      <View style={styles.inputContainer}>
-          <Text style={styles.inputLabel}>Bio (Optional)</Text>
-          <TextInput
-              style={[styles.input, styles.bioInput]}
-              placeholder="Tell us about your organization (max 500 chars)"
-              value={formData.bio}
-              onChangeText={(text) => handleChange('bio', text)}
-              multiline
-              numberOfLines={4}
-              maxLength={500} // Add a reasonable limit
-              textAlignVertical="top" // Ensure text starts at the top
-          />
-      </View>
-
-      {/* --- Updated Logo Section --- */}
-      <View style={styles.inputContainer}>
-          <Text style={styles.inputLabel}>Logo (Optional)</Text>
+      {/* --- Logo Section moved to top --- */}
+      <View style={authStyles.signupInputContainer}>
+          <Text style={authStyles.signupInputLabel}>Logo (Optional)</Text>
           <View style={styles.logoContainer}>
               {/* Use logoPreview which holds the local URI */}
               {formData.logoPreview ? (
@@ -490,9 +435,116 @@ const OrganizerSignUpFlow = () => {
               </TouchableOpacity>
           </View>
       </View>
-      {/* --- End Updated Logo Section --- */}
+      {/* --- End Logo Section --- */}
 
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      <View style={authStyles.signupInputContainer}>
+          <Text style={authStyles.signupInputLabel}>Phone Number (Optional)</Text>
+          <TextInput
+              style={authStyles.signupInput}
+              placeholder="Enter your phone number"
+              value={formData.phoneNumber}
+              onChangeText={(text) => handleChange('phoneNumber', text)}
+              keyboardType="phone-pad"
+          />
+      </View>
+
+      <View style={authStyles.signupInputContainer}>
+          <Text style={authStyles.signupInputLabel}>Business Type</Text>
+          {/* Create a proper 2-column grid for business types */}
+          <View style={{ 
+              width: '100%', 
+              flexDirection: 'row', 
+              flexWrap: 'wrap', 
+              justifyContent: 'space-between',
+              marginBottom: isWeb ? 24 : 20
+          }}> 
+              {(['venue', 'promoter', 'F&B', 'festival_organizer', 'club','party','other'] as BusinessType[]).map((type) => (
+                  <TouchableOpacity
+                      key={type}
+                      style={[
+                          {
+                              width: '48%',
+                              paddingHorizontal: isWeb ? 20 : 16,
+                              paddingVertical: isWeb ? 12 : 10,
+                              borderRadius: isWeb ? 24 : 20,
+                              borderWidth: 1,
+                              borderColor: formData.businessType === type ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.BORDER,
+                              backgroundColor: formData.businessType === type ? `${APP_CONSTANTS.COLORS.PRIMARY}20` : 'white',
+                              marginBottom: isWeb ? 16 : 12,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              elevation: formData.businessType === type ? 2 : 1,
+                              shadowColor: formData.businessType === type ? APP_CONSTANTS.COLORS.PRIMARY : '#000',
+                              shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
+                              shadowOpacity: formData.businessType === type ? 0.15 : 0.05,
+                              shadowRadius: isWeb ? 8 : 4,
+                          }
+                      ]}
+                      onPress={() => handleChange('businessType', type)}
+                  >
+                      <Text style={[
+                          {
+                              fontSize: isWeb ? 15 : 14,
+                              color: formData.businessType === type ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+                              fontWeight: formData.businessType === type ? '600' : '500',
+                              fontFamily: 'Inter, sans-serif',
+                              textAlign: 'center',
+                          }
+                      ]}>
+                          {type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                      </Text>
+                  </TouchableOpacity>
+              ))}
+          </View>
+      </View>
+
+      {formData.businessType === 'F&B' && (
+          <View style={authStyles.signupInputContainer}>
+              <Text style={authStyles.signupInputLabel}>Venue Capacity</Text>
+              <TextInput
+                  style={authStyles.signupInput}
+                  placeholder="Enter total capacity"
+                  value={formData.capacity}
+                  onChangeText={(text) => handleChange('capacity', text)}
+                  keyboardType="number-pad"
+              />
+          </View>
+      )}
+
+      {formData.businessType === 'F&B' && (
+         <OpeningHoursEditor
+              openingHours={formData.openingHours}
+              onOpeningHoursChange={(hours) => handleChange('openingHours', hours)}
+          />
+      )}
+
+      <View style={authStyles.signupInputContainer}>
+          <Text style={authStyles.signupInputLabel}>Website (Optional)</Text>
+          <TextInput
+              style={authStyles.signupInput}
+              placeholder="Enter your website URL"
+              value={formData.website}
+              onChangeText={(text) => handleChange('website', text)}
+              keyboardType="url"
+              autoCapitalize="none"
+          />
+      </View>
+
+      <View style={authStyles.signupInputContainer}>
+          <Text style={authStyles.signupInputLabel}>Bio (Optional)</Text>
+          <TextInput
+              style={authStyles.signupInputBio}
+              placeholder="Tell us about your organization (max 500 chars)"
+              value={formData.bio}
+              onChangeText={(text) => handleChange('bio', text)}
+              multiline
+              numberOfLines={4}
+              maxLength={500} // Add a reasonable limit
+              textAlignVertical="top" // Ensure text starts at the top
+          />
+      </View>
+
+      {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
     </View>
   );
 
@@ -513,14 +565,14 @@ const OrganizerSignUpFlow = () => {
       case 'company-name':
       case 'profile-details':
         return (
-          <View style={styles.stepContainer}>
+          <View style={authStyles.signupStepContainer}>
             {currentStep === 'company-name' && renderCompanyNameStep()}
             {currentStep === 'profile-details' && renderProfileDetailsStep()}
 
             <TouchableOpacity
               style={[
-                styles.continueButton,
-                isButtonDisabled && styles.continueButtonDisabled // Use combined loading state
+                authStyles.signupContinueButton,
+                isButtonDisabled && authStyles.signupContinueButtonDisabled // Use combined loading state
               ]}
               onPress={buttonAction} // Use the determined action
               disabled={isButtonDisabled} // Use combined loading state
@@ -528,7 +580,7 @@ const OrganizerSignUpFlow = () => {
               {isButtonDisabled ? (
                 <ActivityIndicator color="white" size="small" />
               ) : (
-                <Text style={styles.continueButtonText}>{buttonText}</Text> // Use dynamic text
+                <Text style={authStyles.signupContinueButtonText}>{buttonText}</Text> // Use dynamic text
               )}
             </TouchableOpacity>
           </View>
@@ -543,23 +595,52 @@ const OrganizerSignUpFlow = () => {
     // Prevent back during loading
     if (isLoading || authLoading) return;
 
-    Animated.timing(slideAnim, { toValue: SCREEN_WIDTH, duration: 300, useNativeDriver: true }).start(() => {
+    // Enhanced animation with fade and slide effect
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: SCREEN_WIDTH,
+        duration: 400,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.cubic),
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.cubic),
+      }),
+    ]).start(() => {
       setCurrentStep(prevStep);
-      slideAnim.setValue(-SCREEN_WIDTH); // Move off-screen to the left
-      Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+      slideAnim.setValue(-SCREEN_WIDTH);
+      fadeAnim.setValue(0);
+      
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
+        }),
+      ]).start();
     });
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={authStyles.signupContainer}>
       <LinearGradient
         colors={[`${APP_CONSTANTS.COLORS.PRIMARY}05`, 'white']}
-        style={styles.gradient}
+        style={authStyles.signupGradient}
       >
         {/* Header with updated back button navigation */}
-        <View style={styles.header}>
+        <View style={authStyles.signupHeader}>
             <TouchableOpacity
-                style={styles.backButton}
+                style={authStyles.signupBackButton}
                 onPress={() => {
                     if (currentStep === 'company-name') {
                         // Navigate back to landing page from first step
@@ -579,23 +660,26 @@ const OrganizerSignUpFlow = () => {
             >
                 <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
             </TouchableOpacity>
-            <View style={styles.stepIndicatorContainer}>
-                <View style={[styles.stepIndicator, currentStep === 'company-name' ? styles.stepIndicatorActive : {}]} />
-                <View style={[styles.stepIndicator, currentStep === 'profile-details' ? styles.stepIndicatorActive : {}]} />
+            <View style={authStyles.signupStepIndicatorContainer}>
+                <View style={[authStyles.signupStepIndicator, currentStep === 'company-name' ? authStyles.signupStepIndicatorCurrent : {}]} />
+                <View style={[authStyles.signupStepIndicator, currentStep === 'profile-details' ? authStyles.signupStepIndicatorCurrent : {}]} />
             </View>
             {/* Add a placeholder view to balance the header */}
             <View style={{ width: 28 }} />
         </View>
 
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={authStyles.signupScrollContentContainer}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled" // Dismiss keyboard on tap outside inputs
         >
           <Animated.View
             style={[
-              styles.animatedContainer,
-              { transform: [{ translateX: slideAnim }] }
+              authStyles.signupAnimatedContainer,
+              { 
+                transform: [{ translateX: slideAnim }],
+                opacity: fadeAnim
+              }
             ]}
           >
             {renderCurrentStep()}
@@ -625,308 +709,60 @@ const OrganizerSignUpFlow = () => {
   );
 };
 
-// Styles (minor adjustments might be needed for logo preview, but mostly the same)
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: APP_CONSTANTS.COLORS.BACKGROUND,
-    },
-    gradient: {
-        flex: 1,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between', // Ensure back button and indicators are spaced
-        paddingHorizontal: 16, // Adjust padding as needed
-        paddingTop: Platform.OS === 'android' ? 16 : 10, // Adjust for status bar
-        paddingBottom: 8,
-    },
-    backButton: {
-        padding: 8, // Increase tap area
-    },
-    stepIndicatorContainer: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        alignItems: 'center',
-        flex: 1, // Allow it to take available space
-    },
-    stepIndicator: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: APP_CONSTANTS.COLORS.BORDER,
-        marginHorizontal: 4,
-    },
-    stepIndicatorActive: {
-        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-        width: 20, // Make active step more prominent
-    },
-    scrollContent: {
-        flexGrow: 1,
-        paddingHorizontal: 24,
-        paddingBottom: 40, // Ensure space below button
-    },
-    animatedContainer: {
-        flex: 1,
-        // alignItems: 'center', // Let content align naturally
-        // justifyContent: 'center', // Let ScrollView handle positioning
-        width: '100%',
-    },
-    stepContainer: {
-        width: '100%',
-        marginTop: 24, // Reduce top margin slightly
-    },
-    stepContent: {
-        width: '100%',
-    },
-    stepTitle: {
-        fontSize: 24,
-        fontWeight: '700',
-        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-        marginBottom: 24,
-        textAlign: 'center',
-    },
-    stepDescription: {
-        fontSize: 14,
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-        marginBottom: 24,
-        textAlign: 'center',
-        lineHeight: 20,
-    },
-    inputContainer: {
-        marginBottom: 20,
-    },
-    inputLabel: {
-        fontSize: 14, // Slightly smaller label
-        fontWeight: '600', // Make label bolder
-        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-        marginBottom: 8,
-    },
-    input: {
-        backgroundColor: 'white',
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-        borderRadius: 12,
-        fontSize: 16,
-        borderWidth: 1,
-        borderColor: APP_CONSTANTS.COLORS.BORDER,
-        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-    },
-    bioInput: {
-        height: 100,
-        textAlignVertical: 'top', // Important for multiline
-    },
-    termsContainer: {
-        flexDirection: 'row',
-        alignItems: 'center', // Align checkbox and text vertically
-        marginBottom: 24,
-        marginTop: 8,
-    },
-    checkbox: {
-        width: 22, // Slightly smaller checkbox
-        height: 22,
-        borderWidth: 1.5, // Slightly thicker border
-        borderColor: APP_CONSTANTS.COLORS.BORDER,
-        borderRadius: 4,
-        marginRight: 12,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    checkboxChecked: {
-        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
-    },
-    termsText: {
-        fontSize: 14,
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-        lineHeight: 20,
-        flex: 1, // Allow text to wrap
-    },
-    termsLink: {
-        color: APP_CONSTANTS.COLORS.PRIMARY,
-        fontWeight: '600',
-        textDecorationLine: 'underline', // Make link clearer
-    },
-    businessTypeContainer: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        marginBottom: 10, // Add margin below container
-    },
-    businessTypeOption: {
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: APP_CONSTANTS.COLORS.BORDER,
-        marginRight: 10,
-        marginBottom: 10,
-    },
-    businessTypeSelected: {
-        backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}20`, // Lighter background for selected
-        borderColor: APP_CONSTANTS.COLORS.PRIMARY,
-    },
-    businessTypeText: {
-        fontSize: 14,
-        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-        fontWeight: '500',
-    },
-    businessTypeTextSelected: {
-        color: APP_CONSTANTS.COLORS.PRIMARY, // Keep text color primary
-        fontWeight: '600',
-    },
+// Local styles for organizer-specific elements
+const styles = {
     logoContainer: {
-        alignItems: 'center',
-        marginVertical: 16,
+        alignItems: 'center' as const,
+        marginVertical: isWeb ? 20 : 16,
     },
     logoPreview: {
-        width: 100, 
-        height: 125, // 4:5 aspect ratio (100 * 5/4)
-        borderRadius: 12, // Rounded rectangle
-        marginBottom: 16,
+        width: isWeb ? 120 : 100, 
+        height: isWeb ? 150 : 125, // 4:5 aspect ratio
+        borderRadius: isWeb ? 16 : 12,
+        marginBottom: isWeb ? 20 : 16,
         backgroundColor: '#e0e0e0', 
     },
     logoPlaceholder: {
-        width: 100,
-        height: 125, // 4:5 aspect ratio
-        borderRadius: 12, // Rounded rectangle
+        width: isWeb ? 120 : 100,
+        height: isWeb ? 150 : 125, // 4:5 aspect ratio
+        borderRadius: isWeb ? 16 : 12,
         backgroundColor: APP_CONSTANTS.COLORS.BORDER + '30', 
-        alignItems: 'center',
-        justifyContent: 'center',
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
     },
     uploadButton: {
         backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-        paddingHorizontal: 24,
-        paddingVertical: 12,
-        borderRadius: 8,
+        paddingHorizontal: isWeb ? 24 : 20,
+        paddingVertical: isWeb ? 14 : 10,
+        borderRadius: isWeb ? 20 : 16,
+        elevation: 3,
+        shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
+        shadowOffset: { width: 0, height: isWeb ? 6 : 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: isWeb ? 12 : 8,
     },
     uploadButtonText: {
         color: 'white',
-        fontWeight: '600',
-        fontSize: 14,
+        fontWeight: '600' as const,
+        fontSize: isWeb ? 15 : 14,
+        fontFamily: 'Inter, sans-serif',
     },
-    rowContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
+    successMessageContainer: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        backgroundColor: `${APP_CONSTANTS.COLORS.SUCCESS || '#28a745'}20`,
+        paddingHorizontal: isWeb ? 16 : 12,
+        paddingVertical: isWeb ? 12 : 10,
+        borderRadius: isWeb ? 8 : 6,
+        marginTop: isWeb ? 16 : 12,
     },
-    errorText: {
-        color: APP_CONSTANTS.COLORS.ERROR,
-        marginBottom: 16,
-        textAlign: 'center',
-        fontSize: 14,
+    successMessageText: {
+        color: APP_CONSTANTS.COLORS.SUCCESS || '#28a745',
+        fontWeight: '600' as const,
+        fontSize: isWeb ? 14 : 13,
+        marginLeft: isWeb ? 8 : 6,
+        fontFamily: 'Inter, sans-serif',
     },
-    continueButton: {
-        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-        paddingVertical: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-        marginTop: 24, // Ensure spacing above button
-        marginBottom: 20, // Add space below button
-    },
-    continueButtonDisabled: {
-        backgroundColor: APP_CONSTANTS.COLORS.DISABLED,
-    },
-    continueButtonText: {
-        color: 'white',
-        fontWeight: '600',
-        fontSize: 16,
-    },
-    inputValid: {
-        borderColor: APP_CONSTANTS.COLORS.SUCCESS || '#28a745', // Add fallback in case SUCCESS is not defined
-    },
-    inputError: {
-        borderColor: APP_CONSTANTS.COLORS.ERROR,
-    },
-    labelRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        marginBottom: 8,
-    },
-    inlineLoader: {
-        marginLeft: 8,
-    },
-    feedbackText: {
-        fontSize: 12,
-        marginTop: 4,
-        paddingLeft: 2,
-    },
-    feedbackTextValid: {
-        color: APP_CONSTANTS.COLORS.SUCCESS || '#28a745', // Add fallback
-    },
-    feedbackTextError: {
-        color: APP_CONSTANTS.COLORS.ERROR,
-    },
-    googleSignInButton: {
-        backgroundColor: '#FFFFFF',
-        paddingVertical: 14,
-        paddingHorizontal: 20,
-        borderRadius: 10,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginVertical: 20,
-        elevation: 2,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.2,
-        shadowRadius: 1.5,
-        borderWidth: 1,
-        borderColor: '#ddd',
-    },
-    googleButtonContent: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    googleIcon: {
-        marginRight: 10,
-    },
-    googleSignInText: {
-        color: '#444',
-        fontSize: 16,
-        fontWeight: '600',
-    },
-    orDivider: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginVertical: 20,
-    },
-    dividerLine: {
-        flex: 1,
-        height: 1,
-        backgroundColor: APP_CONSTANTS.COLORS.BORDER,
-    },
-    orText: {
-        marginHorizontal: 15,
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-        fontWeight: '600',
-    },
-    requiredText: { 
-        fontSize: 12, 
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, 
-        marginTop: 4, 
-        marginBottom: 16, 
-        textAlign: 'right', 
-        width: '100%' 
-    },
-    googleInfoText: {
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-        fontSize: 12,
-        marginTop: 10,
-        marginBottom: 20,
-        textAlign: 'center',
-    },
-    loadingContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginTop: 20,
-    },
-    loadingText: {
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-        fontSize: 14,
-        marginLeft: 10,
-    },
-});
+};
 
 export default OrganizerSignUpFlow;
