@@ -409,7 +409,15 @@ const UserSettingsScreen: React.FC = () => {
 
     // --- Navigation Handlers ---
     const navigateToEditProfile = () => navigation.navigate('EditUserProfileScreen' as never); // Cast as never temporarily if types conflict
-    const navigateToManageSubscription = () => navigation.navigate('UserManageSubscriptionScreen' as never);
+    const navigateToManageSubscription = () => {
+        console.log('[DEBUG] Attempting to navigate to UserManageSubscriptionScreen');
+        try {
+            navigation.navigate('UserManageSubscriptionScreen' as never);
+            console.log('[DEBUG] Navigation to UserManageSubscriptionScreen successful');
+        } catch (error) {
+            console.error('[DEBUG] Navigation error:', error);
+        }
+    };
     const navigateToManagePlan = () => navigation.navigate('ManagePlan' as never);
     const navigateToMutedList = () => navigation.navigate('UserMutedListScreen' as never);
     const navigateToBlockedList = () => navigation.navigate('UserBlockedListScreen' as never);

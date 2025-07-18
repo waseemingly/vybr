@@ -420,21 +420,21 @@ const EditEventScreen: React.FC = () => {
    const uploadSingleImage = async (userId: string, asset: ImageAsset): Promise<string | null> => {
         if (!asset.isNew || !asset.uri) return asset.existingUrl ?? null;
         
-        const { uri, mimeType: assetMimeTypeFromPicker, fileName: originalFileName, base64: assetBase64 } = asset; 
-        try { 
+        const { uri, mimeType: assetMimeTypeFromPicker, fileName: originalFileName } = asset;
+        try {
             let extHint = uri.split('.').pop()?.toLowerCase().split('?')[0];
             if (extHint && (extHint.length > 5 || !/^[a-zA-Z0-9]+$/.test(extHint))) {
                 extHint = undefined;
             }
-            if (extHint === 'jpg') extHint = 'jpeg'; // Normalize
+            if (extHint === 'jpg') extHint = 'jpeg';
 
             let finalMimeType = getCleanImageMimeType(assetMimeTypeFromPicker);
             if (!finalMimeType && extHint) {
                 finalMimeType = getCleanImageMimeType(`image/${extHint}`);
             }
             if (!finalMimeType) {
-                finalMimeType = 'image/jpeg'; 
-                console.warn(`[EditEvent - ImageUpload] Could not determine clean MIME type for URI ${uri.substring(0,100)}. Defaulting to ${finalMimeType}. Picker: ${assetMimeTypeFromPicker}`);
+                finalMimeType = 'image/jpeg';
+                console.warn(`[ImageUpload] Could not determine clean MIME type for URI ${uri.substring(0, 100)}. Defaulting to ${finalMimeType}. Picker provided: ${assetMimeTypeFromPicker}`);
             }
 
             let finalFileExtension = 'jpg';
@@ -442,24 +442,19 @@ const EditEventScreen: React.FC = () => {
             if (typeParts.length === 2 && typeParts[0] === 'image' && typeParts[1]) {
                 finalFileExtension = typeParts[1].replace('jpeg', 'jpg').replace('svg+xml', 'svg');
             }
-            
+
             const cleanOriginalFileName = originalFileName ? originalFileName.split('.')[0].replace(/[^a-zA-Z0-9-]/g, '_') : 'event-image';
             const fileName = `${cleanOriginalFileName}-${Date.now()}.${finalFileExtension}`;
             const filePath = `${userId}/${fileName}`;
-            
+
             let arrayBuffer: ArrayBuffer;
             let actualMimeTypeForUpload = finalMimeType;
 
-            if (Platform.OS === 'web') { 
-                console.log(`[EditEvent WEB] Processing URI: ${uri.substring(0,100)}...`);
-                if (assetBase64) {
-                    arrayBuffer = decode(assetBase64);
-                    const cleanedPickerMimeType = getCleanImageMimeType(assetMimeTypeFromPicker);
-                    if (cleanedPickerMimeType) actualMimeTypeForUpload = cleanedPickerMimeType;
-                } else if (uri.startsWith('data:')) {
+            if (Platform.OS === 'web') {
+                if (uri.startsWith('data:')) {
                     const base64Data = uri.split(',')[1];
-                    if (!base64Data) throw new Error("Invalid data URI format (WEB).");
-                    arrayBuffer = decode(base64Data);
+                    if (!base64Data) throw new Error("Invalid data URI format for web upload.");
+                    arrayBuffer = base64ToArrayBuffer(base64Data);
                     const dataUriMimeType = uri.match(/data:(.*?);base64/)?.[1];
                     if (dataUriMimeType) {
                         const cleanedDataUriMimeType = getCleanImageMimeType(dataUriMimeType);
@@ -475,11 +470,12 @@ const EditEventScreen: React.FC = () => {
                         if (cleanedHeaderMimeType) actualMimeTypeForUpload = cleanedHeaderMimeType;
                     }
                 }
-                if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error("Image data empty or invalid after processing (WEB).");
+
+                if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error("Image data is empty for web upload.");
                 if (!actualMimeTypeForUpload) actualMimeTypeForUpload = 'image/jpeg';
-                
+
                 const fileToUpload = new File([arrayBuffer], fileName, { type: actualMimeTypeForUpload });
-                console.log(`[EditEvent - ImageUpload WEB] Path: ${filePath}, FileObject Type: ${fileToUpload.type}`);
+                console.log(`[ImageUpload WEB] Path: ${filePath}, FileObject Type: ${fileToUpload.type}`);
 
                 // New strategy: Use signed URL for web uploads
                 const { data: signedUrlData, error: signedUrlError } = await supabase.storage
@@ -487,7 +483,7 @@ const EditEventScreen: React.FC = () => {
                     .createSignedUploadUrl(filePath);
 
                 if (signedUrlError) {
-                    console.error("[EditEvent - ImageUpload WEB] Supabase Signed URL Error:", signedUrlError);
+                    console.error("[ImageUpload WEB] Supabase Signed URL Error:", signedUrlError);
                     throw new Error(`Supabase signed URL error: ${signedUrlError.message}`);
                 }
                 if (!signedUrlData?.signedUrl) throw new Error("No signed URL returned (WEB).");
@@ -495,7 +491,6 @@ const EditEventScreen: React.FC = () => {
                 const uploadResponse = await fetch(signedUrlData.signedUrl, {
                     method: 'PUT',
                     headers: {
-                        // 'Authorization': `Bearer ${signedUrlData.token}`, // Token usually part of signedUrl query params for PUT
                         'Content-Type': fileToUpload.type, // Explicitly set Content-Type from File object
                     },
                     body: fileToUpload,
@@ -503,47 +498,78 @@ const EditEventScreen: React.FC = () => {
 
                 if (!uploadResponse.ok) {
                     const errorBody = await uploadResponse.text();
-                    console.error("[EditEvent - ImageUpload WEB] Manual Fetch Upload Error:", uploadResponse.status, errorBody);
+                    console.error("[ImageUpload WEB] Manual Fetch Upload Error:", uploadResponse.status, errorBody);
                     throw new Error(`Manual fetch upload failed: ${uploadResponse.status} ${errorBody}`);
                 }
-                
-                // If upload is successful, get the public URL
-                const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(filePath); // Use filePath used for signed URL
+
+                const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(filePath);
                 return urlData?.publicUrl ?? null;
 
             } else { // Native
-                console.log(`[EditEvent NATIVE] Processing URI: ${uri}`);
-                const fileBase64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }); 
-                if (!fileBase64) throw new Error("Failed to read image as base64 (Native)."); 
-                arrayBuffer = decode(fileBase64); 
-                if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error("Image data empty or invalid after processing (Native)."); 
+                // For mobile, use the same data URI approach as web for consistency
+                console.log(`[ImageUpload NATIVE] Using data URI approach for mobile upload`);
 
-                const cleanedNativeMimeType = getCleanImageMimeType(assetMimeTypeFromPicker);
-                if (cleanedNativeMimeType) {
-                    actualMimeTypeForUpload = cleanedNativeMimeType;
+                if (uri.startsWith('data:')) {
+                    // Handle data URI (same as web)
+                    const base64Data = uri.split(',')[1];
+                    if (!base64Data) throw new Error("Invalid data URI format for mobile upload.");
+                    arrayBuffer = base64ToArrayBuffer(base64Data);
+                    const dataUriMimeType = uri.match(/data:(.*?);base64/)?.[1];
+                    if (dataUriMimeType) {
+                        const cleanedDataUriMimeType = getCleanImageMimeType(dataUriMimeType);
+                        if (cleanedDataUriMimeType) actualMimeTypeForUpload = cleanedDataUriMimeType;
+                    }
                 } else {
-                    actualMimeTypeForUpload = finalMimeType; // Fallback
+                    // Fallback to fetch approach for non-data URIs
+                    const response = await fetch(uri);
+                    if (!response.ok) throw new Error(`Failed to fetch mobile URI: ${response.status} ${response.statusText}`);
+                    arrayBuffer = await response.arrayBuffer();
+                    const contentTypeHeader = response.headers.get('content-type');
+                    if (contentTypeHeader) {
+                        const cleanedHeaderMimeType = getCleanImageMimeType(contentTypeHeader);
+                        if (cleanedHeaderMimeType) actualMimeTypeForUpload = cleanedHeaderMimeType;
+                    }
                 }
-                if (!actualMimeTypeForUpload) actualMimeTypeForUpload = 'image/jpeg'; // Final safety net
 
-                console.log(`[EditEvent - ImageUpload NATIVE] Path: ${filePath}, ContentType: ${actualMimeTypeForUpload}`);
+                if (arrayBuffer.byteLength === 0) throw new Error("Image data is empty for native upload.");
+                if (!actualMimeTypeForUpload) actualMimeTypeForUpload = 'image/jpeg';
 
-                const { data: uploadData, error: uploadError } = await supabase.storage.from("event_posters").upload(
-                    filePath, 
-                    arrayBuffer, 
-                    { cacheControl: "3600", upsert: false, contentType: actualMimeTypeForUpload }
-                ); 
-                if (uploadError) {
-                    console.error("[EditEvent - ImageUpload NATIVE] Supabase Error:", uploadError);
-                    throw new Error(`Supabase upload error: ${uploadError.message}`);
+                console.log(`[ImageUpload NATIVE] ArrayBuffer size: ${arrayBuffer.byteLength} bytes`);
+                console.log(`[ImageUpload NATIVE] Original MIME type from picker: ${assetMimeTypeFromPicker}`);
+                console.log(`[ImageUpload NATIVE] Final MIME type for upload: ${actualMimeTypeForUpload}`);
+
+                // Get signed URL for upload
+                const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+                    .from("event_posters")
+                    .createSignedUploadUrl(filePath);
+
+                if (signedUrlError) {
+                    console.error("[ImageUpload NATIVE] Supabase Signed URL Error:", signedUrlError);
+                    throw new Error(`Supabase signed URL error: ${signedUrlError.message}`);
                 }
-                if (!uploadData?.path) throw new Error("Upload succeeded but no path returned (NATIVE)."); 
-                const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(uploadData.path); 
+                if (!signedUrlData?.signedUrl) throw new Error("No signed URL returned (NATIVE).");
+
+                // Upload using signed URL with ArrayBuffer directly (React Native compatible)
+                const uploadResponse = await fetch(signedUrlData.signedUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': actualMimeTypeForUpload,
+                    },
+                    body: arrayBuffer,
+                });
+
+                if (!uploadResponse.ok) {
+                    const errorBody = await uploadResponse.text();
+                    console.error("[ImageUpload NATIVE] Manual Fetch Upload Error:", uploadResponse.status, errorBody);
+                    throw new Error(`Manual fetch upload failed: ${uploadResponse.status} ${errorBody}`);
+                }
+
+                const { data: urlData } = supabase.storage.from("event_posters").getPublicUrl(filePath);
                 return urlData?.publicUrl ?? null;
             }
-        } catch (e: any) { 
-            console.error(`[EditEvent - ImageUpload] Error for URI ${uri.substring(0,100)}:`, e); 
-            return null; 
+        } catch (e: any) {
+            console.error(`[ImageUpload] Error for URI ${uri.substring(0, 100)}:`, e);
+            return null;
         }
     };
    const uploadImages = async (userId: string, assets: ImageAsset[]): Promise<string[]> => {
