@@ -81,10 +81,10 @@ const LandingScreen = () => {
             <Text style={authStyles.description}>
               Discover events, connect with music lovers, and experience unforgettable moments together
             </Text>
-        </View>
+          </View>
 
           {/* Action Buttons */}
-          <View style={authStyles.buttonContainer}>
+          <View style={[authStyles.buttonContainer, { width: '100%' }]}>
           <TouchableOpacity 
               style={authStyles.button}
             onPress={() => navigation.navigate('MusicLoverLogin')}
