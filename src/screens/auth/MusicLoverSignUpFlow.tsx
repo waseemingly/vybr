@@ -75,22 +75,22 @@ interface MusicLoverFormData {
 }
 
 // --- Placeholder Terms Text (Replace with actual legal text) ---
-const termsAndConditionsText = `**Vybr Terms & Conditions (Placeholder)**
+const termsAndConditionsText = `Vybr Terms & Conditions (Placeholder)
 
-**Last Updated: [Date]**
+Last Updated: [Date]
 
 Welcome to Vybr! Please read these Terms & Conditions ("Terms") carefully before using the Vybr mobile application ("Service").
 
-**1. Acceptance of Terms**
-By accessing or using the Service, you agree to be bound by these Terms. If you disagree with any part of the terms, you may not access the Service. **This is a placeholder text and not legally binding. You must consult with a legal professional to draft comprehensive and compliant Terms & Conditions for your specific service, location, and features.**
+1. Acceptance of Terms
+By accessing or using the Service, you agree to be bound by these Terms. If you disagree with any part of the terms, you may not access the Service. This is a placeholder text and not legally binding. You must consult with a legal professional to draft comprehensive and compliant Terms & Conditions for your specific service, location, and features.
 
-**2. Description of Service**
+2. Description of Service
 Vybr is a platform designed to connect music lovers and event organizers. Features include profile creation, event discovery, matching based on musical preferences, chat functionalities, and potential premium subscription services.
 
-**3. User Accounts**
+3. User Accounts
 You are responsible for safeguarding your account information, including your password. You agree not to disclose your password to any third party. You must notify us immediately upon becoming aware of any breach of security or unauthorized use of your account. You must provide accurate and complete information when creating your account.
 
-**4. User Conduct**
+4. User Conduct
 You agree not to use the Service to:
    - Post unauthorized commercial communications (such as spam).
    - Collect users' content or information, or otherwise access the Service using automated means.
@@ -100,34 +100,34 @@ You agree not to use the Service to:
    - Do anything that could disable, overburden, or impair the proper working or appearance of Vybr.
    - Violate any applicable laws or regulations.
 
-**5. Content Ownership**
+5. Content Ownership
 You retain ownership of the content you post on Vybr. By posting content, you grant Vybr a non-exclusive, transferable, sub-licensable, royalty-free, worldwide license to use, display, reproduce, and distribute such content on and through the Service.
 
-**6. Music Data & Privacy**
+6. Music Data & Privacy
 If you link streaming services or manually input music preferences, you consent to Vybr analyzing this data to provide matching and recommendation features. Your privacy is important to us. Please review our Privacy Policy [Link to Privacy Policy - REQUIRED] for details on how we collect, use, and protect your information.
 
-**7. Premium Services & Payments (If Applicable)**
+7. Premium Services & Payments (If Applicable)
 Specific terms related to subscription fees, billing cycles, renewals, and cancellations for any premium features will be presented at the time of subscription.
 
-**8. Termination**
+8. Termination
 We may terminate or suspend your account immediately, without prior notice or liability, for any reason whatsoever, including without limitation if you breach the Terms.
 
-**9. Disclaimers**
+9. Disclaimers
 The Service is provided on an "AS IS" and "AS AVAILABLE" basis. Vybr makes no warranties, expressed or implied, and hereby disclaims all other warranties including, without limitation, implied warranties of merchantability, fitness for a particular purpose, or non-infringement.
 
-**10. Limitation of Liability**
+10. Limitation of Liability
 In no event shall Vybr, nor its directors, employees, partners, agents, suppliers, or affiliates, be liable for any indirect, incidental, special, consequential or punitive damages arising out of your use of the Service.
 
-**11. Governing Law**
+11. Governing Law
 These Terms shall be governed by the laws of [Your Jurisdiction - REQUIRED], without regard to its conflict of law provisions.
 
-**12. Changes to Terms**
+12. Changes to Terms
 We reserve the right, at our sole discretion, to modify or replace these Terms at any time. We will provide notice of any changes by posting the new Terms on the Service.
 
-**13. Contact Us**
+13. Contact Us
 If you have any questions about these Terms, please contact us at [Your Support Email/Contact Info - REQUIRED].
 
-**By checking the box, you acknowledge that you have read, understood, and agree to be bound by these Terms & Conditions.**`;
+By checking the box, you acknowledge that you have read, understood, and agree to be bound by these Terms & Conditions.`;
 
 // Define the specific navigation prop type for this screen
 type MusicLoverSignUpNavigationProp = NavigationProp<RootStackParamList & MainStackParamList>;
@@ -1020,113 +1020,137 @@ const MusicLoverSignUpFlow = () => {
     // --- Render Functions for Steps ---
 
     const renderUsernameStep = () => (
-        <View style={authStyles.signupStepContent}>
-            <Text style={authStyles.signupStepTitle}>Create Your Account</Text>
-            <Text style={authStyles.signupStepDescription}>Let's start with your basic information</Text>
-            
-            {/* First/Last Name Row */}
-            <View style={authStyles.signupRowContainer}>
-                <View style={[authStyles.signupInputContainer, { flex: 1, marginRight: isWeb ? 8 : 4 }]}>
-                    <Text style={authStyles.signupInputLabel}>First Name *</Text>
-                    <TextInput 
-                        style={authStyles.signupInput} 
-                        placeholder="First Name" 
-                        value={formData.firstName} 
-                        onChangeText={(text) => handleChange('firstName', text)} 
-                        autoCapitalize="words" 
-                        returnKeyType="next" 
-                        blurOnSubmit={false} 
-                        onSubmitEditing={() => lastNameInputRef.current?.focus()}
-                    />
-                </View>
-                <View style={[authStyles.signupInputContainer, { flex: 1, marginLeft: isWeb ? 8 : 4 }]}>
-                    <Text style={authStyles.signupInputLabel}>Last Name *</Text>
-                    <TextInput 
-                        ref={lastNameInputRef}
-                        style={authStyles.signupInput} 
-                        placeholder="Last Name" 
-                        value={formData.lastName} 
-                        onChangeText={(text) => handleChange('lastName', text)} 
-                        autoCapitalize="words" 
-                        returnKeyType="next" 
-                        blurOnSubmit={false} 
-                        onSubmitEditing={() => usernameInputRef.current?.focus()}
-                    />
-                </View>
+        <View style={[authStyles.signupStepContent, !isWeb && { paddingTop: 20 }]}>
+            {/* Header Section */}
+            <View style={!isWeb && { alignItems: 'center', marginBottom: 32 }}>
+                <Text style={[authStyles.signupStepTitle, !isWeb && { marginBottom: 16, textAlign: 'center' }]}>Create Your Account</Text>
+                <Text style={[authStyles.signupStepDescription, !isWeb && { marginBottom: 0, textAlign: 'center' }]}>Let's start with your basic information</Text>
             </View>
             
-            {/* Username */}
-            <View style={authStyles.signupInputContainer}>
-                <View style={authStyles.signupLabelRow}>
-                    <Text style={authStyles.signupInputLabel}>Username *</Text>
-                    {usernameStatus === 'checking' && <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={authStyles.signupInlineLoader} />}
+            {/* Form Section */}
+            <View style={!isWeb && { width: '100%' }}>
+                {/* First/Last Name Row */}
+                <View style={[authStyles.signupRowContainer, !isWeb && { marginBottom: 24 }]}>
+                    <View style={[authStyles.signupInputContainer, { 
+                        width: isWeb ? '48%' : '48%', 
+                        marginRight: isWeb ? 8 : 6, 
+                        marginBottom: 0 
+                    }]}>
+                        <Text style={authStyles.signupInputLabel}>First Name *</Text>
+                        <TextInput 
+                            style={authStyles.signupInput} 
+                            placeholder="First Name" 
+                            value={formData.firstName} 
+                            onChangeText={(text) => handleChange('firstName', text)} 
+                            autoCapitalize="words" 
+                            returnKeyType="next" 
+                            blurOnSubmit={false} 
+                            onSubmitEditing={() => lastNameInputRef.current?.focus()}
+                        />
+                    </View>
+                    <View style={[authStyles.signupInputContainer, { 
+                        width: isWeb ? '48%' : '48%', 
+                        marginLeft: isWeb ? 8 : 6, 
+                        marginBottom: 0 
+                    }]}>
+                        <Text style={authStyles.signupInputLabel}>Last Name *</Text>
+                        <TextInput 
+                            ref={lastNameInputRef}
+                            style={authStyles.signupInput} 
+                            placeholder="Last Name" 
+                            value={formData.lastName} 
+                            onChangeText={(text) => handleChange('lastName', text)} 
+                            autoCapitalize="words" 
+                            returnKeyType="next" 
+                            blurOnSubmit={false} 
+                            onSubmitEditing={() => usernameInputRef.current?.focus()}
+                        />
+                    </View>
                 </View>
-                <TextInput 
-                    ref={usernameInputRef}
-                    style={[
-                        authStyles.signupInput,
-                        usernameStatus === 'invalid' && authStyles.signupInputError,
-                        usernameStatus === 'valid' && authStyles.signupInputValid,
-                    ]}
-                    placeholder="Choose a unique username (no spaces)" 
-                    value={formData.username} 
-                    onChangeText={(text) => handleChange('username', text.replace(/\s/g, ''))} 
-                    autoCapitalize="none" 
-                    autoCorrect={false} 
-                    returnKeyType="done" 
-                    onBlur={handleUsernameBlur}
-                />
-                {usernameFeedback ? <Text style={[
-                    authStyles.signupFeedbackText, 
-                    usernameStatus === 'valid' && authStyles.signupFeedbackTextValid,
-                    (usernameStatus === 'invalid' || usernameStatus === 'error') && authStyles.signupFeedbackTextError,
-                ]}>{usernameFeedback}</Text> : null}
-            </View>
+                
+                {/* Username */}
+                <View style={[authStyles.signupInputContainer, !isWeb && { marginBottom: 28 }]}>
+                    <View style={authStyles.signupLabelRow}>
+                        <Text style={authStyles.signupInputLabel}>Username *</Text>
+                        {usernameStatus === 'checking' && <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={authStyles.signupInlineLoader} />}
+                    </View>
+                    <TextInput 
+                        ref={usernameInputRef}
+                        style={[
+                            authStyles.signupInput,
+                            usernameStatus === 'invalid' && authStyles.signupInputError,
+                            usernameStatus === 'valid' && authStyles.signupInputValid,
+                        ]}
+                        placeholder="Choose a unique username (no spaces)" 
+                        value={formData.username} 
+                        onChangeText={(text) => handleChange('username', text.replace(/\s/g, ''))} 
+                        autoCapitalize="none" 
+                        autoCorrect={false} 
+                        returnKeyType="done" 
+                        onBlur={handleUsernameBlur}
+                    />
+                    {usernameFeedback ? <Text style={[
+                        authStyles.signupFeedbackText, 
+                        usernameStatus === 'valid' && authStyles.signupFeedbackTextValid,
+                        (usernameStatus === 'invalid' || usernameStatus === 'error') && authStyles.signupFeedbackTextError,
+                    ]}>{usernameFeedback}</Text> : null}
+                </View>
 
-            <View style={authStyles.signupTermsContainer}>
-                <TouchableOpacity
-                    style={[authStyles.signupCheckbox, formData.termsAccepted && authStyles.signupCheckboxChecked]}
-                    onPress={() => handleChange('termsAccepted', !formData.termsAccepted)}
-                    activeOpacity={0.7}
-                >
-                    {formData.termsAccepted && <Feather name="check" size={14} color="white" />}
-                </TouchableOpacity>
-                <Text style={authStyles.signupTermsText}>
-                    I agree to the{' '}
-                    <Text style={authStyles.signupTermsLink} onPress={() => setIsTermsModalVisible(true)}>{/* Open modal */}
-                        Terms and Conditions
-                    </Text> *
-                </Text>
+                {/* Terms and Conditions */}
+                <View style={[authStyles.signupTermsContainer, !isWeb && { marginBottom: 20, marginTop: 16 }]}>
+                    <TouchableOpacity
+                        style={[authStyles.signupCheckbox, formData.termsAccepted && authStyles.signupCheckboxChecked]}
+                        onPress={() => handleChange('termsAccepted', !formData.termsAccepted)}
+                        activeOpacity={0.7}
+                    >
+                        {formData.termsAccepted && <Feather name="check" size={14} color="white" />}
+                    </TouchableOpacity>
+                    <Text style={authStyles.signupTermsText}>
+                        I agree to the{' '}
+                        <Text style={authStyles.signupTermsLink} onPress={() => setIsTermsModalVisible(true)}>
+                            Terms and Conditions
+                        </Text> *
+                    </Text>
+                </View>
+                
+                {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
+                <Text style={[authStyles.signupRequiredText, !isWeb && { marginBottom: 32, textAlign: 'center' }]}>* Required fields</Text>
             </View>
             
-            {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
-            <Text style={authStyles.signupRequiredText}>* Required fields</Text>
-            
-            {/* Continue Button */}
-            <TouchableOpacity
-                style={[
-                    authStyles.signupContinueButton,
-                    (isLoading || authLoading || usernameStatus !== 'valid') && authStyles.signupContinueButtonDisabled
-                ]}
-                onPress={async () => {
-                    Keyboard.dismiss();
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                    handleStepSubmit();
-                }}
-                disabled={isLoading || authLoading || usernameStatus !== 'valid'}
-                activeOpacity={0.8}
-            >
-                {isLoading || authLoading ? (
-                    <ActivityIndicator color="white" size="small" />
-                ) : (
-                    <Text style={authStyles.signupContinueButtonText}>Continue</Text>
-                )}
-            </TouchableOpacity>
+            {/* Button Section - Centered for mobile */}
+            <View style={!isWeb && { alignItems: 'center', width: '100%', marginTop: 20 }}>
+                <TouchableOpacity
+                    style={[
+                        authStyles.signupContinueButton,
+                        !isWeb && { 
+                            marginTop: 0, 
+                            marginBottom: 0,
+                            width: '100%',
+                            maxWidth: 280,
+                            alignSelf: 'center'
+                        },
+                        (isLoading || authLoading || usernameStatus !== 'valid') && authStyles.signupContinueButtonDisabled
+                    ]}
+                    onPress={async () => {
+                        Keyboard.dismiss();
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        handleStepSubmit();
+                    }}
+                    disabled={isLoading || authLoading || usernameStatus !== 'valid'}
+                    activeOpacity={0.8}
+                >
+                    {isLoading || authLoading ? (
+                        <ActivityIndicator color="white" size="small" />
+                    ) : (
+                        <Text style={authStyles.signupContinueButtonText}>Continue</Text>
+                    )}
+                </TouchableOpacity>
+            </View>
         </View>
     );
 
     const renderProfileDetailsStep = () => (
-        <View style={authStyles.signupStepContent}>
+        <View style={[authStyles.signupStepContent, !isWeb && { alignItems: 'stretch', paddingHorizontal: 16 }]}>
             <Text style={authStyles.signupStepTitle}>Tell Us About You</Text>
             <Text style={authStyles.signupStepDescription}>Help others connect with your vibe! (All fields optional below)</Text>
             {/* Profile Picture */}

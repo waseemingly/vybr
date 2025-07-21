@@ -512,20 +512,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     }
                 }
                 
-                // Fallback 4: Default to music_lover (most common case)
+                // Fallback 4: Default to music_lover ONLY if we have no other indication
                 if (!userType) {
-                    userType = 'music_lover';
-                    console.log(`[AuthProvider] ⚠️ User type was still undefined, defaulting to: ${userType}`);
-                    
-                    // Update the user metadata to persist this choice
-                    try {
-                        await supabase.auth.updateUser({
-                            data: { user_type: userType }
-                        });
-                        console.log(`[AuthProvider] ✅ Updated user metadata with default user_type: ${userType}`);
-                    } catch (metadataError) {
-                        console.error("[AuthProvider] ❌ Failed to update user metadata:", metadataError);
-                    }
+                    // Try to read from a temporary variable or context that stores the user's intended type during signup
+                    // For now, just log a warning and do NOT overwrite user_type
+                    console.warn("[AuthProvider] User type is still undefined after all checks. Not defaulting to music_lover automatically.");
+                    // Optionally, you could throw an error or navigate to a generic error screen here
+                    // Do NOT update user metadata here
                 }
                 
                 // Construct session matching UserSession type correctly

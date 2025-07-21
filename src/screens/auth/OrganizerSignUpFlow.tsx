@@ -366,7 +366,7 @@ const OrganizerSignUpFlow = () => {
 
   // Render company name step
   const renderCompanyNameStep = () => (
-    <View style={authStyles.signupStepContent}>
+    <View style={[authStyles.signupStepContent, !isWeb && { paddingHorizontal: 16 }]}>
       <Text style={authStyles.signupStepTitle}>Company Name</Text>
       <Text style={authStyles.signupStepDescription}>Let's start with your company's name</Text>
 
@@ -407,7 +407,7 @@ const OrganizerSignUpFlow = () => {
 
   // Render account details step with Google Sign-In only
   const renderProfileDetailsStep = () => (
-    <View style={authStyles.signupStepContent}>
+    <View style={[authStyles.signupStepContent, !isWeb && { paddingHorizontal: 16 }]}>
       <Text style={authStyles.signupStepTitle}>Contact & Branding</Text>
 
       {/* --- Logo Section moved to top --- */}

@@ -441,6 +441,8 @@ export const authStyles = StyleSheet.create({
   signupStepContent: {
     width: '100%',
     paddingBottom: isWeb ? 30 : 20,
+    paddingHorizontal: isWeb ? 0 : 16,
+    alignItems: 'stretch',
   },
   signupStepTitle: {
     fontSize: isWeb ? 36 : 28,
@@ -449,6 +451,7 @@ export const authStyles = StyleSheet.create({
     marginBottom: isWeb ? 16 : 12,
     textAlign: 'center',
     fontFamily: 'Inter, sans-serif',
+    width: '100%',
   },
   signupStepDescription: {
     fontSize: isWeb ? 18 : 16,
@@ -457,6 +460,8 @@ export const authStyles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: isWeb ? 26 : 22,
     fontFamily: 'Inter, sans-serif',
+    paddingHorizontal: isWeb ? 0 : 8,
+    width: '100%',
   },
   signupStepSubtitle: {
     fontSize: isWeb ? 16 : 14,
@@ -535,7 +540,7 @@ export const authStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
-    gap: isWeb ? 16 : 12,
+    marginBottom: isWeb ? 0 : 4,
   },
   signupTermsContainer: {
     flexDirection: 'row',
@@ -543,6 +548,7 @@ export const authStyles = StyleSheet.create({
     marginBottom: isWeb ? 16 : 12,
     marginTop: isWeb ? 12 : 8,
     width: '100%',
+    paddingHorizontal: isWeb ? 0 : 4,
   },
   signupCheckbox: {
     width: isWeb ? 24 : 20,
@@ -582,7 +588,7 @@ export const authStyles = StyleSheet.create({
     color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
     marginTop: isWeb ? 6 : 4,
     marginBottom: isWeb ? 20 : 16,
-    textAlign: 'right',
+    textAlign: isWeb ? 'right' : 'center',
     width: '100%',
     fontFamily: 'Inter, sans-serif',
   },
@@ -663,6 +669,8 @@ export const authStyles = StyleSheet.create({
     shadowOffset: { width: 0, height: isWeb ? 8 : 4 },
     shadowOpacity: 0.2,
     shadowRadius: isWeb ? 16 : 8,
+    paddingHorizontal: isWeb ? 0 : 16,
+    alignSelf: 'center',
   },
   signupContinueButtonDisabled: {
     backgroundColor: APP_CONSTANTS.COLORS.DISABLED,
@@ -980,11 +988,12 @@ export const authStyles = StyleSheet.create({
   },
   signupScrollContentContainer: {
     flexGrow: 1,
-    paddingHorizontal: isWeb ? 40 : 24,
+    paddingHorizontal: isWeb ? 40 : 20,
     paddingBottom: isWeb ? 100 : 80,
     width: '100%',
     maxWidth: isWeb ? 800 : '100%',
     minHeight: isWeb ? height * 0.8 : '100%',
+    alignItems: 'stretch',
   },
 
   // Web-specific wide form wrapper and sticky button
