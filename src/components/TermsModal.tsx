@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { APP_CONSTANTS } from '@/config/constants'; // Adjust path as necessary
+import Markdown from 'react-native-markdown-display';
 
 interface TermsModalProps {
     visible: boolean;
@@ -25,6 +26,7 @@ const TermsModal: React.FC<TermsModalProps> = ({
     termsText,
     title = "Terms & Conditions",
 }) => {
+    console.log('TermsModal termsText:', termsText);
     return (
         <Modal
             animationType="slide"
@@ -44,9 +46,11 @@ const TermsModal: React.FC<TermsModalProps> = ({
                         </View>
 
                         {/* Terms Content */}
-                        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-                            <Text style={styles.termsBody}>{termsText}</Text>
-                        </ScrollView>
+                        <View style={{flex: 1}}>
+                            <ScrollView style={{flex: 1}} contentContainerStyle={{padding: 20}}>
+                                <Text style={{color: 'black', fontSize: 16, lineHeight: 22}}>{termsText}</Text>
+                            </ScrollView>
+                        </View>
 
                         {/* Footer Close Button */}
                         <TouchableOpacity style={styles.footerButton} onPress={onClose}>
@@ -59,12 +63,49 @@ const TermsModal: React.FC<TermsModalProps> = ({
     );
 };
 
+const markdownStyles = {
+    body: {
+        fontSize: Platform.OS === 'web' ? 14 : 15,
+        lineHeight: Platform.OS === 'web' ? 20 : 22,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+    },
+    text: {
+        fontSize: Platform.OS === 'web' ? 14 : 15,
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+    },
+    strong: {
+        fontWeight: '700',
+    },
+    em: {
+        fontStyle: 'italic',
+    },
+    heading1: {
+        fontSize: 20,
+        fontWeight: '700',
+        marginBottom: 8,
+    },
+    heading2: {
+        fontSize: 18,
+        fontWeight: '700',
+        marginBottom: 6,
+    },
+    heading3: {
+        fontSize: 16,
+        fontWeight: '700',
+        marginBottom: 4,
+    },
+    paragraph: {
+        marginBottom: 8,
+    },
+};
+
 const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
         backgroundColor: 'rgba(0, 0, 0, 0.6)', // Apply overlay color to safe area
         justifyContent: 'center',
         alignItems: 'center',
+        paddingHorizontal: Platform.OS === 'web' ? 0 : 16,
     },
     modalOverlay: {
         flex: 1,
@@ -73,17 +114,18 @@ const styles = StyleSheet.create({
         width: '100%',
     },
     modalContent: {
-        width: '90%',
+        width: Platform.OS === 'web' ? '90%' : '100%',
         maxWidth: 500,
-        maxHeight: '85%', // Limit height
+        height: Platform.OS === 'web' ? undefined : 400,
+        maxHeight: Platform.OS === 'web' ? '85%' : undefined, // Responsive height for web
         backgroundColor: 'white',
-        borderRadius: 12,
+        borderRadius: Platform.OS === 'web' ? 12 : 16,
         overflow: 'hidden', // Important for border radius on children
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.2,
-        shadowRadius: 5,
-        elevation: 5,
+        shadowOffset: { width: 0, height: Platform.OS === 'web' ? 3 : 4 },
+        shadowOpacity: Platform.OS === 'web' ? 0.2 : 0.3,
+        shadowRadius: Platform.OS === 'web' ? 5 : 8,
+        elevation: Platform.OS === 'web' ? 5 : 8,
         display: 'flex', // Ensure flexbox layout
         flexDirection: 'column', // Stack children vertically
     },
@@ -91,42 +133,44 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
+        paddingHorizontal: Platform.OS === 'web' ? 16 : 20,
+        paddingVertical: Platform.OS === 'web' ? 12 : 16,
         borderBottomWidth: 1,
         borderBottomColor: APP_CONSTANTS.COLORS.BORDER_LIGHT,
+        backgroundColor: 'white',
     },
     title: {
-        fontSize: 18,
+        fontSize: Platform.OS === 'web' ? 18 : 20,
         fontWeight: '600',
         color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
         flex: 1, // Allow title to take available space
         marginRight: 10, // Space before close button
     },
     closeButton: {
-        padding: 8, // Increase tap area
+        padding: Platform.OS === 'web' ? 8 : 12, // Increase tap area on mobile
+        borderRadius: Platform.OS === 'web' ? 4 : 8,
     },
     scrollView: {
         flex: 1, // Allow scroll view to take remaining space
     },
     scrollContent: {
-        padding: 16,
+        padding: Platform.OS === 'web' ? 16 : 20,
     },
     termsBody: {
-        fontSize: 14,
-        lineHeight: 20,
+        fontSize: Platform.OS === 'web' ? 14 : 15,
+        lineHeight: Platform.OS === 'web' ? 20 : 22,
         color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
     },
     footerButton: {
         backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-        paddingVertical: 14,
+        paddingVertical: Platform.OS === 'web' ? 14 : 16,
         alignItems: 'center',
         borderTopWidth: 1,
         borderTopColor: APP_CONSTANTS.COLORS.BORDER_LIGHT,
     },
     footerButtonText: {
         color: 'white',
-        fontSize: 16,
+        fontSize: Platform.OS === 'web' ? 16 : 17,
         fontWeight: '600',
     },
 });

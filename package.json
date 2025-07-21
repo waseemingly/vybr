@@ -106,6 +106,7 @@
     "react-native-image-viewing": "^0.2.2",
     "react-native-image-zoom-viewer": "^3.0.1",
     "react-native-keyboard-controller": "^1.17.5",
+    "react-native-markdown-display": "^7.0.2",
     "react-native-polyfill-globals": "^3.1.0",
     "react-native-popup-menu": "^0.18.0",
     "react-native-reanimated": "~3.17.4",
