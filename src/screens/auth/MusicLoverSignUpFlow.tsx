@@ -1154,24 +1154,47 @@ const MusicLoverSignUpFlow = () => {
             <Text style={authStyles.signupStepTitle}>Tell Us About You</Text>
             <Text style={authStyles.signupStepDescription}>Help others connect with your vibe! (All fields optional below)</Text>
             {/* Profile Picture */}
-            <View style={authStyles.signupInputContainer}>
-                <Text style={authStyles.signupInputLabel}>Profile Picture</Text>
-                <View style={authStyles.signupProfilePicContainer}>
-                    {formData.profilePicturePreview ? (
-                       <Image source={{ uri: formData.profilePicturePreview }} style={authStyles.signupProfilePicPreview} />
-                    ) : (
-                       <View style={authStyles.signupProfilePicPlaceholder}>
-                          <Feather name="user" size={40} color={APP_CONSTANTS.COLORS.PRIMARY_DARK} />
-                       </View>
-                    )}
-                    <TouchableOpacity style={authStyles.signupUploadButton} onPress={handleProfilePicPick} activeOpacity={0.8}>
-                        <Feather name="camera" size={16} color="white" style={{ marginRight: 8 }} />
-                        <Text style={authStyles.signupUploadButtonText}>
-                            {formData.profilePicturePreview ? 'Change Picture' : 'Select Picture'}
-                        </Text>
-                    </TouchableOpacity>
+            {isWeb ? (
+                <View style={authStyles.signupInputContainer}>
+                    <Text style={[authStyles.signupInputLabel, !isWeb && { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>Profile Picture</Text>
+                    <View style={authStyles.signupProfilePicContainer}>
+                        {formData.profilePicturePreview ? (
+                            <Image source={{ uri: formData.profilePicturePreview }} style={authStyles.signupProfilePicPreview} />
+                        ) : (
+                            <View style={authStyles.signupProfilePicPlaceholder}>
+                                <Feather name="user" size={40} color={APP_CONSTANTS.COLORS.PRIMARY_DARK} />
+                            </View>
+                        )}
+                        <TouchableOpacity style={authStyles.signupUploadButton} onPress={handleProfilePicPick} activeOpacity={0.8}>
+                            <Feather name="camera" size={16} color="white" style={{ marginRight: 8 }} />
+                            <Text style={authStyles.signupUploadButtonText}>
+                                {formData.profilePicturePreview ? 'Change Picture' : 'Select Picture'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
-            </View>
+            ) : (
+                <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'center' }}>
+                    <View style={authStyles.signupProfilePicSectionMobile}>
+                        <Text style={[authStyles.signupInputLabel, { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>Profile Picture</Text>
+                        <View style={authStyles.signupProfilePicContainer}>
+                            {formData.profilePicturePreview ? (
+                                <Image source={{ uri: formData.profilePicturePreview }} style={authStyles.signupProfilePicPreview} />
+                            ) : (
+                                <View style={authStyles.signupProfilePicPlaceholder}>
+                                    <Feather name="user" size={40} color={APP_CONSTANTS.COLORS.PRIMARY_DARK} />
+                                </View>
+                            )}
+                            <TouchableOpacity style={authStyles.signupUploadButton} onPress={handleProfilePicPick} activeOpacity={0.8}>
+                                <Feather name="camera" size={16} color="white" style={{ marginRight: 8 }} />
+                                <Text style={authStyles.signupUploadButtonText}>
+                                    {formData.profilePicturePreview ? 'Change Picture' : 'Select Picture'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            )}
             {/* Age */}
             <View style={authStyles.signupInputContainer}>
                 <Text style={authStyles.signupInputLabel}>Age</Text>
@@ -1258,25 +1281,25 @@ const MusicLoverSignUpFlow = () => {
             
             {/* Bio Section */}
             <Text style={[authStyles.signupInputLabel, authStyles.signupBioHeader]}>Music Bio (Share your sound!)</Text>
-            <View style={authStyles.signupInputContainer}>
-                <Text style={authStyles.signupInputLabelSmall}>Your first concert / favorite music memory?</Text>
-                <TextInput style={authStyles.signupInputBio} value={formData.bio.firstSong} onChangeText={(text) => handleChange('bio.firstSong', text)} placeholder="That unforgettable show..." multiline returnKeyType="next" blurOnSubmit={false} />
+            <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
+                <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Your first concert / favorite music memory?</Text>
+                <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.firstSong} onChangeText={(text) => handleChange('bio.firstSong', text)} placeholder="That unforgettable show..." multiline returnKeyType="next" blurOnSubmit={false} />
             </View>
-            <View style={authStyles.signupInputContainer}>
-                <Text style={authStyles.signupInputLabelSmall}>Go-to song right now?</Text>
-                <TextInput style={authStyles.signupInputBio} value={formData.bio.goToSong} onChangeText={(text) => handleChange('bio.goToSong', text)} placeholder="The track on repeat..." returnKeyType="next" blurOnSubmit={false} />
+            <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
+                <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Go-to song right now?</Text>
+                <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.goToSong} onChangeText={(text) => handleChange('bio.goToSong', text)} placeholder="The track on repeat..." returnKeyType="next" blurOnSubmit={false} />
             </View>
-            <View style={authStyles.signupInputContainer}>
-                <Text style={authStyles.signupInputLabelSmall}>An album everyone should listen to?</Text>
-                <TextInput style={authStyles.signupInputBio} value={formData.bio.mustListenAlbum} onChangeText={(text) => handleChange('bio.mustListenAlbum', text)} placeholder="Your essential pick..." returnKeyType="next" blurOnSubmit={false} />
+            <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
+                <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>An album everyone should listen to?</Text>
+                <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.mustListenAlbum} onChangeText={(text) => handleChange('bio.mustListenAlbum', text)} placeholder="Your essential pick..." returnKeyType="next" blurOnSubmit={false} />
             </View>
-            <View style={authStyles.signupInputContainer}>
-                <Text style={authStyles.signupInputLabelSmall}>Dream concert lineup?</Text>
-                <TextInput style={authStyles.signupInputBio} value={formData.bio.dreamConcert} onChangeText={(text) => handleChange('bio.dreamConcert', text)} placeholder="Headliner? Opener?" returnKeyType="next" blurOnSubmit={false} />
+            <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
+                <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Dream concert lineup?</Text>
+                <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.dreamConcert} onChangeText={(text) => handleChange('bio.dreamConcert', text)} placeholder="Headliner? Opener?" returnKeyType="next" blurOnSubmit={false} />
             </View>
-            <View style={authStyles.signupInputContainer}>
-                <Text style={authStyles.signupInputLabelSmall}>Describe your music taste in a few words?</Text>
-                <TextInput style={authStyles.signupInputBio} value={formData.bio.musicTaste} onChangeText={(text) => handleChange('bio.musicTaste', text)} placeholder="Indie rock, 90s hip hop, electronic..." returnKeyType="done" onSubmitEditing={handleStepSubmit} />
+            <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
+                <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Describe your music taste in a few words?</Text>
+                <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.musicTaste} onChangeText={(text) => handleChange('bio.musicTaste', text)} placeholder="Indie rock, 90s hip hop, electronic..." returnKeyType="done" onSubmitEditing={handleStepSubmit} />
             </View>
             {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
             
@@ -1895,9 +1918,6 @@ const MusicLoverSignUpFlow = () => {
                     )}
                 </TouchableOpacity>
             </View>
-            {/* Removed: Closing bracket for !showYTMCookieInput wrapper } */}
-            
-            {/* Removed YouTube Music Cookie Input Section entirely */}
             
             {/* Spotify specific UI feedback */}
             {isSpotifyLoading && formData.selectedStreamingService === 'spotify' && (
