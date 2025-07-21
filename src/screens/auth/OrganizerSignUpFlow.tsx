@@ -411,30 +411,54 @@ const OrganizerSignUpFlow = () => {
       <Text style={authStyles.signupStepTitle}>Contact & Branding</Text>
 
       {/* --- Logo Section moved to top --- */}
-      <View style={authStyles.signupInputContainer}>
+      {isWeb ? (
+        <View style={authStyles.signupInputContainer}>
           <Text style={authStyles.signupInputLabel}>Logo (Optional)</Text>
           <View style={styles.logoContainer}>
-              {/* Use logoPreview which holds the local URI */}
-              {formData.logoPreview ? (
-                  <Image source={{ uri: formData.logoPreview }} style={styles.logoPreview} />
-              ) : (
-                  <View style={styles.logoPlaceholder}>
-                      <Feather name="image" size={40} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                  </View>
-              )}
-
-              <TouchableOpacity
-                  style={styles.uploadButton}
-                  onPress={handleLogoPick} // Changed to pick, not upload directly
-                  disabled={uploading} // Keep disabled state if needed for visual feedback during pick? (optional)
-              >
-                  {/* Text changes based on whether a logo is selected */}
-                  <Text style={styles.uploadButtonText}>
-                      {formData.logoPreview ? 'Change Logo' : 'Select Logo'}
-                  </Text>
-              </TouchableOpacity>
+            {/* Use logoPreview which holds the local URI */}
+            {formData.logoPreview ? (
+              <Image source={{ uri: formData.logoPreview }} style={styles.logoPreview} />
+            ) : (
+              <View style={styles.logoPlaceholder}>
+                <Feather name="image" size={40} color={APP_CONSTANTS.COLORS.PRIMARY} />
+              </View>
+            )}
+            <TouchableOpacity
+              style={styles.uploadButton}
+              onPress={handleLogoPick}
+              disabled={uploading}
+            >
+              <Text style={styles.uploadButtonText}>
+                {formData.logoPreview ? 'Change Logo' : 'Select Logo'}
+              </Text>
+            </TouchableOpacity>
           </View>
-      </View>
+        </View>
+      ) : (
+        <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'center' }}>
+          <View style={{ alignItems: 'center', justifyContent: 'center', width: '100%', maxWidth: 320, alignSelf: 'center' }}>
+            <Text style={[authStyles.signupInputLabel, { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>Logo (Optional)</Text>
+            <View style={styles.logoContainer}>
+              {formData.logoPreview ? (
+                <Image source={{ uri: formData.logoPreview }} style={styles.logoPreview} />
+              ) : (
+                <View style={styles.logoPlaceholder}>
+                  <Feather name="image" size={40} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </View>
+              )}
+              <TouchableOpacity
+                style={styles.uploadButton}
+                onPress={handleLogoPick}
+                disabled={uploading}
+              >
+                <Text style={styles.uploadButtonText}>
+                  {formData.logoPreview ? 'Change Logo' : 'Select Logo'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
       {/* --- End Logo Section --- */}
 
       <View style={authStyles.signupInputContainer}>

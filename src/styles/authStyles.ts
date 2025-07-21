@@ -855,12 +855,16 @@ export const authStyles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: APP_CONSTANTS.COLORS.BORDER,
     padding: isWeb ? 24 : 20,
+    // --- ADDED: Make box wider and add more horizontal padding for mobile ---
+    width: isWeb ? '100%' : 320, // wider on mobile
+    minWidth: isWeb ? undefined : 320, // ensure min width on mobile
+    paddingHorizontal: isWeb ? 24 : 24, // more horizontal padding on mobile
+    // --- END ADDED ---
     shadowColor: '#000',
     shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
     shadowOpacity: 0.08,
     shadowRadius: isWeb ? 8 : 4,
     elevation: 2,
-    width: '100%',
     position: 'relative',
   },
   signupSelectedSubscriptionCard: {
@@ -1025,5 +1029,36 @@ export const authStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
+  },
+
+  // --- Mobile-only overrides for MusicLoverSignUpFlow bio section ---
+  signupBioInputContainerMobile: {
+    alignItems: 'flex-start',
+    width: '100%',
+    marginBottom: 14, // slightly tighter spacing for mobile
+    paddingLeft: 0,
+    paddingRight: 0,
+  },
+  signupBioLabelMobile: {
+    textAlign: 'left',
+    width: '100%',
+    marginLeft: 0,
+    marginBottom: 4,
+  },
+  signupBioInputMobile: {
+    textAlign: 'left',
+    minHeight: 45,
+    width: '100%',
+    paddingLeft: 0,
+    paddingRight: 0,
+  },
+  // --- Mobile-only override for MusicLoverSignUpFlow profile picture section ---
+  signupProfilePicSectionMobile: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    marginLeft: 0,
+    alignSelf: 'center',
+    maxWidth: 320,
   },
 }); 
