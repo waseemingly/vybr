@@ -366,49 +366,77 @@ const OrganizerSignUpFlow = () => {
 
   // Render company name step
   const renderCompanyNameStep = () => (
-    <View style={[authStyles.signupStepContent, !isWeb && { paddingHorizontal: 16 }]}>
-      <Text style={authStyles.signupStepTitle}>Company Name</Text>
-      <Text style={authStyles.signupStepDescription}>Let's start with your company's name</Text>
-
-      <View style={authStyles.signupInputContainer}>
-        <Text style={authStyles.signupInputLabel}>Company Name</Text>
-        <TextInput
-          style={authStyles.signupInput}
-          placeholder="Enter your company name"
-          value={formData.companyName}
-          onChangeText={(text) => handleChange('companyName', text)}
-        />
+    <View style={[authStyles.signupStepContent, !isWeb && { paddingTop: 10, paddingHorizontal: 0, alignItems: 'center', justifyContent: 'flex-start' }]}> 
+      {/* Header Section */}
+      <View style={!isWeb && { alignItems: 'center', marginBottom: 18, width: '100%' }}>
+        <Text style={[authStyles.signupStepTitle, !isWeb && { marginBottom: 8, textAlign: 'center', fontSize: 24 }]}>Company Name</Text>
+        <Text style={[authStyles.signupStepDescription, !isWeb && { marginBottom: 0, textAlign: 'center', fontSize: 14 }]}>Let's start with your company's name</Text>
       </View>
 
-      <View style={authStyles.signupTermsContainer}>
+      {/* Form Section */}
+      <View style={!isWeb && { width: '100%', alignItems: 'center' }}>
+        <View style={[authStyles.signupInputContainer, !isWeb && { marginBottom: 16, width: '90%' }]}> 
+          <Text style={[authStyles.signupInputLabel, !isWeb && { fontSize: 15 }]}>Company Name</Text>
+          <TextInput
+            style={[authStyles.signupInput, !isWeb && { fontSize: 15, paddingVertical: 14, borderRadius: 10 }]}
+            placeholder="Enter your company name"
+            value={formData.companyName}
+            onChangeText={(text) => handleChange('companyName', text)}
+            returnKeyType="done"
+          />
+        </View>
+
+        {/* Terms and Conditions */}
+        <View style={[authStyles.signupTermsContainer, !isWeb && { marginBottom: 20, marginTop: 16 }]}> 
+          <TouchableOpacity
+            style={[
+              authStyles.signupCheckbox,
+              formData.termsAccepted && authStyles.signupCheckboxChecked
+            ]}
+            onPress={() => handleChange('termsAccepted', !formData.termsAccepted)}
+            activeOpacity={0.7}
+          >
+            {formData.termsAccepted && (
+              <Feather name="check" size={14} color="white" />
+            )}
+          </TouchableOpacity>
+          <Text style={authStyles.signupTermsText}> 
+            I agree to the{' '}
+            <Text style={authStyles.signupTermsLink} onPress={() => setIsTermsModalVisible(true)}>
+              Organizer Terms and Conditions
+            </Text> *
+          </Text>
+        </View>
+
+        <Text style={[authStyles.signupRequiredText, !isWeb && { fontSize: 11, marginTop: 0, marginBottom: 8, textAlign: 'left', alignSelf: 'flex-start', paddingLeft: 6 }]}>* Required fields</Text>
+        {error ? <Text style={[authStyles.signupErrorText, !isWeb && { marginTop: 2, marginBottom: 8, fontSize: 13 }]}>{error}</Text> : null}
+
         <TouchableOpacity
           style={[
-            authStyles.signupCheckbox,
-            formData.termsAccepted && authStyles.signupCheckboxChecked
+            authStyles.signupContinueButton,
+            !isWeb && { marginTop: 10, marginBottom: 0, width: '90%', minHeight: 44, borderRadius: 10 },
+            (isLoading || authLoading) && authStyles.signupContinueButtonDisabled
           ]}
-          onPress={() => handleChange('termsAccepted', !formData.termsAccepted)}
+          onPress={handleStepSubmit}
+          disabled={isLoading || authLoading}
         >
-          {formData.termsAccepted && (
-            <Feather name="check" size={14} color="white" />
+          {(isLoading || authLoading) ? (
+            <ActivityIndicator color="white" size="small" />
+          ) : (
+            <Text style={[authStyles.signupContinueButtonText, !isWeb && { fontSize: 16 }]}>Continue</Text>
           )}
         </TouchableOpacity>
-        <Text style={authStyles.signupTermsText}>
-          I agree to the{' '}
-          <Text style={authStyles.signupTermsLink} onPress={() => setIsTermsModalVisible(true)}>
-            Organizer Terms and Conditions
-          </Text> *
-        </Text>
       </View>
-
-      {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
-      <Text style={authStyles.signupRequiredText}>* Required fields</Text>
     </View>
   );
 
   // Render account details step with Google Sign-In only
   const renderProfileDetailsStep = () => (
     <View style={[authStyles.signupStepContent, !isWeb && { paddingHorizontal: 16 }]}>
-      <Text style={authStyles.signupStepTitle}>Contact & Branding</Text>
+      <Text style={[
+        authStyles.signupStepTitle, 
+        !isWeb && authStyles.signupMobileContactBrandingTitle
+      ]}>Contact & Branding</Text>
 
       {/* --- Logo Section moved to top --- */}
       {isWeb ? (
@@ -436,22 +464,22 @@ const OrganizerSignUpFlow = () => {
         </View>
       ) : (
         <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'center' }}>
-          <View style={{ alignItems: 'center', justifyContent: 'center', width: '100%', maxWidth: 320, alignSelf: 'center' }}>
+          <View style={authStyles.signupProfilePicSectionMobile}>
             <Text style={[authStyles.signupInputLabel, { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>Logo (Optional)</Text>
-            <View style={styles.logoContainer}>
+            <View style={authStyles.signupProfilePicContainer}>
               {formData.logoPreview ? (
-                <Image source={{ uri: formData.logoPreview }} style={styles.logoPreview} />
+                <Image source={{ uri: formData.logoPreview }} style={authStyles.signupProfilePicPreview} />
               ) : (
-                <View style={styles.logoPlaceholder}>
+                <View style={authStyles.signupProfilePicPlaceholder}>
                   <Feather name="image" size={40} color={APP_CONSTANTS.COLORS.PRIMARY} />
                 </View>
               )}
               <TouchableOpacity
-                style={styles.uploadButton}
+                style={authStyles.signupUploadButton}
                 onPress={handleLogoPick}
                 disabled={uploading}
               >
-                <Text style={styles.uploadButtonText}>
+                <Text style={authStyles.signupUploadButtonText}>
                   {formData.logoPreview ? 'Change Logo' : 'Select Logo'}
                 </Text>
               </TouchableOpacity>
@@ -461,10 +489,10 @@ const OrganizerSignUpFlow = () => {
       )}
       {/* --- End Logo Section --- */}
 
-      <View style={authStyles.signupInputContainer}>
-          <Text style={authStyles.signupInputLabel}>Phone Number (Optional)</Text>
+      <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupMobileFormField]}>
+          <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>Phone Number (Optional)</Text>
           <TextInput
-              style={authStyles.signupInput}
+              style={[authStyles.signupInput, !isWeb && authStyles.signupMobileInput]}
               placeholder="Enter your phone number"
               value={formData.phoneNumber}
               onChangeText={(text) => handleChange('phoneNumber', text)}
@@ -472,43 +500,61 @@ const OrganizerSignUpFlow = () => {
           />
       </View>
 
-      <View style={authStyles.signupInputContainer}>
-          <Text style={authStyles.signupInputLabel}>Business Type</Text>
+      <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupMobileFormField]}>
+          <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>Business Type</Text>
           {/* Create a proper 2-column grid for business types */}
-          <View style={{ 
-              width: '100%', 
-              flexDirection: 'row', 
-              flexWrap: 'wrap', 
-              justifyContent: 'space-between',
-              marginBottom: isWeb ? 24 : 20
-          }}> 
+          <View style={[
+            isWeb ? {
+                width: '100%', 
+                flexDirection: 'row', 
+                flexWrap: 'wrap', 
+                justifyContent: 'space-between',
+                marginBottom: 24
+            } : authStyles.signupMobileBusinessTypeContainer
+          ]}> 
               {(['venue', 'promoter', 'F&B', 'festival_organizer', 'club','party','other'] as BusinessType[]).map((type) => (
                   <TouchableOpacity
                       key={type}
                       style={[
-                          {
+                          isWeb ? {
                               width: '48%',
-                              paddingHorizontal: isWeb ? 20 : 16,
-                              paddingVertical: isWeb ? 12 : 10,
-                              borderRadius: isWeb ? 24 : 20,
+                              paddingHorizontal: 20,
+                              paddingVertical: 12,
+                              borderRadius: 24,
                               borderWidth: 1,
                               borderColor: formData.businessType === type ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.BORDER,
                               backgroundColor: formData.businessType === type ? `${APP_CONSTANTS.COLORS.PRIMARY}20` : 'white',
-                              marginBottom: isWeb ? 16 : 12,
+                              marginBottom: 16,
                               alignItems: 'center',
                               justifyContent: 'center',
                               elevation: formData.businessType === type ? 2 : 1,
                               shadowColor: formData.businessType === type ? APP_CONSTANTS.COLORS.PRIMARY : '#000',
-                              shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
+                              shadowOffset: { width: 0, height: 4 },
                               shadowOpacity: formData.businessType === type ? 0.15 : 0.05,
-                              shadowRadius: isWeb ? 8 : 4,
-                          }
+                              shadowRadius: 8,
+                          } : [
+                              authStyles.signupMobileBusinessTypeOption,
+                              formData.businessType === type && {
+                                  borderColor: APP_CONSTANTS.COLORS.PRIMARY,
+                                  backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}20`,
+                                  elevation: 2,
+                                  shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
+                                  shadowOpacity: 0.15,
+                                  shadowRadius: 8,
+                              }
+                          ]
                       ]}
                       onPress={() => handleChange('businessType', type)}
                   >
                       <Text style={[
-                          {
-                              fontSize: isWeb ? 15 : 14,
+                          isWeb ? {
+                              fontSize: 15,
+                              color: formData.businessType === type ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+                              fontWeight: formData.businessType === type ? '600' : '500',
+                              fontFamily: 'Inter, sans-serif',
+                              textAlign: 'center',
+                          } : {
+                              fontSize: 14,
                               color: formData.businessType === type ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.TEXT_PRIMARY,
                               fontWeight: formData.businessType === type ? '600' : '500',
                               fontFamily: 'Inter, sans-serif',
@@ -523,10 +569,10 @@ const OrganizerSignUpFlow = () => {
       </View>
 
       {formData.businessType === 'F&B' && (
-          <View style={authStyles.signupInputContainer}>
-              <Text style={authStyles.signupInputLabel}>Venue Capacity</Text>
+          <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupMobileFormField]}>
+              <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>Venue Capacity</Text>
               <TextInput
-                  style={authStyles.signupInput}
+                  style={[authStyles.signupInput, !isWeb && authStyles.signupMobileInput]}
                   placeholder="Enter total capacity"
                   value={formData.capacity}
                   onChangeText={(text) => handleChange('capacity', text)}
@@ -542,10 +588,10 @@ const OrganizerSignUpFlow = () => {
           />
       )}
 
-      <View style={authStyles.signupInputContainer}>
-          <Text style={authStyles.signupInputLabel}>Website (Optional)</Text>
+      <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupMobileFormField]}>
+          <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>Website (Optional)</Text>
           <TextInput
-              style={authStyles.signupInput}
+              style={[authStyles.signupInput, !isWeb && authStyles.signupMobileInput]}
               placeholder="Enter your website URL"
               value={formData.website}
               onChangeText={(text) => handleChange('website', text)}
@@ -554,10 +600,13 @@ const OrganizerSignUpFlow = () => {
           />
       </View>
 
-      <View style={authStyles.signupInputContainer}>
-          <Text style={authStyles.signupInputLabel}>Bio (Optional)</Text>
+      <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupMobileFormField]}>
+          <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>Bio (Optional)</Text>
           <TextInput
-              style={authStyles.signupInputBio}
+              style={[
+                authStyles.signupInputBio, 
+                !isWeb && [authStyles.signupMobileInput, authStyles.signupMobileBioInput]
+              ]}
               placeholder="Tell us about your organization (max 500 chars)"
               value={formData.bio}
               onChangeText={(text) => handleChange('bio', text)}
@@ -587,12 +636,16 @@ const OrganizerSignUpFlow = () => {
 
     switch (currentStep) {
       case 'company-name':
+        // Only render the company name step (button is inside the step for mobile)
+        return (
+          <View style={authStyles.signupStepContainer}>
+            {renderCompanyNameStep()}
+          </View>
+        );
       case 'profile-details':
         return (
           <View style={authStyles.signupStepContainer}>
-            {currentStep === 'company-name' && renderCompanyNameStep()}
-            {currentStep === 'profile-details' && renderProfileDetailsStep()}
-
+            {renderProfileDetailsStep()}
             <TouchableOpacity
               style={[
                 authStyles.signupContinueButton,
@@ -609,7 +662,6 @@ const OrganizerSignUpFlow = () => {
             </TouchableOpacity>
           </View>
         );
-
       default:
         return null;
     }
