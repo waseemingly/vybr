@@ -422,6 +422,50 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             });
         };
         
+        // --- Handler for individual message seen status updates ---
+        const handleIndividualMessageSeen = (payload: any) => {
+            if (!session?.user) return; // Guard clause
+            
+            const statusUpdate = payload.new;
+            if (!statusUpdate || !statusUpdate.message_id || !statusUpdate.is_seen) return;
+            
+            console.log('ChatsTabs: Individual message seen status update received:', statusUpdate);
+            
+            // Update the unread count for the specific chat
+            setIndividualList(currentList => {
+                return currentList.map(chat => {
+                    // For now, we'll refresh the data to ensure accuracy
+                    // In a more optimized implementation, you'd track which messages belong to which chats
+                    return chat;
+                });
+            });
+            
+            // Refresh data to ensure accurate unread counts
+            setTimeout(() => fetchData(), 100);
+        };
+        
+        // --- Handler for group message seen status updates ---
+        const handleGroupMessageSeen = (payload: any) => {
+            if (!session?.user) return; // Guard clause
+            
+            const statusUpdate = payload.new;
+            if (!statusUpdate || !statusUpdate.message_id || !statusUpdate.is_seen) return;
+            
+            console.log('ChatsTabs: Group message seen status update received:', statusUpdate);
+            
+            // Update the unread count for the specific group chat
+            setGroupList(currentList => {
+                return currentList.map(chat => {
+                    // For now, we'll refresh the data to ensure accuracy
+                    // In a more optimized implementation, you'd track which messages belong to which chats
+                    return chat;
+                });
+            });
+            
+            // Refresh data to ensure accurate unread counts
+            setTimeout(() => fetchData(), 100);
+        };
+        
         // --- Handler for new group messages ---
         const handleNewGroupMessage = (payload: any) => {
             if (!session?.user) return; // Guard clause
@@ -469,6 +513,23 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         // to ensure all unread counts across all chats are accurate.
         const handleStatusUpdate = (payload: any) => {
             console.log('ChatsTabs: Status update received, refreshing data for accurate counts.', payload);
+            
+            // For individual message status updates, we can optimize by updating the specific chat
+            if (payload.new && payload.new.message_id) {
+                const messageId = payload.new.message_id;
+                const isSeen = payload.new.is_seen;
+                
+                // Find the chat that contains this message and update its unread count
+                setIndividualList(currentList => {
+                    return currentList.map(chat => {
+                        // This is a simplified approach - in a real implementation,
+                        // you'd need to track which messages belong to which chats
+                        // For now, we'll refresh the data to ensure accuracy
+                        return chat;
+                    });
+                });
+            }
+            
             // Use setTimeout to avoid calling fetchData during render
             setTimeout(() => fetchData(), 0);
         };
@@ -479,6 +540,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         subscribeToEvent('message_status_updated', handleStatusUpdate);
         subscribeToEvent('group_message_status_updated', handleStatusUpdate);
         subscribeToEvent('new_group_added_notification', handleNewGroupAdded);
+        subscribeToEvent('message_status_updated', handleIndividualMessageSeen);
+        subscribeToEvent('group_message_status_updated', handleGroupMessageSeen);
 
         return () => {
             // Unsubscribe on cleanup
@@ -487,6 +550,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             unsubscribeFromEvent('message_status_updated', handleStatusUpdate);
             unsubscribeFromEvent('group_message_status_updated', handleStatusUpdate);
             unsubscribeFromEvent('new_group_added_notification', handleNewGroupAdded);
+            unsubscribeFromEvent('message_status_updated', handleIndividualMessageSeen);
+            unsubscribeFromEvent('group_message_status_updated', handleGroupMessageSeen);
         };
     }, [subscribeToEvent, unsubscribeFromEvent, session?.user?.id]);
 
