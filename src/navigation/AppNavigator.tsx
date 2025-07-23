@@ -637,30 +637,68 @@ const WebVerticalTabsOrganizer = () => {
 };
 
 // ORIGINAL: Mobile bottom tab components (unchanged for mobile compatibility)
-const MobileUserTabs = () => ( 
-  <UserTabNav.Navigator screenOptions={({ route }) => ({ 
-    tabBarIcon: ({ focused, color, size }) => { 
-      let iconName: keyof typeof Feather.glyphMap = "help-circle"; 
-      if (route.name === "Matches") iconName = "heart"; 
-      else if (route.name === "Chats") iconName = "message-square"; 
-      else if (route.name === "Search") iconName = "search"; 
-      else if (route.name === "Events") iconName = "calendar"; 
-      else if (route.name === "Profile") iconName = "user"; 
-      return <Feather name={iconName} size={size} color={color} />; 
-    }, 
-    tabBarActiveTintColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', 
-    tabBarInactiveTintColor: APP_CONSTANTS?.COLORS?.DISABLED || '#9CA3AF', 
-    tabBarStyle: styles.tabBarStyle, 
-    headerShown: false, 
-    tabBarShowLabel: true, 
-  })}>
-    <UserTabNav.Screen name="Matches" component={MatchesScreen} />
-    <UserTabNav.Screen name="Chats" component={ChatsScreen} />
-    <UserTabNav.Screen name="Search" component={SearchScreen} />
-    <UserTabNav.Screen name="Events" component={EventsScreen} />
-    <UserTabNav.Screen name="Profile" component={ProfileScreen} />
-  </UserTabNav.Navigator> 
-);
+const MobileUserTabs = () => {
+  const { unreadCount } = useUnreadCount();
+  
+  return (
+    <UserTabNav.Navigator screenOptions={({ route }) => ({ 
+      tabBarIcon: ({ focused, color, size }) => { 
+        let iconName: keyof typeof Feather.glyphMap = "help-circle"; 
+        if (route.name === "Matches") iconName = "heart"; 
+        else if (route.name === "Chats") iconName = "message-square"; 
+        else if (route.name === "Search") iconName = "search"; 
+        else if (route.name === "Events") iconName = "calendar"; 
+        else if (route.name === "Profile") iconName = "user"; 
+        
+        return (
+          <View style={{ position: 'relative' }}>
+            <Feather name={iconName} size={size} color={color} />
+            {/* Unread count badge for chat tab */}
+            {route.name === 'Chats' && unreadCount > 0 && (
+              <View style={{
+                position: 'absolute',
+                top: -8,
+                right: -8,
+                backgroundColor: '#EF4444',
+                borderRadius: 10,
+                minWidth: 20,
+                height: 20,
+                justifyContent: 'center',
+                alignItems: 'center',
+                paddingHorizontal: 4,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.2,
+                shadowRadius: 2,
+                elevation: 2,
+              }}>
+                <Text style={{
+                  color: 'white',
+                  fontSize: 11,
+                  fontWeight: '600',
+                  textAlign: 'center',
+                }}>
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </Text>
+              </View>
+            )}
+          </View>
+        );
+      }, 
+      tabBarActiveTintColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', 
+      tabBarInactiveTintColor: APP_CONSTANTS?.COLORS?.DISABLED || '#9CA3AF', 
+      tabBarStyle: styles.tabBarStyle, 
+      headerShown: false, 
+      tabBarShowLabel: true, 
+    })}>
+      <UserTabNav.Screen name="Matches" component={MatchesScreen} />
+      <UserTabNav.Screen name="Chats" component={ChatsScreen} />
+      <UserTabNav.Screen name="Search" component={SearchScreen} />
+      <UserTabNav.Screen name="Events" component={EventsScreen} />
+      <UserTabNav.Screen name="Profile" component={ProfileScreen} />
+    </UserTabNav.Navigator> 
+  );
+};
 
 const MobileOrganizerTabs = () => ( 
   <OrganizerTabNav.Navigator screenOptions={({ route }) => ({ 
