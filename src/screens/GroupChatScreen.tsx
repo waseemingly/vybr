@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHeaderHeight } from '@react-navigation/elements';
 import UnifiedNotificationService from '@/services/UnifiedNotificationService';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
+import { shareImage, copyToClipboard, downloadImage } from '../utils/sharingUtils';
 
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
@@ -2792,6 +2793,7 @@ const GroupChatScreen: React.FC = () => {
         
         navigation.setOptions({ 
             headerTitleAlign: 'center',
+            headerBackVisible: Platform.OS === 'android' ? false : undefined,
             headerLeft: () => (
                 <TouchableOpacity 
                     onPress={() => {
@@ -3475,155 +3477,15 @@ const GroupChatScreen: React.FC = () => {
 
     const safeAreaEdges: Edge[] = Platform.OS === 'ios' ? ['bottom'] : [];
 
-    // --- Add dynamic imports for Sharing and Clipboard ---
-    let Sharing: any;
-    let Clipboard: any;
-    try {
-        Sharing = require('expo-sharing');
-    } catch {}
-    try {
-        Clipboard = require('expo-clipboard');
-    } catch {}
 
-    // Enhanced cross-platform download and share helpers
-    const downloadImage = async (url: string) => {
-        try {
-            if (Platform.OS === 'web') {
-                // Enhanced web download with file explorer dialog
-                const response = await fetch(url);
-                const blob = await response.blob();
-                const blobUrl = window.URL.createObjectURL(blob);
-                
-                const link = document.createElement('a');
-                link.href = blobUrl;
-                link.download = url.split('/').pop()?.split('?')[0] || `image_${Date.now()}.jpg`;
-                link.style.display = 'none';
-                
-                // Trigger file explorer dialog
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                
-                // Clean up blob URL
-                setTimeout(() => {
-                    window.URL.revokeObjectURL(blobUrl);
-                }, 100);
-                
-                Alert.alert('Download', 'File explorer opened. Choose where to save the image.');
-            } else {
-                // Enhanced mobile download with gallery save option
-                const filename = url.split('/').pop()?.split('?')[0] || `image_${Date.now()}.jpg`;
-                
-                // Show options to user
-                Alert.alert(
-                    'Save Image',
-                    'Choose where to save the image:',
-                    [
-                        {
-                            text: 'Save to Gallery',
-                            onPress: async () => {
-                                try {
-                                    // For mobile, we'll use the share functionality to save to gallery
-                                    if (Sharing && Sharing.isAvailableAsync && (await Sharing.isAvailableAsync())) {
-                                        const fileUri = (FileSystem.cacheDirectory || '/tmp/') + filename;
-                                        
-                                        if (FileSystem.downloadAsync) {
-                                            await FileSystem.downloadAsync(url, fileUri);
-                                            await Sharing.shareAsync(fileUri, {
-                                                mimeType: 'image/jpeg',
-                                                dialogTitle: 'Save to Gallery'
-                                            });
-                                        }
-                                    } else {
-                                        Alert.alert('Gallery Save', 'Gallery save not available on this device.');
-                                    }
-                                } catch (e) {
-                                    const msg = typeof e === 'object' && e && 'message' in e ? (e as any).message : String(e);
-                                    Alert.alert('Save Failed', msg || 'Could not save to gallery.');
-                                }
-                            }
-                        },
-                        {
-                            text: 'Download to Files',
-                            onPress: async () => {
-                                try {
-                                    const fileUri = (FileSystem.cacheDirectory || '/tmp/') + filename;
-                                    
-                                    if (FileSystem.createDownloadResumable) {
-                                        const downloadResumable = FileSystem.createDownloadResumable(url, fileUri);
-                                        const result = await downloadResumable.downloadAsync();
-                                        const uri = (result as any)?.uri || fileUri;
-                                        Alert.alert('Downloaded', `Image saved to: ${uri}`);
-                                    } else if (FileSystem.downloadAsync) {
-                                        const result = await FileSystem.downloadAsync(url, fileUri);
-                                        const uri = (result as any)?.uri || fileUri;
-                                        Alert.alert('Downloaded', `Image saved to: ${uri}`);
-                                    } else {
-                                        Alert.alert('Download not supported on this platform.');
-                                    }
-                                } catch (e) {
-                                    const msg = typeof e === 'object' && e && 'message' in e ? (e as any).message : String(e);
-                                    Alert.alert('Download failed', msg || 'Could not download image.');
-                                }
-                            }
-                        },
-                        {
-                            text: 'Cancel',
-                            style: 'cancel'
-                        }
-                    ]
-                );
-            }
-        } catch (e) {
-            const msg = typeof e === 'object' && e && 'message' in e ? (e as any).message : String(e);
-            Alert.alert('Download failed', msg || 'Could not download image.');
-        }
+
+    // Use our custom download function
+    const handleDownloadImage = (url: string) => {
+        downloadImage(url);
     };
 
-    const shareImage = async (url: string) => {
-        try {
-            if (Platform.OS === 'web') {
-                // Web sharing using Web Share API or clipboard fallback
-                if (navigator.share) {
-                    await navigator.share({
-                        title: 'Shared Image',
-                        url: url
-                    });
-                } else if (Clipboard && Clipboard.setStringAsync) {
-                    await Clipboard.setStringAsync(url);
-                    Alert.alert('Copied', 'Image URL copied to clipboard.');
-                } else {
-                    // Fallback for web without clipboard support
-                    const textArea = document.createElement('textarea');
-                    textArea.value = url;
-                    document.body.appendChild(textArea);
-                    textArea.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(textArea);
-                    Alert.alert('Copied', 'Image URL copied to clipboard.');
-                }
-            } else {
-                // Mobile sharing
-                const filename = url.split('/').pop()?.split('?')[0] || `image_${Date.now()}.jpg`;
-                const fileUri = (FileSystem.cacheDirectory || '/tmp/') + filename;
-                
-                if (FileSystem.downloadAsync) {
-                    await FileSystem.downloadAsync(url, fileUri);
-                }
-                
-                if (Sharing && Sharing.isAvailableAsync && (await Sharing.isAvailableAsync())) {
-                    await Sharing.shareAsync(fileUri);
-                } else if (Clipboard && Clipboard.setStringAsync) {
-                    await Clipboard.setStringAsync(url);
-                    Alert.alert('Copied', 'Image URL copied to clipboard.');
-                } else {
-                    Alert.alert('Share not supported on this platform.');
-                }
-            }
-        } catch (e) {
-            const msg = typeof e === 'object' && e && 'message' in e ? (e as any).message : String(e);
-            Alert.alert('Share failed', msg || 'Could not share image.');
-        }
+    const handleShareImage = (url: string) => {
+        shareImage(url);
     };
 
     // Forward functionality
@@ -3839,51 +3701,9 @@ const GroupChatScreen: React.FC = () => {
     };
 
     // Enhanced copy function for cross-platform compatibility
-    const copyToClipboard = async (text: string, successMessage: string) => {
-        try {
-            if (Platform.OS === 'web') {
-                // Try modern Clipboard API first
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    await navigator.clipboard.writeText(text);
-                    Alert.alert('Copied', successMessage);
-                } else if (Clipboard.setStringAsync) {
-                    // Fallback to Expo Clipboard
-                    await Clipboard.setStringAsync(text);
-                    Alert.alert('Copied', successMessage);
-                } else {
-                    // Fallback for older browsers
-                    const textArea = document.createElement('textarea');
-                    textArea.value = text;
-                    textArea.style.position = 'fixed';
-                    textArea.style.left = '-999999px';
-                    textArea.style.top = '-999999px';
-                    document.body.appendChild(textArea);
-                    textArea.focus();
-                    textArea.select();
-                    
-                    try {
-                        document.execCommand('copy');
-                        Alert.alert('Copied', successMessage);
-                    } catch (err) {
-                        Alert.alert('Copy Failed', 'Could not copy to clipboard. Please try selecting and copying manually.');
-                    } finally {
-                        document.body.removeChild(textArea);
-                    }
-                }
-            } else {
-                // Mobile platforms
-                if (Clipboard.setStringAsync) {
-                    await Clipboard.setStringAsync(text);
-                    Alert.alert('Copied', successMessage);
-                } else {
-                    Alert.alert('Copy Failed', 'Clipboard not supported on this device.');
-                }
-            }
-        } catch (e) {
-            console.error('Copy to clipboard error:', e);
-            const msg = typeof e === 'object' && e && 'message' in e ? (e as any).message : String(e);
-            Alert.alert('Copy Failed', msg || 'Could not copy to clipboard.');
-        }
+    const handleCopyToClipboard = async (text: string, successMessage: string) => {
+        await copyToClipboard(text);
+        Alert.alert('Copied', successMessage);
     };
 
 
@@ -4047,12 +3867,15 @@ const GroupChatScreen: React.FC = () => {
                                 setMessageActionModalVisible(false);
                                 try {
                                     if (selectedMessageForAction.image) {
-                                        await copyToClipboard(selectedMessageForAction.image, 'Image URL copied to clipboard.');
+                                        await copyToClipboard(selectedMessageForAction.image);
+                                        Alert.alert('Copied', 'Image URL copied to clipboard.');
                                     } else if (selectedMessageForAction.text) {
-                                        await copyToClipboard(selectedMessageForAction.text, 'Message copied to clipboard.');
+                                        await copyToClipboard(selectedMessageForAction.text);
+                                        Alert.alert('Copied', 'Message copied to clipboard.');
                                     } else if (selectedMessageForAction.sharedEvent) {
                                         const eventInfo = `${selectedMessageForAction.sharedEvent.eventTitle} - ${selectedMessageForAction.sharedEvent.eventDate} at ${selectedMessageForAction.sharedEvent.eventVenue}`;
-                                        await copyToClipboard(eventInfo, 'Event info copied to clipboard.');
+                                        await copyToClipboard(eventInfo);
+                                        Alert.alert('Copied', 'Event info copied to clipboard.');
                                     }
                                 } catch (e) {
                                     const msg = typeof e === 'object' && e && 'message' in e ? (e as any).message : String(e);
