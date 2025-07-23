@@ -2026,6 +2026,22 @@ const GroupChatScreen: React.FC = () => {
                                         return msg;
                                     });
                                 });
+                                
+                                // Trigger a direct database update to ensure ChatsTabs gets notified
+                                // This ensures the RealtimeContext picks up the change and broadcasts group_message_status_updated
+                                try {
+                                    await supabase
+                                        .from('group_message_status')
+                                        .update({ 
+                                            is_seen: true, 
+                                            seen_at: new Date().toISOString() 
+                                        })
+                                        .eq('message_id', newMessageDb.id)
+                                        .eq('user_id', currentUserId)
+                                        .eq('group_id', groupId);
+                                } catch (dbUpdateError) {
+                                    console.warn('Direct database update failed (this is expected if RPC already updated it):', dbUpdateError);
+                                }
                             } else {
                                 console.error('[GroupChatScreen] Error marking message as seen:', error);
                             }
@@ -2242,6 +2258,22 @@ const GroupChatScreen: React.FC = () => {
                                     return msg;
                                 });
                             });
+                            
+                            // Trigger a direct database update to ensure ChatsTabs gets notified
+                            // This ensures the RealtimeContext picks up the change and broadcasts group_message_status_updated
+                            try {
+                                await supabase
+                                    .from('group_message_status')
+                                    .update({ 
+                                        is_seen: true, 
+                                        seen_at: new Date().toISOString() 
+                                    })
+                                    .eq('message_id', newMessageDb.id)
+                                    .eq('user_id', currentUserId)
+                                    .eq('group_id', groupId);
+                            } catch (dbUpdateError) {
+                                console.warn('Direct database update failed (this is expected if RPC already updated it):', dbUpdateError);
+                            }
                         } else {
                             console.error('[GroupChatScreen] Error marking message as seen:', error);
                         }

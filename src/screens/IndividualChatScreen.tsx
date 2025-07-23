@@ -1463,45 +1463,6 @@ const IndividualChatScreen: React.FC = () => {
                         return;
                     }
                     
-                    // Skip if it's our own message (we already have it optimistically)
-                    if (newMessageDb.sender_id === currentUserId) {
-                        return;
-                    }
-                    
-                    // If the message is from the other user, mark it as seen immediately
-                    if (newMessageDb.sender_id === matchUserId) {
-                        try {
-                            const { error } = await supabase.rpc('mark_message_seen', { message_id_input: newMessageDb.id });
-                            if (error) {
-                                console.error(`Error marking message ${newMessageDb.id} as seen via RPC:`, error.message);
-                            } else {
-                                // Send broadcast to notify sender about seen status
-                                sendBroadcast('individual', matchUserId, 'message_status', {
-                                    message_id: newMessageDb.id,
-                                    is_seen: true,
-                                    seen_at: new Date().toISOString(),
-                                    user_id: currentUserId
-                                });
-                                
-                                // Also update the message locally to show seen status immediately
-                                setMessages(prevMessages => {
-                                    return prevMessages.map(msg => {
-                                        if (msg._id === newMessageDb.id) {
-                                            return {
-                                                ...msg,
-                                                isSeen: true,
-                                                seenAt: new Date()
-                                            };
-                                        }
-                                        return msg;
-                                    });
-                                });
-                            }
-                        } catch (e: any) {
-                            console.error(`Exception marking message ${newMessageDb.id} as seen:`, e.message);
-                        }
-                    }
-
                     // Check if message is hidden for current user
                     try {
                         const { data: hiddenCheck, error: hiddenError } = await supabase
@@ -1545,12 +1506,6 @@ const IndividualChatScreen: React.FC = () => {
                             return prevMessages;
                         }
                         
-                        // Optimistically update seen status in the UI
-                        if (receivedMessage.user._id === matchUserId) {
-                            receivedMessage.isSeen = true;
-                            receivedMessage.seenAt = new Date();
-                        }
-
                         // Replace temp message or add new message
                         const existingMsgIndex = prevMessages.findIndex(msg => msg._id.startsWith('temp_') && msg.text === receivedMessage.text && msg.replyToMessageId === receivedMessage.replyToMessageId);
                         if (existingMsgIndex !== -1) {
@@ -1564,6 +1519,56 @@ const IndividualChatScreen: React.FC = () => {
                         checkMutualInitiation(finalMessages); // Check mutual initiation with the new state
                         return finalMessages;
                     });
+
+                    // If the message is from the other user, mark it as seen immediately AFTER adding to state
+                    if (newMessageDb.sender_id === matchUserId) {
+                        try {
+                            console.log('[IndividualChatScreen] Marking new message as seen immediately');
+                            const { error } = await supabase.rpc('mark_message_seen', { message_id_input: newMessageDb.id });
+                            if (error) {
+                                console.error(`Error marking message ${newMessageDb.id} as seen via RPC:`, error.message);
+                            } else {
+                                // Send broadcast to notify sender about seen status
+                                sendBroadcast('individual', matchUserId, 'message_status', {
+                                    message_id: newMessageDb.id,
+                                    is_seen: true,
+                                    seen_at: new Date().toISOString(),
+                                    user_id: currentUserId
+                                });
+                                
+                                // Also update the message locally to show seen status immediately
+                                setMessages(prevMessages => {
+                                    return prevMessages.map(msg => {
+                                        if (msg._id === newMessageDb.id) {
+                                            return {
+                                                ...msg,
+                                                isSeen: true,
+                                                seenAt: new Date()
+                                            };
+                                        }
+                                        return msg;
+                                    });
+                                });
+                                
+                                // Trigger a direct database update to ensure ChatsTabs gets notified
+                                // This ensures the RealtimeContext picks up the change and broadcasts message_status_updated
+                                try {
+                                    await supabase
+                                        .from('message_status')
+                                        .update({ 
+                                            is_seen: true, 
+                                            seen_at: new Date().toISOString() 
+                                        })
+                                        .eq('message_id', newMessageDb.id)
+                                        .eq('receiver_id', currentUserId);
+                                } catch (dbUpdateError) {
+                                    console.warn('Direct database update failed (this is expected if RPC already updated it):', dbUpdateError);
+                                }
+                            }
+                        } catch (e: any) {
+                            console.error(`Exception marking message ${newMessageDb.id} as seen:`, e.message);
+                        }
+                    }
                 }
             )
             .subscribe((status) => {
@@ -1721,12 +1726,6 @@ const IndividualChatScreen: React.FC = () => {
                         return prevMessages;
                     }
                     
-                    // Optimistically update seen status in the UI
-                    if (receivedMessage.user._id === matchUserId) {
-                        receivedMessage.isSeen = true;
-                        receivedMessage.seenAt = new Date();
-                    }
-
                     // Replace temp message or add new message
                     const existingMsgIndex = prevMessages.findIndex(msg => msg._id.startsWith('temp_') && msg.text === receivedMessage.text && msg.replyToMessageId === receivedMessage.replyToMessageId);
                     if (existingMsgIndex !== -1) {
