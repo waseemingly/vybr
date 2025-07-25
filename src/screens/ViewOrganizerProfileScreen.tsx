@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, Image, ScrollView,
-    ActivityIndicator, Alert, RefreshControl, Modal, TextInput
+    ActivityIndicator, Alert, RefreshControl, Modal, TextInput, Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
@@ -324,10 +324,22 @@ const ViewOrganizerProfileScreen: React.FC = () => {
 
     // --- Render Logic ---
     useEffect(() => {
-        // Set header title dynamically
+        // Set header title dynamically with custom back button
         navigation.setOptions({ 
+            headerShown: Platform.OS !== 'web', // Only show header on mobile platforms
             title: organizerProfile?.company_name || 'Organizer Profile', 
-            headerBackVisible: true,
+            headerBackVisible: false, // Hide default back button
+            headerBackTitleVisible: false, // Hide back title
+            headerLeft: Platform.OS !== 'web' ? () => (
+                <TouchableOpacity 
+                    onPress={() => navigation.goBack()} 
+                    style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}
+                >
+                    <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+            ) : undefined,
+            headerStyle: { backgroundColor: 'white' },
+            headerTitleStyle: { fontWeight: '600', color: '#1F2937' },
         });
     }, [navigation, organizerProfile?.company_name]);
 
@@ -349,6 +361,17 @@ const ViewOrganizerProfileScreen: React.FC = () => {
 
     return (
         <SafeAreaView edges={["bottom", "left", "right"]} style={styles.container}>
+            {/* Web Header */}
+            {Platform.OS === 'web' && (
+                <View style={styles.webHeader}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                        <Feather name="chevron-left" size={28} color="#111827" />
+                    </TouchableOpacity>
+                    <Text style={styles.webHeaderTitle}>{organizerProfile?.company_name || 'Organizer Profile'}</Text>
+                    {/* Spacer */}
+                    <View style={{ width: 28 }} />
+                </View>
+            )}
             <ScrollView
                 style={styles.scrollViewContainer}
                 contentContainerStyle={styles.scrollContent}
@@ -503,6 +526,24 @@ const styles = StyleSheet.create({
     errorText: { fontSize: 16, fontWeight: '600', color: APP_CONSTANTS.COLORS.ERROR, marginTop: 10, textAlign: 'center' },
     retryButton: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, marginTop: 15 },
     retryButtonText: { color: '#FFF', fontWeight: '600' },
+    webHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    backButton: {
+        padding: 4,
+    },
+    webHeaderTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#111827',
+    },
     scrollViewContainer: { flex: 1, },
     scrollContent: { paddingBottom: 40, paddingTop: 0, }, // No horizontal padding here, sections handle it
     profileCard: { backgroundColor: "white", marginBottom: 24, overflow: "hidden", borderBottomLeftRadius: 16, borderBottomRightRadius: 16, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 5, elevation: 3, },

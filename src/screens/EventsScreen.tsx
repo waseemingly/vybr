@@ -322,7 +322,12 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
           <View style={styles.modalContainer}>
             <View style={styles.modalContent}>
               <TouchableOpacity style={styles.closeButton} onPress={onClose}><Feather name="x" size={24} color="#6B7280" /></TouchableOpacity>
-              <ScrollView showsVerticalScrollIndicator={false}>
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                bounces={Platform.OS !== 'web'} // Enable bounce effect on mobile
+                alwaysBounceVertical={Platform.OS !== 'web'} // Always allow vertical bounce on mobile
+                contentContainerStyle={Platform.OS !== 'web' ? { flexGrow: 1 } : undefined} // Ensure content can grow on mobile
+              >
                   <View style={[styles.imageSwiperContainer, { height: imageContainerHeight }]}>
                        <ScrollView
                            ref={scrollViewRef}
@@ -1481,14 +1486,18 @@ const styles = StyleSheet.create({
         borderTopLeftRadius: Platform.OS === 'web' ? 12 : 24, // Adjust radius for web if centered
         borderTopRightRadius: Platform.OS === 'web' ? 12 : 24,
         height: Platform.OS === 'web' ? "90%" : "90%", // Can adjust height for web too if needed
-        overflow: "hidden", 
+        overflow: Platform.OS === 'web' ? "hidden" : "visible", // Only hide overflow on web to allow mobile scrolling
         ...(Platform.OS === 'web' ? {
             width: '90%', // Take 90% of parent (modalContainer which is centered)
             maxWidth: 700, // Max width for web modal content
             maxHeight: Dimensions.get('window').height * 0.9, // Max height relative to viewport height
             borderRadius: 12, // Apply border radius to all corners on web
             boxShadow: '0 5px 15px rgba(0,0,0,0.3)', // Add shadow for web
-        } : {})
+        } : {
+            // Mobile-specific styles for better scrolling
+            width: '100%',
+            maxHeight: Dimensions.get('window').height * 0.9,
+        })
     },
     closeButton: { position: "absolute", top: Platform.OS === 'web' ? 15 : 20, left: Platform.OS === 'web' ? 15 : 16, zIndex: 10, backgroundColor: "rgba(230, 230, 230, 0.8)", borderRadius: 50, padding: 8, },
     imageSwiperContainer: {
@@ -1537,7 +1546,10 @@ const styles = StyleSheet.create({
     arrowRight: {
         right: 15,
     },
-    modalBody: { padding: 20, paddingBottom: 40 },
+    modalBody: { 
+        padding: 20, 
+        paddingBottom: Platform.OS === 'web' ? 40 : 60, // Extra bottom padding on mobile for better UX
+    },
     modalHeader: { padding: 20, paddingBottom: 0, alignItems: 'center' },
     restaurantName: { fontSize: 18, fontWeight: '600', color: '#4B5563', marginTop: 4 },
     modalTitle: { fontSize: 24, fontWeight: "bold", color: "#1F2937", marginBottom: 16, },
