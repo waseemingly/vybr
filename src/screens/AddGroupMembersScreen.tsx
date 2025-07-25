@@ -118,45 +118,12 @@ const AddGroupMembersScreen = () => {
     // Fetch on focus
     useFocusEffect(useCallback(() => { fetchPotentialMembers(); }, [fetchPotentialMembers]));
 
-    // Set up header configuration with proper back navigation
+    // Set up header configuration - hide navigation header and use custom header
     useEffect(() => {
         navigation.setOptions({
-            headerShown: true,
-            headerTitle: 'Add Members',
-            headerTitleAlign: 'center',
-            headerBackTitleVisible: false,
-            headerLeft: () => (
-                <TouchableOpacity 
-                    onPress={() => {
-                        // Check if we're in web chat panel mode
-                        if (Platform.OS === 'web' && route.params.onCloseChat) {
-                            // If we came from GroupInfoScreen, go back to GroupInfo
-                            if (route.params.cameFromGroupInfo) {
-                                (navigation as any).navigate('GroupInfo', {
-                                    groupId,
-                                    groupName: groupName || 'Group',
-                                    groupImage: null
-                                });
-                            } else {
-                                // Otherwise go back to GroupChat
-                                (navigation as any).navigate('GroupChat', {
-                                    groupId,
-                                    groupName: groupName || 'Group',
-                                    groupImage: null
-                                });
-                            }
-                        } else {
-                            navigation.goBack();
-                        }
-                    }} 
-                    style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}
-                >
-                    <Feather name="chevron-left" size={26} color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
-                </TouchableOpacity>
-            ),
-            headerStyle: { backgroundColor: 'white' },
+            headerShown: false,
         });
-    }, [navigation, route.params.onCloseChat, route.params.cameFromGroupInfo, groupId, groupName]);
+    }, [navigation]);
 
     // Toggle selection
     const toggleUserSelection = (userId: string) => { setSelectedUsers(prev => { const n = new Set(prev); if (n.has(userId)) n.delete(userId); else n.add(userId); return n; }); };
@@ -207,7 +174,38 @@ const AddGroupMembersScreen = () => {
 
     // --- Render Component ---
     return (
-        <SafeAreaView style={styles.container} edges={['bottom']}>
+        <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
+            {/* Custom Header */}
+            <View style={styles.header}>
+                <TouchableOpacity 
+                    onPress={() => {
+                        // Check if we're in web chat panel mode
+                        if (Platform.OS === 'web' && route.params.onCloseChat) {
+                            // If we came from GroupInfoScreen, go back to GroupInfo
+                            if (route.params.cameFromGroupInfo) {
+                                (navigation as any).navigate('GroupInfo', {
+                                    groupId,
+                                    groupName: groupName || 'Group',
+                                    groupImage: null
+                                });
+                            } else {
+                                // Otherwise go back to GroupChat
+                                (navigation as any).navigate('GroupChat', {
+                                    groupId,
+                                    groupName: groupName || 'Group',
+                                    groupImage: null
+                                });
+                            }
+                        } else {
+                            navigation.goBack();
+                        }
+                    }} 
+                    style={styles.backButton}
+                >
+                    <Feather name="chevron-left" size={24} color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Add Members</Text>
+            </View>
             {/* Search Input */}
             <View style={styles.searchContainer}>
                 <View style={styles.searchInputWrapper}>
@@ -236,6 +234,23 @@ const AddGroupMembersScreen = () => {
 // Styles
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#F9FAFB' },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 10,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    backButton: {
+        padding: 5,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        marginLeft: 10,
+    },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
     errorText: { color: APP_CONSTANTS.COLORS.ERROR || '#DC2626', textAlign: 'center', fontSize: 15 }, // Fallback color
     emptyText: { textAlign: 'center', color: '#6B7280', marginTop: 40, fontSize: 15 },

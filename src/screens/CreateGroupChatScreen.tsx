@@ -70,6 +70,13 @@ const CreateGroupChatScreen = () => {
         })();
     }, []);
 
+    // Set up header configuration - hide navigation header and use custom header
+    useEffect(() => {
+        navigation.setOptions({
+            headerShown: false,
+        });
+    }, [navigation]);
+
     // Function to pick image
     const pickAndUpdateImage = async () => {
         if (isCreating) return; // Don't allow picking while creating
@@ -368,7 +375,14 @@ const CreateGroupChatScreen = () => {
     };
 
     return (
-        <SafeAreaView style={styles.container} edges={['bottom']}>
+        <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
+            {/* Custom Header */}
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                    <Feather name="chevron-left" size={24} color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Create Group</Text>
+            </View>
             {/* Group Info Header (Image + Name Input) */}
             <View style={styles.groupInfoContainer}>
                  <TouchableOpacity onPress={pickAndUpdateImage} style={styles.imagePicker} disabled={isCreating}>
@@ -453,6 +467,23 @@ const CreateGroupChatScreen = () => {
 // --- Styles --- (Added styles for image picker)
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#F9FAFB', },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 10,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    backButton: {
+        padding: 5,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6',
+        marginLeft: 10,
+    },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, },
     errorText: { color: '#DC2626', textAlign: 'center', fontSize: 15, },
     emptyText: { textAlign: 'center', color: '#6B7280', marginTop: 40, fontSize: 15, },

@@ -239,7 +239,7 @@ const FriendsListScreen: React.FC = () => {
     }
 
     return (
-        <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+        <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
                     <Feather name="chevron-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />

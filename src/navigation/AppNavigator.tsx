@@ -243,6 +243,7 @@ export type RootStackParamList = {
   AddGroupMembersScreen: {
        groupId: string;
        groupName?: string | null;
+       cameFromGroupInfo?: boolean;
   };
   // *** END Group Chat Screens ***
 
@@ -1208,12 +1209,12 @@ const AppNavigator = () => {
             <RootStack.Screen
               name="IndividualChatScreen"
               component={IndividualChatScreen}
-              options={{ headerShown: true, headerBackTitleVisible: false }} // Show header
+              options={{ headerShown: false, headerBackTitleVisible: false }} // Custom header
             />
             <RootStack.Screen
               name="OtherUserProfileScreen"
               component={OtherUserProfileScreen}
-              options={{ headerShown: true, headerBackTitleVisible: false }} // Show header
+              options={{ headerShown: false, headerBackTitleVisible: false }} // Custom header
             />
 
             {/* *** REGISTER NEW GROUP CHAT SCREENS HERE *** */}
@@ -1225,7 +1226,7 @@ const AppNavigator = () => {
             <RootStack.Screen
                 name="GroupChatScreen"
                 component={GroupChatScreen}
-                options={{ headerShown: true, headerBackTitleVisible: false }} // Title set dynamically inside screen
+                options={{ headerShown: false, headerBackTitleVisible: false }} // Custom header
             />
              <RootStack.Screen
                 name="GroupInfoScreen"
