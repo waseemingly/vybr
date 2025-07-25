@@ -326,7 +326,7 @@ const ViewOrganizerProfileScreen: React.FC = () => {
     useEffect(() => {
         // Set header title dynamically with custom back button
         navigation.setOptions({ 
-            headerShown: Platform.OS !== 'web', // Only show header on mobile platforms
+            headerShown: false, // Use custom header for all platforms
             title: organizerProfile?.company_name || 'Organizer Profile', 
             headerBackVisible: false, // Hide default back button
             headerBackTitleVisible: false, // Hide back title
@@ -360,7 +360,15 @@ const ViewOrganizerProfileScreen: React.FC = () => {
     const businessTypeFormatted = formatBusinessType(organizerProfile.businessType);
 
     return (
-        <SafeAreaView edges={["bottom", "left", "right"]} style={styles.container}>
+        <SafeAreaView edges={["top", "bottom", "left", "right"]} style={styles.container}>
+            {/* Custom Header */}
+            <View style={styles.customHeader}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackButton}>
+                    <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>{organizerProfile?.company_name || 'Organizer Profile'}</Text>
+                <View style={{ width: 30 }} />
+            </View>
             {/* Web Header */}
             {Platform.OS === 'web' && (
                 <View style={styles.webHeader}>
@@ -522,6 +530,24 @@ const ViewOrganizerProfileScreen: React.FC = () => {
 // --- Styles ---
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#F9FAFB' },
+    customHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    headerBackButton: {
+        padding: 5,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#1F2937',
+    },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#F9FAFB' },
     errorText: { fontSize: 16, fontWeight: '600', color: APP_CONSTANTS.COLORS.ERROR, marginTop: 10, textAlign: 'center' },
     retryButton: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, marginTop: 15 },

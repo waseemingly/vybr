@@ -4,6 +4,7 @@ import {
     View, Text, StyleSheet, ScrollView, Image, TouchableOpacity,
     ActivityIndicator, Alert, Platform, Modal, TextInput
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
@@ -463,7 +464,7 @@ const OtherUserProfileScreen: React.FC = () => {
         console.log(`[OtherUserProfileScreen] Updating header - Title: ${title}, CanChat: ${canChat}`);
 
         navigation.setOptions({
-            headerShown: true,
+            headerShown: false,
             headerTitle: title,
             headerTitleAlign: 'center',
             headerBackTitleVisible: false,
@@ -1060,7 +1061,18 @@ const OtherUserProfileScreen: React.FC = () => {
 
 
     return (
-        <View style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
+            {/* Custom Header */}
+            <View style={styles.customHeader}>
+                <TouchableOpacity 
+                    onPress={() => navigation.goBack()} 
+                    style={styles.headerBackButton}
+                >
+                    <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>{userName || 'Profile'}</Text>
+                <View style={{ width: 30 }} />
+            </View>
             {/* Image Viewer Modal */}
             {imageViewerVisible && (
                 <ImageViewer
@@ -1460,7 +1472,7 @@ const OtherUserProfileScreen: React.FC = () => {
                     </View>
                 )}
             </ScrollView>
-        </View>
+        </SafeAreaView>
     );
 };
 
@@ -1468,6 +1480,24 @@ const OtherUserProfileScreen: React.FC = () => {
 // Using existing styles, ensure they cover the modal elements added
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: "#F9FAFB", },
+    customHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    headerBackButton: {
+        padding: 5,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#1F2937',
+    },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, },
     errorText: { color: APP_CONSTANTS.COLORS.ERROR, fontSize: 16, fontWeight: '500', textAlign: 'center', marginBottom: 10 },
     infoText: { fontSize: 16, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, textAlign: 'center', marginTop: 10, },

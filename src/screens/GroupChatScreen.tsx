@@ -2872,7 +2872,7 @@ const GroupChatScreen: React.FC = () => {
                 </View>
             ), 
             headerBackTitleVisible: false, 
-            headerShown: true 
+            headerShown: false 
         }); 
     }, [navigation, currentGroupName, currentGroupImage, groupId, isCurrentUserAdmin, canMembersAddOthers, canMembersEditInfo, onlineMembers, groupMembers, route.params.groupName, route.params.groupImage, route.params.onCloseChat]);
 
@@ -3709,7 +3709,42 @@ const GroupChatScreen: React.FC = () => {
 
 
     return (
-        <SafeAreaView style={styles.safeArea} edges={safeAreaEdges}>
+        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+            {/* Custom Header */}
+            <View style={styles.customHeader}>
+                <TouchableOpacity 
+                    onPress={() => {
+                        if (Platform.OS === 'web' && route.params.onCloseChat) {
+                            route.params.onCloseChat();
+                        } else {
+                            navigation.goBack();
+                        }
+                    }} 
+                    style={styles.headerBackButton}
+                >
+                    <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                    onPress={navigateToGroupInfo}
+                    style={styles.headerTitleContainer}
+                >
+                    <View>
+                        <Image
+                            source={{ uri: currentGroupImage ?? DEFAULT_GROUP_PIC }}
+                            style={styles.headerGroupImage}
+                        />
+                        <View style={styles.onlineIndicator}>
+                            <Text style={styles.onlineCount}>{onlineMembers.size}</Text>
+                        </View>
+                    </View>
+                    <Text style={styles.headerTitleText} numberOfLines={1}>
+                        {currentGroupName || 'Group Chat'}
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={navigateToGroupInfo} style={styles.headerInfoButton}>
+                    <Feather name="info" size={22} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+            </View>
             <KeyboardAvoidingView style={styles.keyboardAvoidingContainer} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0} >
                 {sendError && (<View style={styles.errorBanner}><Text style={styles.errorBannerText}>{sendError}</Text><TouchableOpacity onPress={() => setSendError(null)} style={styles.errorBannerClose}><Feather name="x" size={16} color="#B91C1C" /></TouchableOpacity></View>)}
 
@@ -4148,6 +4183,56 @@ const GroupChatScreen: React.FC = () => {
 const styles = StyleSheet.create({
     // Base container styles
     safeArea: { flex: 1, backgroundColor: '#FFFFFF', },
+    customHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    headerBackButton: {
+        padding: 5,
+    },
+    headerTitleContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flex: 1,
+    },
+    headerGroupImage: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        marginRight: 10,
+    },
+    headerTitleText: {
+        fontSize: 17,
+        fontWeight: '600',
+        color: '#1F2937',
+        marginBottom: 1,
+    },
+    headerInfoButton: {
+        padding: 5,
+    },
+    onlineIndicator: {
+        position: 'absolute',
+        bottom: -2,
+        right: 8,
+        backgroundColor: APP_CONSTANTS.COLORS.SUCCESS,
+        borderRadius: 8,
+        paddingHorizontal: 4,
+        paddingVertical: 1,
+        minWidth: 16,
+        alignItems: 'center',
+    },
+    onlineCount: {
+        fontSize: 10,
+        color: 'white',
+        fontWeight: '600',
+    },
     keyboardAvoidingContainer: { flex: 1, },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#F9FAFB', },
     centeredEmptyList: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 50, minHeight: 200, },

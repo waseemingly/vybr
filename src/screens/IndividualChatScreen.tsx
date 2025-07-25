@@ -1270,7 +1270,7 @@ const IndividualChatScreen: React.FC = () => {
         setDynamicMatchName(currentName);
         
         navigation.setOptions({
-             headerShown: true,
+             headerShown: false,
              headerTitleAlign: 'center',
              headerBackTitleVisible: false,
              headerBackVisible: Platform.OS === 'android' ? false : undefined,
@@ -3027,7 +3027,68 @@ const IndividualChatScreen: React.FC = () => {
     };
 
     return (
-        <SafeAreaView style={styles.safeArea} edges={safeAreaEdges}>
+        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+            {/* Custom Header */}
+            <View style={styles.customHeader}>
+                <TouchableOpacity 
+                    onPress={() => {
+                        if (Platform.OS === 'web' && route.params.onCloseChat) {
+                            route.params.onCloseChat();
+                        } else {
+                            navigation.goBack();
+                        }
+                    }} 
+                    style={styles.headerBackButton}
+                >
+                    <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                    onPress={() => {
+                        if (isChatMutuallyInitiated) {
+                            if (matchUserId) {
+                                if (Platform.OS === 'web' && route.params.onCloseChat) {
+                                    (navigation as any).navigate('OtherUserProfile', {
+                                        userId: matchUserId,
+                                        fromChat: true,
+                                        chatImages: messages
+                                            .filter(msg => msg.image)
+                                            .map(msg => msg.image!)
+                                    });
+                                } else {
+                                    navigation.navigate('OtherUserProfileScreen', {
+                                        userId: matchUserId,
+                                        fromChat: true,
+                                        chatImages: messages
+                                            .filter(msg => msg.image)
+                                            .map(msg => msg.image!)
+                                    });
+                                }
+                            }
+                        } else {
+                            Alert.alert(
+                                "Interaction Required",
+                                "Both you and this user need to send at least one message in this chat before you can view their profile from here."
+                            );
+                        }
+                    }}
+                    style={styles.headerTitleContainer}
+                >
+                    <View>
+                        <Image
+                            source={{ uri: route.params.matchProfilePicture ?? DEFAULT_PROFILE_PIC }}
+                            style={styles.headerProfileImage}
+                        />
+                        {isMatchOnline && !isBlocked && <View style={styles.onlineIndicator} />}
+                    </View>
+                    <Text style={[styles.headerTitleText, isBlocked && styles.blockedText]} numberOfLines={1}>
+                        {dynamicMatchName || 'Chat'}
+                    </Text>
+                    {isMatchMuted && !isBlocked && (
+                        <Feather name="volume-x" size={16} color="#FF8C00" style={styles.muteIcon} />
+                    )}
+                </TouchableOpacity>
+                <View style={{ width: 30 }} />
+            </View>
             <KeyboardAvoidingView
                 style={styles.keyboardAvoidingContainer}
                 behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -3491,6 +3552,19 @@ const IndividualChatScreen: React.FC = () => {
 // --- Styles ---
 const styles = StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: '#FFFFFF', },
+    customHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    headerBackButton: {
+        padding: 5,
+    },
     keyboardAvoidingContainer: { flex: 1, },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, },
     errorText: { color: '#DC2626', fontSize: 16, textAlign: 'center', marginTop: 10 },
