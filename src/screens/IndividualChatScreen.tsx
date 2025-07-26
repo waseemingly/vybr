@@ -29,6 +29,7 @@ import { useRealtime } from '@/context/RealtimeContext'; // Import useRealtime
 import UnifiedNotificationService from '@/services/UnifiedNotificationService';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
 import { shareImage, copyToClipboard, downloadImage } from '../utils/sharingUtils';
+import type { ChatItem } from '@/components/ChatsTabs';
 
 // Types and MessageBubble component
 type IndividualChatScreenRouteProp = RouteProp<RootStackParamList & {
@@ -43,6 +44,7 @@ type IndividualChatScreenRouteProp = RouteProp<RootStackParamList & {
     topMoods?: string[];
     isFirstInteractionFromMatches?: boolean;
     onCloseChat?: () => void; // Add onCloseChat for web chat panel
+    onForwardToChat?: (chatItem: ChatItem) => void; // Add onForwardToChat for web chat panel
     sharedEventData?: {
       eventId: string;
       eventTitle: string;
@@ -2980,34 +2982,74 @@ const IndividualChatScreen: React.FC = () => {
             
             // Navigate immediately to the destination chat
             try {
-                if (chatType === 'individual') {
-                    console.log('[Forward] Navigating to individual chat:', chatId);
-                    // Navigate to individual chat
-                    navigation.navigate('IndividualChatScreen', {
-                        matchUserId: chatId,
-                        matchName: chatName,
-                        matchProfilePicture: null,
-                        commonTags: [],
-                        topArtists: [],
-                        topTracks: [],
-                        topGenres: [],
-                        topMoods: [],
-                        isFirstInteractionFromMatches: false
-                    });
+                if (Platform.OS === 'web' && route.params.onForwardToChat) {
+                    // On web, use the forward callback to update the selected chat
+                    console.log('[Forward] Using web forward callback for:', chatType, chatId, chatName);
+                    
+                    // Create a ChatItem object for the target chat
+                    const targetChatItem: ChatItem = chatType === 'individual' ? {
+                        type: 'individual',
+                        data: {
+                            partner_user_id: chatId,
+                            partner_first_name: chatName.split(' ')[0] || '',
+                            partner_last_name: chatName.split(' ').slice(1).join(' ') || '',
+                            partner_profile_picture: null,
+                            last_message_content: null,
+                            last_message_created_at: new Date().toISOString(),
+                            current_user_sent_any_message: false,
+                            partner_sent_any_message: false,
+                            unread_count: 0
+                        }
+                    } : {
+                        type: 'group',
+                        data: {
+                            group_id: chatId,
+                            group_name: chatName,
+                            group_image: null,
+                            last_message_content: null,
+                            last_message_created_at: new Date().toISOString(),
+                            unread_count: 0
+                        }
+                    };
+                    
+                    // Call the forward callback to update the selected chat
+                    route.params.onForwardToChat(targetChatItem);
+                    
+                    // Show success message
+                    setTimeout(() => {
+                        Alert.alert('Forwarded Successfully', `Message forwarded to ${chatName}`);
+                    }, 500);
                 } else {
-                    console.log('[Forward] Navigating to group chat:', chatId);
-                    // Navigate to group chat
-                    navigation.navigate('GroupChatScreen', {
-                        groupId: chatId,
-                        groupName: chatName,
-                        groupImage: null
-                    });
+                    // On mobile, use normal navigation
+                    if (chatType === 'individual') {
+                        console.log('[Forward] Navigating to individual chat:', chatId);
+                        // Navigate to individual chat
+                        navigation.navigate('IndividualChatScreen', {
+                            matchUserId: chatId,
+                            matchName: chatName,
+                            matchProfilePicture: null,
+                            commonTags: [],
+                            topArtists: [],
+                            topTracks: [],
+                            topGenres: [],
+                            topMoods: [],
+                            isFirstInteractionFromMatches: false
+                        });
+                    } else {
+                        console.log('[Forward] Navigating to group chat:', chatId);
+                        // Navigate to group chat
+                        navigation.navigate('GroupChatScreen', {
+                            groupId: chatId,
+                            groupName: chatName,
+                            groupImage: null
+                        });
+                    }
+                    
+                    // Show success message after navigation
+                    setTimeout(() => {
+                        Alert.alert('Forwarded Successfully', `Message forwarded to ${chatName}`);
+                    }, 500);
                 }
-                
-                // Show success message after navigation
-                setTimeout(() => {
-                    Alert.alert('Forwarded Successfully', `Message forwarded to ${chatName}`);
-                }, 500);
                 
             } catch (navError) {
                 console.error('[Forward] Navigation error:', navError);

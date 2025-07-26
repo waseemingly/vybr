@@ -26,6 +26,7 @@ interface ChatPanelWrapperProps {
     selectedChat: ChatItem | null;
     onCloseChat: () => void;
     onOpenProfile?: (chatItem: ChatItem) => void;
+    onForwardToChat?: (chatItem: ChatItem) => void; // Add callback for forwarding
 }
 
 // Define the stack navigator types
@@ -35,12 +36,14 @@ type ChatPanelStackParamList = {
         matchName: string;
         matchProfilePicture?: string | null;
         onCloseChat?: () => void; // Add onCloseChat to params
+        onForwardToChat?: (chatItem: ChatItem) => void; // Add onForwardToChat to params
     };
     GroupChat: {
         groupId: string;
         groupName?: string | null;
         groupImage?: string | null;
         onCloseChat?: () => void; // Add onCloseChat to params
+        onForwardToChat?: (chatItem: ChatItem) => void; // Add onForwardToChat to params
     };
     OtherUserProfile: {
         userId: string;
@@ -75,6 +78,7 @@ const ChatPanelWrapper: React.FC<ChatPanelWrapperProps> = ({
     selectedChat,
     onCloseChat,
     onOpenProfile,
+    onForwardToChat,
 }) => {
     const [isLoading, setIsLoading] = useState(false);
 
@@ -102,7 +106,8 @@ const ChatPanelWrapper: React.FC<ChatPanelWrapperProps> = ({
                     matchUserId: itemData.partner_user_id,
                     matchName: partnerName,
                     matchProfilePicture: itemData.partner_profile_picture,
-                    onCloseChat: onCloseChat // Pass the onCloseChat function
+                    onCloseChat: onCloseChat, // Pass the onCloseChat function
+                    onForwardToChat: onForwardToChat // Pass the onForwardToChat function
                 }
             };
         } else {
@@ -113,7 +118,8 @@ const ChatPanelWrapper: React.FC<ChatPanelWrapperProps> = ({
                     groupId: itemData.group_id,
                     groupName: itemData.group_name,
                     groupImage: itemData.group_image,
-                    onCloseChat: onCloseChat // Pass the onCloseChat function
+                    onCloseChat: onCloseChat, // Pass the onCloseChat function
+                    onForwardToChat: onForwardToChat // Pass the onForwardToChat function
                 }
             };
         }
