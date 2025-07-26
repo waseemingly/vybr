@@ -1178,9 +1178,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             
             // Use admin client if available to bypass RLS
             const client = supabaseAdmin || supabase;
+            
+            // Prepare update data
+            const updateData: { 
+                is_premium: boolean; 
+                updated_at: string; 
+                premium_selection_date?: string | null; 
+            } = { 
+                is_premium: isPremium, 
+                updated_at: new Date().toISOString() 
+            };
+            
+            // Set premium_selection_date when upgrading to premium
+            if (isPremium) {
+                updateData.premium_selection_date = new Date().toISOString();
+            } else {
+                // Clear premium_selection_date when downgrading to free
+                updateData.premium_selection_date = null;
+            }
+            
             const { error: updateError } = await client
                 .from('music_lover_profiles') // *** CHECK TABLE NAME ***
-                .update({ is_premium: isPremium, updated_at: new Date().toISOString() })
+                .update(updateData)
                 .eq('user_id', userId); // Use user_id
 
             if (updateError) {
