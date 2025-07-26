@@ -64,30 +64,59 @@ const UserManageSubscriptionScreen: React.FC = () => {
         }
         setIsLoading(true);
         try {
-                // --- TODO: Replace with your actual subscription fetching logic ---
-                // This might involve querying a 'subscriptions' table or checking
-                // the music_lover_profiles table for status and renewal dates.
-                // Example simulation:
-                if (isPremium) {
-                    // Fetch details for premium user
-                    // const { data, error } = await supabase.from('subscriptions')...
-                setSubscriptionStatus('active');
-                setPlanName('Vybr Premium');
-                    // Simulate fetching a renewal date
-                    const nextMonth = new Date();
-                    nextMonth.setMonth(nextMonth.getMonth() + 1);
-                    setRenewalDate(nextMonth.toLocaleDateString());
+            // Fetch subscription details from music_lover_profiles table
+            const { data: profile, error } = await supabase
+                .from('music_lover_profiles')
+                .select('is_premium, premium_selection_date')
+                .eq('user_id', userId)
+                .single();
+
+            if (error) {
+                console.error("Error fetching subscription details:", error);
+                throw error;
+            }
+
+            if (profile) {
+                if (profile.is_premium) {
+                    setSubscriptionStatus('active');
+                    setPlanName('Vybr Premium');
+                    
+                    // Calculate renewal date based on premium_selection_date
+                    if (profile.premium_selection_date) {
+                        const selectionDate = new Date(profile.premium_selection_date);
+                        const now = new Date();
+                        
+                        // Calculate the next renewal date
+                        let nextRenewalDate = new Date(selectionDate);
+                        
+                        // Keep adding months until we find a date in the future
+                        while (nextRenewalDate <= now) {
+                            nextRenewalDate = new Date(nextRenewalDate.getTime());
+                            nextRenewalDate.setMonth(nextRenewalDate.getMonth() + 1);
+                        }
+                        
+                        setRenewalDate(nextRenewalDate.toLocaleDateString());
+                    } else {
+                        // Fallback: if no selection date, use next month from today
+                        const nextMonth = new Date();
+                        nextMonth.setMonth(nextMonth.getMonth() + 1);
+                        setRenewalDate(nextMonth.toLocaleDateString());
+                    }
+                } else {
+                    setSubscriptionStatus('free');
+                    setPlanName('Free Tier');
+                    setRenewalDate(null);
+                }
             } else {
                 setSubscriptionStatus('free');
                 setPlanName('Free Tier');
                 setRenewalDate(null);
             }
-                // --- End of placeholder logic ---
 
-            } catch (error: unknown) {
+        } catch (error: unknown) {
             console.error("Error fetching subscription details:", error);
             Alert.alert("Error", "Could not load your subscription details.");
-                setSubscriptionStatus('error'); // Indicate an error state
+            setSubscriptionStatus('error'); // Indicate an error state
         } finally {
             setIsLoading(false);
         }
@@ -109,14 +138,14 @@ const UserManageSubscriptionScreen: React.FC = () => {
 
         // For web, use window.confirm instead of Alert.alert
         if (Platform.OS === 'web') {
-            const confirmed = window.confirm("Are you sure you want to cancel your Premium subscription? This will immediately downgrade your account to the Free Tier.");
+            const confirmed = window.confirm("Are you sure you want to cancel your Premium subscription? You will continue to have premium access until the end of your current billing period.");
             if (confirmed) {
                 performCancellation();
             }
         } else {
             Alert.alert(
                 "Cancel Subscription",
-                "Are you sure you want to cancel your Premium subscription? This will immediately downgrade your account to the Free Tier.",
+                "Are you sure you want to cancel your Premium subscription? You will continue to have premium access until the end of your current billing period.",
                 [
                     { text: "Keep Subscription", style: "cancel" },
                     {
@@ -139,42 +168,67 @@ const UserManageSubscriptionScreen: React.FC = () => {
             return;
         }
         const currentUserId = session.user.id;
-        console.log(`Attempting downgrade for userId: ${currentUserId}`);
+        console.log(`Attempting subscription cancellation for userId: ${currentUserId}`);
 
         try {
+            // Call the edge function to properly cancel the subscription with Stripe
+            const userEmail = session?.user?.email;
+            if (!userEmail) {
+                throw new Error('User email not found in session');
+            }
             
-            const { error: updateError } = await supabase
-                .from('music_lover_profiles')
-                .update({ 'is_premium': false })
-                .eq('user_id', currentUserId); // Use currentUserId directly, ensure 'user_id' matches your DB column
+            const requestBody = { 
+                userId: currentUserId,
+                userEmail: userEmail
+            };
+            console.log('[Frontend] Sending request body:', requestBody);
+            console.log('[Frontend] Stringified body:', JSON.stringify(requestBody));
+            
+            const { data, error } = await supabase.functions.invoke('cancel-premium-subscription', {
+                body: JSON.stringify(requestBody)
+            });
 
-            if (updateError) {
-                console.error('Supabase update error:', updateError);
-                // Throw the specific error to be caught below
-                throw new Error(`Supabase Error: ${updateError.message} (Code: ${updateError.code})`); 
+            if (error) {
+                console.error('Edge function error:', error);
+                throw new Error(`Cancellation failed: ${error.message}`);
             }
 
-            // --- Update UI state immediately ---
-            console.log('Supabase update successful, updating UI state.');
-            setSubscriptionStatus('free');
-            setPlanName('Free Tier');
-            setRenewalDate(null);
+            if (data?.error) {
+                console.error('Cancellation error from edge function:', data.error);
+                throw new Error(data.error);
+            }
+
+            if (!data?.success) {
+                throw new Error('Cancellation failed: Unknown error');
+            }
+
+            // Update UI state to reflect cancellation
+            console.log('Subscription cancellation successful, updating UI state.');
+            setSubscriptionStatus('canceled');
+            setPlanName('Vybr Premium (Cancelled)');
+            
+            // Set the cancellation date
+            if (data.access_ends_date) {
+                setRenewalDate(data.access_ends_date);
+            }
             
             // Refresh user profile data to reflect the change
             await refreshUserProfile();
             
-            // Show success message - use different approach for web vs mobile
+            // Show success message with cancellation details
+            const message = `Your subscription has been cancelled successfully. You will continue to have premium access until ${data.access_ends_date || 'the end of your current billing period'}.`;
+            
             if (Platform.OS === 'web') {
-                alert("Subscription Cancelled! Your subscription has been cancelled and your account has been downgraded to Free Tier.");
+                alert(`Subscription Cancelled! ${message}`);
                 // Navigate back to the main app and go to profile tab
                 navigation.navigate('MainApp' as never, { screen: 'Profile' } as never);
             } else {
                 Alert.alert(
                     "Subscription Cancelled", 
-                    "Your subscription has been cancelled and your account has been downgraded to Free Tier.",
+                    message,
                     [
                         {
-                            text: "Go to Matches",
+                            text: "OK",
                             onPress: () => {
                                 // Navigate back to the main app and go to profile tab
                                 navigation.navigate('MainApp' as never, { screen: 'Profile' } as never);
@@ -189,9 +243,9 @@ const UserManageSubscriptionScreen: React.FC = () => {
             // Show the specific error message in the alert
             const errorMessage = error instanceof Error ? error.message : 'Unknown error. Please contact support.';
             if (Platform.OS === 'web') {
-                alert(`Cancellation Failed: Could not update your subscription status. Reason: ${errorMessage}`);
+                alert(`Cancellation Failed: ${errorMessage}`);
             } else {
-                Alert.alert("Cancellation Failed", `Could not update your subscription status. Reason: ${errorMessage}`);
+                Alert.alert("Cancellation Failed", errorMessage);
             }
         } finally {
             setIsCanceling(false);
@@ -226,7 +280,17 @@ const UserManageSubscriptionScreen: React.FC = () => {
     // Helper function to get status text with proper styling
     const getStatusText = () => {
         if (!subscriptionStatus) return 'Loading...';
-        return subscriptionStatus.charAt(0).toUpperCase() + subscriptionStatus.slice(1);
+        
+        switch (subscriptionStatus) {
+            case 'active':
+                return 'Active';
+            case 'free':
+                return 'Free Tier';
+            case 'canceled':
+                return 'Cancelled (Active until period end)';
+            default:
+                return subscriptionStatus.charAt(0).toUpperCase() + subscriptionStatus.slice(1);
+        }
     };
 
     const getStatusStyle = () => {
