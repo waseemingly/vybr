@@ -75,6 +75,11 @@ const ChatsScreen = () => {
         setSelectedChat(null);
     }, []);
 
+    // Handle forwarding to a specific chat (web only)
+    const handleForwardToChat = useCallback((chatItem: ChatItem) => {
+        setSelectedChat(chatItem);
+    }, []);
+
     // Placeholder/Example handler for opening a profile (individual only)
     const handleProfileOpen = useCallback((chatItem: ChatItem) => {
          if (chatItem.type === 'individual') {
@@ -183,6 +188,7 @@ const ChatsScreen = () => {
                         selectedChat={selectedChat}
                         onCloseChat={handleCloseChat}
                         onOpenProfile={handleProfileOpen}
+                        onForwardToChat={handleForwardToChat}
                     />
                 </View>
             </SafeAreaView>
