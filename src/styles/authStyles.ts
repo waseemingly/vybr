@@ -452,6 +452,7 @@ export const authStyles = StyleSheet.create({
     textAlign: 'center',
     fontFamily: 'Inter, sans-serif',
     width: '100%',
+    alignSelf: 'center',
   },
   signupStepDescription: {
     fontSize: isWeb ? 18 : 16,
@@ -662,14 +663,14 @@ export const authStyles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: isWeb ? 24 : 20,
     marginBottom: isWeb ? 20 : 16,
-    width: '100%',
+    width: isWeb ? '100%' : 'auto',
     minHeight: isWeb ? 56 : 50,
     elevation: 4,
     shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
     shadowOffset: { width: 0, height: isWeb ? 8 : 4 },
     shadowOpacity: 0.2,
     shadowRadius: isWeb ? 16 : 8,
-    paddingHorizontal: isWeb ? 0 : 16,
+    paddingHorizontal: isWeb ? 24 : 32,
     alignSelf: 'center',
   },
   signupContinueButtonDisabled: {
@@ -1036,11 +1037,9 @@ export const authStyles = StyleSheet.create({
     alignItems: 'flex-start',
     width: '100%',
     marginBottom: 14, // slightly tighter spacing for mobile
-    paddingLeft: 0,
-    paddingRight: 0,
   },
   signupBioLabelMobile: {
-    textAlign: 'left',
+    textAlign: 'left', // Ensure label text is aligned left
     width: '100%',
     marginLeft: 0,
     marginBottom: 4,
@@ -1049,8 +1048,6 @@ export const authStyles = StyleSheet.create({
     textAlign: 'left',
     minHeight: 45,
     width: '100%',
-    paddingLeft: 0,
-    paddingRight: 0,
   },
   // --- Mobile-only override for MusicLoverSignUpFlow profile picture section ---
   signupProfilePicSectionMobile: {
@@ -1120,8 +1117,6 @@ export const authStyles = StyleSheet.create({
     maxHeight: 80,
     textAlignVertical: 'top',
     width: '100%',
-    paddingLeft: 0,
-    paddingRight: 0,
     alignSelf: 'stretch',
   },
   signupMobileContactBrandingTitle: {

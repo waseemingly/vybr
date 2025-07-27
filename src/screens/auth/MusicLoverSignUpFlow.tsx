@@ -1069,7 +1069,7 @@ const MusicLoverSignUpFlow = () => {
                 </View>
                 
                 {/* Username */}
-                <View style={[authStyles.signupInputContainer, !isWeb && { marginBottom: 28 }]}>
+                <View style={[authStyles.signupInputContainer, !isWeb && { marginBottom: 28 }, isWeb && { marginTop: 24 }]}>
                     <View style={authStyles.signupLabelRow}>
                         <Text style={authStyles.signupInputLabel}>Username *</Text>
                         {usernameStatus === 'checking' && <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={authStyles.signupInlineLoader} />}
@@ -1118,41 +1118,31 @@ const MusicLoverSignUpFlow = () => {
             </View>
             
             {/* Button Section - Centered for mobile */}
-            <View style={!isWeb && { alignItems: 'center', width: '100%', marginTop: 20 }}>
-                <TouchableOpacity
-                    style={[
-                        authStyles.signupContinueButton,
-                        !isWeb && { 
-                            marginTop: 0, 
-                            marginBottom: 0,
-                            width: '100%',
-                            maxWidth: 280,
-                            alignSelf: 'center'
-                        },
-                        (isLoading || authLoading || usernameStatus !== 'valid') && authStyles.signupContinueButtonDisabled
-                    ]}
-                    onPress={async () => {
-                        Keyboard.dismiss();
-                        await new Promise(resolve => setTimeout(resolve, 100));
-                        handleStepSubmit();
-                    }}
-                    disabled={isLoading || authLoading || usernameStatus !== 'valid'}
-                    activeOpacity={0.8}
-                >
-                    {isLoading || authLoading ? (
-                        <ActivityIndicator color="white" size="small" />
-                    ) : (
-                        <Text style={authStyles.signupContinueButtonText}>Continue</Text>
-                    )}
-                </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+                style={[
+                    authStyles.signupContinueButton,
+                    (isLoading || authLoading || usernameStatus !== 'valid') && authStyles.signupContinueButtonDisabled
+                ]}
+                onPress={async () => {
+                    Keyboard.dismiss();
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    handleStepSubmit();
+                }}
+                disabled={isLoading || authLoading || usernameStatus !== 'valid'}
+                activeOpacity={0.8}
+            >
+                {isLoading || authLoading ? (
+                    <ActivityIndicator color="white" size="small" />
+                ) : (
+                    <Text style={authStyles.signupContinueButtonText}>Continue</Text>
+                )}
+            </TouchableOpacity>
         </View>
     );
 
     const renderProfileDetailsStep = () => (
-        <View style={[authStyles.signupStepContent, !isWeb && { alignItems: 'stretch', paddingHorizontal: 16 }]}>
+        <View style={[authStyles.signupStepContent, !isWeb && { alignItems: 'stretch' }]}>
             <Text style={authStyles.signupStepTitle}>Tell Us About You</Text>
-            <Text style={authStyles.signupStepDescription}>Help others connect with your vibe! (All fields optional below)</Text>
             {/* Profile Picture */}
             {isWeb ? (
                 <View style={authStyles.signupInputContainer}>
@@ -1195,133 +1185,136 @@ const MusicLoverSignUpFlow = () => {
                     </View>
                 </View>
             )}
-            {/* Age */}
-            <View style={authStyles.signupInputContainer}>
-                <Text style={authStyles.signupInputLabel}>Age</Text>
-                <TextInput 
-                    style={authStyles.signupInput} 
-                    placeholder="e.g. 25" 
-                    value={formData.age} 
-                    onChangeText={(text) => handleChange('age', text.replace(/\D/g, ''))} 
-                    keyboardType="number-pad" 
-                    maxLength={3} 
-                    returnKeyType="next" 
-                    blurOnSubmit={false} 
-                />
-            </View>
             
-            {/* Location Section - Country Dropdown */}
-            <View style={authStyles.signupInputContainer}>
-                <Text style={authStyles.signupInputLabel}>Country</Text>
-                <View style={styles.pickerContainer}>
-                    <Picker
-                        selectedValue={formData.countryCode}
-                        onValueChange={handleCountrySelect}
-                        style={styles.picker}
+            <View style={!isWeb && { paddingHorizontal: 16 }}>
+                {/* Age */}
+                <View style={authStyles.signupInputContainer}>
+                    <Text style={authStyles.signupInputLabel}>Age</Text>
+                    <TextInput 
+                        style={authStyles.signupInput} 
+                        placeholder="e.g. 25" 
+                        value={formData.age} 
+                        onChangeText={(text) => handleChange('age', text.replace(/\D/g, ''))} 
+                        keyboardType="number-pad" 
+                        maxLength={3} 
+                        returnKeyType="next" 
+                        blurOnSubmit={false} 
+                    />
+                </View>
+                
+                {/* Location Section - Country Dropdown */}
+                <View style={authStyles.signupInputContainer}>
+                    <Text style={authStyles.signupInputLabel}>Country</Text>
+                    <View style={styles.pickerContainer}>
+                        <Picker
+                            selectedValue={formData.countryCode}
+                            onValueChange={handleCountrySelect}
+                            style={styles.picker}
+                        >
+                            <Picker.Item label="Select a country..." value="" />
+                            {countries.map((country) => (
+                                <Picker.Item 
+                                    key={country.isoCode} 
+                                    label={country.name} 
+                                    value={country.isoCode} 
+                                />
+                            ))}
+                        </Picker>
+                    </View>
+                </View>
+                
+                {/* State/Province Dropdown - Only show if country is selected and not Singapore */}
+                {formData.countryCode && formData.countryCode !== 'SG' && (
+                    <View style={authStyles.signupInputContainer}>
+                        <Text style={authStyles.signupInputLabel}>State/Province</Text>
+                        <View style={styles.pickerContainer}>
+                            <Picker
+                                selectedValue={formData.stateCode}
+                                onValueChange={handleStateSelect}
+                                style={styles.picker}
+                                enabled={states.length > 0}
+                            >
+                                <Picker.Item label="Select a state..." value="" />
+                                {states.map((state) => (
+                                    <Picker.Item 
+                                        key={state.isoCode} 
+                                        label={state.name} 
+                                        value={state.isoCode} 
+                                    />
+                                ))}
+                            </Picker>
+                        </View>
+                    </View>
+                )}
+                
+                {/* City Dropdown - Only show if state is selected */}
+                {formData.stateCode && (
+                    <View style={authStyles.signupInputContainer}>
+                        <Text style={authStyles.signupInputLabel}>City</Text>
+                        <View style={styles.pickerContainer}>
+                            <Picker
+                                selectedValue={formData.cityName}
+                                onValueChange={handleCitySelect}
+                                style={styles.picker}
+                                enabled={cities.length > 0}
+                            >
+                                <Picker.Item label="Select a city..." value="" />
+                                {cities.map((city) => (
+                                    <Picker.Item 
+                                        key={city.name} 
+                                        label={city.name} 
+                                        value={city.name} 
+                                    />
+                                ))}
+                            </Picker>
+                        </View>
+                    </View>
+                )}
+                
+                {/* Bio Section */}
+                <Text style={[authStyles.signupInputLabel, authStyles.signupBioHeader]}>Music Bio (Share your sound!)</Text>
+                <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Your first concert / favorite music memory?</Text>
+                    <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.firstSong} onChangeText={(text) => handleChange('bio.firstSong', text)} placeholder="That unforgettable show..." multiline returnKeyType="next" blurOnSubmit={false} />
+                </View>
+                <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Go-to song right now?</Text>
+                    <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.goToSong} onChangeText={(text) => handleChange('bio.goToSong', text)} placeholder="The track on repeat..." returnKeyType="next" blurOnSubmit={false} />
+                </View>
+                <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>An album everyone should listen to?</Text>
+                    <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.mustListenAlbum} onChangeText={(text) => handleChange('bio.mustListenAlbum', text)} placeholder="Your essential pick..." returnKeyType="next" blurOnSubmit={false} />
+                </View>
+                <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Dream concert lineup?</Text>
+                    <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.dreamConcert} onChangeText={(text) => handleChange('bio.dreamConcert', text)} placeholder="Headliner? Opener?" returnKeyType="next" blurOnSubmit={false} />
+                </View>
+                <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Describe your music taste in a few words?</Text>
+                    <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.musicTaste} onChangeText={(text) => handleChange('bio.musicTaste', text)} placeholder="Indie rock, 90s hip hop, electronic..." returnKeyType="done" onSubmitEditing={handleStepSubmit} />
+                </View>
+                {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
+                
+                {/* Back/Continue Buttons */}
+                <View style={authStyles.signupButtonContainer}>
+                    <TouchableOpacity 
+                        style={authStyles.signupSecondaryButton} 
+                        onPress={() => goToPreviousStep('username')}
                     >
-                        <Picker.Item label="Select a country..." value="" />
-                        {countries.map((country) => (
-                            <Picker.Item 
-                                key={country.isoCode} 
-                                label={country.name} 
-                                value={country.isoCode} 
-                            />
-                        ))}
-                    </Picker>
-                </View>
-            </View>
-            
-            {/* State/Province Dropdown - Only show if country is selected and not Singapore */}
-            {formData.countryCode && formData.countryCode !== 'SG' && (
-                <View style={authStyles.signupInputContainer}>
-                    <Text style={authStyles.signupInputLabel}>State/Province</Text>
-                    <View style={styles.pickerContainer}>
-                        <Picker
-                            selectedValue={formData.stateCode}
-                            onValueChange={handleStateSelect}
-                            style={styles.picker}
-                            enabled={states.length > 0}
-                        >
-                            <Picker.Item label="Select a state..." value="" />
-                            {states.map((state) => (
-                                <Picker.Item 
-                                    key={state.isoCode} 
-                                    label={state.name} 
-                                    value={state.isoCode} 
-                                />
-                            ))}
-                        </Picker>
-                    </View>
-                </View>
-            )}
-            
-            {/* City Dropdown - Only show if state is selected */}
-            {formData.stateCode && (
-                <View style={authStyles.signupInputContainer}>
-                    <Text style={authStyles.signupInputLabel}>City</Text>
-                    <View style={styles.pickerContainer}>
-                        <Picker
-                            selectedValue={formData.cityName}
-                            onValueChange={handleCitySelect}
-                            style={styles.picker}
-                            enabled={cities.length > 0}
-                        >
-                            <Picker.Item label="Select a city..." value="" />
-                            {cities.map((city) => (
-                                <Picker.Item 
-                                    key={city.name} 
-                                    label={city.name} 
-                                    value={city.name} 
-                                />
-                            ))}
-                        </Picker>
-                    </View>
-                </View>
-            )}
-            
-            {/* Bio Section */}
-            <Text style={[authStyles.signupInputLabel, authStyles.signupBioHeader]}>Music Bio (Share your sound!)</Text>
-            <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Your first concert / favorite music memory?</Text>
-                <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.firstSong} onChangeText={(text) => handleChange('bio.firstSong', text)} placeholder="That unforgettable show..." multiline returnKeyType="next" blurOnSubmit={false} />
-            </View>
-            <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Go-to song right now?</Text>
-                <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.goToSong} onChangeText={(text) => handleChange('bio.goToSong', text)} placeholder="The track on repeat..." returnKeyType="next" blurOnSubmit={false} />
-            </View>
-            <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>An album everyone should listen to?</Text>
-                <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.mustListenAlbum} onChangeText={(text) => handleChange('bio.mustListenAlbum', text)} placeholder="Your essential pick..." returnKeyType="next" blurOnSubmit={false} />
-            </View>
-            <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Dream concert lineup?</Text>
-                <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.dreamConcert} onChangeText={(text) => handleChange('bio.dreamConcert', text)} placeholder="Headliner? Opener?" returnKeyType="next" blurOnSubmit={false} />
-            </View>
-            <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Describe your music taste in a few words?</Text>
-                <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.musicTaste} onChangeText={(text) => handleChange('bio.musicTaste', text)} placeholder="Indie rock, 90s hip hop, electronic..." returnKeyType="done" onSubmitEditing={handleStepSubmit} />
-            </View>
-            {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
-            
-            {/* Back/Continue Buttons */}
-            <View style={authStyles.signupButtonContainer}>
-                <TouchableOpacity 
-                    style={authStyles.signupSecondaryButton} 
-                    onPress={() => goToPreviousStep('username')}
-                >
-                    <Text style={authStyles.signupSecondaryButtonText}>Back</Text>
-                </TouchableOpacity>
+                        <Text style={authStyles.signupSecondaryButtonText}>Back</Text>
+                    </TouchableOpacity>
 
-                <TouchableOpacity
-                    style={[
-                        authStyles.signupPrimaryButton,
-                        (isLoading || authLoading) && authStyles.signupPrimaryButtonDisabled
-                    ]}
-                    onPress={handleStepSubmit}
-                    disabled={isLoading || authLoading}
-                >
-                    <Text style={authStyles.signupPrimaryButtonText}>Continue</Text>
-                </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[
+                            authStyles.signupPrimaryButton,
+                            (isLoading || authLoading) && authStyles.signupPrimaryButtonDisabled
+                        ]}
+                        onPress={handleStepSubmit}
+                        disabled={isLoading || authLoading}
+                    >
+                        <Text style={authStyles.signupPrimaryButtonText}>Continue</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
         </View>
     );
