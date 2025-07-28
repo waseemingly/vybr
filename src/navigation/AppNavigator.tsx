@@ -1185,8 +1185,8 @@ const AppNavigator = () => {
         ) : !isProfileComplete ? (
           // 2. Logged In, Profile Incomplete - Complete Signup
           <RootStack.Screen
-            name={session.userType === 'music_lover' ? "MusicLoverSignUpFlow" : "OrganizerSignUpFlow"}
-            component={session.userType === 'music_lover' ? MusicLoverSignUpFlow : OrganizerSignUpFlow}
+            name={userType === 'music_lover' ? "MusicLoverSignUpFlow" : "OrganizerSignUpFlow"}
+            component={userType === 'music_lover' ? MusicLoverSignUpFlow : OrganizerSignUpFlow}
             options={{ gestureEnabled: false }}
           />
         ) : requiresPaymentScreen ? (
