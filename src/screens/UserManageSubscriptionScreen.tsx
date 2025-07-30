@@ -39,6 +39,8 @@ const UserManageSubscriptionScreen: React.FC = () => {
     const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
     const [planName, setPlanName] = useState<string>('Free Tier');
     const [renewalDate, setRenewalDate] = useState<string | null>(null);
+    const [cancellationDate, setCancellationDate] = useState<string | null>(null);
+    const [premiumEndDate, setPremiumEndDate] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isCanceling, setIsCanceling] = useState(false);
 
@@ -67,7 +69,7 @@ const UserManageSubscriptionScreen: React.FC = () => {
             // Fetch subscription details from music_lover_profiles table
             const { data: profile, error } = await supabase
                 .from('music_lover_profiles')
-                .select('is_premium, premium_selection_date')
+                .select('is_premium, premium_selection_date, subscription_cancelled_at')
                 .eq('user_id', userId)
                 .single();
 
@@ -77,9 +79,45 @@ const UserManageSubscriptionScreen: React.FC = () => {
             }
 
             if (profile) {
-                if (profile.is_premium) {
+                // Check if subscription was cancelled
+                if (profile.subscription_cancelled_at) {
+                    const cancelledDate = new Date(profile.subscription_cancelled_at);
+                    const now = new Date();
+                    
+                    // Calculate premium end date (cancellation date + 1 month)
+                    const premiumEnd = new Date(cancelledDate);
+                    premiumEnd.setMonth(premiumEnd.getMonth() + 1);
+                    
+                    // Check if premium period has ended
+                    if (now >= premiumEnd) {
+                        // Premium period has ended, clear cancellation date and set to free
+                        await supabase
+                            .from('music_lover_profiles')
+                            .update({
+                                is_premium: false,
+                                subscription_cancelled_at: null
+                            })
+                            .eq('user_id', userId);
+                        
+                        setSubscriptionStatus('free');
+                        setPlanName('Free Tier');
+                        setRenewalDate(null);
+                        setCancellationDate(null);
+                        setPremiumEndDate(null);
+                    } else {
+                        // Premium period is still active but cancelled
+                        setSubscriptionStatus('cancelled');
+                        setPlanName('Vybr Premium (Cancelled)');
+                        setCancellationDate(cancelledDate.toLocaleDateString());
+                        setPremiumEndDate(premiumEnd.toLocaleDateString());
+                        setRenewalDate(null);
+                    }
+                } else if (profile.is_premium) {
+                    // Active premium subscription
                     setSubscriptionStatus('active');
                     setPlanName('Vybr Premium');
+                    setCancellationDate(null);
+                    setPremiumEndDate(null);
                     
                     // Calculate renewal date based on premium_selection_date
                     if (profile.premium_selection_date) {
@@ -106,11 +144,15 @@ const UserManageSubscriptionScreen: React.FC = () => {
                     setSubscriptionStatus('free');
                     setPlanName('Free Tier');
                     setRenewalDate(null);
+                    setCancellationDate(null);
+                    setPremiumEndDate(null);
                 }
             } else {
                 setSubscriptionStatus('free');
                 setPlanName('Free Tier');
                 setRenewalDate(null);
+                setCancellationDate(null);
+                setPremiumEndDate(null);
             }
 
         } catch (error: unknown) {
@@ -216,7 +258,7 @@ const UserManageSubscriptionScreen: React.FC = () => {
             await refreshUserProfile();
             
             // Show success message with cancellation details
-            const message = `Your subscription has been cancelled successfully. You will continue to have premium access until ${data.access_ends_date || 'the end of your current billing period'}.`;
+            const message = `Your subscription has been cancelled successfully. You will continue to have premium access until the end of your current billing period.`;
             
             if (Platform.OS === 'web') {
                 alert(`Subscription Cancelled! ${message}`);
@@ -286,7 +328,7 @@ const UserManageSubscriptionScreen: React.FC = () => {
                 return 'Active';
             case 'free':
                 return 'Free Tier';
-            case 'canceled':
+            case 'cancelled':
                 return 'Cancelled (Active until period end)';
             default:
                 return subscriptionStatus.charAt(0).toUpperCase() + subscriptionStatus.slice(1);
@@ -297,7 +339,7 @@ const UserManageSubscriptionScreen: React.FC = () => {
         switch (subscriptionStatus) {
             case 'active':
                 return styles.status_active;
-            case 'canceled':
+            case 'cancelled':
                 return styles.status_canceled;
             case 'free':
                 return styles.status_free;
@@ -316,8 +358,8 @@ const UserManageSubscriptionScreen: React.FC = () => {
                         {subscriptionStatus === 'active' && renewalDate && (
                             <PlanDetail label="Renews on" value={renewalDate} />
                         )}
-                        {subscriptionStatus === 'canceled' && renewalDate && (
-                             <PlanDetail label="Access ends on" value={renewalDate} /> // Assuming renewal date becomes expiry date
+                        {subscriptionStatus === 'cancelled' && premiumEndDate && (
+                             <PlanDetail label="Premium ending on" value={premiumEndDate} />
                         )}
                         <View style={styles.planDetailItem}>
                             <Text style={styles.planDetailLabel}>Status:</Text>
@@ -355,17 +397,6 @@ const UserManageSubscriptionScreen: React.FC = () => {
                             <Text style={styles.buttonText}>Upgrade to Premium</Text>
                         </TouchableOpacity>
                         <Text style={styles.upgradeNote}>Unlock exclusive features by upgrading your plan.</Text>
-                    </View>
-                )}
-
-                 {subscriptionStatus === 'canceled' && (
-                    <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>Reactivate</Text>
-                         <TouchableOpacity style={styles.button} onPress={navigateToUpgrade}>
-                            <Feather name="refresh-cw" size={18} color="#FFFFFF" style={styles.buttonIcon} />
-                            <Text style={styles.buttonText}>Reactivate Premium</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.upgradeNote}>You can reactivate your premium subscription anytime.</Text>
                     </View>
                 )}
 
