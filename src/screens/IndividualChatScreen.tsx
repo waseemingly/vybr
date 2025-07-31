@@ -2062,10 +2062,8 @@ const IndividualChatScreen: React.FC = () => {
         const earliestUnreadIndex = messages.findIndex(msg => msg._id === earliestUnread._id);
         
         if (earliestUnreadIndex !== -1) {
-            // Adjust index to account for section headers
-            const adjustedIndex = Math.max(0, earliestUnreadIndex - 1);
-            console.log(`[IndividualChatScreen] Found earliest unread message at index: ${earliestUnreadIndex}, adjusted to: ${adjustedIndex}`);
-            return adjustedIndex;
+            console.log(`[IndividualChatScreen] Found earliest unread message at index: ${earliestUnreadIndex}`);
+            return earliestUnreadIndex;
         }
 
         // Fallback to bottom if we can't find the unread message
@@ -2133,65 +2131,19 @@ const IndividualChatScreen: React.FC = () => {
         handleScrollToMessage(earliestUnread._id);
     }, [currentUserId, matchUserId, messages, hasScrolledToUnread, handleScrollToMessage, handleAutoScrollToBottom]);
 
-    // Note: Removed the old scroll logic to prevent conflicts with the new improved scroll system
-
-    // Initial scroll to latest/unread message when component mounts
+    // Handle scroll to unread messages when messages are loaded and seen status is updated
     useEffect(() => {
-        if (messages.length > 0 && !loading && flatListRef.current && !hasScrolledToUnread) {
-            const initialScrollIndex = calculateInitialScrollIndex();
-            if (initialScrollIndex !== -1) {
-                console.log(`[IndividualChatScreen] Performing initial scroll to index: ${initialScrollIndex}`);
-                
-                // Use a longer delay to ensure the list is fully rendered and stable
-                const timer = setTimeout(() => {
-                    try {
-                        const sectionListRef = flatListRef.current as any;
-                        if (sectionListRef && sectionListRef.scrollToLocation) {
-                            // Find the section and item index for the target message
-                            let targetSectionIndex = -1;
-                            let targetItemIndex = -1;
-                            
-                            for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
-                                const itemIndex = sections[sectionIndex].data.findIndex((msg: ChatMessage) => 
-                                    messages.indexOf(msg) === initialScrollIndex
-                                );
-                                if (itemIndex !== -1) {
-                                    targetSectionIndex = sectionIndex;
-                                    targetItemIndex = itemIndex;
-                                    break;
-                                }
-                            }
-
-                            if (targetSectionIndex !== -1 && targetItemIndex !== -1) {
-                                sectionListRef.scrollToLocation({
-                                    sectionIndex: targetSectionIndex,
-                                    itemIndex: targetItemIndex,
-                                    animated: false,
-                                    viewPosition: 0.2 // Position the message slightly higher in the view
-                                });
-                                console.log(`[IndividualChatScreen] Successfully scrolled to section: ${targetSectionIndex}, item: ${targetItemIndex}`);
-                                setHasScrolledToUnread(true); // Mark as scrolled to prevent re-triggering
-                            } else {
-                                // Fallback to scrolling to bottom
-                                console.log(`[IndividualChatScreen] Could not find target position, falling back to bottom`);
-                                handleAutoScrollToBottom();
-                                setHasScrolledToUnread(true);
-                            }
-                        }
-                    } catch (error) {
-                        console.warn('Initial scroll failed:', error);
-                        handleAutoScrollToBottom();
-                        setHasScrolledToUnread(true);
-                    }
-                }, 300); // Increased delay for more stability
-                
-                return () => clearTimeout(timer);
-            } else {
-                // No scroll needed, mark as scrolled
-                setHasScrolledToUnread(true);
-            }
+        if (messages.length > 0 && !loading && !hasScrolledToUnread) {
+            // Wait for seen status to be properly updated before determining unread messages
+            const timer = setTimeout(() => {
+                // Double-check that we haven't already scrolled to unread
+                if (!hasScrolledToUnread) {
+                    findAndScrollToEarliestUnread();
+                }
+            }, 500); // Increased delay to ensure seen status is updated
+            return () => clearTimeout(timer);
         }
-    }, [messages.length, loading, calculateInitialScrollIndex, sections, handleAutoScrollToBottom, hasScrolledToUnread]);
+    }, [messages.length, loading, hasScrolledToUnread, findAndScrollToEarliestUnread, currentUserId, matchUserId]);
 
     // --- Scroll Event Handlers ---
     const handleScrollBeginDrag = useCallback(() => {
@@ -3284,9 +3236,14 @@ const IndividualChatScreen: React.FC = () => {
                     style={styles.messageList}
                     contentContainerStyle={styles.messageListContent}
                     keyExtractor={(item) => `${item._id}-${item.isSeen ? 'seen' : 'unseen'}`}
+                    initialScrollIndex={(() => {
+                        const index = calculateInitialScrollIndex();
+                        console.log(`[IndividualChatScreen] Calculated initial scroll index: ${index}`);
+                        return index;
+                    })()}
                     getItemLayout={(data, index) => ({
-                        length: 120, // More accurate height for message bubbles with padding
-                        offset: 120 * index,
+                        length: 80, // Approximate height of message bubble
+                        offset: 80 * index,
                         index,
                     })}
                     renderItem={({ item }) => (

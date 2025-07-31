@@ -3368,10 +3368,8 @@ const GroupChatScreen: React.FC = () => {
         const earliestUnreadIndex = messages.findIndex(msg => msg._id === earliestUnread._id);
         
         if (earliestUnreadIndex !== -1) {
-            // Adjust index to account for section headers
-            const adjustedIndex = Math.max(0, earliestUnreadIndex - 1);
-            console.log(`[GroupChatScreen] Found earliest unread message at index: ${earliestUnreadIndex}, adjusted to: ${adjustedIndex}`);
-            return adjustedIndex;
+            console.log(`[GroupChatScreen] Found earliest unread message at index: ${earliestUnreadIndex}`);
+            return earliestUnreadIndex;
         }
 
         // Fallback to bottom if we can't find the unread message
@@ -3394,6 +3392,8 @@ const GroupChatScreen: React.FC = () => {
             }
         }
     }, [isUserScrolling, isScrollingToMessage, isNearBottom, sections.length, messages.length]);
+
+
 
     // --- Scroll to Bottom FAB Handler ---
     const handleScrollToBottom = useCallback(() => {
@@ -3472,65 +3472,22 @@ const GroupChatScreen: React.FC = () => {
     }, [messages, currentUserId, hasUnreadMessages, hasScrolledToUnread, handleAutoScrollToBottom]);
 
     // Handle scroll to unread messages when messages are loaded and seen status is updated
-    // Note: Removed the old scroll logic to prevent conflicts with the new improved scroll system
-
-    // Initial scroll to latest/unread message when component mounts
     useEffect(() => {
-        if (messages.length > 0 && !loading && flatListRef.current && !hasScrolledToUnread) {
-            const initialScrollIndex = calculateInitialScrollIndex();
-            if (initialScrollIndex !== -1) {
-                console.log(`[GroupChatScreen] Performing initial scroll to index: ${initialScrollIndex}`);
-                
-                // Use a longer delay to ensure the list is fully rendered and stable
-                const timer = setTimeout(() => {
-                    try {
-                        const sectionListRef = flatListRef.current as any;
-                        if (sectionListRef && sectionListRef.scrollToLocation) {
-                            // Find the section and item index for the target message
-                            let targetSectionIndex = -1;
-                            let targetItemIndex = -1;
-                            
-                            for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
-                                const itemIndex = sections[sectionIndex].data.findIndex((msg: ChatMessage) => 
-                                    messages.indexOf(msg) === initialScrollIndex
-                                );
-                                if (itemIndex !== -1) {
-                                    targetSectionIndex = sectionIndex;
-                                    targetItemIndex = itemIndex;
-                                    break;
-                                }
-                            }
-
-                            if (targetSectionIndex !== -1 && targetItemIndex !== -1) {
-                                sectionListRef.scrollToLocation({
-                                    sectionIndex: targetSectionIndex,
-                                    itemIndex: targetItemIndex,
-                                    animated: false,
-                                    viewPosition: 0.2 // Position the message slightly higher in the view
-                                });
-                                console.log(`[GroupChatScreen] Successfully scrolled to section: ${targetSectionIndex}, item: ${targetItemIndex}`);
-                                setHasScrolledToUnread(true); // Mark as scrolled to prevent re-triggering
-                            } else {
-                                // Fallback to scrolling to bottom
-                                console.log(`[GroupChatScreen] Could not find target position, falling back to bottom`);
-                                handleAutoScrollToBottom();
-                                setHasScrolledToUnread(true);
-                            }
-                        }
-                    } catch (error) {
-                        console.warn('Initial scroll failed:', error);
-                        handleAutoScrollToBottom();
-                        setHasScrolledToUnread(true);
-                    }
-                }, 300); // Increased delay for more stability
-                
-                return () => clearTimeout(timer);
-            } else {
-                // No scroll needed, mark as scrolled
-                setHasScrolledToUnread(true);
-            }
+        console.log('[GroupChatScreen] useEffect for scroll to unread:', { messagesLength: messages.length, loading, hasScrolledToUnread });
+        if (messages.length > 0 && !loading && !hasScrolledToUnread) {
+            // Wait for seen status to be properly updated before determining unread messages
+            const timer = setTimeout(() => {
+                // Double-check that we haven't already scrolled to unread
+                if (!hasScrolledToUnread) {
+                    console.log('[GroupChatScreen] Triggering findAndScrollToEarliestUnread after delay');
+                    findAndScrollToEarliestUnread();
+                }
+            }, 500); // Increased delay to ensure seen status is updated
+            return () => clearTimeout(timer);
         }
-    }, [messages.length, loading, calculateInitialScrollIndex, sections, handleAutoScrollToBottom, hasScrolledToUnread]);
+    }, [messages.length, loading, hasScrolledToUnread, findAndScrollToEarliestUnread]);
+
+
 
     // --- Scroll Event Handlers ---
     const handleScrollBeginDrag = useCallback(() => {
@@ -3893,8 +3850,13 @@ const GroupChatScreen: React.FC = () => {
                     style={styles.messageList}
                     contentContainerStyle={styles.messageListContent}
                     keyExtractor={(item) => `${item._id}-${item.isSeen ? 'seen' : 'unseen'}-${item.seenBy?.length || 0}`}
+                    initialScrollIndex={(() => {
+                        const index = calculateInitialScrollIndex();
+                        console.log(`[GroupChatScreen] Calculated initial scroll index: ${index}`);
+                        return index;
+                    })()}
                     getItemLayout={(data, index) => ({
-                        length: 120, // More accurate height for message bubbles with padding
+                        length: 120, // Increased height for group messages
                         offset: 120 * index,
                         index,
                     })}
@@ -3903,7 +3865,7 @@ const GroupChatScreen: React.FC = () => {
                             message={item}
                             currentUserId={currentUserId}
                             onImagePress={handleImagePress}
-                            onEventPress={handleEventPressInternal} // Pass the new internal handler
+                            onEventPress={handleEventPressInternal}
                             onMessageLongPress={handleMessageLongPress}
                             onReplyPress={handleScrollToMessage}
                             getRepliedMessagePreview={getRepliedMessagePreview}
