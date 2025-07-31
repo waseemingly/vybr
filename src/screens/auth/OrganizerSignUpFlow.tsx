@@ -372,6 +372,39 @@ const OrganizerSignUpFlow = () => {
         <Text style={[authStyles.signupStepTitle, !isWeb && { marginBottom: 8, textAlign: 'center', fontSize: 24 }]}>Company Name</Text>
         <Text style={[authStyles.signupStepDescription, !isWeb && { marginBottom: 0, textAlign: 'center', fontSize: 14 }]}>Let's start with your company's name</Text>
       </View>
+      
+      {/* Unregistered Email Notice */}
+      <View style={{
+        backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}10`,
+        borderWidth: 1,
+        borderColor: `${APP_CONSTANTS.COLORS.PRIMARY}30`,
+        borderRadius: isWeb ? 12 : 10,
+        padding: isWeb ? 16 : 12,
+        marginBottom: isWeb ? 24 : 20,
+        alignItems: 'center',
+        width: isWeb ? '100%' : '90%'
+      }}>
+        <Feather name="info" size={20} color={APP_CONSTANTS.COLORS.PRIMARY} style={{ marginBottom: 8 }} />
+        <Text style={{
+          fontSize: isWeb ? 14 : 13,
+          color: APP_CONSTANTS.COLORS.PRIMARY,
+          fontWeight: '600',
+          textAlign: 'center',
+          marginBottom: 4,
+          fontFamily: 'Inter, sans-serif'
+        }}>
+          Email Not Registered
+        </Text>
+        <Text style={{
+          fontSize: isWeb ? 13 : 12,
+          color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+          textAlign: 'center',
+          lineHeight: isWeb ? 18 : 16,
+          fontFamily: 'Inter, sans-serif'
+        }}>
+          Your email address is not registered. Please complete your profile to create your organizer account.
+        </Text>
+      </View>
 
       {/* Form Section */}
       <View style={!isWeb && { width: '100%', alignItems: 'center' }}>
@@ -719,17 +752,16 @@ const OrganizerSignUpFlow = () => {
                 style={authStyles.signupBackButton}
                 onPress={() => {
                     if (currentStep === 'company-name') {
-                        // Navigate back to landing page from first step
-                        navigation.goBack(); // Use goBack instead of navigate to specific screen
+                        // Clear session and let auth flow handle navigation
+                        supabase.auth.signOut().then(() => {
+                            // After sign out, the auth flow will automatically navigate to Landing
+                        });
                     } else {
                         const steps: Step[] = ['company-name', 'profile-details'];
                         const currentIndex = steps.indexOf(currentStep);
                         if (currentIndex > 0) {
                             // Go back to previous step with animation
                             goToPreviousStep(steps[currentIndex - 1]);
-                        } else {
-                            // Fallback if already on first step
-                            navigation.goBack(); // Use goBack instead of navigate
                         }
                     }
                 }}
