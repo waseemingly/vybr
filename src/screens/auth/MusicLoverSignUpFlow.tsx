@@ -1027,6 +1027,38 @@ const MusicLoverSignUpFlow = () => {
                 <Text style={[authStyles.signupStepDescription, !isWeb && { marginBottom: 0, textAlign: 'center' }]}>Let's start with your basic information</Text>
             </View>
             
+            {/* Unregistered Email Notice */}
+            <View style={{
+                backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}10`,
+                borderWidth: 1,
+                borderColor: `${APP_CONSTANTS.COLORS.PRIMARY}30`,
+                borderRadius: isWeb ? 12 : 10,
+                padding: isWeb ? 16 : 12,
+                marginBottom: isWeb ? 24 : 20,
+                alignItems: 'center'
+            }}>
+                <Feather name="info" size={20} color={APP_CONSTANTS.COLORS.PRIMARY} style={{ marginBottom: 8 }} />
+                <Text style={{
+                    fontSize: isWeb ? 14 : 13,
+                    color: APP_CONSTANTS.COLORS.PRIMARY,
+                    fontWeight: '600',
+                    textAlign: 'center',
+                    marginBottom: 4,
+                    fontFamily: 'Inter, sans-serif'
+                }}>
+                    Email Not Registered
+                </Text>
+                <Text style={{
+                    fontSize: isWeb ? 13 : 12,
+                    color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+                    textAlign: 'center',
+                    lineHeight: isWeb ? 18 : 16,
+                    fontFamily: 'Inter, sans-serif'
+                }}>
+                    Your email address is not registered. Please complete your profile to create your account.
+                </Text>
+            </View>
+            
             {/* Form Section */}
             <View style={!isWeb && { width: '100%' }}>
                 {/* First/Last Name Row */}
@@ -2109,7 +2141,10 @@ const MusicLoverSignUpFlow = () => {
                         style={authStyles.signupBackButton}
                         onPress={() => {
                             if (currentStep === 'username') {
-                                navigation.goBack();
+                                // Clear session and let auth flow handle navigation
+                                supabase.auth.signOut().then(() => {
+                                    // After sign out, the auth flow will automatically navigate to Landing
+                                });
                             } else {
                                 const steps: Step[] = ['username', 'profile-details', 'streaming-service', 'subscription'];
                                 const currentIndex = steps.indexOf(currentStep);

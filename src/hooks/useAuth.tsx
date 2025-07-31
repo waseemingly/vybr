@@ -744,7 +744,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         navigationRef.current?.reset({ index: 0, routes: [{ name: 'MainApp' }] });
                     } else if (userType) {
                         console.log("[AuthProvider] Navigating to SignUpFlow (profile incomplete).");
-                        navigationRef.current?.reset({ index: 0, routes: [{ name: userType === 'music_lover' ? 'MusicLoverSignUpFlow' : 'OrganizerSignUpFlow' }] });
+                        // Use navigate instead of reset to preserve navigation history
+                        navigationRef.current?.navigate(userType === 'music_lover' ? 'MusicLoverSignUpFlow' : 'OrganizerSignUpFlow' as never);
                     } else {
                         console.log("[AuthProvider] Navigating to Auth (session exists, but no valid user type).");
                         navigationRef.current?.reset({ index: 0, routes: [{ name: 'Auth' }] });
