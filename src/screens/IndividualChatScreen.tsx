@@ -2034,6 +2034,45 @@ const IndividualChatScreen: React.FC = () => {
     }, [sections, isScrollingToMessage]);
     // --- End Scroll to Message Handler ---
 
+    // --- Calculate Initial Scroll Index ---
+    const calculateInitialScrollIndex = useCallback(() => {
+        if (!currentUserId || !matchUserId || messages.length === 0) {
+            return -1; // No scroll needed
+        }
+
+        // Find unread messages from the other user
+        const unreadMessages = messages.filter(msg => 
+            msg.user._id === matchUserId && !msg.isSeen
+        );
+
+        console.log(`[IndividualChatScreen] Chat: ${matchUserId}, Messages: ${messages.length}, Unread: ${unreadMessages.length}`);
+
+        if (unreadMessages.length === 0) {
+            // No unread messages, scroll to bottom (latest message)
+            const lastMessageIndex = messages.length - 1;
+            console.log(`[IndividualChatScreen] No unread messages, scrolling to bottom at index: ${lastMessageIndex}`);
+            return lastMessageIndex;
+        }
+
+        // Find the earliest unread message
+        const earliestUnread = unreadMessages.reduce((earliest, current) => 
+            current.createdAt < earliest.createdAt ? current : earliest
+        );
+        
+        const earliestUnreadIndex = messages.findIndex(msg => msg._id === earliestUnread._id);
+        
+        if (earliestUnreadIndex !== -1) {
+            // Adjust index to account for section headers
+            const adjustedIndex = Math.max(0, earliestUnreadIndex - 1);
+            console.log(`[IndividualChatScreen] Found earliest unread message at index: ${earliestUnreadIndex}, adjusted to: ${adjustedIndex}`);
+            return adjustedIndex;
+        }
+
+        // Fallback to bottom if we can't find the unread message
+        console.log(`[IndividualChatScreen] Could not find unread message, falling back to bottom`);
+        return messages.length - 1;
+    }, [currentUserId, matchUserId, messages]);
+
     // --- Smart Auto-Scroll Handler ---
     const handleAutoScrollToBottom = useCallback(() => {
         if (isUserScrolling || isScrollingToMessage || !isNearBottom) {
@@ -2094,19 +2133,65 @@ const IndividualChatScreen: React.FC = () => {
         handleScrollToMessage(earliestUnread._id);
     }, [currentUserId, matchUserId, messages, hasScrolledToUnread, handleScrollToMessage, handleAutoScrollToBottom]);
 
-    // Handle scroll to unread messages when messages are loaded and seen status is updated
+    // Note: Removed the old scroll logic to prevent conflicts with the new improved scroll system
+
+    // Initial scroll to latest/unread message when component mounts
     useEffect(() => {
-        if (messages.length > 0 && !loading && !hasScrolledToUnread) {
-            // Wait for seen status to be properly updated before determining unread messages
-            const timer = setTimeout(() => {
-                // Double-check that we haven't already scrolled to unread
-                if (!hasScrolledToUnread) {
-                    findAndScrollToEarliestUnread();
-                }
-            }, 500); // Increased delay to ensure seen status is updated
-            return () => clearTimeout(timer);
+        if (messages.length > 0 && !loading && flatListRef.current && !hasScrolledToUnread) {
+            const initialScrollIndex = calculateInitialScrollIndex();
+            if (initialScrollIndex !== -1) {
+                console.log(`[IndividualChatScreen] Performing initial scroll to index: ${initialScrollIndex}`);
+                
+                // Use a longer delay to ensure the list is fully rendered and stable
+                const timer = setTimeout(() => {
+                    try {
+                        const sectionListRef = flatListRef.current as any;
+                        if (sectionListRef && sectionListRef.scrollToLocation) {
+                            // Find the section and item index for the target message
+                            let targetSectionIndex = -1;
+                            let targetItemIndex = -1;
+                            
+                            for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
+                                const itemIndex = sections[sectionIndex].data.findIndex((msg: ChatMessage) => 
+                                    messages.indexOf(msg) === initialScrollIndex
+                                );
+                                if (itemIndex !== -1) {
+                                    targetSectionIndex = sectionIndex;
+                                    targetItemIndex = itemIndex;
+                                    break;
+                                }
+                            }
+
+                            if (targetSectionIndex !== -1 && targetItemIndex !== -1) {
+                                sectionListRef.scrollToLocation({
+                                    sectionIndex: targetSectionIndex,
+                                    itemIndex: targetItemIndex,
+                                    animated: false,
+                                    viewPosition: 0.2 // Position the message slightly higher in the view
+                                });
+                                console.log(`[IndividualChatScreen] Successfully scrolled to section: ${targetSectionIndex}, item: ${targetItemIndex}`);
+                                setHasScrolledToUnread(true); // Mark as scrolled to prevent re-triggering
+                            } else {
+                                // Fallback to scrolling to bottom
+                                console.log(`[IndividualChatScreen] Could not find target position, falling back to bottom`);
+                                handleAutoScrollToBottom();
+                                setHasScrolledToUnread(true);
+                            }
+                        }
+                    } catch (error) {
+                        console.warn('Initial scroll failed:', error);
+                        handleAutoScrollToBottom();
+                        setHasScrolledToUnread(true);
+                    }
+                }, 300); // Increased delay for more stability
+                
+                return () => clearTimeout(timer);
+            } else {
+                // No scroll needed, mark as scrolled
+                setHasScrolledToUnread(true);
+            }
         }
-    }, [messages.length, loading, hasScrolledToUnread, findAndScrollToEarliestUnread, currentUserId, matchUserId]);
+    }, [messages.length, loading, calculateInitialScrollIndex, sections, handleAutoScrollToBottom, hasScrolledToUnread]);
 
     // --- Scroll Event Handlers ---
     const handleScrollBeginDrag = useCallback(() => {
@@ -3199,6 +3284,11 @@ const IndividualChatScreen: React.FC = () => {
                     style={styles.messageList}
                     contentContainerStyle={styles.messageListContent}
                     keyExtractor={(item) => `${item._id}-${item.isSeen ? 'seen' : 'unseen'}`}
+                    getItemLayout={(data, index) => ({
+                        length: 120, // More accurate height for message bubbles with padding
+                        offset: 120 * index,
+                        index,
+                    })}
                     renderItem={({ item }) => (
                         <MessageBubble 
                             message={item} 
@@ -3227,7 +3317,8 @@ const IndividualChatScreen: React.FC = () => {
                     onContentSizeChange={handleAutoScrollToBottom}
                     onLayout={handleAutoScrollToBottom}
                     onScrollToIndexFailed={(info) => {
-                        console.warn('Failed to scroll to index:', info);
+                        console.log(`[IndividualChatScreen] Scroll to index failed:`, info);
+                        console.log(`[IndividualChatScreen] Initial scroll index was: ${calculateInitialScrollIndex()}`);
                         handleAutoScrollToBottom();
                     }}
                     stickySectionHeadersEnabled
