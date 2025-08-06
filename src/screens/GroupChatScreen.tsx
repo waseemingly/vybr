@@ -20,6 +20,11 @@ import { useUnreadCount } from '@/hooks/useUnreadCount';
 import { shareImage, copyToClipboard, downloadImage } from '../utils/sharingUtils';
 import type { ChatItem } from '@/components/ChatsTabs';
 
+// NEW: Import new modular services (parallel implementation)
+import { useMessageFetching } from '@/hooks/message/useMessageFetching';
+import { useMessageSending } from '@/hooks/message/useMessageSending';
+import { MessageStatusService } from '@/services/message/MessageStatusService';
+
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -696,9 +701,51 @@ const GroupChatScreen: React.FC = () => {
     const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     // --- End State for scroll management ---
 
+    // NEW: Feature flag to control which implementation to use
+    const useNewServices = process.env.REACT_APP_USE_NEW_CHAT_SERVICES === 'true';
+
+    // NEW: Add new modular hooks (parallel implementation - doesn't break existing functionality)
+    const {
+        messages: newMessages,
+        loading: newLoading,
+        error: newError,
+        hasMore: newHasMore,
+        fetchMessages: newFetchMessages,
+        refreshMessages: newRefreshMessages,
+        clearMessages: newClearMessages
+    } = useMessageFetching({
+        chatType: 'group',
+        chatId: groupId || '',
+        userId: currentUserId || '',
+        partnerName: currentGroupName,
+        autoFetch: false // Don't auto-fetch yet, we'll control this manually
+    });
+
+    const {
+        sendTextMessage: newSendTextMessage,
+        sendImageMessage: newSendImageMessage,
+        shareEvent: newShareEvent,
+        sending: newSending
+    } = useMessageSending({
+        chatType: 'group',
+        chatId: groupId || '',
+        senderId: currentUserId || '',
+        onMessageSent: (message) => {
+            // Update both old and new state during transition
+            setMessages(prev => [...prev, message]);
+        },
+        onMessageFailed: (tempId, error) => {
+            console.error('[NEW] Message failed:', error);
+            // Remove failed message from state
+            setMessages(prev => prev.filter(msg => msg._id !== tempId));
+        }
+    });
+
     // --- State for Real-time Features ---
     const [onlineMembers, setOnlineMembers] = useState<Set<string>>(new Set());
     // --- End State for Real-time Features ---
+
+
 
     // --- Event Press Handler (similar to IndividualChatScreen) ---
     const handleEventPressInternal = async (eventId: string) => {
@@ -1459,9 +1506,25 @@ const GroupChatScreen: React.FC = () => {
 
     const handleSendPress = () => {
         if (sharedEventMessage && initialSharedEventData?.eventId) {
-            shareEventToGroupViaRpc(initialSharedEventData);
+            if (useNewServices) {
+                // NEW: Use new event sharing service
+                console.log('[NEW] Using new group event sharing service');
+                newShareEvent(initialSharedEventData);
+            } else {
+                // OLD: Use existing event sharing
+                console.log('[OLD] Using existing group event sharing service');
+                shareEventToGroupViaRpc(initialSharedEventData);
+            }
         } else if (inputText.trim()) {
-            sendTextMessage(inputText);
+            if (useNewServices) {
+                // NEW: Use new text message sending service
+                console.log('[NEW] Using new group text message sending service');
+                newSendTextMessage(inputText, replyingToMessage?._id);
+            } else {
+                // OLD: Use existing text message sending
+                console.log('[OLD] Using existing group text message sending service');
+                sendTextMessage(inputText);
+            }
         }
     };
 
@@ -2884,7 +2947,30 @@ const GroupChatScreen: React.FC = () => {
     // Using RealtimeContext for all realtime functionality
 
     // Effects
-    useFocusEffect(useCallback(() => { fetchInitialData(); return () => { }; }, [fetchInitialData]));
+    useFocusEffect(useCallback(() => { 
+        if (useNewServices) {
+            // NEW: Use new message fetching service
+            console.log('[NEW] Using new group message fetching service');
+            newFetchMessages().then(() => {
+                // Sync new messages to old state for compatibility
+                setMessages(newMessages);
+                setLoading(newLoading);
+                setLoadError(newError);
+            });
+        } else {
+            // OLD: Use existing message fetching
+            console.log('[OLD] Using existing group message fetching service');
+            fetchInitialData();
+        }
+        return () => { }; 
+    }, [fetchInitialData, newFetchMessages, newMessages, newLoading, newError, useNewServices]));
+
+    // Sync new messages to old state when newMessages changes
+    useEffect(() => {
+        if (useNewServices && newMessages.length > 0) {
+            setMessages(newMessages);
+        }
+    }, [newMessages, useNewServices]);
 
     // Ensure group name is set properly when entering via notification
     useEffect(() => {

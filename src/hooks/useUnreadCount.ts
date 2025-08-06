@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useRealtime } from '@/context/RealtimeContext';
@@ -8,6 +8,9 @@ export const useUnreadCount = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const { session } = useAuth();
   const { subscribeToEvent, unsubscribeFromEvent } = useRealtime();
+  
+  // Use ref to store the latest fetchUnreadCount function
+  const fetchUnreadCountRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   // Function to fetch the latest unread count
   const fetchUnreadCount = useCallback(async () => {
@@ -49,11 +52,18 @@ export const useUnreadCount = () => {
     }
   }, [session?.user?.id]);
 
-  // Handle real-time message updates
+  // Update the ref with the latest fetchUnreadCount function
+  useEffect(() => {
+    fetchUnreadCountRef.current = fetchUnreadCount;
+  }, [fetchUnreadCount]);
+
+  // Handle real-time message updates - now stable and doesn't depend on fetchUnreadCount
   const handleMessageUpdate = useCallback(() => {
     // Refresh the unread count when new messages arrive or status changes
-    fetchUnreadCount();
-  }, [fetchUnreadCount]);
+    if (fetchUnreadCountRef.current) {
+      fetchUnreadCountRef.current();
+    }
+  }, []); // No dependencies needed
 
   // Set up real-time subscriptions
   useEffect(() => {

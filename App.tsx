@@ -34,6 +34,7 @@ import { NotificationProvider } from '@/context/NotificationContext';
 import WebNotificationContainer from '@/components/WebNotificationContainer';
 import { Toaster } from '@/components/ui/sonner';
 
+
 // React Navigation
 import type { NavigationContainerRef } from '@react-navigation/native';
 
@@ -81,6 +82,8 @@ const linking = {
 export default function App() {
   const [isReady, setIsReady] = React.useState(false);
   const [initialState, setInitialState] = React.useState();
+
+
 
   React.useEffect(() => {
     const restoreState = async () => {
@@ -159,6 +162,7 @@ export default function App() {
                       <WebNotificationContainer />
                     </NavigationContainer>
                     <Toaster />
+                    
                   </SafeAreaProvider>
                 </NotificationProvider>
               </RealtimeProvider>
