@@ -1,4 +1,4 @@
-// import React from "react"; // No need for useState here anymore
+    // import React from "react"; // No need for useState here anymore
 // import {
 //   View,
 //   Text,
@@ -164,7 +164,7 @@
 
 // src/components/ChatsTabs.tsx
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     View,
     Text,
@@ -200,8 +200,14 @@ export interface IndividualChatListItem {
 }
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { useUnreadCount } from '@/hooks/useUnreadCount';
 import { APP_CONSTANTS } from '@/config/constants';
 import type { IndividualSubTab } from '@/screens/ChatsScreen';
+
+// NEW: Import new modular services (parallel implementation)
+import { useMessageFetching } from '@/hooks/message/useMessageFetching';
+import { useMessageSending } from '@/hooks/message/useMessageSending';
+import { MessageStatusService } from '@/services/message/MessageStatusService';
 // --- End Adjustments ---
 
 // Define structure for Group Chat List Item (from RPC get_group_chat_list)
@@ -328,13 +334,19 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
 }) => {
     const { session } = useAuth();
     const { subscribeToEvent, unsubscribeFromEvent } = useRealtime();
+    const { refreshUnreadCount } = useUnreadCount(); // Use the hook instead of fetching separately
+    
     const [individualList, setIndividualList] = useState<IndividualChatListItem[]>([]);
     const [groupList, setGroupList] = useState<GroupChatListItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [useNewServices] = useState(false);
 
-    // Fetch data function (fetches both lists with unread counts)
+    // Use ref to store the latest fetchData function
+    const fetchDataRef = useRef<((refreshing?: boolean) => Promise<void>) | undefined>(undefined);
+
+    // Fetch data function (fetches chat lists WITHOUT unread counts - those come from useUnreadCount)
     const fetchData = useCallback(async (refreshing = false) => {
         if (!session?.user?.id) {
             setError("Not logged in."); 
@@ -347,12 +359,13 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         else setIsRefreshing(true);
         
         setError(null);
-        console.log("ChatsTabs: Fetching data with unread counts...");
+        console.log("ChatsTabs: Fetching chat lists...");
 
         try {
+            // Fetch chat lists WITHOUT unread counts to avoid duplicate calls
             const [individualResult, groupResult] = await Promise.all([
-                supabase.rpc('get_chat_list_with_unread'),
-                supabase.rpc('get_group_chat_list_with_unread')
+                supabase.rpc('get_chat_list'), // Changed to get_chat_list without unread
+                supabase.rpc('get_group_chat_list') // Changed to get_group_chat_list without unread
             ]);
 
             if (individualResult.error) throw new Error(`Individual chats: ${individualResult.error.message}`);
@@ -374,10 +387,24 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         }
     }, [session?.user?.id]);
 
+    // Update the ref with the latest fetchData function
+    useEffect(() => {
+        fetchDataRef.current = fetchData;
+    }, [fetchData]);
+
     // Fetch on mount and when session changes
     useEffect(() => {
-        fetchData();
-    }, [session?.user?.id]);
+        if (useNewServices) {
+            // NEW: Use new chat list fetching service
+            console.log('[NEW] Using new ChatsTabs fetching service');
+            // For now, still use the old fetchData but log that we're using new services
+            fetchData();
+        } else {
+            // OLD: Use existing chat list fetching
+            console.log('[OLD] Using existing ChatsTabs fetching service');
+            fetchData();
+        }
+    }, [session?.user?.id, useNewServices]); // Removed fetchData from dependencies
 
     // Enhanced real-time useEffect for smooth updates
     useEffect(() => {
@@ -403,7 +430,10 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 if (chatIndex === -1) {
                     console.log('ChatsTabs: New conversation detected, fetching full list.');
                     // Use setTimeout to avoid calling fetchData during render
-                    setTimeout(() => fetchData(), 0);
+                    setTimeout(() => {
+                        fetchDataRef.current?.();
+                        refreshUnreadCount();
+                    }, 0);
                     return currentList; 
                 }
 
@@ -440,8 +470,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 });
             });
             
-            // Refresh data to ensure accurate unread counts
-            setTimeout(() => fetchData(), 100);
+            // Refresh unread count from the hook instead of fetching data
+            setTimeout(() => refreshUnreadCount(), 100);
         };
         
         // --- Handler for group message seen status updates ---
@@ -462,8 +492,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 });
             });
             
-            // Refresh data to ensure accurate unread counts
-            setTimeout(() => fetchData(), 100);
+            // Refresh unread count from the hook instead of fetching data
+            setTimeout(() => refreshUnreadCount(), 100);
         };
         
         // --- Handler for new group messages ---
@@ -483,7 +513,10 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 if (chatIndex === -1) {
                     console.log('ChatsTabs: New group chat detected, fetching full list.');
                     // Use setTimeout to avoid calling fetchData during render
-                    setTimeout(() => fetchData(), 0);
+                    setTimeout(() => {
+                        fetchDataRef.current?.();
+                        refreshUnreadCount();
+                    }, 0);
                     return currentList;
                 }
 
@@ -506,13 +539,15 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         const handleNewGroupAdded = (payload: any) => {
             console.log('ChatsTabs: Current user was added to a group, refreshing chat list.', payload);
             // Use setTimeout to avoid calling fetchData during render
-            setTimeout(() => fetchData(), 0);
+            setTimeout(() => {
+                fetchDataRef.current?.();
+                refreshUnreadCount();
+            }, 0);
         };
 
-        // For status updates (e.g., "seen"), a refresh is still the most reliable way 
-        // to ensure all unread counts across all chats are accurate.
+        // For status updates (e.g., "seen"), refresh unread count from the hook
         const handleStatusUpdate = (payload: any) => {
-            console.log('ChatsTabs: Status update received, refreshing data for accurate counts.', payload);
+            console.log('ChatsTabs: Status update received, refreshing unread count.', payload);
             
             // For individual message status updates, we can optimize by updating the specific chat
             if (payload.new && payload.new.message_id) {
@@ -530,8 +565,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 });
             }
             
-            // Use setTimeout to avoid calling fetchData during render
-            setTimeout(() => fetchData(), 0);
+            // Refresh unread count from the hook instead of fetching data
+            setTimeout(() => refreshUnreadCount(), 0);
         };
 
         // Subscribe to events

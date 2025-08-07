@@ -31,6 +31,11 @@ import { useUnreadCount } from '@/hooks/useUnreadCount';
 import { shareImage, copyToClipboard, downloadImage } from '../utils/sharingUtils';
 import type { ChatItem } from '@/components/ChatsTabs';
 
+// NEW: Import new modular services (parallel implementation)
+import { useMessageFetching } from '@/hooks/message/useMessageFetching';
+import { useMessageSending } from '@/hooks/message/useMessageSending';
+import { MessageStatusService } from '@/services/message/MessageStatusService';
+
 // Types and MessageBubble component
 type IndividualChatScreenRouteProp = RouteProp<RootStackParamList & {
   IndividualChatScreen: {
@@ -620,7 +625,49 @@ const IndividualChatScreen: React.FC = () => {
     const flatListRef = useRef<SectionList<any>>(null);
     const isCurrentUserPremium = musicLoverProfile?.isPremium;
 
+    // NEW: Feature flag to control which implementation to use
+    const useNewServices = process.env.REACT_APP_USE_NEW_CHAT_SERVICES === 'true';
+
+    // NEW: Add new modular hooks (parallel implementation - doesn't break existing functionality)
+    const {
+        messages: newMessages,
+        loading: newLoading,
+        error: newError,
+        hasMore: newHasMore,
+        fetchMessages: newFetchMessages,
+        refreshMessages: newRefreshMessages,
+        clearMessages: newClearMessages
+    } = useMessageFetching({
+        chatType: 'individual',
+        chatId: matchUserId || '',
+        userId: currentUserId || '',
+        partnerName: dynamicMatchName,
+        autoFetch: false // Don't auto-fetch yet, we'll control this manually
+    });
+
+    const {
+        sendTextMessage: newSendTextMessage,
+        sendImageMessage: newSendImageMessage,
+        shareEvent: newShareEvent,
+        sending: newSending
+    } = useMessageSending({
+        chatType: 'individual',
+        chatId: matchUserId || '',
+        senderId: currentUserId || '',
+        onMessageSent: (message) => {
+            // Update both old and new state during transition
+            setMessages(prev => [...prev, message]);
+        },
+        onMessageFailed: (tempId, error) => {
+            console.error('[NEW] Message failed:', error);
+            // Remove failed message from state
+            setMessages(prev => prev.filter(msg => msg._id !== tempId));
+        }
+    });
+
     // --- Callback Functions (useCallback) & Other Helpers ---
+
+
 
     const handleEventPressInternal = async (eventId: string) => {
         if (!eventId) {
@@ -1250,9 +1297,25 @@ const IndividualChatScreen: React.FC = () => {
 
     const handleSendPress = () => {
         if (sharedEventMessage && initialSharedEventData?.eventId) {
-            shareEventToUser(initialSharedEventData);
+            if (useNewServices) {
+                // NEW: Use new event sharing service
+                console.log('[NEW] Using new event sharing service');
+                newShareEvent(initialSharedEventData);
+            } else {
+                // OLD: Use existing event sharing
+                console.log('[OLD] Using existing event sharing service');
+                shareEventToUser(initialSharedEventData);
+            }
         } else if (inputText.trim()) {
-            sendTextMessage(inputText);
+            if (useNewServices) {
+                // NEW: Use new text message sending service
+                console.log('[NEW] Using new text message sending service');
+                newSendTextMessage(inputText, replyingToMessage?._id);
+            } else {
+                // OLD: Use existing text message sending
+                console.log('[OLD] Using existing text message sending service');
+                sendTextMessage(inputText);
+            }
         }
     };
 
@@ -1347,11 +1410,31 @@ const IndividualChatScreen: React.FC = () => {
     // Fetch initial messages AFTER checking block status
     useEffect(() => {
         if (!isBlocked && currentUserId && matchUserId) {
-            fetchMessages();
+            if (useNewServices) {
+                // NEW: Use new message fetching service
+                console.log('[NEW] Using new message fetching service');
+                newFetchMessages().then(() => {
+                    // Sync new messages to old state for compatibility
+                    setMessages(newMessages);
+                    setLoading(newLoading);
+                    setError(newError);
+                });
+            } else {
+                // OLD: Use existing message fetching
+                console.log('[OLD] Using existing message fetching service');
+                fetchMessages();
+            }
         } else if (isBlocked) {
             setMessages([]); // Ensure messages are cleared if blocked
         }
-    }, [fetchMessages, isBlocked, currentUserId, matchUserId]); // Run when block status or IDs change
+    }, [fetchMessages, newFetchMessages, newMessages, newLoading, newError, isBlocked, currentUserId, matchUserId, useNewServices]); // Run when block status or IDs change
+
+    // Sync new messages to old state when newMessages changes
+    useEffect(() => {
+        if (useNewServices && newMessages.length > 0) {
+            setMessages(newMessages);
+        }
+    }, [newMessages, useNewServices]);
 
     // Update online status from presence state
     useEffect(() => {
@@ -1524,55 +1607,63 @@ const IndividualChatScreen: React.FC = () => {
                         return finalMessages;
                     });
 
-                    // If the message is from the other user, mark it as seen immediately AFTER adding to state
-                    if (newMessageDb.sender_id === matchUserId) {
-                        try {
-                            console.log('[IndividualChatScreen] Marking new message as seen immediately');
-                            const { error } = await supabase.rpc('mark_message_seen', { message_id_input: newMessageDb.id });
-                            if (error) {
-                                console.error(`Error marking message ${newMessageDb.id} as seen via RPC:`, error.message);
-                            } else {
-                                // Send broadcast to notify sender about seen status
-                                sendBroadcast('individual', matchUserId, 'message_status', {
-                                    message_id: newMessageDb.id,
-                                    is_seen: true,
-                                    seen_at: new Date().toISOString(),
-                                    user_id: currentUserId
-                                });
-                                
-                                // Also update the message locally to show seen status immediately
-                                setMessages(prevMessages => {
-                                    return prevMessages.map(msg => {
-                                        if (msg._id === newMessageDb.id) {
-                                            return {
-                                                ...msg,
-                                                isSeen: true,
-                                                seenAt: new Date()
-                                            };
-                                        }
-                                        return msg;
-                                    });
-                                });
-                                
-                                // Trigger a direct database update to ensure ChatsTabs gets notified
-                                // This ensures the RealtimeContext picks up the change and broadcasts message_status_updated
-                                try {
-                                    await supabase
-                                        .from('message_status')
-                                        .update({ 
-                                            is_seen: true, 
-                                            seen_at: new Date().toISOString() 
-                                        })
-                                        .eq('message_id', newMessageDb.id)
-                                        .eq('receiver_id', currentUserId);
-                                } catch (dbUpdateError) {
-                                    console.warn('Direct database update failed (this is expected if RPC already updated it):', dbUpdateError);
-                                }
-                            }
-                        } catch (e: any) {
-                            console.error(`Exception marking message ${newMessageDb.id} as seen:`, e.message);
+                                // If the message is from the other user, mark it as seen immediately AFTER adding to state
+            if (newMessageDb.sender_id === matchUserId) {
+                try {
+                    console.log('[IndividualChatScreen] Marking new message as seen immediately');
+                    if (useNewServices) {
+                        // NEW: Use MessageStatusService
+                        await MessageStatusService.markMessageSeen(newMessageDb.id, currentUserId);
+                    } else {
+                        // OLD: Use direct database call
+                        const { error } = await supabase.rpc('mark_message_seen', { message_id_input: newMessageDb.id });
+                        if (error) {
+                            console.error(`Error marking message ${newMessageDb.id} as seen via RPC:`, error.message);
                         }
                     }
+                    
+                    // Send broadcast to notify sender about seen status
+                    sendBroadcast('individual', matchUserId, 'message_status', {
+                        message_id: newMessageDb.id,
+                        is_seen: true,
+                        seen_at: new Date().toISOString(),
+                        user_id: currentUserId
+                    });
+                    
+                    // Also update the message locally to show seen status immediately
+                    setMessages(prevMessages => {
+                        return prevMessages.map(msg => {
+                            if (msg._id === newMessageDb.id) {
+                                return {
+                                    ...msg,
+                                    isSeen: true,
+                                    seenAt: new Date()
+                                };
+                            }
+                            return msg;
+                        });
+                    });
+                    
+                    // Trigger a direct database update to ensure ChatsTabs gets notified
+                    // This ensures the RealtimeContext picks up the change and broadcasts message_status_updated
+                    if (!useNewServices) {
+                        try {
+                            await supabase
+                                .from('message_status')
+                                .update({ 
+                                    is_seen: true, 
+                                    seen_at: new Date().toISOString() 
+                                })
+                                .eq('message_id', newMessageDb.id)
+                                .eq('receiver_id', currentUserId);
+                        } catch (dbUpdateError) {
+                            console.warn('Direct database update failed (this is expected if RPC already updated it):', dbUpdateError);
+                        }
+                    }
+                } catch (e: any) {
+                    console.error(`Exception marking message ${newMessageDb.id} as seen:`, e.message);
+                }
+            }
                 }
             )
             .subscribe((status) => {
@@ -2663,33 +2754,39 @@ const IndividualChatScreen: React.FC = () => {
         console.log(`[IndividualChatScreen] Marking ${unseenMessagesFromPartner.length} messages as seen from ${matchUserId}`);
 
         try {
-            // Use bulk function for better performance and real-time updates
-            const { error } = await supabase.rpc('mark_all_messages_seen_from_user', {
-                sender_id_input: matchUserId,
-                receiver_id_input: currentUserId
-            });
-
-            if (error) {
-                console.error('Error marking all messages as seen:', error.message);
+            if (useNewServices) {
+                // NEW: Use MessageStatusService
+                await MessageStatusService.markAllMessagesSeenFromUser(matchUserId, currentUserId);
             } else {
-                sendBroadcast('individual', matchUserId, 'message_status', { 
-                    message_ids: unseenMessagesFromPartner.map(m => m._id),
-                    seen_by: currentUserId
+                // OLD: Use direct database call
+                const { error } = await supabase.rpc('mark_all_messages_seen_from_user', {
+                    sender_id_input: matchUserId,
+                    receiver_id_input: currentUserId
                 });
-                // Optimistically update UI for all unseen messages from this user
-                setMessages(prev => prev.map(m => 
-                    m.user._id === matchUserId && !m.isSeen
-                        ? {...m, isSeen: true, seenAt: new Date()} 
-                        : m
-                ));
-                
-                // Note: refreshUnreadCount() removed to prevent infinite loop
-                // The unread count will be updated automatically through real-time subscriptions
+
+                if (error) {
+                    console.error('Error marking all messages as seen:', error.message);
+                    return;
+                }
             }
+            
+            sendBroadcast('individual', matchUserId, 'message_status', { 
+                message_ids: unseenMessagesFromPartner.map(m => m._id),
+                seen_by: currentUserId
+            });
+            // Optimistically update UI for all unseen messages from this user
+            setMessages(prev => prev.map(m => 
+                m.user._id === matchUserId && !m.isSeen
+                    ? {...m, isSeen: true, seenAt: new Date()} 
+                    : m
+            ));
+            
+            // Note: refreshUnreadCount() removed to prevent infinite loop
+            // The unread count will be updated automatically through real-time subscriptions
         } catch (e: any) {
             console.error('Exception marking messages as seen:', e.message);
         }
-    }, [currentUserId, matchUserId, messages, sendBroadcast]);
+    }, [currentUserId, matchUserId, messages, sendBroadcast, useNewServices]);
 
     // Enhanced function to check and update seen status for messages loaded from database
     const checkAndUpdateSeenStatus = useCallback(async () => {
