@@ -23,7 +23,9 @@ module.exports = function (api) {
           "safe": true,
           "allowUndefined": false
         }
-      ]
+      ],
+      // PowerSync async generator support
+      "@babel/plugin-transform-async-generator-functions"
     ],
   };
 };

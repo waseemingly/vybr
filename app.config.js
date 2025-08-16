@@ -65,6 +65,7 @@ export default {
       SPOTIFY_REDIRECT_URI: "http://127.0.0.1:19006/callback",
       EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: "830574548321-h59962oi42ok7tejuhkefud8tbooo18j.apps.googleusercontent.com",
       EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID: "830574548321-1tm2a4o9ibib5ss4qk3370ufc16vu4jr.apps.googleusercontent.com",
+      POWERSYNC_URL: "https://68961d41fd729385fadb5576.powersync.journeyapps.com",
       eas: {
         projectId: "2e4e657f-20f5-468b-87ee-ebf78ca2a0cc"
       }

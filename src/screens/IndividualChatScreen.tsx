@@ -26,6 +26,7 @@ import {
     type OrganizerInfo,
 } from '@/screens/EventsScreen';
 import { useRealtime } from '@/context/RealtimeContext'; // Import useRealtime
+import { usePowerSync } from '@/context/PowerSyncContext'; // Import PowerSync context
 import UnifiedNotificationService from '@/services/UnifiedNotificationService';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
 import { shareImage, copyToClipboard, downloadImage } from '../utils/sharingUtils';
@@ -625,8 +626,12 @@ const IndividualChatScreen: React.FC = () => {
     const flatListRef = useRef<SectionList<any>>(null);
     const isCurrentUserPremium = musicLoverProfile?.isPremium;
 
+    // PowerSync context for platform detection
+    const { isMobile, isPowerSyncAvailable } = usePowerSync();
+
     // NEW: Feature flag to control which implementation to use
-    const useNewServices = process.env.REACT_APP_USE_NEW_CHAT_SERVICES === 'true';
+    // Use new services if explicitly enabled OR if on mobile with PowerSync available
+    const useNewServices = process.env.REACT_APP_USE_NEW_CHAT_SERVICES === 'true' || (isMobile && isPowerSyncAvailable);
 
     // NEW: Add new modular hooks (parallel implementation - doesn't break existing functionality)
     const {
@@ -2942,7 +2947,8 @@ const IndividualChatScreen: React.FC = () => {
     }, [currentUserId, matchUserId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen]);
 
     // --- Render Logic ---
-    if (loading && messages.length === 0 && !isBlocked) {
+    // Only show loading for web platform, not for mobile with PowerSync
+    if (loading && messages.length === 0 && !isBlocked && !isMobile) {
         return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View>;
     }
     if (!currentUserId) {

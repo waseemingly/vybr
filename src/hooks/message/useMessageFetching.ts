@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { MessageFetchingService } from '@/services/message/MessageFetchingService';
 import { MessageMappingUtils } from '@/utils/message/MessageMappingUtils';
+import { usePowerSync } from '@/context/PowerSyncContext';
+import { useIndividualMessages, useGroupMessages } from '@/lib/powersync/chatFunctions';
 import type { ChatMessage, FetchMessagesResult } from '@/types/message';
 
 interface UseMessageFetchingOptions {
@@ -24,12 +26,17 @@ interface UseMessageFetchingReturn {
 
 export const useMessageFetching = (options: UseMessageFetchingOptions): UseMessageFetchingReturn => {
   const { chatType, chatId, userId, partnerName = 'User', limit = 50, autoFetch = true } = options;
+  const { isMobile, isPowerSyncAvailable } = usePowerSync();
   
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
+
+  // PowerSync hooks for mobile
+  const individualMessagesResult = useIndividualMessages(userId, chatId, limit, 0);
+  const groupMessagesResult = useGroupMessages(chatId, userId, limit, 0);
 
   // Set current user ID for message mapping
   useEffect(() => {
@@ -42,6 +49,14 @@ export const useMessageFetching = (options: UseMessageFetchingOptions): UseMessa
       return;
     }
 
+    // For mobile, PowerSync handles the data automatically
+    if (isMobile && isPowerSyncAvailable) {
+      console.log("useMessageFetching: Using PowerSync for mobile");
+      setLoading(false);
+      return;
+    }
+
+    // For web, use Supabase
     setLoading(true);
     setError(null);
 
@@ -100,7 +115,7 @@ export const useMessageFetching = (options: UseMessageFetchingOptions): UseMessa
       setLoading(false);
       setIsInitialized(true);
     }
-  }, [chatType, chatId, userId, partnerName, limit]);
+  }, [chatType, chatId, userId, partnerName, limit, isMobile, isPowerSyncAvailable]);
 
   const refreshMessages = useCallback(async () => {
     await fetchMessages(0);
@@ -113,12 +128,71 @@ export const useMessageFetching = (options: UseMessageFetchingOptions): UseMessa
     setIsInitialized(false);
   }, []);
 
-  // Auto-fetch on mount and when dependencies change
+  // Get messages based on platform
+  const getMessages = useMemo(() => {
+    if (isMobile && isPowerSyncAvailable) {
+      if (chatType === 'individual') {
+        return individualMessagesResult.messages.map((msg: any) => ({
+          _id: msg.id,
+          text: msg.content,
+          createdAt: new Date(msg.created_at),
+          user: {
+            _id: msg.sender_id,
+            name: msg.sender_name,
+            avatar: msg.sender_profile_picture
+          },
+          isSystemMessage: false,
+          isDelivered: msg.is_delivered,
+          deliveredAt: msg.delivered_at ? new Date(msg.delivered_at) : null,
+          isSeen: msg.is_seen,
+          seenAt: msg.seen_at ? new Date(msg.seen_at) : null
+        }));
+      } else {
+        return groupMessagesResult.messages.map((msg: any) => ({
+          _id: msg.id,
+          text: msg.content,
+          createdAt: new Date(msg.created_at),
+          user: {
+            _id: msg.sender_id,
+            name: msg.sender_name,
+            avatar: msg.sender_profile_picture
+          },
+          isSystemMessage: false,
+          isDelivered: msg.is_delivered,
+          deliveredAt: msg.delivered_at ? new Date(msg.delivered_at) : null,
+          isSeen: msg.is_seen,
+          seenAt: msg.seen_at ? new Date(msg.seen_at) : null
+        }));
+      }
+    }
+    return messages;
+  }, [isMobile, isPowerSyncAvailable, chatType, individualMessagesResult.messages, groupMessagesResult.messages, messages]);
+
+  const getIsLoading = useMemo(() => {
+    if (isMobile && isPowerSyncAvailable) {
+      // For mobile with PowerSync, we don't show loading since data is instantly available
+      return false;
+    }
+    return loading;
+  }, [isMobile, isPowerSyncAvailable, loading]);
+
+  const getError = useMemo(() => {
+    if (isMobile && isPowerSyncAvailable) {
+      if (chatType === 'individual') {
+        return individualMessagesResult.error;
+      } else {
+        return groupMessagesResult.error;
+      }
+    }
+    return error;
+  }, [isMobile, isPowerSyncAvailable, chatType, individualMessagesResult.error, groupMessagesResult.error, error]);
+
+  // Auto-fetch on mount and when dependencies change (web only)
   useEffect(() => {
-    if (autoFetch && !isInitialized) {
+    if (autoFetch && !isInitialized && !isMobile) {
       fetchMessages(0);
     }
-  }, [autoFetch, isInitialized, fetchMessages]);
+  }, [autoFetch, isInitialized, fetchMessages, isMobile]);
 
   // Clear messages when chat changes
   useEffect(() => {
@@ -126,12 +200,12 @@ export const useMessageFetching = (options: UseMessageFetchingOptions): UseMessa
   }, [chatId, chatType]);
 
   return {
-    messages,
-    loading,
-    error,
+    messages: getMessages,
+    loading: getIsLoading,
+    error: getError,
     hasMore,
     fetchMessages,
     refreshMessages,
-    clearMessages,
+    clearMessages
   };
 }; 

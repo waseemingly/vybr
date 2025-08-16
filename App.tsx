@@ -1,4 +1,7 @@
+import '@azure/core-asynciterator-polyfill';
 import './src/utils/EventTargetPolyfill';
+import * as Linking from 'expo-linking';
+
 
 // Set up EventTarget for Hermes
 if (typeof global.EventTarget === 'undefined') {
@@ -12,17 +15,26 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Platform } from 'react-native';
 //import { Linking } from 'react-native';
 import * as Linking from 'expo-linking';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Text } from 'react-native';
 
+// Platform detection that works for both web and mobile
+const getPlatform = () => {
+  if (typeof window !== 'undefined') {
+    return 'web';
+  }
+  return 'mobile';
+};
+
+const platform = getPlatform();
+
 // IMPORT from custom wrapper based on platform
 import CustomStripeProviderWeb from './src/components/StripeProvider.web';
 import CustomStripeProviderNative from './src/components/StripeProvider.native';
 
-const CustomStripeProvider = Platform.OS === 'web' 
+const CustomStripeProvider = platform === 'web' 
   ? CustomStripeProviderWeb 
   : CustomStripeProviderNative;
 
@@ -31,6 +43,7 @@ import { AuthProvider } from "./src/hooks/useAuth";
 import AppNavigator from "./src/navigation/AppNavigator";
 import { RealtimeProvider } from '@/context/RealtimeContext';
 import { NotificationProvider } from '@/context/NotificationContext';
+import { PowerSyncProvider } from '@/context/PowerSyncContext';
 import WebNotificationContainer from '@/components/WebNotificationContainer';
 import { Toaster } from '@/components/ui/sonner';
 
@@ -83,13 +96,11 @@ export default function App() {
   const [isReady, setIsReady] = React.useState(false);
   const [initialState, setInitialState] = React.useState();
 
-
-
   React.useEffect(() => {
     const restoreState = async () => {
       try {
         // Only restore state on web platform
-        if (Platform.OS === 'web') {
+        if (platform === 'web' && typeof localStorage !== 'undefined') {
           const savedStateString = localStorage.getItem('NAVIGATION_STATE_V1');
           const state = savedStateString ? JSON.parse(savedStateString) : undefined;
 
@@ -138,37 +149,39 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
-        <CustomStripeProvider
-          publishableKey={STRIPE_PUBLISHABLE_KEY}
-        >
-          <OrganizerModeProvider>
-            <AuthProvider navigationRef={navigationRef as React.RefObject<NavigationContainerRef<any>>}>
-              <RealtimeProvider>
-                <NotificationProvider>
-                  <SafeAreaProvider>
-                    <NavigationContainer 
-                      ref={navigationRef}
-                      linking={linking}
-                      initialState={initialState}
-                      onStateChange={(state) => {
-                        // Save navigation state to localStorage on web
-                        if (Platform.OS === 'web') {
-                          localStorage.setItem('NAVIGATION_STATE_V1', JSON.stringify(state));
-                        }
-                      }}
-                    >
-                      <AppNavigator />
-                      <StatusBar style="auto" />
-                      <WebNotificationContainer />
-                    </NavigationContainer>
-                    <Toaster />
-                    
-                  </SafeAreaProvider>
-                </NotificationProvider>
-              </RealtimeProvider>
-            </AuthProvider>
-          </OrganizerModeProvider>
-        </CustomStripeProvider>
+        <PowerSyncProvider>
+          <CustomStripeProvider
+            publishableKey={STRIPE_PUBLISHABLE_KEY}
+          >
+            <OrganizerModeProvider>
+              <AuthProvider navigationRef={navigationRef as React.RefObject<NavigationContainerRef<any>>}>
+                <RealtimeProvider>
+                  <NotificationProvider>
+                    <SafeAreaProvider>
+                      <NavigationContainer 
+                        ref={navigationRef}
+                        linking={linking}
+                        initialState={initialState}
+                        onStateChange={(state) => {
+                          // Save navigation state to localStorage on web
+                          if (platform === 'web' && typeof localStorage !== 'undefined') {
+                            localStorage.setItem('NAVIGATION_STATE_V1', JSON.stringify(state));
+                          }
+                        }}
+                      >
+                        <AppNavigator />
+                        <StatusBar style="auto" />
+                        <WebNotificationContainer />
+                      </NavigationContainer>
+                      <Toaster />
+                      
+                    </SafeAreaProvider>
+                  </NotificationProvider>
+                </RealtimeProvider>
+              </AuthProvider>
+            </OrganizerModeProvider>
+          </CustomStripeProvider>
+        </PowerSyncProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>
   );

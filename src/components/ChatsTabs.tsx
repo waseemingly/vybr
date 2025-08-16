@@ -208,6 +208,10 @@ import type { IndividualSubTab } from '@/screens/ChatsScreen';
 import { useMessageFetching } from '@/hooks/message/useMessageFetching';
 import { useMessageSending } from '@/hooks/message/useMessageSending';
 import { MessageStatusService } from '@/services/message/MessageStatusService';
+
+// PowerSync imports for mobile
+import { useIndividualChatList, useGroupChatList } from '@/lib/powersync/chatFunctions';
+import { usePowerSync } from '@/context/PowerSyncContext';
 // --- End Adjustments ---
 
 // Define structure for Group Chat List Item (from RPC get_group_chat_list)
@@ -336,6 +340,10 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     const { subscribeToEvent, unsubscribeFromEvent } = useRealtime();
     const { refreshUnreadCount } = useUnreadCount(); // Use the hook instead of fetching separately
     
+    // PowerSync context for mobile detection
+    const { isMobile, isPowerSyncAvailable } = usePowerSync();
+    
+    // State for Supabase (web) fallback
     const [individualList, setIndividualList] = useState<IndividualChatListItem[]>([]);
     const [groupList, setGroupList] = useState<GroupChatListItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -346,6 +354,10 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     // Use ref to store the latest fetchData function
     const fetchDataRef = useRef<((refreshing?: boolean) => Promise<void>) | undefined>(undefined);
 
+    // PowerSync hooks for mobile
+    const individualChatResult = useIndividualChatList(session?.user?.id || '');
+    const groupChatResult = useGroupChatList(session?.user?.id || '');
+
     // Fetch data function (fetches chat lists WITHOUT unread counts - those come from useUnreadCount)
     const fetchData = useCallback(async (refreshing = false) => {
         if (!session?.user?.id) {
@@ -355,11 +367,20 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             return;
         }
         
+        // For mobile, PowerSync handles the data automatically
+        if (isMobile && isPowerSyncAvailable) {
+            console.log("ChatsTabs: Using PowerSync for mobile");
+            setIsLoading(false);
+            setIsRefreshing(false);
+            return;
+        }
+        
+        // For web, use Supabase
         if (!refreshing) setIsLoading(true);
         else setIsRefreshing(true);
         
         setError(null);
-        console.log("ChatsTabs: Fetching chat lists...");
+        console.log("ChatsTabs: Fetching chat lists from Supabase...");
 
         try {
             // Fetch chat lists WITHOUT unread counts to avoid duplicate calls
@@ -385,7 +406,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             setIsLoading(false); 
             setIsRefreshing(false);
         }
-    }, [session?.user?.id]);
+    }, [session?.user?.id, isMobile, isPowerSyncAvailable]);
 
     // Update the ref with the latest fetchData function
     useEffect(() => {
@@ -405,6 +426,48 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             fetchData();
         }
     }, [session?.user?.id, useNewServices]); // Removed fetchData from dependencies
+
+    // Get the appropriate data based on platform
+    const getIndividualList = useMemo(() => {
+        if (isMobile && isPowerSyncAvailable) {
+            console.log('🔍 PowerSync Debug - Individual Chat Result:', {
+                chats: individualChatResult.chats,
+                loading: individualChatResult.loading,
+                error: individualChatResult.error,
+                chatCount: individualChatResult.chats.length
+            });
+            return individualChatResult.chats.map(chat => chat.data as IndividualChatListItem);
+        }
+        return individualList;
+    }, [isMobile, isPowerSyncAvailable, individualChatResult.chats, individualList]);
+
+    const getGroupList = useMemo(() => {
+        if (isMobile && isPowerSyncAvailable) {
+            console.log('🔍 PowerSync Debug - Group Chat Result:', {
+                chats: groupChatResult.chats,
+                loading: groupChatResult.loading,
+                error: groupChatResult.error,
+                chatCount: groupChatResult.chats.length
+            });
+            return groupChatResult.chats.map(chat => chat.data as GroupChatListItem);
+        }
+        return groupList;
+    }, [isMobile, isPowerSyncAvailable, groupChatResult.chats, groupList]);
+
+    const getIsLoading = useMemo(() => {
+        if (isMobile && isPowerSyncAvailable) {
+            // For mobile with PowerSync, we don't show loading since data is instantly available
+            return false;
+        }
+        return isLoading;
+    }, [isMobile, isPowerSyncAvailable, isLoading]);
+
+    const getError = useMemo(() => {
+        if (isMobile && isPowerSyncAvailable) {
+            return individualChatResult.error || groupChatResult.error;
+        }
+        return error;
+    }, [isMobile, isPowerSyncAvailable, individualChatResult.error, groupChatResult.error, error]);
 
     // Enhanced real-time useEffect for smooth updates
     useEffect(() => {
@@ -787,19 +850,19 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         const lowerCaseQuery = searchQuery.toLowerCase();
 
         if (activeTab === 'individual') {
-            const filtered = individualList.filter(item => {
+            const filtered = getIndividualList.filter(item => {
                 const name = `${item.partner_first_name || ''} ${item.partner_last_name || ''}`.trim().toLowerCase();
                 return name.includes(lowerCaseQuery);
             });
             return filtered.map(item => ({ type: 'individual', data: item }));
         } else {
-            const filtered = groupList.filter(item => {
+            const filtered = getGroupList.filter(item => {
                 const name = item.group_name?.toLowerCase() || '';
                 return name.includes(lowerCaseQuery);
             });
             return filtered.map(item => ({ type: 'group', data: item }));
         }
-    }, [activeTab, individualList, groupList, searchQuery]);
+    }, [activeTab, getIndividualList, getGroupList, searchQuery]);
 
     // Debug function to check unread counts manually
     const debugUnreadCounts = useCallback(async () => {
@@ -879,11 +942,12 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             });
         }
 
-        if (isLoading && activeTab === 'individual' && !isRefreshing && listToShow.length === 0) {
+        // Only show loading for web platform, not for mobile with PowerSync
+        if (getIsLoading && activeTab === 'individual' && !isRefreshing && listToShow.length === 0 && !isMobile) {
             return ( <View style={styles.centered}><ActivityIndicator size="small" color="#6B7280" /></View> );
         }
         
-        if (!isLoading && activeTab === 'individual' && listToShow.length === 0) {
+        if (!getIsLoading && activeTab === 'individual' && listToShow.length === 0) {
             const emptyMessage = individualSubTab === 'pending' 
                 ? (searchQuery ? "No pending chats match your search." : "No pending chats right now.")
                 : (searchQuery ? "No active chats match your search." : "No active chats yet.");
@@ -944,7 +1008,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             .filter(item => item.type === 'group')
             .map(item => item.data as GroupChatListItem);
 
-        if (isLoading && activeTab === 'groups' && !isRefreshing && groupChats.length === 0) {
+        // Only show loading for web platform, not for mobile with PowerSync
+        if (getIsLoading && activeTab === 'groups' && !isRefreshing && groupChats.length === 0 && !isMobile) {
             return ( <View style={styles.centered}><ActivityIndicator size="small" color="#6B7280" /></View> );
         }
 
@@ -1053,11 +1118,9 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             )}
 
             <View style={styles.tabContent}>
-                {isLoading ? (
-                    <View style={styles.centered}><ActivityIndicator color={APP_CONSTANTS.COLORS.PRIMARY} /></View>
-                ) : error ? (
+                {getError ? (
                      <View style={styles.centered}>
-                        <Text style={styles.errorText}>{error}</Text>
+                        <Text style={styles.errorText}>{getError}</Text>
                         <TouchableOpacity style={styles.retryButton} onPress={() => fetchData()}>
                            <Feather name="refresh-cw" size={14} color="#FFF" />
                            <Text style={styles.retryButtonText}>Retry</Text>

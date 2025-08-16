@@ -29,6 +29,7 @@ import { MessageStatusService } from '@/services/message/MessageStatusService';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useRealtime } from '@/context/RealtimeContext';
+import { usePowerSync } from '@/context/PowerSyncContext'; // Import PowerSync context
 
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator'; // Adjust path
 import { APP_CONSTANTS } from '@/config/constants';
@@ -701,8 +702,12 @@ const GroupChatScreen: React.FC = () => {
     const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     // --- End State for scroll management ---
 
+    // PowerSync context for platform detection
+    const { isMobile, isPowerSyncAvailable } = usePowerSync();
+
     // NEW: Feature flag to control which implementation to use
-    const useNewServices = process.env.REACT_APP_USE_NEW_CHAT_SERVICES === 'true';
+    // Use new services if explicitly enabled OR if on mobile with PowerSync available
+    const useNewServices = process.env.REACT_APP_USE_NEW_CHAT_SERVICES === 'true' || (isMobile && isPowerSyncAvailable);
 
     // NEW: Add new modular hooks (parallel implementation - doesn't break existing functionality)
     const {
@@ -3602,7 +3607,8 @@ const GroupChatScreen: React.FC = () => {
     // --- End Scroll Event Handlers ---
 
     // --- Render Logic ---
-    if (loading && messages.length === 0) { return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View>; }
+    // Only show loading for web platform, not for mobile with PowerSync
+    if (loading && messages.length === 0 && !isMobile) { return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View>; }
     if (loadError && messages.length === 0) { const displayError = loadError.includes('permission') || loadError.includes('session') ? "Permission/session issue." : loadError; return <View style={styles.centered}><Text style={styles.errorText}>{displayError}</Text></View>; }
     if (!currentUserId || !groupId) { return <View style={styles.centered}><Text style={styles.errorText}>Missing User/Group Info.</Text></View>; }
 
