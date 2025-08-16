@@ -1,0 +1,83 @@
+# PowerSync Sync Rules for Chat Application
+# This file defines which data gets synchronized to mobile devices
+
+bucket_definitions:
+  # Individual chat messages and status for the current user
+  user_messages:
+    parameters: SELECT request.user_id() as base_user_id
+    data:
+      - SELECT id, sender_id, receiver_id, content, created_at
+        FROM public.messages
+        WHERE sender_id = bucket.base_user_id
+           OR receiver_id = bucket.base_user_id
+      - SELECT message_id as id, message_id, user_id, is_delivered, delivered_at, is_seen, seen_at, created_at
+        FROM public.message_status
+        WHERE user_id = bucket.base_user_id
+
+  # Current user's profile information
+  user_profile:
+    parameters: SELECT request.user_id() as profile_user_id
+    data:
+      - SELECT user_id as id, user_id, first_name, last_name, username, profile_picture, email, age, bio, country, city, is_premium, music_data, favorite_artists, favorite_songs, favorite_albums, created_at
+        FROM public.music_lover_profiles
+        WHERE user_id = bucket.profile_user_id
+
+  # Profile information for users who sent messages to the current user
+  chat_partner_profiles_received:
+    parameters: SELECT sender_id as chat_partner_id
+                FROM public.messages
+                WHERE receiver_id = request.user_id()
+    data:
+      - SELECT user_id as id, user_id, first_name, last_name, username, profile_picture, email, age, bio, country, city, is_premium, music_data, favorite_artists, favorite_songs, favorite_albums, created_at
+        FROM public.music_lover_profiles
+        WHERE user_id = bucket.chat_partner_id
+
+  # Profile information for users who received messages from the current user
+  chat_partner_profiles_sent:
+    parameters: SELECT receiver_id as chat_partner_id
+                FROM public.messages
+                WHERE sender_id = request.user_id()
+    data:
+      - SELECT user_id as id, user_id, first_name, last_name, username, profile_picture, email, age, bio, country, city, is_premium, music_data, favorite_artists, favorite_songs, favorite_albums, created_at
+        FROM public.music_lover_profiles
+        WHERE user_id = bucket.chat_partner_id
+
+  # Group chats the current user is a member of
+  user_group_chats:
+    parameters: SELECT group_id
+                FROM public.group_chat_participants
+                WHERE user_id = request.user_id()
+    data:
+      - SELECT id, group_name, group_image, created_by, can_members_add_others, created_at
+        FROM public.group_chats
+        WHERE id = bucket.group_id
+      - SELECT group_id || '_' || user_id as id, group_id, user_id, is_admin, joined_at
+        FROM public.group_chat_participants
+        WHERE group_id = bucket.group_id
+      - SELECT id, group_id, sender_id, content, created_at
+        FROM public.group_chat_messages
+        WHERE group_id = bucket.group_id
+      - SELECT group_id || '_' || message_id || '_' || user_id as id, group_id, message_id, user_id, is_delivered, delivered_at, is_seen, seen_at, created_at
+        FROM public.group_message_status
+        WHERE group_id = bucket.group_id
+
+  # Group message status for the current user
+  user_group_message_status:
+    parameters: SELECT request.user_id() as current_user_id
+    data:
+      - SELECT group_id || '_' || message_id || '_' || user_id as id, group_id, message_id, user_id, is_delivered, delivered_at, is_seen, seen_at, created_at
+        FROM public.group_message_status
+        WHERE user_id = bucket.current_user_id
+
+  # Block and mute relationships for the current user
+  user_blocks_mutes:
+    parameters: SELECT request.user_id() as current_user_id
+    data:
+      - SELECT blocker_id || '_' || blocked_id as id, blocker_id, blocked_id, created_at
+        FROM public.blocks
+        WHERE blocker_id = bucket.current_user_id
+           OR blocked_id = bucket.current_user_id
+      - SELECT muter_id || '_' || muted_id as id, muter_id, muted_id, created_at
+        FROM public.muted_users
+        WHERE muter_id = bucket.current_user_id
+           OR muted_id = bucket.current_user_id 

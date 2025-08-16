@@ -13,12 +13,18 @@
     "postinstall": "patch-package"
   },
   "dependencies": {
+    "@azure/core-asynciterator-polyfill": "^1.0.2",
     "@capacitor/core": "^5.5.0",
     "@expo/config-plugins": "~10.1.1",
     "@expo/metro-runtime": "~5.0.4",
     "@expo/vector-icons": "^14.1.0",
+    "@journeyapps/react-native-quick-sqlite": "^2.4.7",
+    "@journeyapps/wa-sqlite": "^1.2.6",
     "@leafletui/react-native-view-image": "^0.0.4",
     "@nozbe/sqlite": "^3.46.0",
+    "@powersync/react": "^1.7.0",
+    "@powersync/react-native": "^1.23.2",
+    "@powersync/web": "^1.25.1",
     "@radix-ui/react-accordion": "^1.2.3",
     "@radix-ui/react-aspect-ratio": "^1.1.2",
     "@radix-ui/react-avatar": "^1.1.3",
@@ -111,7 +117,7 @@
     "react-native-image-zoom-viewer": "^3.0.1",
     "react-native-keyboard-controller": "^1.17.5",
     "react-native-markdown-display": "^7.0.2",
-    "react-native-mmkv": "^3.3.0",
+    "react-native-mmkv": "^2.11.0",
     "react-native-polyfill-globals": "^3.1.0",
     "react-native-popup-menu": "^0.18.0",
     "react-native-reanimated": "~3.17.4",
@@ -141,6 +147,7 @@
   "devDependencies": {
     "@babel/core": "^7.20.0",
     "@babel/plugin-proposal-decorators": "^7.28.0",
+    "@babel/plugin-transform-async-generator-functions": "^7.28.0",
     "@capacitor/cli": "^5.5.0",
     "@expo/webpack-config": "^19.0.1",
     "@react-native-community/cli": "latest",
@@ -166,6 +173,7 @@
     "react-native-dotenv": "^3.4.11",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.35.1",
-    "vite": "^6.3.4"
+    "vite": "^6.3.4",
+    "worker-loader": "^3.0.8"
   }
 }
