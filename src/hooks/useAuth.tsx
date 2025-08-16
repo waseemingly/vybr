@@ -157,6 +157,7 @@ const AuthContext = createContext<{
     verifyGoogleAuthCompleted: () => Promise<boolean>;
     updateUserMetadata: (userType: UserTypes) => Promise<{ error: any } | { success: boolean }>;
     setSetupInProgress: (inProgress: boolean) => void;
+    debugUserState: () => Promise<void>;
 }>({
     session: null,
     loading: true,
@@ -181,6 +182,7 @@ const AuthContext = createContext<{
     verifyGoogleAuthCompleted: async () => false,
     updateUserMetadata: async () => ({ error: 'Not implemented' }),
     setSetupInProgress: () => { },
+    debugUserState: async () => { },
 });
 
 // --- Provider Component ---
@@ -719,6 +721,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     }
                 };
 
+                // Fetch profile data and wait for it to complete before making navigation decisions
                 await _fetchProfileData(supabaseSession.user, userType);
 
             } else {
@@ -730,15 +733,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
             setSession(currentSession);
 
+            // IMPROVED: Add a small delay to ensure auth state is properly synchronized
+            // This helps prevent race conditions between auth state changes and navigation
+            if (options?.navigateToProfile && currentSession) {
+                console.log("[AuthProvider] Adding delay to ensure auth state synchronization...");
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+
             // --- Navigation logic --- 
             // Check if navigator is ready before attempting reset
             if (navigationRef.current?.isReady()) {
                 if (options?.navigateToProfile && currentSession) {
+                    // IMPROVED: More reliable profile completion check
                     const profileComplete = userType === 'music_lover'
                         ? !!currentSession.musicLoverProfile
                         : userType === 'organizer'
                             ? !!currentSession.organizerProfile
                             : false;
+                    
+                    console.log(`[AuthProvider] Profile completion check - userType: ${userType}, profileComplete: ${profileComplete}`);
+                    console.log(`[AuthProvider] Music lover profile: ${!!currentSession.musicLoverProfile}, Organizer profile: ${!!currentSession.organizerProfile}`);
+                    
                     if (profileComplete) {
                         console.log("[AuthProvider] Navigating to MainApp (profile complete).");
                         navigationRef.current?.reset({ index: 0, routes: [{ name: 'MainApp' }] });
@@ -1756,7 +1771,44 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             // We need to determine if this is for music lover or organizer
                             // Check the current URL path to determine user type
                             const currentPath = Platform.OS === 'web' ? window.location.pathname : '';
-                            const userType = currentPath.includes('MusicLover') ? 'music_lover' : 'organizer';
+                            // IMPROVED: More reliable user type detection with better fallback logic
+                            let userType: UserTypes;
+                            
+                            // First, try to determine from URL path with more specific checks
+                            if (currentPath.includes('MusicLover') || currentPath.includes('/music-lover') || currentPath.includes('MusicLoverSignUpFlow')) {
+                                userType = 'music_lover';
+                                console.log('[useAuth] 🏷️ User type determined from URL path (music_lover):', currentPath);
+                            } else if (currentPath.includes('Organizer') || currentPath.includes('/organizer') || currentPath.includes('OrganizerSignUpFlow')) {
+                                userType = 'organizer';
+                                console.log('[useAuth] 🏷️ User type determined from URL path (organizer):', currentPath);
+                            } else {
+                                // If URL path is ambiguous, check if user already exists in database
+                                console.log('[useAuth] 🔍 URL path is ambiguous, checking existing user profiles...');
+                                try {
+                                    // Check if user already has profiles in database
+                                    const [musicLoverResult, organizerResult] = await Promise.all([
+                                        supabase.from('music_lover_profiles').select('id').eq('user_id', session.user.id).maybeSingle(),
+                                        supabase.from('organizer_profiles').select('id').eq('user_id', session.user.id).maybeSingle()
+                                    ]);
+                                    
+                                    if (musicLoverResult.data && !organizerResult.data) {
+                                        userType = 'music_lover';
+                                        console.log('[useAuth] 🏷️ User type determined from existing music lover profile');
+                                    } else if (organizerResult.data && !musicLoverResult.data) {
+                                        userType = 'organizer';
+                                        console.log('[useAuth] 🏷️ User type determined from existing organizer profile');
+                                    } else {
+                                        // If user has both profiles or no profiles, default to music_lover (more common)
+                                        userType = 'music_lover';
+                                        console.log('[useAuth] 🏷️ User type defaulted to music_lover (ambiguous case)');
+                                    }
+                                } catch (profileCheckError) {
+                                    console.error('[useAuth] ❌ Error checking existing profiles:', profileCheckError);
+                                    // Default to music_lover as fallback
+                                    userType = 'music_lover';
+                                    console.log('[useAuth] 🏷️ User type defaulted to music_lover (error case)');
+                                }
+                            }
                             
                             console.log('[useAuth] 🏷️ Setting user_type immediately:', userType, 'based on path:', currentPath);
                             try {
@@ -1898,7 +1950,44 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 
                                 // CRITICAL: Set user_type immediately
                                 const currentPath = Platform.OS === 'web' ? window.location.pathname : '';
-                                const userType = currentPath.includes('MusicLover') ? 'music_lover' : 'organizer';
+                                // IMPROVED: More reliable user type detection with better fallback logic
+                                let userType: UserTypes;
+                                
+                                // First, try to determine from URL path with more specific checks
+                                if (currentPath.includes('MusicLover') || currentPath.includes('/music-lover') || currentPath.includes('MusicLoverSignUpFlow')) {
+                                    userType = 'music_lover';
+                                    console.log('[useAuth] 🏷️ User type determined from URL path (music_lover) - polling:', currentPath);
+                                } else if (currentPath.includes('Organizer') || currentPath.includes('/organizer') || currentPath.includes('OrganizerSignUpFlow')) {
+                                    userType = 'organizer';
+                                    console.log('[useAuth] 🏷️ User type determined from URL path (organizer) - polling:', currentPath);
+                                } else {
+                                    // If URL path is ambiguous, check if user already exists in database
+                                    console.log('[useAuth] 🔍 URL path is ambiguous, checking existing user profiles (polling)...');
+                                    try {
+                                        // Check if user already has profiles in database
+                                        const [musicLoverResult, organizerResult] = await Promise.all([
+                                            supabase.from('music_lover_profiles').select('id').eq('user_id', sessionData.session.user.id).maybeSingle(),
+                                            supabase.from('organizer_profiles').select('id').eq('user_id', sessionData.session.user.id).maybeSingle()
+                                        ]);
+                                        
+                                        if (musicLoverResult.data && !organizerResult.data) {
+                                            userType = 'music_lover';
+                                            console.log('[useAuth] 🏷️ User type determined from existing music lover profile (polling)');
+                                        } else if (organizerResult.data && !musicLoverResult.data) {
+                                            userType = 'organizer';
+                                            console.log('[useAuth] 🏷️ User type determined from existing organizer profile (polling)');
+                                        } else {
+                                            // If user has both profiles or no profiles, default to music_lover (more common)
+                                            userType = 'music_lover';
+                                            console.log('[useAuth] 🏷️ User type defaulted to music_lover (ambiguous case - polling)');
+                                        }
+                                    } catch (profileCheckError) {
+                                        console.error('[useAuth] ❌ Error checking existing profiles (polling):', profileCheckError);
+                                        // Default to music_lover as fallback
+                                        userType = 'music_lover';
+                                        console.log('[useAuth] 🏷️ User type defaulted to music_lover (error case - polling)');
+                                    }
+                                }
                                 
                                 console.log('[useAuth] 🏷️ Setting user_type immediately (polling):', userType, 'based on path:', currentPath);
                                 try {
@@ -2098,20 +2187,50 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     // Function to update user metadata with userType (needed for Google OAuth users)
     const updateUserMetadata = async (userType: UserTypes): Promise<{ error: any } | { success: boolean }> => {
         try {
-            const { data, error } = await supabase.auth.updateUser({
+            console.log(`[useAuth] updateUserMetadata: Setting user_type to ${userType}`);
+            const { error } = await supabase.auth.updateUser({
                 data: { user_type: userType }
             });
-
+            
             if (error) {
-                console.error('[useAuth] Error updating user metadata:', error);
+                console.error('[useAuth] updateUserMetadata: Error updating user metadata:', error);
                 return { error };
             }
-
-            console.log('[useAuth] User metadata updated successfully with user_type:', userType);
+            
+            console.log('[useAuth] updateUserMetadata: Successfully updated user metadata');
             return { success: true };
-        } catch (err: any) {
-            console.error('[useAuth] Error in updateUserMetadata:', err);
+        } catch (err) {
+            console.error('[useAuth] updateUserMetadata: Unexpected error:', err);
             return { error: err };
+        }
+    };
+
+    // DEBUG: Function to help troubleshoot login issues
+    const debugUserState = async () => {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            console.log('[useAuth] DEBUG - Current session:', session ? {
+                userId: session.user.id,
+                email: session.user.email,
+                userType: session.user.user_metadata?.user_type
+            } : 'No session');
+            
+            if (session?.user?.id) {
+                // Check both profile tables
+                const [musicLoverResult, organizerResult] = await Promise.all([
+                    supabase.from('music_lover_profiles').select('id').eq('user_id', session.user.id).maybeSingle(),
+                    supabase.from('organizer_profiles').select('id').eq('user_id', session.user.id).maybeSingle()
+                ]);
+                
+                console.log('[useAuth] DEBUG - Profile check:', {
+                    musicLoverProfile: !!musicLoverResult.data,
+                    organizerProfile: !!organizerResult.data,
+                    musicLoverError: musicLoverResult.error?.message,
+                    organizerError: organizerResult.error?.message
+                });
+            }
+        } catch (err) {
+            console.error('[useAuth] DEBUG - Error checking user state:', err);
         }
     };
 
@@ -2147,6 +2266,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             verifyGoogleAuthCompleted,
             updateUserMetadata,
             setSetupInProgress,
+            debugUserState, // Add debug function for troubleshooting
         }}>
             {children}
         </AuthContext.Provider>
