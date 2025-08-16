@@ -1,5 +1,7 @@
 import '@azure/core-asynciterator-polyfill';
 import './src/utils/EventTargetPolyfill';
+import * as Linking from 'expo-linking';
+
 
 // Set up EventTarget for Hermes
 if (typeof global.EventTarget === 'undefined') {
