@@ -70,7 +70,7 @@ export class MessageFetchingService {
       // Map database messages to UI messages
       const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id);
       const mappedMessages = visibleMessages.map((dbMsg: any) => {
-        const chatMsg = MessageMappingUtils.mapGroupDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap);
+        const chatMsg = MessageMappingUtils.mapGroupDbMessageToChatMessage(dbMsg as DbGroupMessage, profilesMap, userId);
         
         // Handle message status
         const allStatuses = dbMsg.group_message_status || [];

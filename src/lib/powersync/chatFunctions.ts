@@ -2,7 +2,7 @@ import { usePowerSync } from '@/context/PowerSyncContext';
 import { usePowerSyncDataWatcher } from '@/hooks/usePowerSyncData';
 import { MessageUtils } from '@/utils/message/MessageUtils';
 import type { IndividualChatListItem, GroupChatListItem, ChatItem } from '@/types/message';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 export class PowerSyncChatFunctions {
   /**
@@ -266,7 +266,7 @@ export class PowerSyncChatFunctions {
       LEFT JOIN message_status ms ON m.id = ms.message_id AND ms.user_id = ?
       LEFT JOIN music_lover_profiles p ON m.sender_id = p.user_id
       WHERE (m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?)
-      ORDER BY m.created_at ASC
+      ORDER BY m.created_at DESC
       LIMIT ? OFFSET ?
     `;
   }
@@ -293,8 +293,29 @@ export class PowerSyncChatFunctions {
       LEFT JOIN group_message_status gms ON gcm.id = gms.message_id AND gms.user_id = ?
       LEFT JOIN music_lover_profiles p ON gcm.sender_id = p.user_id
       WHERE gcm.group_id = ?
-      ORDER BY gcm.created_at ASC
+      ORDER BY gcm.created_at DESC
       LIMIT ? OFFSET ?
+    `;
+  }
+
+  /**
+   * Get seen_by data for group messages
+   */
+  static getGroupMessageSeenByQuery(messageIds: string[]): string {
+    if (messageIds.length === 0) return '';
+    
+    const placeholders = messageIds.map(() => '?').join(',');
+    return `
+      SELECT 
+        gms.message_id,
+        gms.user_id,
+        gms.seen_at,
+        COALESCE(p.first_name || ' ' || p.last_name, p.username, 'User') as user_name
+      FROM group_message_status gms
+      LEFT JOIN music_lover_profiles p ON gms.user_id = p.user_id
+      WHERE gms.message_id IN (${placeholders})
+        AND gms.is_seen = 1
+      ORDER BY gms.message_id, gms.seen_at
     `;
   }
 
@@ -428,44 +449,25 @@ export function useIndividualChatList(userId: string) {
   const query = PowerSyncChatFunctions.getIndividualChatListQuery(userId);
   const params = [userId, userId, userId, userId];
 
-  console.log('🔍 PowerSync Hook Debug - Individual Chat:', {
-    userId,
-    isPowerSyncAvailable,
-    query,
-    params
-  });
-
-  // Debug tables on first call
-  useEffect(() => {
-    if (db && isPowerSyncAvailable) {
-      PowerSyncChatFunctions.debugTables(db);
-    }
-  }, [db, isPowerSyncAvailable]);
-
   const { data, loading, error } = usePowerSyncDataWatcher<IndividualChatListItem>(query, params);
 
-  console.log('🔍 PowerSync Hook Debug - Individual Chat Result:', {
-    dataCount: data.length,
-    data: data,
-    loading,
-    error
-  });
-
-  const chatItems: ChatItem[] = data.map((chat: IndividualChatListItem) => ({
-    type: 'individual' as const,
-    data: {
-      ...chat,
-      last_message_content: MessageUtils.formatLastMessageForPreview(
-        chat.last_message_content,
-        chat.last_message_sender_id,
-        userId,
-        chat.last_message_sender_name,
-        false
-      ),
-      unread_count: chat.unread_count || 0,
-      isPinned: false
-    }
-  }));
+  const chatItems: ChatItem[] = useMemo(() => {
+    return data.map((chat: IndividualChatListItem) => ({
+      type: 'individual' as const,
+      data: {
+        ...chat,
+        last_message_content: MessageUtils.formatLastMessageForPreview(
+          chat.last_message_content,
+          chat.last_message_sender_id,
+          userId,
+          chat.last_message_sender_name,
+          false
+        ),
+        unread_count: chat.unread_count || 0,
+        isPinned: false
+      }
+    }));
+  }, [data, userId]);
 
   // Return empty array if PowerSync is not available (no fallback to Supabase)
   if (!isPowerSyncAvailable) {
@@ -485,21 +487,23 @@ export function useIndividualChatListWithUnread(userId: string) {
 
   const { data, loading, error } = usePowerSyncDataWatcher<IndividualChatListItem>(query, params);
 
-  const chatItems: ChatItem[] = data.map((chat: IndividualChatListItem) => ({
-    type: 'individual' as const,
-    data: {
-      ...chat,
-      last_message_content: MessageUtils.formatLastMessageForPreview(
-        chat.last_message_content,
-        chat.last_message_sender_id,
-        userId,
-        chat.last_message_sender_name,
-        false
-      ),
-      unread_count: chat.unread_count || 0,
-      isPinned: false
-    }
-  }));
+  const chatItems: ChatItem[] = useMemo(() => {
+    return data.map((chat: IndividualChatListItem) => ({
+      type: 'individual' as const,
+      data: {
+        ...chat,
+        last_message_content: MessageUtils.formatLastMessageForPreview(
+          chat.last_message_content,
+          chat.last_message_sender_id,
+          userId,
+          chat.last_message_sender_name,
+          false
+        ),
+        unread_count: chat.unread_count || 0,
+        isPinned: false
+      }
+    }));
+  }, [data, userId]);
 
   // Return empty array if PowerSync is not available (no fallback to Supabase)
   if (!isPowerSyncAvailable) {
@@ -517,37 +521,25 @@ export function useGroupChatList(userId: string) {
   const query = PowerSyncChatFunctions.getGroupChatListQuery(userId);
   const params = [userId, userId];
 
-  console.log('🔍 PowerSync Hook Debug - Group Chat:', {
-    userId,
-    isPowerSyncAvailable,
-    query,
-    params
-  });
-
   const { data, loading, error } = usePowerSyncDataWatcher<GroupChatListItem>(query, params);
 
-  console.log('🔍 PowerSync Hook Debug - Group Chat Result:', {
-    dataCount: data.length,
-    data: data,
-    loading,
-    error
-  });
-
-  const chatItems: ChatItem[] = data.map((chat: GroupChatListItem) => ({
-    type: 'group' as const,
-    data: {
-      ...chat,
-      last_message_content: MessageUtils.formatLastMessageForPreview(
-        chat.last_message_content,
-        chat.last_message_sender_id,
-        userId,
-        chat.last_message_sender_name,
-        true
-      ),
-      unread_count: chat.unread_count || 0,
-      isPinned: false
-    }
-  }));
+  const chatItems: ChatItem[] = useMemo(() => {
+    return data.map((chat: GroupChatListItem) => ({
+      type: 'group' as const,
+      data: {
+        ...chat,
+        last_message_content: MessageUtils.formatLastMessageForPreview(
+          chat.last_message_content,
+          chat.last_message_sender_id,
+          userId,
+          chat.last_message_sender_name,
+          true
+        ),
+        unread_count: chat.unread_count || 0,
+        isPinned: false
+      }
+    }));
+  }, [data, userId]);
 
   // Return empty array if PowerSync is not available (no fallback to Supabase)
   if (!isPowerSyncAvailable) {
@@ -567,21 +559,23 @@ export function useGroupChatListWithUnread(userId: string) {
 
   const { data, loading, error } = usePowerSyncDataWatcher<GroupChatListItem>(query, params);
 
-  const chatItems: ChatItem[] = data.map((chat: GroupChatListItem) => ({
-    type: 'group' as const,
-    data: {
-      ...chat,
-      last_message_content: MessageUtils.formatLastMessageForPreview(
-        chat.last_message_content,
-        chat.last_message_sender_id,
-        userId,
-        chat.last_message_sender_name,
-        true
-      ),
-      unread_count: chat.unread_count || 0,
-      isPinned: false
-    }
-  }));
+  const chatItems: ChatItem[] = useMemo(() => {
+    return data.map((chat: GroupChatListItem) => ({
+      type: 'group' as const,
+      data: {
+        ...chat,
+        last_message_content: MessageUtils.formatLastMessageForPreview(
+          chat.last_message_content,
+          chat.last_message_sender_id,
+          userId,
+          chat.last_message_sender_name,
+          true
+        ),
+        unread_count: chat.unread_count || 0,
+        isPinned: false
+      }
+    }));
+  }, [data, userId]);
 
   // Return empty array if PowerSync is not available (no fallback to Supabase)
   if (!isPowerSyncAvailable) {
@@ -600,17 +594,12 @@ export function useIndividualMessages(userId: string, partnerId: string, limit: 
   const params = [userId, userId, partnerId, partnerId, userId, limit, offset];
   
   const result = usePowerSyncDataWatcher(query, params);
-  
-  useEffect(() => {
-    if (isPowerSyncAvailable) {
-      PowerSyncChatFunctions.debugMessageTables(db);
-    }
-  }, [isPowerSyncAvailable, db]);
 
   const messages = useMemo(() => {
     if (!result.data || result.data.length === 0) return [];
     
-    return result.data.map((row: any) => ({
+    // Reverse the order since we query with DESC but want to display oldest to newest
+    return result.data.reverse().map((row: any) => ({
       id: row.id,
       sender_id: row.sender_id,
       receiver_id: row.receiver_id,
@@ -624,23 +613,6 @@ export function useIndividualMessages(userId: string, partnerId: string, limit: 
       sender_profile_picture: row.profile_picture
     }));
   }, [result.data]);
-
-  // Debug logging
-  useEffect(() => {
-    console.log(`🔍 PowerSync Hook Debug - Individual Messages:`, {
-      isPowerSyncAvailable,
-      params,
-      query,
-      userId,
-      partnerId
-    });
-    console.log(`🔍 PowerSync Hook Debug - Individual Messages Result:`, {
-      data: result.data,
-      dataCount: result.data?.length || 0,
-      error: result.error,
-      loading: result.loading
-    });
-  }, [isPowerSyncAvailable, params, query, userId, partnerId, result.data, result.error, result.loading]);
 
   return {
     messages,
@@ -659,53 +631,78 @@ export function useGroupMessages(groupId: string, userId: string, limit: number 
   const params = [userId, groupId, limit, offset];
   
   const result = usePowerSyncDataWatcher(query, params);
-  
-  useEffect(() => {
-    if (isPowerSyncAvailable) {
-      PowerSyncChatFunctions.debugMessageTables(db);
-    }
-  }, [isPowerSyncAvailable, db]);
 
   const messages = useMemo(() => {
     if (!result.data || result.data.length === 0) return [];
     
-    return result.data.map((row: any) => ({
-      id: row.id,
-      sender_id: row.sender_id,
-      group_id: row.group_id,
-      content: row.content,
-      created_at: row.created_at,
-      is_delivered: row.is_delivered,
-      delivered_at: row.delivered_at,
-      is_seen: row.is_seen,
-      seen_at: row.seen_at,
-      sender_name: row.first_name && row.last_name ? `${row.first_name} ${row.last_name}`.trim() : row.first_name || 'User',
-      sender_profile_picture: row.profile_picture
-    }));
+    // Reverse the order since we query with DESC but want to display oldest to newest
+    return result.data.reverse().map((row: any) => {
+      return {
+        id: row.id,
+        sender_id: row.sender_id,
+        group_id: row.group_id,
+        content: row.content,
+        created_at: row.created_at,
+        is_delivered: row.is_delivered,
+        delivered_at: row.delivered_at,
+        is_seen: row.is_seen,
+        seen_at: row.seen_at,
+        sender_name: row.first_name && row.last_name ? `${row.first_name} ${row.last_name}`.trim() : row.first_name || 'User',
+        sender_profile_picture: row.profile_picture,
+        seen_by: [] // We'll handle seen_by separately with a different approach
+      };
+    });
   }, [result.data]);
 
-  // Debug logging
+  // Fetch seen_by data for group messages
+  const [seenByData, setSeenByData] = useState<{[key: string]: any[]}>({});
+
   useEffect(() => {
-    console.log(`🔍 PowerSync Hook Debug - Group Messages:`, {
-      isPowerSyncAvailable,
-      params,
-      query,
-      groupId,
-      userId
-    });
-    console.log(`🔍 PowerSync Hook Debug - Group Messages Result:`, {
-      data: result.data,
-      dataCount: result.data?.length || 0,
-      error: result.error,
-      loading: result.loading
-    });
-  }, [isPowerSyncAvailable, params, query, groupId, userId, result.data, result.error, result.loading]);
+    if (result.data && result.data.length > 0) {
+      const messageIds = result.data.map((row: any) => row.id);
+      const fetchSeenByData = async () => {
+        try {
+          const query = PowerSyncChatFunctions.getGroupMessageSeenByQuery(messageIds);
+          if (query) {
+            const seenByResult = await db.getAll(query, messageIds);
+            
+            // Group by message_id
+            const grouped = seenByResult.reduce((acc: any, row: any) => {
+              if (!acc[row.message_id]) {
+                acc[row.message_id] = [];
+              }
+              acc[row.message_id].push({
+                userId: row.user_id,
+                userName: row.user_name,
+                seenAt: row.seen_at
+              });
+              return acc;
+            }, {});
+            
+            setSeenByData(grouped);
+          }
+        } catch (error) {
+          console.warn('Failed to fetch seen_by data:', error);
+        }
+      };
+      
+      fetchSeenByData();
+    }
+  }, [result.data, db]);
+
+  // Combine messages with seen_by data
+  const messagesWithSeenBy = useMemo(() => {
+    return messages.map(msg => ({
+      ...msg,
+      seen_by: seenByData[msg.id] || []
+    }));
+  }, [messages, seenByData]);
 
   return {
-    messages,
+    messages: messagesWithSeenBy,
     loading: result.loading,
     error: result.error,
-    dataCount: messages.length
+    dataCount: messagesWithSeenBy.length
   };
 }
 

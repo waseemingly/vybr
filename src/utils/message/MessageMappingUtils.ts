@@ -129,7 +129,8 @@ export class MessageMappingUtils {
    */
   static mapGroupDbMessageToChatMessage(
     dbMessage: DbGroupMessage, 
-    profilesMap: Map<string, UserProfileInfo>
+    profilesMap: Map<string, UserProfileInfo>,
+    currentUserId?: string
   ): ChatMessage {
     let senderName = 'User';
     let senderAvatar: string | undefined = undefined;
