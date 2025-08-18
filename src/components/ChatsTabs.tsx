@@ -787,6 +787,12 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                     });
                     
                     if (error) {
+                        // Check if it's an authentication error
+                        if (error.message.includes('Unauthorized') || error.message.includes('JWT') || error.message.includes('not a member')) {
+                            console.warn('Authentication error in bulk group mark function, user may need to re-authenticate');
+                            return; // Don't attempt individual marks for auth errors
+                        }
+                        
                         console.warn('Error with bulk group mark function, falling back to individual marking:', error.message);
                         // Fallback to individual message marking
                         const { data: unseenMessages, error: fetchError } = await supabase

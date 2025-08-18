@@ -73,8 +73,8 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
       }
     };
 
-    // Check connection every 30 seconds
-    const interval = setInterval(checkConnection, 30000);
+    // Check connection every 60 seconds instead of 30 for better performance
+    const interval = setInterval(checkConnection, 60000);
     return () => clearInterval(interval);
   }, [db, isConnected]);
 
@@ -150,7 +150,7 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
           } else {
             console.log('⚠️ PowerSync: Web platform not supported, using Supabase instead');
           }
-        }, 2000); // 2 second delay to ensure auth flow is complete
+        }, 1000); // 1 second delay instead of 2 to ensure auth flow is complete
         
       } else if (event === 'SIGNED_OUT') {
         console.log('🔍 PowerSync: User signed out, cleaning up PowerSync...');
@@ -181,16 +181,19 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
     connector,
   };
 
-  console.log('🔍 PowerSync: Context value:', {
-    isConnected,
-    isSupported,
-    isPowerSyncAvailable,
-    isMobile,
-    isWeb,
-    hasDb: !!db,
-    platform,
-    connectionError
-  });
+  // Only log context value changes, not on every render
+  useEffect(() => {
+    console.log('🔍 PowerSync: Context value:', {
+      isConnected,
+      isSupported,
+      isPowerSyncAvailable,
+      isMobile,
+      isWeb,
+      hasDb: !!db,
+      platform,
+      connectionError
+    });
+  }, [isConnected, isSupported, isPowerSyncAvailable, isMobile, isWeb, db, platform, connectionError]);
 
   return (
     <PowerSyncContext.Provider value={value}>

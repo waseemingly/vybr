@@ -25,13 +25,7 @@ export function usePowerSyncData<T>(
         setLoading(true);
         setError(null);
         
-        const startTime = performance.now();
         const result = await db.getAll(query, params);
-        const endTime = performance.now();
-        
-        // Record query performance
-        const monitor = PowerSyncHealthMonitor.getInstance();
-        monitor.recordQuery(endTime - startTime);
         
         if (mounted) {
           setData(result as T[]);
@@ -42,10 +36,6 @@ export function usePowerSyncData<T>(
           const errorMessage = err instanceof Error ? err.message : 'Unknown error';
           setError(errorMessage);
           setLoading(false);
-          
-          // Record sync error
-          const monitor = PowerSyncHealthMonitor.getInstance();
-          monitor.recordSyncError(errorMessage);
         }
       }
     };
@@ -55,7 +45,7 @@ export function usePowerSyncData<T>(
     return () => {
       mounted = false;
     };
-  }, [db, isPowerSyncAvailable, query, JSON.stringify(params)]);
+  }, [db, isPowerSyncAvailable, query, ...params]); // Use spread operator instead of JSON.stringify
 
   return { data, loading, error };
 }
@@ -83,18 +73,9 @@ export function usePowerSyncDataWatcher<T>(
         setLoading(true);
         setError(null);
         
-        const startTime = performance.now();
-        
         // Use the watch method for real-time updates
         for await (const result of db.watch(query, params)) {
           if (!mounted) break;
-          
-          const endTime = performance.now();
-          
-          // Record query performance
-          const monitor = PowerSyncHealthMonitor.getInstance();
-          monitor.recordQuery(endTime - startTime);
-          monitor.recordSyncSuccess();
           
           const rows = result.rows?._array ?? [];
           setData(rows as T[]);
@@ -105,10 +86,6 @@ export function usePowerSyncDataWatcher<T>(
           const errorMessage = err instanceof Error ? err.message : 'Unknown error';
           setError(errorMessage);
           setLoading(false);
-          
-          // Record sync error
-          const monitor = PowerSyncHealthMonitor.getInstance();
-          monitor.recordSyncError(errorMessage);
         }
       }
     };
@@ -118,7 +95,7 @@ export function usePowerSyncDataWatcher<T>(
     return () => {
       mounted = false;
     };
-  }, [db, isPowerSyncAvailable, query, JSON.stringify(params)]);
+  }, [db, isPowerSyncAvailable, query, ...params]); // Use spread operator instead of JSON.stringify
 
   return { data, loading, error };
 } 

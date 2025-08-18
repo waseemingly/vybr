@@ -250,9 +250,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
     const [imageError, setImageError] = useState(false);
     const [hasLoggedImpression, setHasLoggedImpression] = useState(false);
     
-    // Debug: Log when isSeen changes for sender's messages
+    // Debug: Log when isSeen changes for sender's messages (only in development)
     useEffect(() => {
-        if (isCurrentUser) {
+        if (isCurrentUser && __DEV__) {
             console.log('[MessageBubble] Message seen status:', {
                 messageId: message._id,
                 isSeen: message.isSeen,
@@ -2169,8 +2169,8 @@ const IndividualChatScreen: React.FC = () => {
 
     // --- Smart Auto-Scroll Handler ---
     const handleAutoScrollToBottom = useCallback(() => {
-        if (isUserScrolling || isScrollingToMessage || !isNearBottom) {
-            return; // Don't auto-scroll if user is scrolling, scrolling to message, or not near bottom
+        if (isUserScrolling || isScrollingToMessage) {
+            return; // Don't auto-scroll if user is scrolling or scrolling to message
         }
 
         if (flatListRef.current && sections.length > 0 && messages.length > 0) {
@@ -2181,7 +2181,7 @@ const IndividualChatScreen: React.FC = () => {
                 console.warn('Auto-scroll failed:', error);
             }
         }
-    }, [isUserScrolling, isScrollingToMessage, isNearBottom, sections.length, messages.length]);
+    }, [isUserScrolling, isScrollingToMessage, sections.length, messages.length]);
 
     // --- Scroll to Bottom FAB Handler ---
     const handleScrollToBottom = useCallback(() => {
@@ -2756,7 +2756,10 @@ const IndividualChatScreen: React.FC = () => {
 
         if (unseenMessagesFromPartner.length === 0) return;
 
-        console.log(`[IndividualChatScreen] Marking ${unseenMessagesFromPartner.length} messages as seen from ${matchUserId}`);
+        // Only log in development mode
+        if (__DEV__) {
+            console.log(`[IndividualChatScreen] Marking ${unseenMessagesFromPartner.length} messages as seen from ${matchUserId}`);
+        }
 
         try {
             if (useNewServices) {
@@ -2805,7 +2808,10 @@ const IndividualChatScreen: React.FC = () => {
 
         if (potentiallyUnseenMessages.length === 0) return;
 
-        console.log(`[IndividualChatScreen] Checking seen status for ${potentiallyUnseenMessages.length} messages from ${matchUserId}`);
+        // Only log in development mode
+        if (__DEV__) {
+            console.log(`[IndividualChatScreen] Checking seen status for ${potentiallyUnseenMessages.length} messages from ${matchUserId}`);
+        }
 
         try {
             // Fetch the actual seen status from the database for these messages
@@ -2829,7 +2835,9 @@ const IndividualChatScreen: React.FC = () => {
             );
 
             if (seenMessageIds.size > 0) {
-                console.log(`[IndividualChatScreen] Found ${seenMessageIds.size} messages that are actually seen in database`);
+                if (__DEV__) {
+                    console.log(`[IndividualChatScreen] Found ${seenMessageIds.size} messages that are actually seen in database`);
+                }
                 
                 setMessages(prev => prev.map(msg => {
                     if (msg.user._id === matchUserId && seenMessageIds.has(msg._id) && !msg.isSeen) {
@@ -2947,9 +2955,16 @@ const IndividualChatScreen: React.FC = () => {
     }, [currentUserId, matchUserId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen]);
 
     // --- Render Logic ---
-    // Only show loading for web platform, not for mobile with PowerSync
-    if (loading && messages.length === 0 && !isBlocked && !isMobile) {
-        return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View>;
+    // Show loading indicator on all platforms when loading and no messages
+    if (loading && messages.length === 0 && !isBlocked) {
+        return (
+            <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+                <View style={styles.centered}>
+                    <ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
+                    <Text style={[styles.errorText, { marginTop: 16, opacity: 0.7 }]}>Loading messages...</Text>
+                </View>
+            </SafeAreaView>
+        );
     }
     if (!currentUserId) {
         return <View style={styles.centered}><Text style={styles.errorText}>Authentication error.</Text></View>;
@@ -3374,8 +3389,18 @@ const IndividualChatScreen: React.FC = () => {
                             )}
                         </View>
                     )}
-                    onContentSizeChange={handleAutoScrollToBottom}
-                    onLayout={handleAutoScrollToBottom}
+                    onContentSizeChange={() => {
+                        // Only auto-scroll on content size change if we're near bottom and not user scrolling
+                        if (!isUserScrolling && !isScrollingToMessage && isNearBottom) {
+                            handleAutoScrollToBottom();
+                        }
+                    }}
+                    onLayout={() => {
+                        // Only auto-scroll on layout if we're near bottom and not user scrolling
+                        if (!isUserScrolling && !isScrollingToMessage && isNearBottom) {
+                            handleAutoScrollToBottom();
+                        }
+                    }}
                     onScrollToIndexFailed={(info) => {
                         console.log(`[IndividualChatScreen] Scroll to index failed:`, info);
                         console.log(`[IndividualChatScreen] Initial scroll index was: ${calculateInitialScrollIndex()}`);
@@ -3398,7 +3423,7 @@ const IndividualChatScreen: React.FC = () => {
                     </TouchableOpacity>
                 )}
 
-                {/* Replying To Preview */} 
+                {/* Replying To Preview */}
                 {replyingToMessage && (
                     <View style={styles.replyingToContainer}>
                         <View style={styles.replyingToContent}>
@@ -3418,7 +3443,7 @@ const IndividualChatScreen: React.FC = () => {
                     </View>
                 )}
 
-                {/* Shared Event Preview */} 
+                {/* Shared Event Preview */}
                 {renderEventSharePreview()}
 
                 <View style={styles.inputToolbar}>

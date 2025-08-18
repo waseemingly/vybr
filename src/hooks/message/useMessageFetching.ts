@@ -141,11 +141,21 @@ export const useMessageFetching = (options: UseMessageFetchingOptions): UseMessa
             name: msg.sender_name,
             avatar: msg.sender_profile_picture
           },
+          image: null,
           isSystemMessage: false,
+          sharedEvent: null,
+          originalContent: null,
+          isEdited: false,
+          editedAt: null,
+          isDeleted: false,
+          deletedAt: null,
+          replyToMessageId: null,
+          replyToMessagePreview: null,
           isDelivered: msg.is_delivered,
           deliveredAt: msg.delivered_at ? new Date(msg.delivered_at) : null,
-          isSeen: msg.is_seen,
-          seenAt: msg.seen_at ? new Date(msg.seen_at) : null
+          isSeen: Boolean(msg.is_seen), // Convert to boolean
+          seenAt: msg.seen_at ? new Date(msg.seen_at) : null,
+          seenBy: [] // Individual chats don't use seenBy array
         }));
       } else {
         return groupMessagesResult.messages.map((msg: any) => ({
@@ -157,11 +167,21 @@ export const useMessageFetching = (options: UseMessageFetchingOptions): UseMessa
             name: msg.sender_name,
             avatar: msg.sender_profile_picture
           },
+          image: null,
           isSystemMessage: false,
+          sharedEvent: null,
+          originalContent: null,
+          isEdited: false,
+          editedAt: null,
+          isDeleted: false,
+          deletedAt: null,
+          replyToMessageId: null,
+          replyToMessagePreview: null,
           isDelivered: msg.is_delivered,
           deliveredAt: msg.delivered_at ? new Date(msg.delivered_at) : null,
-          isSeen: msg.is_seen,
-          seenAt: msg.seen_at ? new Date(msg.seen_at) : null
+          isSeen: Boolean(msg.is_seen), // Convert to boolean
+          seenAt: msg.seen_at ? new Date(msg.seen_at) : null,
+          seenBy: msg.seen_by || [] // Use the seen_by data from PowerSync
         }));
       }
     }

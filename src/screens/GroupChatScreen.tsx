@@ -267,9 +267,16 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     const [imageError, setImageError] = useState(false);
     const [hasLoggedImpression, setHasLoggedImpression] = useState(false);
     
-    // Debug: Log when isSeen changes for sender's messages
+    // Helper function to handle avatar loading errors
+    const handleAvatarError = () => {
+        if (__DEV__) {
+            console.warn('Failed to load sender avatar, using default');
+        }
+    };
+    
+    // Debug: Log when isSeen changes for sender's messages (only in development)
     useEffect(() => {
-        if (isCurrentUser) {
+        if (isCurrentUser && __DEV__) {
             console.log('[GroupMessageBubble] Message seen status:', {
                 messageId: message._id,
                 isSeen: message.isSeen,
@@ -1788,8 +1795,6 @@ const GroupChatScreen: React.FC = () => {
     const markMessagesAsSeen = useCallback(async () => {
         if (!currentUserId || !groupId || messages.length === 0) return;
 
-        console.log(`[GroupChatScreen] markMessagesAsSeen called with ${messages.length} messages`);
-
         // Find messages from others that haven't been marked as seen by the current user
         const unseenMessagesFromOthers = messages.filter(msg => {
             // Skip system messages and our own messages
@@ -1801,12 +1806,8 @@ const GroupChatScreen: React.FC = () => {
         });
 
         if (unseenMessagesFromOthers.length === 0) {
-            console.log(`[GroupChatScreen] No unseen messages from others found`);
             return;
         }
-
-        console.log(`[GroupChatScreen] Marking ${unseenMessagesFromOthers.length} messages as seen in group ${groupId}`);
-        console.log(`[GroupChatScreen] Message IDs to mark:`, unseenMessagesFromOthers.map(m => m._id));
 
         try {
             const messageIdsToMark = unseenMessagesFromOthers.map(msg => msg._id);
@@ -1818,27 +1819,28 @@ const GroupChatScreen: React.FC = () => {
                 });
 
                 if (bulkError) {
-                    console.error('Bulk mark failed, trying individual marks:', bulkError.message);
-                    
-                    // Fallback: mark messages individually
-                    for (const messageId of messageIdsToMark) {
-                        try {
-                            const { error: individualError } = await supabase.rpc('mark_group_message_seen', {
-                                message_id_input: messageId,
-                                user_id_input: currentUserId
-                            });
-                            
-                            if (individualError) {
-                                console.error(`Error marking individual message ${messageId} as seen:`, individualError.message);
-                            } else {
-                                console.log(`Successfully marked message ${messageId} as seen`);
+                    // Check if it's an authentication error
+                    if (bulkError.message.includes('Unauthorized') || bulkError.message.includes('JWT') || bulkError.message.includes('not a member')) {
+                        console.warn('[GroupChatScreen] Authentication error in bulk mark, user may need to re-authenticate');
+                        // Don't attempt individual marks for auth errors - they'll likely fail too
+                        return;
+                    } else {
+                        // Fallback: mark messages individually for non-auth errors
+                        for (const messageId of messageIdsToMark) {
+                            try {
+                                const { error: individualError } = await supabase.rpc('mark_group_message_seen', {
+                                    message_id_input: messageId,
+                                    user_id_input: currentUserId
+                                });
+                                
+                                if (individualError) {
+                                    console.error(`Error marking individual message ${messageId} as seen:`, individualError.message);
+                                }
+                            } catch (individualErr: any) {
+                                console.error(`Exception marking individual message ${messageId} as seen:`, individualErr.message);
                             }
-                        } catch (individualErr: any) {
-                            console.error(`Exception marking individual message ${messageId} as seen:`, individualErr.message);
                         }
                     }
-                } else {
-                    console.log('[GroupChatScreen] Successfully marked group messages as seen via bulk operation');
                 }
                 
                 // Always broadcast the status update to ensure real-time updates
@@ -1846,19 +1848,37 @@ const GroupChatScreen: React.FC = () => {
                     message_ids: messageIdsToMark, 
                     seen_by: { userId: currentUserId, userName: userProfileCache[currentUserId]?.name || 'Someone' }
                 });
-                // Note: refreshUnreadCount() removed to prevent infinite loop
-                // The unread count will be updated automatically through real-time subscriptions
+                
+                // Optimistically update the UI to show messages as seen immediately
+                setMessages(prev => prev.map(msg => {
+                    if (messageIdsToMark.includes(msg._id) && msg.user._id !== currentUserId) {
+                        const currentSeenBy = [...(msg.seenBy || [])];
+                        if (!currentSeenBy.some(s => s.userId === currentUserId)) {
+                            currentSeenBy.push({
+                                userId: currentUserId,
+                                userName: userProfileCache[currentUserId]?.name || 'You',
+                                seenAt: new Date()
+                            });
+                        }
+                        
+                        return {
+                            ...msg,
+                            isSeen: true,
+                            seenAt: new Date(),
+                            seenBy: currentSeenBy
+                        };
+                    }
+                    return msg;
+                }));
             }
         } catch (e: any) {
             console.error('Exception marking group messages as seen:', e.message);
         }
-    }, [currentUserId, groupId, messages, sendBroadcast]);
+    }, [currentUserId, groupId, messages, sendBroadcast, userProfileCache]);
 
     // Enhanced function to check and update seen status for messages loaded from database
     const checkAndUpdateSeenStatus = useCallback(async () => {
         if (!currentUserId || !groupId || messages.length === 0) return;
-
-        console.log(`[GroupChatScreen] checkAndUpdateSeenStatus called with ${messages.length} messages`);
 
         // Find messages from others that might be marked as unseen in our local state
         // but might actually be seen in the database
@@ -1872,12 +1892,8 @@ const GroupChatScreen: React.FC = () => {
         });
 
         if (potentiallyUnseenMessages.length === 0) {
-            console.log(`[GroupChatScreen] No potentially unseen messages found`);
             return;
         }
-
-        console.log(`[GroupChatScreen] Checking seen status for ${potentiallyUnseenMessages.length} messages in group ${groupId}`);
-        console.log(`[GroupChatScreen] Message IDs to check:`, potentiallyUnseenMessages.map(m => m._id));
 
         try {
             // Fetch the actual seen status from the database for these messages
@@ -1902,9 +1918,6 @@ const GroupChatScreen: React.FC = () => {
             );
 
             if (seenMessageIds.size > 0) {
-                console.log(`[GroupChatScreen] Found ${seenMessageIds.size} messages that are actually seen in database`);
-                console.log(`[GroupChatScreen] Seen message IDs:`, Array.from(seenMessageIds));
-                
                 setMessages(prev => prev.map(msg => {
                     if (msg.user._id !== currentUserId && !msg.isSystemMessage && seenMessageIds.has(msg._id)) {
                         const status = statusData?.find(s => s.message_id === msg._id);
@@ -1930,8 +1943,6 @@ const GroupChatScreen: React.FC = () => {
                             isSeen = currentSeenBy.some(s => s.userId === currentUserId);
                         }
                         
-                        console.log(`[GroupChatScreen] Updating message ${msg._id}: isSeen=${isSeen}, seenBy count=${currentSeenBy.length}`);
-                        
                         return {
                             ...msg,
                             isSeen: isSeen,
@@ -1941,8 +1952,6 @@ const GroupChatScreen: React.FC = () => {
                     }
                     return msg;
                 }));
-            } else {
-                console.log(`[GroupChatScreen] No messages found to be seen in database`);
             }
         } catch (e: any) {
             console.error('Exception checking group seen status:', e.message);
@@ -1952,20 +1961,13 @@ const GroupChatScreen: React.FC = () => {
     // Call markMessagesAsSeen when the screen focuses
     useFocusEffect(
         useCallback(() => {
-            console.log('[GroupChatScreen] Screen focused, checking and updating seen status');
-            console.log('[GroupChatScreen] Current messages count:', messages.length);
-            console.log('[GroupChatScreen] Current user ID:', currentUserId);
-            console.log('[GroupChatScreen] Group ID:', groupId);
-            
             // First check and update seen status for messages loaded from database
             const checkTimer = setTimeout(() => {
-                console.log('[GroupChatScreen] Running checkAndUpdateSeenStatus...');
                 checkAndUpdateSeenStatus();
             }, 100);
             
             // Then mark any remaining unseen messages as seen
             const markTimer = setTimeout(() => {
-                console.log('[GroupChatScreen] Running markMessagesAsSeen...');
                 markMessagesAsSeen();
             }, 300);
             
@@ -1973,7 +1975,7 @@ const GroupChatScreen: React.FC = () => {
                 clearTimeout(checkTimer);
                 clearTimeout(markTimer);
             };
-        }, [checkAndUpdateSeenStatus, markMessagesAsSeen, messages.length, currentUserId, groupId])
+        }, [checkAndUpdateSeenStatus, markMessagesAsSeen])
     );
     
     // Mark messages as seen when new messages arrive while screen is focused
@@ -3470,8 +3472,8 @@ const GroupChatScreen: React.FC = () => {
 
     // --- Smart Auto-Scroll Handler ---
     const handleAutoScrollToBottom = useCallback(() => {
-        if (isUserScrolling || isScrollingToMessage || !isNearBottom) {
-            return; // Don't auto-scroll if user is scrolling or not near bottom
+        if (isUserScrolling || isScrollingToMessage) {
+            return; // Don't auto-scroll if user is scrolling or scrolling to message
         }
 
         if (flatListRef.current && sections.length > 0 && messages.length > 0) {
@@ -3482,7 +3484,7 @@ const GroupChatScreen: React.FC = () => {
                 console.warn('Auto-scroll failed:', error);
             }
         }
-    }, [isUserScrolling, isScrollingToMessage, isNearBottom, sections.length, messages.length]);
+    }, [isUserScrolling, isScrollingToMessage, sections.length, messages.length]);
 
 
 
@@ -3607,8 +3609,17 @@ const GroupChatScreen: React.FC = () => {
     // --- End Scroll Event Handlers ---
 
     // --- Render Logic ---
-    // Only show loading for web platform, not for mobile with PowerSync
-    if (loading && messages.length === 0 && !isMobile) { return <View style={styles.centered}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View>; }
+    // Show loading indicator on all platforms when loading and no messages
+    if (loading && messages.length === 0) {
+        return (
+            <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+                <View style={styles.centered}>
+                    <ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
+                    <Text style={[styles.errorText, { marginTop: 16, opacity: 0.7 }]}>Loading messages...</Text>
+                </View>
+            </SafeAreaView>
+        );
+    }
     if (loadError && messages.length === 0) { const displayError = loadError.includes('permission') || loadError.includes('session') ? "Permission/session issue." : loadError; return <View style={styles.centered}><Text style={styles.errorText}>{displayError}</Text></View>; }
     if (!currentUserId || !groupId) { return <View style={styles.centered}><Text style={styles.errorText}>Missing User/Group Info.</Text></View>; }
 
@@ -3977,8 +3988,18 @@ const GroupChatScreen: React.FC = () => {
                             )}
                         </View>
                     )}
-                    onContentSizeChange={handleAutoScrollToBottom}
-                    onLayout={handleAutoScrollToBottom}
+                    onContentSizeChange={() => {
+                        // Only auto-scroll on content size change if we're near bottom and not user scrolling
+                        if (!isUserScrolling && !isScrollingToMessage && isNearBottom) {
+                            handleAutoScrollToBottom();
+                        }
+                    }}
+                    onLayout={() => {
+                        // Only auto-scroll on layout if we're near bottom and not user scrolling
+                        if (!isUserScrolling && !isScrollingToMessage && isNearBottom) {
+                            handleAutoScrollToBottom();
+                        }
+                    }}
                     onScrollToIndexFailed={(info) => {
                         console.log(`[GroupChatScreen] Scroll to index failed:`, info);
                         console.log(`[GroupChatScreen] Initial scroll index was: ${calculateInitialScrollIndex()}`);
