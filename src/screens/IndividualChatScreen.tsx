@@ -253,13 +253,15 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
     // Debug: Log when isSeen changes for sender's messages (only in development)
     useEffect(() => {
         if (isCurrentUser && __DEV__) {
-            console.log('[MessageBubble] Message seen status:', {
+            // Only log when status actually changes to reduce spam
+            console.log('[MessageBubble] Message status changed:', {
                 messageId: message._id,
                 isSeen: message.isSeen,
+                isDelivered: message.isDelivered,
                 seenAt: message.seenAt
             });
         }
-    }, [message.isSeen, message.seenAt, isCurrentUser, message._id]);
+    }, [message.isSeen, message.isDelivered, isCurrentUser, message._id]);
     const navigation = useNavigation<RootNavigationProp>();
 
     // Log impression for shared events when message bubble comes into view
@@ -324,10 +326,20 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                             This message was deleted
                         </Text>
                     </View>
-                    <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
-                        {formatTime(message.createdAt)}
-                        {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />} 
-                    </Text>
+                                            <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
+                            {formatTime(message.createdAt)}
+                            {isCurrentUser && (
+                                <>
+                                    {message.isSeen ? (
+                                        <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />
+                                    ) : message.isDelivered ? (
+                                        <Feather name="check" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />
+                                    ) : (
+                                        <Feather name="clock" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />
+                                    )}
+                                </>
+                            )}
+                        </Text>
                 </View>
             </View>
         );
@@ -520,7 +532,17 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                         {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
                         <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
                             {formatTime(message.createdAt)}
-                            {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />} 
+                            {isCurrentUser && (
+                                <>
+                                    {message.isSeen ? (
+                                        <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />
+                                    ) : message.isDelivered ? (
+                                        <Feather name="check" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />
+                                    ) : (
+                                        <Feather name="clock" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />
+                                    )}
+                                </>
+                            )}
                         </Text>
                     </View>
                 </View>
