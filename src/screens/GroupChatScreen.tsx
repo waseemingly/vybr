@@ -30,6 +30,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useRealtime } from '@/context/RealtimeContext';
 import { usePowerSync } from '@/context/PowerSyncContext'; // Import PowerSync context
+import { safeToISOString } from '@/utils/dateUtils';
 
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator'; // Adjust path
 import { APP_CONSTANTS } from '@/config/constants';
@@ -277,14 +278,16 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     // Debug: Log when isSeen changes for sender's messages (only in development)
     useEffect(() => {
         if (isCurrentUser && __DEV__) {
-            console.log('[GroupMessageBubble] Message seen status:', {
+            // Only log when status actually changes to reduce spam
+            console.log('[GroupMessageBubble] Message status changed:', {
                 messageId: message._id,
                 isSeen: message.isSeen,
+                isDelivered: message.isDelivered,
                 seenByCount: message.seenBy?.length || 0,
                 seenByUsers: message.seenBy?.map(s => s.userName) || []
             });
         }
-    }, [message.isSeen, message.seenBy, isCurrentUser, message._id]);
+    }, [message.isSeen, message.isDelivered, message.seenBy, isCurrentUser, message._id]);
 
     // Log impression for shared events when message bubble comes into view
     useEffect(() => {
@@ -372,7 +375,17 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                     </View>
                     <Text style={[styles.timeText, isCurrentUser ? styles.timeTextSent : styles.timeTextReceived]}>
                         {formatTime(message.createdAt)}
-                        {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />}
+                        {isCurrentUser && (
+                            <>
+                                {message.isSeen ? (
+                                    <Feather name="check-circle" size={12} color="#34D399" style={{ marginLeft: 4 }} />
+                                ) : message.isDelivered ? (
+                                    <Feather name="check" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />
+                                ) : (
+                                    <Feather name="clock" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />
+                                )}
+                            </>
+                        )}
                     </Text>
                 </View>
             </View>
@@ -618,7 +631,17 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                             {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
                             <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
                                 {formatTime(message.createdAt)}
-                                {isCurrentUser && message.isSeen && <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />}
+                                {isCurrentUser && (
+                                    <>
+                                        {message.isSeen ? (
+                                            <Feather name="check-circle" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />
+                                        ) : message.isDelivered ? (
+                                            <Feather name="check" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />
+                                        ) : (
+                                            <Feather name="clock" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />
+                                        )}
+                                    </>
+                                )}
                             </Text>
                         </View>
                     </View>
@@ -706,7 +729,11 @@ const GroupChatScreen: React.FC = () => {
     const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
     const [earliestUnreadMessageId, setEarliestUnreadMessageId] = useState<string | null>(null);
     const [hasScrolledToUnread, setHasScrolledToUnread] = useState(false);
+    const [isInitialLoad, setIsInitialLoad] = useState(true); // NEW: Track initial load state
     const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    // NEW: Debounced messages state to prevent chaotic scrolling from PowerSync updates
+    const [debouncedMessages, setDebouncedMessages] = useState<ChatMessage[]>([]);
+    const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     // --- End State for scroll management ---
 
     // PowerSync context for platform detection
@@ -870,8 +897,50 @@ const GroupChatScreen: React.FC = () => {
     };
     // --- End Event Press Handler ---
 
+    // --- Debounce Messages to Prevent Chaotic Scrolling ---
+    useEffect(() => {
+        if (debounceTimeoutRef.current) {
+            clearTimeout(debounceTimeoutRef.current);
+        }
+        
+        debounceTimeoutRef.current = setTimeout(() => {
+            console.log(`[GroupChatScreen] Debounced messages updated: ${messages.length} messages`);
+            setDebouncedMessages(messages);
+            setIsInitialLoad(false);
+        }, 300); // 300ms debounce to allow PowerSync updates to stabilize
+        
+        return () => {
+            if (debounceTimeoutRef.current) {
+                clearTimeout(debounceTimeoutRef.current);
+            }
+        };
+    }, [messages]);
+
     // Memoized sections
-    const sections = useMemo(() => { const groups: Record<string, ChatMessage[]> = {}; messages.forEach(msg => { const dateKey = msg.createdAt.toDateString(); if (!groups[dateKey]) groups[dateKey] = []; groups[dateKey].push(msg); }); const sortedKeys = Object.keys(groups).sort((a, b) => new Date(a).getTime() - new Date(b).getTime()); const today = new Date(); today.setHours(0, 0, 0, 0); const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); const oneWeekAgo = new Date(today); oneWeekAgo.setDate(today.getDate() - 7); return sortedKeys.map(dateKey => { const date = new Date(dateKey); date.setHours(0, 0, 0, 0); let title = 'Older'; if (date.getTime() === today.getTime()) title = 'Today'; else if (date.getTime() === yesterday.getTime()) title = 'Yesterday'; else if (date > oneWeekAgo) title = date.toLocaleDateString(undefined, { weekday: 'long' }); else title = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); return { title, data: groups[dateKey] }; }); }, [messages]);
+    const sections = useMemo(() => {
+        const groups: Record<string, ChatMessage[]> = {};
+        debouncedMessages.forEach(msg => {
+            const dateKey = new Date(msg.createdAt).toDateString();
+            (groups[dateKey] = groups[dateKey] || []).push(msg);
+        });
+        const sortedKeys = Object.keys(groups).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
+        const oneWeekAgo = new Date(today);
+        oneWeekAgo.setDate(today.getDate() - 7);
+        return sortedKeys.map(dateKey => {
+            const date = new Date(dateKey);
+            date.setHours(0, 0, 0, 0);
+            let title = date.getTime() === today.getTime() ? 'Today'
+                : date.getTime() === yesterday.getTime() ? 'Yesterday'
+                : date.getTime() > oneWeekAgo.getTime() ? date.toLocaleDateString(undefined, { weekday: 'long' })
+                : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+            const sortedData = groups[dateKey].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+            return { title, data: sortedData };
+        });
+    }, [debouncedMessages]);
 
     // Map DB Message to UI
     const mapDbMessageToChatMessage = useCallback((dbMessage: DbGroupMessage, profilesMap: Map<string, UserProfileInfo>): ChatMessage => {
@@ -1150,6 +1219,10 @@ const GroupChatScreen: React.FC = () => {
                     return chatMsg;
                 });
                 setMessages(mappedMessages);
+                // Mark initial load as complete when messages are first loaded
+                if (isInitialLoad) {
+                    setIsInitialLoad(false);
+                }
             }
         } catch (err: any) {
             console.error("Error fetching initial data:", err);
@@ -1165,8 +1238,12 @@ const GroupChatScreen: React.FC = () => {
             setCanMembersEditInfo(false);
         } finally {
             setLoading(false);
+            // Mark initial load as complete in finally block to ensure it's set
+            if (isInitialLoad) {
+                setIsInitialLoad(false);
+            }
         }
-    }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage]);
+    }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage, isInitialLoad]);
 
     // Send Text Message
     const sendTextMessage = useCallback(async (text: string) => {
@@ -2500,7 +2577,9 @@ const GroupChatScreen: React.FC = () => {
             },
             onMessageStatus: (payload: any) => {
                 const statusUpdate = payload.new;
-                console.log('[GroupChatScreen] Message status update received via broadcast:', statusUpdate);
+                if (__DEV__) {
+            console.log('[GroupChatScreen] Message status update received via broadcast:', statusUpdate);
+        }
                 if (!statusUpdate) return;
             
                 if (statusUpdate.message_ids && Array.isArray(statusUpdate.message_ids)) {
@@ -2523,7 +2602,9 @@ const GroupChatScreen: React.FC = () => {
                             const newIsSeen = msg.user._id === currentUserId ? newSeenBy.length > 0 : isSeenByCurrentUser;
                             
                             if (newIsSeen && !msg.isSeen && msg.user._id === currentUserId) {
-                                console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (bulk):', msg._id, 'seenBy:', newSeenBy.map(s => s.userName));
+                                if (__DEV__) {
+            console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (bulk):', msg._id, 'seenBy:', newSeenBy.map(s => s.userName));
+        }
                             }
 
                             return { 
@@ -2574,7 +2655,9 @@ const GroupChatScreen: React.FC = () => {
                                 // This is the sender's message - isSeen if others have seen it
                                 isSeen = seenByArray.some(s => s.userId !== currentUserId); // If anyone else has seen it
                                 if (isSeen && !msg.isSeen) {
-                                    console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (postgres):', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
+                                    if (__DEV__) {
+            console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (postgres):', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
+        }
                                 }
                             } else {
                                 // This is a received message - isSeen if current user has seen it
@@ -2685,7 +2768,9 @@ const GroupChatScreen: React.FC = () => {
                                 // This is the sender's message - isSeen if others have seen it
                                 isSeen = seenByArray.some(s => s.userId !== currentUserId);
                                 if (isSeen && !msg.isSeen) {
-                                    console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (database):', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
+                                    if (__DEV__) {
+            console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (database):', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
+        }
                                 }
                             } else {
                                 // This is a received message - isSeen if current user has seen it
@@ -2783,7 +2868,9 @@ const GroupChatScreen: React.FC = () => {
                                         // This is the sender's message - isSeen if others have seen it
                                         isSeen = seenByArray.some(s => s.userId !== currentUserId); // If anyone else has seen it
                                         if (isSeen && !msg.isSeen) {
-                                            console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (broadcast):', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
+                                            if (__DEV__) {
+            console.log('[GroupChatScreen] ✅ Seen tick should now appear for message (broadcast):', msg._id, 'seenBy:', seenByArray.map(s => s.userName));
+        }
                                         }
                                     } else {
                                         // This is a received message - isSeen if current user has seen it
@@ -2974,10 +3061,17 @@ const GroupChatScreen: React.FC = () => {
 
     // Sync new messages to old state when newMessages changes
     useEffect(() => {
-        if (useNewServices && newMessages.length > 0) {
-            setMessages(newMessages);
+        if (useNewServices) {
+            if (newMessages.length > 0) {
+                setMessages(newMessages);
+            }
+            // Mark initial load as complete when loading is complete (regardless of message count)
+            // This ensures we wait for PowerSync data to be ready
+            if (isInitialLoad && !newLoading) {
+                setIsInitialLoad(false);
+            }
         }
-    }, [newMessages, useNewServices]);
+    }, [newMessages, useNewServices, isInitialLoad, newLoading]);
 
     // Ensure group name is set properly when entering via notification
     useEffect(() => {
@@ -3206,7 +3300,7 @@ const GroupChatScreen: React.FC = () => {
             const seenUsers = seenByData.map(s => ({
                 user_id: s.userId,
                 name: s.userName,
-                seen_at: s.seenAt.toISOString()
+                seen_at: safeToISOString(s.seenAt)
             }));
 
             // Find the senderId
@@ -3217,7 +3311,7 @@ const GroupChatScreen: React.FC = () => {
             const seenUsersExcludingSender = (selectedMessageForAction.seenBy || []).filter(s => s.userId !== senderId).map(s => ({
                 user_id: s.userId,
                 name: s.userName,
-                seen_at: s.seenAt.toISOString()
+                seen_at: safeToISOString(s.seenAt)
             }));
 
             setMessageInfoData({
@@ -3267,7 +3361,7 @@ const GroupChatScreen: React.FC = () => {
                 const seenUsersExcludingSender = (currentMessage.seenBy || []).filter(s => s.userId !== senderId).map(s => ({
                     user_id: s.userId,
                     name: s.userName,
-                    seen_at: s.seenAt.toISOString()
+                    seen_at: safeToISOString(s.seenAt)
                 }));
                 setMessageInfoData((prev: any) => ({
                     ...prev,
@@ -3433,22 +3527,22 @@ const GroupChatScreen: React.FC = () => {
 
     // --- Calculate Initial Scroll Index ---
     const calculateInitialScrollIndex = useCallback(() => {
-        if (!currentUserId || !groupId || messages.length === 0) {
+        if (!currentUserId || !groupId || debouncedMessages.length === 0) {
             return -1; // No scroll needed
         }
 
         // Find unread messages from others (not system messages)
-        const unreadMessages = messages.filter(msg => 
+        const unreadMessages = debouncedMessages.filter(msg => 
             !msg.isSystemMessage && 
             msg.user._id !== currentUserId && 
             !msg.seenBy?.some(seen => seen.userId === currentUserId)
         );
 
-        console.log(`[GroupChatScreen] Chat: ${groupId}, Messages: ${messages.length}, Unread: ${unreadMessages.length}`);
+        console.log(`[GroupChatScreen] Chat: ${groupId}, Messages: ${debouncedMessages.length}, Unread: ${unreadMessages.length}`);
 
         if (unreadMessages.length === 0) {
             // No unread messages, scroll to bottom (latest message)
-            const lastMessageIndex = messages.length - 1;
+            const lastMessageIndex = debouncedMessages.length - 1;
             console.log(`[GroupChatScreen] No unread messages, scrolling to bottom at index: ${lastMessageIndex}`);
             return lastMessageIndex;
         }
@@ -3458,7 +3552,7 @@ const GroupChatScreen: React.FC = () => {
             current.createdAt < earliest.createdAt ? current : earliest
         );
         
-        const earliestUnreadIndex = messages.findIndex(msg => msg._id === earliestUnread._id);
+        const earliestUnreadIndex = debouncedMessages.findIndex(msg => msg._id === earliestUnread._id);
         
         if (earliestUnreadIndex !== -1) {
             console.log(`[GroupChatScreen] Found earliest unread message at index: ${earliestUnreadIndex}`);
@@ -3467,8 +3561,8 @@ const GroupChatScreen: React.FC = () => {
 
         // Fallback to bottom if we can't find the unread message
         console.log(`[GroupChatScreen] Could not find unread message, falling back to bottom`);
-        return messages.length - 1;
-    }, [currentUserId, groupId, messages]);
+        return debouncedMessages.length - 1;
+    }, [currentUserId, groupId, debouncedMessages]);
 
     // --- Smart Auto-Scroll Handler ---
     const handleAutoScrollToBottom = useCallback(() => {
@@ -3476,7 +3570,7 @@ const GroupChatScreen: React.FC = () => {
             return; // Don't auto-scroll if user is scrolling or scrolling to message
         }
 
-        if (flatListRef.current && sections.length > 0 && messages.length > 0) {
+        if (flatListRef.current && sections.length > 0 && debouncedMessages.length > 0) {
             try {
                 const sectionListRef = flatListRef.current as any;
                 sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: false });
@@ -3484,13 +3578,13 @@ const GroupChatScreen: React.FC = () => {
                 console.warn('Auto-scroll failed:', error);
             }
         }
-    }, [isUserScrolling, isScrollingToMessage, sections.length, messages.length]);
+    }, [isUserScrolling, isScrollingToMessage, sections.length, debouncedMessages.length]);
 
 
 
     // --- Scroll to Bottom FAB Handler ---
     const handleScrollToBottom = useCallback(() => {
-        if (flatListRef.current && sections.length > 0 && messages.length > 0) {
+        if (flatListRef.current && sections.length > 0 && debouncedMessages.length > 0) {
             try {
                 const sectionListRef = flatListRef.current as any;
                 sectionListRef._wrapperListRef._listRef.scrollToEnd({ animated: true });
@@ -3499,7 +3593,7 @@ const GroupChatScreen: React.FC = () => {
                 console.warn('Scroll to bottom failed:', error);
             }
         }
-    }, [sections.length, messages.length]);
+    }, [sections.length, debouncedMessages.length]);
 
     // --- Find and Scroll to Earliest Unread Message ---
     const findAndScrollToEarliestUnread = useCallback(() => {
@@ -3511,7 +3605,7 @@ const GroupChatScreen: React.FC = () => {
         console.log('[GroupChatScreen] findAndScrollToEarliestUnread: Starting search for unread messages');
         
         // Find the earliest unread message from others (not system messages)
-        const unreadMessages = messages.filter(msg => 
+        const unreadMessages = debouncedMessages.filter(msg => 
             !msg.isSystemMessage && 
             msg.user._id !== currentUserId && 
             !msg.seenBy?.some(seen => seen.userId === currentUserId)
@@ -3540,12 +3634,12 @@ const GroupChatScreen: React.FC = () => {
 
         // Scroll to the earliest unread message
         handleScrollToMessage(earliestUnread._id);
-    }, [currentUserId, groupId, messages, hasScrolledToUnread, handleScrollToMessage, handleAutoScrollToBottom]);
+    }, [currentUserId, groupId, debouncedMessages, hasScrolledToUnread, handleScrollToMessage, handleAutoScrollToBottom]);
 
     // Reset unread state when all messages are seen
     useEffect(() => {
-        if (messages.length > 0) {
-            const hasUnseenMessages = messages.some(msg => 
+        if (debouncedMessages.length > 0) {
+            const hasUnseenMessages = debouncedMessages.some(msg => 
                 !msg.isSystemMessage && 
                 msg.user._id !== currentUserId && 
                 !msg.seenBy?.some(seen => seen.userId === currentUserId)
@@ -3562,12 +3656,12 @@ const GroupChatScreen: React.FC = () => {
                 handleAutoScrollToBottom();
             }
         }
-    }, [messages, currentUserId, hasUnreadMessages, hasScrolledToUnread, handleAutoScrollToBottom]);
+    }, [debouncedMessages, currentUserId, hasUnreadMessages, hasScrolledToUnread, handleAutoScrollToBottom]);
 
     // Handle scroll to unread messages when messages are loaded and seen status is updated
     useEffect(() => {
-        console.log('[GroupChatScreen] useEffect for scroll to unread:', { messagesLength: messages.length, loading, hasScrolledToUnread });
-        if (messages.length > 0 && !loading && !hasScrolledToUnread) {
+        console.log('[GroupChatScreen] useEffect for scroll to unread:', { messagesLength: messages.length, loading, hasScrolledToUnread, isInitialLoad });
+        if (messages.length > 0 && !loading && !hasScrolledToUnread && !isInitialLoad) {
             // Wait for seen status to be properly updated before determining unread messages
             const timer = setTimeout(() => {
                 // Double-check that we haven't already scrolled to unread
@@ -3578,7 +3672,20 @@ const GroupChatScreen: React.FC = () => {
             }, 500); // Increased delay to ensure seen status is updated
             return () => clearTimeout(timer);
         }
-    }, [messages.length, loading, hasScrolledToUnread, findAndScrollToEarliestUnread]);
+    }, [messages.length, loading, hasScrolledToUnread, isInitialLoad, findAndScrollToEarliestUnread]);
+
+    // Handle initial scroll after data is loaded (for PowerSync)
+    useEffect(() => {
+        if (!isInitialLoad && messages.length > 0 && !hasScrolledToUnread) {
+            console.log('[GroupChatScreen] Initial data loaded, triggering scroll to unread');
+            const timer = setTimeout(() => {
+                if (!hasScrolledToUnread) {
+                    findAndScrollToEarliestUnread();
+                }
+            }, 100); // Short delay to ensure UI is ready
+            return () => clearTimeout(timer);
+        }
+    }, [isInitialLoad, messages.length, hasScrolledToUnread, findAndScrollToEarliestUnread]);
 
 
 
@@ -3604,8 +3711,8 @@ const GroupChatScreen: React.FC = () => {
         setIsNearBottom(isAtBottom);
         
         // Show/hide scroll to bottom FAB based on position
-        setShowScrollToBottomFAB(!isAtBottom && messages.length > 0);
-    }, [isScrollingToMessage, messages.length]);
+        setShowScrollToBottomFAB(!isAtBottom && debouncedMessages.length > 0);
+    }, [isScrollingToMessage, debouncedMessages.length]);
     // --- End Scroll Event Handlers ---
 
     // --- Render Logic ---
@@ -3954,6 +4061,10 @@ const GroupChatScreen: React.FC = () => {
                     contentContainerStyle={styles.messageListContent}
                     keyExtractor={(item) => `${item._id}-${item.isSeen ? 'seen' : 'unseen'}-${item.seenBy?.length || 0}`}
                     initialScrollIndex={(() => {
+                        // Only calculate initial scroll index when data is ready and not during initial load
+                        if (isInitialLoad || debouncedMessages.length === 0) {
+                            return -1; // No scroll needed during initial load
+                        }
                         const index = calculateInitialScrollIndex();
                         console.log(`[GroupChatScreen] Calculated initial scroll index: ${index}`);
                         return index;
@@ -3990,13 +4101,15 @@ const GroupChatScreen: React.FC = () => {
                     )}
                     onContentSizeChange={() => {
                         // Only auto-scroll on content size change if we're near bottom and not user scrolling
-                        if (!isUserScrolling && !isScrollingToMessage && isNearBottom) {
+                        // AND not during initial load to prevent the jump
+                        if (!isUserScrolling && !isScrollingToMessage && isNearBottom && !isInitialLoad) {
                             handleAutoScrollToBottom();
                         }
                     }}
                     onLayout={() => {
                         // Only auto-scroll on layout if we're near bottom and not user scrolling
-                        if (!isUserScrolling && !isScrollingToMessage && isNearBottom) {
+                        // AND not during initial load to prevent the jump
+                        if (!isUserScrolling && !isScrollingToMessage && isNearBottom && !isInitialLoad) {
                             handleAutoScrollToBottom();
                         }
                     }}
