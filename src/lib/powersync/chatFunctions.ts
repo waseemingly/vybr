@@ -445,7 +445,7 @@ export class PowerSyncChatFunctions {
  * Hook to get individual chat list using PowerSync (equivalent to get_chat_list)
  */
 export function useIndividualChatList(userId: string) {
-  const { db, isPowerSyncAvailable } = usePowerSync();
+  const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const query = PowerSyncChatFunctions.getIndividualChatListQuery(userId);
   const params = [userId, userId, userId, userId];
 
@@ -474,14 +474,19 @@ export function useIndividualChatList(userId: string) {
     return { chats: [], loading: false, error: 'PowerSync not available' };
   }
 
-  return { chats: chatItems, loading, error };
+  // In offline mode, suppress network-related errors
+  const finalError = isOffline && error && (error.includes('network') || error.includes('fetch') || error.includes('timeout')) 
+    ? null 
+    : error;
+
+  return { chats: chatItems, loading, error: finalError };
 }
 
 /**
  * Hook to get individual chat list with unread counts using PowerSync (equivalent to get_chat_list_with_unread)
  */
 export function useIndividualChatListWithUnread(userId: string) {
-  const { db, isPowerSyncAvailable } = usePowerSync();
+  const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const query = PowerSyncChatFunctions.getIndividualChatListWithUnreadQuery(userId);
   const params = [userId, userId, userId, userId, userId, userId];
 
@@ -510,14 +515,19 @@ export function useIndividualChatListWithUnread(userId: string) {
     return { chats: [], loading: false, error: 'PowerSync not available' };
   }
 
-  return { chats: chatItems, loading, error };
+  // In offline mode, suppress network-related errors
+  const finalError = isOffline && error && (error.includes('network') || error.includes('fetch') || error.includes('timeout')) 
+    ? null 
+    : error;
+
+  return { chats: chatItems, loading, error: finalError };
 }
 
 /**
  * Hook to get group chat list using PowerSync (equivalent to get_group_chat_list)
  */
 export function useGroupChatList(userId: string) {
-  const { db, isPowerSyncAvailable } = usePowerSync();
+  const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const query = PowerSyncChatFunctions.getGroupChatListQuery(userId);
   const params = [userId, userId];
 
@@ -546,14 +556,19 @@ export function useGroupChatList(userId: string) {
     return { chats: [], loading: false, error: 'PowerSync not available' };
   }
 
-  return { chats: chatItems, loading, error };
+  // In offline mode, suppress network-related errors
+  const finalError = isOffline && error && (error.includes('network') || error.includes('fetch') || error.includes('timeout')) 
+    ? null 
+    : error;
+
+  return { chats: chatItems, loading, error: finalError };
 }
 
 /**
  * Hook to get group chat list with unread counts using PowerSync (equivalent to get_group_chat_list_with_unread)
  */
 export function useGroupChatListWithUnread(userId: string) {
-  const { db, isPowerSyncAvailable } = usePowerSync();
+  const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const query = PowerSyncChatFunctions.getGroupChatListWithUnreadQuery(userId);
   const params = [userId, userId, userId, userId, userId];
 
@@ -582,14 +597,19 @@ export function useGroupChatListWithUnread(userId: string) {
     return { chats: [], loading: false, error: 'PowerSync not available' };
   }
 
-  return { chats: chatItems, loading, error };
+  // In offline mode, suppress network-related errors
+  const finalError = isOffline && error && (error.includes('network') || error.includes('fetch') || error.includes('timeout')) 
+    ? null 
+    : error;
+
+  return { chats: chatItems, loading, error: finalError };
 } 
 
 /**
  * Hook to fetch individual messages using PowerSync
  */
 export function useIndividualMessages(userId: string, partnerId: string, limit: number = 50, offset: number = 0) {
-  const { db, isPowerSyncAvailable } = usePowerSync();
+  const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const query = PowerSyncChatFunctions.getIndividualMessagesQuery(userId, partnerId, limit, offset);
   const params = [userId, userId, partnerId, partnerId, userId, limit, offset];
   
@@ -614,10 +634,15 @@ export function useIndividualMessages(userId: string, partnerId: string, limit: 
     }));
   }, [result.data]);
 
+  // In offline mode, suppress network-related errors
+  const finalError = isOffline && result.error && (result.error.includes('network') || result.error.includes('fetch') || result.error.includes('timeout')) 
+    ? null 
+    : result.error;
+
   return {
     messages,
     loading: result.loading,
-    error: result.error,
+    error: finalError,
     dataCount: messages.length
   };
 }
@@ -626,7 +651,7 @@ export function useIndividualMessages(userId: string, partnerId: string, limit: 
  * Hook to fetch group messages using PowerSync
  */
 export function useGroupMessages(groupId: string, userId: string, limit: number = 50, offset: number = 0) {
-  const { db, isPowerSyncAvailable } = usePowerSync();
+  const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const query = PowerSyncChatFunctions.getGroupMessagesQuery(groupId, userId, limit, offset);
   const params = [userId, groupId, limit, offset];
   
@@ -658,50 +683,50 @@ export function useGroupMessages(groupId: string, userId: string, limit: number 
   const [seenByData, setSeenByData] = useState<{[key: string]: any[]}>({});
 
   useEffect(() => {
-    if (result.data && result.data.length > 0) {
-      const messageIds = result.data.map((row: any) => row.id);
-      const fetchSeenByData = async () => {
-        try {
-          const query = PowerSyncChatFunctions.getGroupMessageSeenByQuery(messageIds);
-          if (query) {
-            const seenByResult = await db.getAll(query, messageIds);
-            
-            // Group by message_id
-            const grouped = seenByResult.reduce((acc: any, row: any) => {
-              if (!acc[row.message_id]) {
-                acc[row.message_id] = [];
-              }
-              acc[row.message_id].push({
-                userId: row.user_id,
-                userName: row.user_name,
-                seenAt: row.seen_at
-              });
-              return acc;
-            }, {});
-            
-            setSeenByData(grouped);
-          }
-        } catch (error) {
-          console.warn('Failed to fetch seen_by data:', error);
-        }
-      };
-      
-      fetchSeenByData();
-    }
-  }, [result.data, db]);
+    if (!isPowerSyncAvailable || !db || !groupId) return;
 
-  // Combine messages with seen_by data
+    const fetchSeenByData = async () => {
+      try {
+        const seenByQuery = `
+          SELECT message_id, user_id, is_seen, seen_at
+          FROM group_message_status
+          WHERE group_id = ? AND is_seen = 1
+        `;
+        const seenByResult = await db.getAll(seenByQuery, [groupId]);
+        
+        const groupedData: {[key: string]: any[]} = {};
+        seenByResult.forEach((row: any) => {
+          if (!groupedData[row.message_id]) {
+            groupedData[row.message_id] = [];
+          }
+          groupedData[row.message_id].push(row);
+        });
+        
+        setSeenByData(groupedData);
+      } catch (error) {
+        console.warn('Failed to fetch seen_by data:', error);
+      }
+    };
+
+    fetchSeenByData();
+  }, [db, isPowerSyncAvailable, groupId]);
+
   const messagesWithSeenBy = useMemo(() => {
-    return messages.map(msg => ({
-      ...msg,
-      seen_by: seenByData[msg.id] || []
+    return messages.map(message => ({
+      ...message,
+      seen_by: seenByData[message.id] || []
     }));
   }, [messages, seenByData]);
+
+  // In offline mode, suppress network-related errors
+  const finalError = isOffline && result.error && (result.error.includes('network') || result.error.includes('fetch') || result.error.includes('timeout')) 
+    ? null 
+    : result.error;
 
   return {
     messages: messagesWithSeenBy,
     loading: result.loading,
-    error: result.error,
+    error: finalError,
     dataCount: messagesWithSeenBy.length
   };
 }
@@ -710,7 +735,7 @@ export function useGroupMessages(groupId: string, userId: string, limit: number 
  * Hook to get individual message status using PowerSync
  */
 export function useIndividualMessageStatus(messageId: string, userId: string) {
-  const { db, isPowerSyncAvailable } = usePowerSync();
+  const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const query = PowerSyncChatFunctions.getIndividualMessageStatusQuery(messageId, userId);
   const params = [userId, messageId, userId, userId];
   
@@ -733,10 +758,15 @@ export function useIndividualMessageStatus(messageId: string, userId: string) {
     };
   }, [result.data]);
 
+  // In offline mode, suppress network-related errors
+  const finalError = isOffline && result.error && (result.error.includes('network') || result.error.includes('fetch') || result.error.includes('timeout')) 
+    ? null 
+    : result.error;
+
   return {
     messageStatus,
     loading: result.loading,
-    error: result.error
+    error: finalError
   };
 }
 
@@ -744,7 +774,7 @@ export function useIndividualMessageStatus(messageId: string, userId: string) {
  * Hook to get group message status using PowerSync
  */
 export function useGroupMessageStatus(messageId: string, userId: string) {
-  const { db, isPowerSyncAvailable } = usePowerSync();
+  const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const query = PowerSyncChatFunctions.getGroupMessageStatusQuery(messageId, userId);
   const params = [userId, messageId];
   
@@ -767,9 +797,14 @@ export function useGroupMessageStatus(messageId: string, userId: string) {
     };
   }, [result.data]);
 
+  // In offline mode, suppress network-related errors
+  const finalError = isOffline && result.error && (result.error.includes('network') || result.error.includes('fetch') || result.error.includes('timeout')) 
+    ? null 
+    : result.error;
+
   return {
     messageStatus,
     loading: result.loading,
-    error: result.error
+    error: finalError
   };
 } 
