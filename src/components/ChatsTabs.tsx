@@ -341,7 +341,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     const { refreshUnreadCount } = useUnreadCount(); // Use the hook instead of fetching separately
     
     // PowerSync context for mobile detection
-    const { isMobile, isPowerSyncAvailable } = usePowerSync();
+    const { isMobile, isPowerSyncAvailable, isOffline } = usePowerSync();
     
     // State for Supabase (web) fallback
     const [individualList, setIndividualList] = useState<IndividualChatListItem[]>([]);
@@ -369,7 +369,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         
         // For mobile, PowerSync handles the data automatically
         if (isMobile && isPowerSyncAvailable) {
-            console.log("ChatsTabs: Using PowerSync for mobile");
+            console.log(`ChatsTabs: Using PowerSync for mobile${isOffline ? ' (OFFLINE MODE)' : ''}`);
             setIsLoading(false);
             setIsRefreshing(false);
             return;
@@ -406,7 +406,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             setIsLoading(false); 
             setIsRefreshing(false);
         }
-    }, [session?.user?.id, isMobile, isPowerSyncAvailable]);
+    }, [session?.user?.id, isMobile, isPowerSyncAvailable, isOffline]);
 
     // Update the ref with the latest fetchData function
     useEffect(() => {
@@ -434,12 +434,13 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 chats: individualChatResult.chats,
                 loading: individualChatResult.loading,
                 error: individualChatResult.error,
-                chatCount: individualChatResult.chats.length
+                chatCount: individualChatResult.chats.length,
+                isOffline: isOffline
             });
             return individualChatResult.chats.map(chat => chat.data as IndividualChatListItem);
         }
         return individualList;
-    }, [isMobile, isPowerSyncAvailable, individualChatResult.chats, individualList]);
+    }, [isMobile, isPowerSyncAvailable, individualChatResult.chats, individualList, isOffline]);
 
     const getGroupList = useMemo(() => {
         if (isMobile && isPowerSyncAvailable) {
@@ -447,16 +448,18 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 chats: groupChatResult.chats,
                 loading: groupChatResult.loading,
                 error: groupChatResult.error,
-                chatCount: groupChatResult.chats.length
+                chatCount: groupChatResult.chats.length,
+                isOffline: isOffline
             });
             return groupChatResult.chats.map(chat => chat.data as GroupChatListItem);
         }
         return groupList;
-    }, [isMobile, isPowerSyncAvailable, groupChatResult.chats, groupList]);
+    }, [isMobile, isPowerSyncAvailable, groupChatResult.chats, groupList, isOffline]);
 
     const getIsLoading = useMemo(() => {
         if (isMobile && isPowerSyncAvailable) {
             // For mobile with PowerSync, we don't show loading since data is instantly available
+            // Even in offline mode, we should have cached data
             return false;
         }
         return isLoading;
@@ -464,10 +467,18 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
 
     const getError = useMemo(() => {
         if (isMobile && isPowerSyncAvailable) {
+            // In offline mode, don't show network-related errors
+            if (isOffline && (individualChatResult.error || groupChatResult.error)) {
+                const error = individualChatResult.error || groupChatResult.error;
+                if (error && (error.includes('network') || error.includes('fetch') || error.includes('timeout'))) {
+                    console.log('🔍 PowerSync: Suppressing network error in offline mode');
+                    return null;
+                }
+            }
             return individualChatResult.error || groupChatResult.error;
         }
         return error;
-    }, [isMobile, isPowerSyncAvailable, individualChatResult.error, groupChatResult.error, error]);
+    }, [isMobile, isPowerSyncAvailable, individualChatResult.error, groupChatResult.error, error, isOffline]);
 
     // Enhanced real-time useEffect for smooth updates
     useEffect(() => {
@@ -528,7 +539,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             setIndividualList(currentList => {
                 return currentList.map(chat => {
                     // For now, we'll refresh the data to ensure accuracy
-                    // In a more optimized implementation, you'd track which messages belong to which chats
+                    // In a more optimized implementation, you'd need to track which messages belong to which chats
                     return chat;
                 });
             });
@@ -550,7 +561,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             setGroupList(currentList => {
                 return currentList.map(chat => {
                     // For now, we'll refresh the data to ensure accuracy
-                    // In a more optimized implementation, you'd track which messages belong to which chats
+                    // In a more optimized implementation, you'd need to track which messages belong to which chats
                     return chat;
                 });
             });
@@ -734,99 +745,18 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 const partnerId = (chatItem.data as IndividualChatListItem).partner_user_id;
                 console.log(`ChatsTabs: Marking individual messages as seen from partner ${partnerId}`);
                 
-                // Use the more efficient database function approach
-                try {
-                    const { error } = await supabase.rpc('mark_all_messages_seen_from_user', {
-                        sender_id_input: partnerId,
-                        receiver_id_input: currentUserId
-                    });
-                    
-                    if (error) {
-                        console.warn('Error with bulk mark function, falling back to individual marking:', error.message);
-                        // Fallback to individual message marking
-                        const { data: unseenMessages, error: fetchError } = await supabase
-                            .from('messages')
-                            .select('id')
-                            .eq('sender_id', partnerId)
-                            .eq('receiver_id', currentUserId)
-                            .limit(50); // Limit to avoid performance issues
-
-                        if (fetchError) {
-                            console.error('Error fetching unseen messages:', fetchError);
-                            return;
-                        }
-
-                        if (unseenMessages && unseenMessages.length > 0) {
-                            const markPromises = unseenMessages.map(async (message) => {
-                                try {
-                                    const { error } = await supabase.rpc('mark_message_seen', { message_id_input: message.id });
-                                    if (error) {
-                                        console.warn(`Failed to mark message ${message.id} as seen:`, error.message);
-                                    }
-                                } catch (e: any) {
-                                    console.warn(`Exception marking message ${message.id} as seen:`, e.message);
-                                }
-                            });
-                            await Promise.allSettled(markPromises);
-                        }
-                    }
-                } catch (bulkError) {
-                    console.error('Exception in bulk message marking:', bulkError);
-                }
-
+                // For PowerSync, we'll skip the message marking for now since it's handled by the chat screen
+                // The chat screen will handle marking messages as seen when it opens
+                console.log(`ChatsTabs: Skipping message marking for PowerSync - will be handled by chat screen`);
+                
             } else {
                 // Group chat
                 const groupId = (chatItem.data as GroupChatListItem).group_id;
                 console.log(`ChatsTabs: Marking group messages as seen for group ${groupId}`);
                 
-                // Use the more efficient database function approach
-                try {
-                    const { error } = await supabase.rpc('mark_all_group_messages_seen', {
-                        group_id_input: groupId,
-                        user_id_input: currentUserId
-                    });
-                    
-                    if (error) {
-                        // Check if it's an authentication error
-                        if (error.message.includes('Unauthorized') || error.message.includes('JWT') || error.message.includes('not a member')) {
-                            console.warn('Authentication error in bulk group mark function, user may need to re-authenticate');
-                            return; // Don't attempt individual marks for auth errors
-                        }
-                        
-                        console.warn('Error with bulk group mark function, falling back to individual marking:', error.message);
-                        // Fallback to individual message marking
-                        const { data: unseenMessages, error: fetchError } = await supabase
-                            .from('group_chat_messages')
-                            .select('id')
-                            .eq('group_id', groupId)
-                            .neq('sender_id', currentUserId)
-                            .limit(50); // Limit to avoid performance issues
-
-                        if (fetchError) {
-                            console.error('Error fetching unseen group messages:', fetchError);
-                            return;
-                        }
-
-                        if (unseenMessages && unseenMessages.length > 0) {
-                            const markPromises = unseenMessages.map(async (message) => {
-                                try {
-                                    const { error } = await supabase.rpc('mark_group_message_seen', { 
-                                        message_id_input: message.id,
-                                        user_id_input: currentUserId
-                                    });
-                                    if (error) {
-                                        console.warn(`Failed to mark group message ${message.id} as seen:`, error.message);
-                                    }
-                                } catch (e: any) {
-                                    console.warn(`Exception marking group message ${message.id} as seen:`, e.message);
-                                }
-                            });
-                            await Promise.allSettled(markPromises);
-                        }
-                    }
-                } catch (bulkError) {
-                    console.error('Exception in bulk group message marking:', bulkError);
-                }
+                // For PowerSync, we'll skip the message marking for now since it's handled by the chat screen
+                // The chat screen will handle marking messages as seen when it opens
+                console.log(`ChatsTabs: Skipping group message marking for PowerSync - will be handled by chat screen`);
             }
         } catch (error) {
             console.error('Error in markChatMessagesAsSeen:', error);
@@ -838,18 +768,34 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
 
     // Enhanced onChatOpen handler that marks messages as seen
     const handleChatOpen = useCallback(async (chatItem: ChatItem) => {
-        // Mark messages as seen when opening the chat
-        await markChatMessagesAsSeen(chatItem);
+        console.log('🔍 ChatsTabs: handleChatOpen called with:', {
+            type: chatItem.type,
+            data: chatItem.data,
+            isMobile,
+            isPowerSyncAvailable
+        });
         
-        // Call the original onChatOpen handler
-        onChatOpen(chatItem);
-        
-        // Refresh the data after a short delay to show updated unread counts
-        setTimeout(() => {
-            console.log("ChatsTabs: Refreshing data after opening chat");
-            fetchData();
-        }, 1500);
-    }, [markChatMessagesAsSeen, onChatOpen]);
+        try {
+            console.log('🔍 ChatsTabs: About to mark messages as seen...');
+            // Mark messages as seen when opening the chat
+            await markChatMessagesAsSeen(chatItem);
+            console.log('🔍 ChatsTabs: Messages marked as seen successfully');
+            
+            // Call the original onChatOpen handler
+            console.log('🔍 ChatsTabs: About to call onChatOpen handler...');
+            console.log('🔍 ChatsTabs: onChatOpen function exists:', !!onChatOpen);
+            onChatOpen(chatItem);
+            console.log('🔍 ChatsTabs: onChatOpen handler completed');
+            
+            // Refresh the data after a short delay to show updated unread counts
+            setTimeout(() => {
+                console.log("ChatsTabs: Refreshing data after opening chat");
+                fetchData();
+            }, 1500);
+        } catch (error) {
+            console.error('🔍 ChatsTabs: Error in handleChatOpen:', error);
+        }
+    }, [markChatMessagesAsSeen, onChatOpen, isMobile, isPowerSyncAvailable]);
 
     // Filter data based on search query and active tab
     const filteredListData = useMemo((): ChatItem[] => {

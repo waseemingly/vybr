@@ -376,6 +376,12 @@ const ChatCard: React.FC<ChatCardProps> = ({
     // Determine the image source or fallback
     const imageSourceUri = image ?? (type === 'group' ? DEFAULT_GROUP_PIC_URL : DEFAULT_PROFILE_PIC_URL);
 
+    // Debug function to log when card is pressed
+    const handleCardPress = () => {
+        console.log('🔍 ChatCard: Card pressed for:', { id, name, type });
+        onChatOpen();
+    };
+
     return (
         <TouchableOpacity
             style={[
@@ -384,7 +390,7 @@ const ChatCard: React.FC<ChatCardProps> = ({
                 unread > 0 && styles.unread
             ]}
             activeOpacity={0.8}
-            onPress={onChatOpen}
+            onPress={handleCardPress}
             onLongPress={onLongPress}
             delayLongPress={500} // 500ms long press delay
         >

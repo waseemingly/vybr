@@ -337,7 +337,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                                     ) : message.isDelivered ? (
                                         <Feather name="check" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />
                                     ) : (
-                                        <Feather name="clock" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />
+                                        <Feather name="check" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />
                                     )}
                                 </>
                             )}
@@ -541,7 +541,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                                     ) : message.isDelivered ? (
                                         <Feather name="check" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />
                                     ) : (
-                                        <Feather name="clock" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />
+                                        <Feather name="check" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />
                                     )}
                                 </>
                             )}

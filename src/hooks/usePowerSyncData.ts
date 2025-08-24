@@ -6,7 +6,7 @@ export function usePowerSyncData<T>(
   query: string,
   params: any[] = []
 ): { data: T[]; loading: boolean; error: string | null } {
-  const { db, isPowerSyncAvailable } = usePowerSync();
+  const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,8 +34,23 @@ export function usePowerSyncData<T>(
       } catch (err) {
         if (mounted) {
           const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-          setError(errorMessage);
-          setLoading(false);
+          
+          // Check if this is a network-related error (offline scenario)
+          const isNetworkError = errorMessage.includes('network') || 
+                                errorMessage.includes('fetch') || 
+                                errorMessage.includes('timeout') ||
+                                errorMessage.includes('ENOTFOUND') ||
+                                errorMessage.includes('ECONNREFUSED');
+          
+          if (isNetworkError && isOffline) {
+            // In offline mode, network errors are expected - don't show as error
+            console.log('🔍 PowerSync: Network error in offline mode, continuing with local data');
+            setError(null);
+            setLoading(false);
+          } else {
+            setError(errorMessage);
+            setLoading(false);
+          }
         }
       }
     };
@@ -45,7 +60,7 @@ export function usePowerSyncData<T>(
     return () => {
       mounted = false;
     };
-  }, [db, isPowerSyncAvailable, query, ...params]); // Use spread operator instead of JSON.stringify
+  }, [db, isPowerSyncAvailable, isOffline, query, ...params]); // Use spread operator instead of JSON.stringify
 
   return { data, loading, error };
 }
@@ -54,7 +69,7 @@ export function usePowerSyncDataWatcher<T>(
   query: string,
   params: any[] = []
 ): { data: T[]; loading: boolean; error: string | null } {
-  const { db, isPowerSyncAvailable } = usePowerSync();
+  const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -84,8 +99,23 @@ export function usePowerSyncDataWatcher<T>(
       } catch (err) {
         if (mounted) {
           const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-          setError(errorMessage);
-          setLoading(false);
+          
+          // Check if this is a network-related error (offline scenario)
+          const isNetworkError = errorMessage.includes('network') || 
+                                errorMessage.includes('fetch') || 
+                                errorMessage.includes('timeout') ||
+                                errorMessage.includes('ENOTFOUND') ||
+                                errorMessage.includes('ECONNREFUSED');
+          
+          if (isNetworkError && isOffline) {
+            // In offline mode, network errors are expected - don't show as error
+            console.log('🔍 PowerSync: Network error in offline mode, continuing with local data');
+            setError(null);
+            setLoading(false);
+          } else {
+            setError(errorMessage);
+            setLoading(false);
+          }
         }
       }
     };
@@ -95,7 +125,7 @@ export function usePowerSyncDataWatcher<T>(
     return () => {
       mounted = false;
     };
-  }, [db, isPowerSyncAvailable, query, ...params]); // Use spread operator instead of JSON.stringify
+  }, [db, isPowerSyncAvailable, isOffline, query, ...params]); // Use spread operator instead of JSON.stringify
 
   return { data, loading, error };
 } 

@@ -43,28 +43,58 @@ const ChatsScreen = () => {
     const handleChatOpen = useCallback((selectedChatItem: ChatItem) => {
         Keyboard.dismiss(); // Dismiss keyboard on navigation
         
+        console.log('🔍 ChatsScreen: handleChatOpen called with:', {
+            type: selectedChatItem.type,
+            data: selectedChatItem.data,
+            platform: Platform.OS
+        });
+        
         if (Platform.OS === 'web') {
             // On web, use the chat panel instead of navigation
+            console.log('🔍 ChatsScreen: Using web chat panel');
             setSelectedChat(selectedChatItem);
         } else {
             // On mobile, use normal navigation
+            console.log('🔍 ChatsScreen: Using mobile navigation');
             if (selectedChatItem.type === 'individual') {
                 const itemData = selectedChatItem.data as IndividualChatListItem; // Cast to ensure type safety with new fields
                 const partnerName = `${itemData.partner_first_name || ''} ${itemData.partner_last_name || ''}`.trim() || 'Chat';
-                console.log(`Navigating to Individual Chat: ${itemData.partner_user_id}`);
-                navigation.navigate('IndividualChatScreen', {
+                console.log(`🔍 ChatsScreen: Navigating to Individual Chat: ${itemData.partner_user_id}`);
+                console.log(`🔍 ChatsScreen: Navigation params:`, {
                     matchUserId: itemData.partner_user_id,
                     matchName: partnerName,
                     matchProfilePicture: itemData.partner_profile_picture
                 });
+                
+                try {
+                    navigation.navigate('IndividualChatScreen', {
+                        matchUserId: itemData.partner_user_id,
+                        matchName: partnerName,
+                        matchProfilePicture: itemData.partner_profile_picture
+                    });
+                    console.log('🔍 ChatsScreen: Navigation to IndividualChatScreen completed');
+                } catch (error) {
+                    console.error('🔍 ChatsScreen: Error navigating to IndividualChatScreen:', error);
+                }
             } else { // type === 'group'
                 const itemData = selectedChatItem.data;
-                console.log(`Navigating to Group Chat: ${itemData.group_id}`);
-                navigation.navigate('GroupChatScreen', {
+                console.log(`🔍 ChatsScreen: Navigating to Group Chat: ${itemData.group_id}`);
+                console.log(`🔍 ChatsScreen: Navigation params:`, {
                     groupId: itemData.group_id,
                     groupName: itemData.group_name,
                     groupImage: itemData.group_image
                 });
+                
+                try {
+                    navigation.navigate('GroupChatScreen', {
+                        groupId: itemData.group_id,
+                        groupName: itemData.group_name,
+                        groupImage: itemData.group_image
+                    });
+                    console.log('🔍 ChatsScreen: Navigation to GroupChatScreen completed');
+                } catch (error) {
+                    console.error('🔍 ChatsScreen: Error navigating to GroupChatScreen:', error);
+                }
             }
         }
     }, [navigation]);

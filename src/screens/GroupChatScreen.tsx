@@ -384,7 +384,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                                 ) : message.isDelivered ? (
                                     <Feather name="check" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />
                                 ) : (
-                                    <Feather name="clock" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />
+                                    <Feather name="check" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />
                                 )}
                             </>
                         )}
@@ -640,7 +640,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                                         ) : message.isDelivered ? (
                                             <Feather name="check" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />
                                         ) : (
-                                            <Feather name="clock" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />
+                                            <Feather name="check" size={12} color="rgba(255,255,255,0.5)" style={{ marginLeft: 4 }} />
                                         )}
                                     </>
                                 )}

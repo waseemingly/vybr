@@ -4,7 +4,7 @@ import { usePowerSyncData, usePowerSyncDataWatcher } from '@/hooks/usePowerSyncD
 import { usePowerSync } from '@/context/PowerSyncContext';
 
 export const PowerSyncExample: React.FC = () => {
-  const { isPowerSyncAvailable, isConnected, isMobile, isWeb } = usePowerSync();
+  const { isPowerSyncAvailable, isConnected, isMobile, isWeb, isOffline } = usePowerSync();
 
   // Example: Get all events
   const { data: events, loading: eventsLoading, error: eventsError } = usePowerSyncData(
@@ -14,6 +14,11 @@ export const PowerSyncExample: React.FC = () => {
   // Example: Get user profile (watched query for real-time updates)
   const { data: profiles, loading: profilesLoading, error: profilesError } = usePowerSyncDataWatcher(
     'SELECT * FROM musicLoverProfiles LIMIT 5'
+  );
+
+  // Example: Get messages (for offline testing)
+  const { data: messages, loading: messagesLoading, error: messagesError } = usePowerSyncDataWatcher(
+    'SELECT * FROM messages ORDER BY created_at DESC LIMIT 10'
   );
 
   return (
@@ -30,92 +35,93 @@ export const PowerSyncExample: React.FC = () => {
         <Text>Platform: {isMobile ? '🟢 Mobile (iOS/Android)' : isWeb ? '🔵 Web' : '❓ Unknown'}</Text>
         <Text>PowerSync Available: {isPowerSyncAvailable ? '✅ Yes' : '❌ No'}</Text>
         <Text>Connected: {isConnected ? '✅ Yes' : '❌ No'}</Text>
-        <Text>Status: {isPowerSyncAvailable ? '🟢 Full PowerSync Support' : isWeb ? '🟡 Supabase Fallback' : '🔴 Not Available'}</Text>
+        <Text>Offline Mode: {isOffline ? '🟡 Yes (Offline)' : '🟢 No (Online)'}</Text>
+        <Text>Status: {isPowerSyncAvailable ? (isOffline ? '🟡 Offline Mode (Local Data)' : '🟢 Full PowerSync Support') : isWeb ? '🟡 Supabase Fallback' : '🔴 Not Available'}</Text>
       </View>
 
-      {/* Feature Status */}
-      <View style={{ marginBottom: 20, padding: 15, backgroundColor: '#f0f0f0', borderRadius: 8 }}>
+      {/* Connection Status */}
+      <View style={{ marginBottom: 20, padding: 15, backgroundColor: isOffline ? '#fff3cd' : '#d4edda', borderRadius: 8 }}>
         <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10 }}>
-          Feature Support
+          Connection Status
         </Text>
-        <Text>✅ Real-time Sync: {isPowerSyncAvailable ? 'Available' : 'Limited (Supabase)'}</Text>
-        <Text>✅ Offline Support: {isMobile || isWeb ? 'Available' : 'Limited'}</Text>
-        <Text>✅ Local SQLite: {isMobile ? 'Full' : isWeb ? 'Limited' : 'None'}</Text>
-        <Text>✅ Conflict Resolution: {isPowerSyncAvailable ? 'Automatic' : 'Manual'}</Text>
-        <Text>✅ Reactive UI: {isPowerSyncAvailable ? 'Available' : 'Limited'}</Text>
+        <Text>Online: {!isOffline ? '✅ Yes' : '❌ No'}</Text>
+        <Text>Offline: {isOffline ? '✅ Yes' : '❌ No'}</Text>
+        <Text>Local Database: {isPowerSyncAvailable ? '✅ Available' : '❌ Not Available'}</Text>
+        <Text style={{ marginTop: 10, fontStyle: 'italic', color: isOffline ? '#856404' : '#155724' }}>
+          {isOffline ? '📱 Working in offline mode with local data' : '🌐 Connected to PowerSync server'}
+        </Text>
       </View>
 
       {/* Data Examples */}
-      {isPowerSyncAvailable ? (
-        <>
-          <View style={{ marginBottom: 20 }}>
-            <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10 }}>
-              Events (Static Query)
-            </Text>
-            {eventsLoading ? (
-              <ActivityIndicator size="small" />
-            ) : eventsError ? (
-              <Text style={{ color: 'red' }}>Error: {eventsError}</Text>
-            ) : (
-              <Text>Found {events.length} events</Text>
-            )}
-          </View>
-
-          <View style={{ marginBottom: 20 }}>
-            <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10 }}>
-              Profiles (Real-time Updates)
-            </Text>
-            {profilesLoading ? (
-              <ActivityIndicator size="small" />
-            ) : profilesError ? (
-              <Text style={{ color: 'red' }}>Error: {profilesError}</Text>
-            ) : (
-              <Text>Found {profiles.length} profiles (updates in real-time)</Text>
-            )}
-          </View>
-        </>
-      ) : (
-        <View style={{ marginBottom: 20, padding: 15, backgroundColor: '#fff3cd', borderRadius: 8 }}>
-          <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#856404', marginBottom: 10 }}>
-            PowerSync Not Available
-          </Text>
-          <Text style={{ color: '#856404' }}>
-            {isWeb 
-              ? 'Web platform is using Supabase fallback. PowerSync web support may require additional configuration.'
-              : 'PowerSync is not available on this platform.'
-            }
-          </Text>
+      <View style={{ marginBottom: 20, padding: 15, backgroundColor: '#e2e3e5', borderRadius: 8 }}>
+        <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10 }}>
+          Data Examples
+        </Text>
+        
+        {/* Events */}
+        <View style={{ marginBottom: 15 }}>
+          <Text style={{ fontWeight: 'bold', marginBottom: 5 }}>Events ({events?.length || 0})</Text>
+          {eventsLoading ? (
+            <ActivityIndicator size="small" />
+          ) : eventsError ? (
+            <Text style={{ color: 'red' }}>Error: {eventsError}</Text>
+          ) : (
+            <Text>✅ Events loaded successfully</Text>
+          )}
         </View>
-      )}
 
-      {/* Platform-specific Notes */}
-      {isWeb && (
+        {/* Profiles */}
+        <View style={{ marginBottom: 15 }}>
+          <Text style={{ fontWeight: 'bold', marginBottom: 5 }}>Profiles ({profiles?.length || 0})</Text>
+          {profilesLoading ? (
+            <ActivityIndicator size="small" />
+          ) : profilesError ? (
+            <Text style={{ color: 'red' }}>Error: {profilesError}</Text>
+          ) : (
+            <Text>✅ Profiles loaded successfully</Text>
+          )}
+        </View>
+
+        {/* Messages */}
+        <View style={{ marginBottom: 15 }}>
+          <Text style={{ fontWeight: 'bold', marginBottom: 5 }}>Messages ({messages?.length || 0})</Text>
+          {messagesLoading ? (
+            <ActivityIndicator size="small" />
+          ) : messagesError ? (
+            <Text style={{ color: 'red' }}>Error: {messagesError}</Text>
+          ) : (
+            <Text>✅ Messages loaded successfully</Text>
+          )}
+        </View>
+      </View>
+
+      {/* Offline Testing Instructions */}
+      {isMobile && isPowerSyncAvailable && (
         <View style={{ marginBottom: 20, padding: 15, backgroundColor: '#d1ecf1', borderRadius: 8 }}>
-          <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#0c5460', marginBottom: 10 }}>
-            Web Platform Notes
+          <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10 }}>
+            Offline Testing
           </Text>
-          <Text style={{ color: '#0c5460' }}>
-            • PowerSync Web requires additional setup for full functionality{'\n'}
-            • Currently using Supabase as fallback{'\n'}
-            • Real-time sync may be limited{'\n'}
-            • Offline support may be restricted
+          <Text style={{ marginBottom: 5 }}>1. Turn off WiFi/Mobile data</Text>
+          <Text style={{ marginBottom: 5 }}>2. Check if data still loads</Text>
+          <Text style={{ marginBottom: 5 }}>3. Status should show "Offline Mode"</Text>
+          <Text style={{ marginBottom: 5 }}>4. Data should still be accessible</Text>
+          <Text style={{ marginTop: 10, fontStyle: 'italic', color: '#0c5460' }}>
+            💡 PowerSync should work offline with cached data
           </Text>
         </View>
       )}
 
-      {isMobile && (
-        <View style={{ marginBottom: 20, padding: 15, backgroundColor: '#d4edda', borderRadius: 8 }}>
-          <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#155724', marginBottom: 10 }}>
-            Mobile Platform Notes
-          </Text>
-          <Text style={{ color: '#155724' }}>
-            • Full PowerSync functionality available{'\n'}
-            • Real-time synchronization{'\n'}
-            • Offline-first with SQLite{'\n'}
-            • Automatic conflict resolution
-          </Text>
-        </View>
-      )}
+      {/* Debug Information */}
+      <View style={{ marginBottom: 20, padding: 15, backgroundColor: '#f8f9fa', borderRadius: 8 }}>
+        <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10 }}>
+          Debug Information
+        </Text>
+        <Text>PowerSync Available: {String(isPowerSyncAvailable)}</Text>
+        <Text>Is Connected: {String(isConnected)}</Text>
+        <Text>Is Offline: {String(isOffline)}</Text>
+        <Text>Is Mobile: {String(isMobile)}</Text>
+        <Text>Is Web: {String(isWeb)}</Text>
+      </View>
     </ScrollView>
   );
 }; 

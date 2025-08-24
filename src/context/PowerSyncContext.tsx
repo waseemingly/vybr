@@ -25,6 +25,7 @@ interface PowerSyncContextType {
   isMobile: boolean;
   isWeb: boolean;
   connector: PowerSyncConnector | null;
+  isOffline: boolean; // NEW: Track offline status separately
 }
 
 const PowerSyncContext = createContext<PowerSyncContextType>({
@@ -35,6 +36,7 @@ const PowerSyncContext = createContext<PowerSyncContextType>({
   isMobile: false,
   isWeb: false,
   connector: null,
+  isOffline: false, // NEW: Track offline status separately
 });
 
 interface PowerSyncProviderProps {
@@ -50,25 +52,54 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
   const [connector] = useState(() => new PowerSyncConnector());
   const [isInitializing, setIsInitializing] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState(false); // NEW: Track offline status
 
-  // Monitor connection status
+  // Monitor connection status with better offline handling
   useEffect(() => {
     if (!db) return;
 
     const checkConnection = async () => {
       try {
-        // Simple query to test connection
+        // Simple query to test connection - this should work even offline
         await db.getAll('SELECT 1 as test');
-        if (!isConnected) {
+        
+        // If we can query the database, we're not offline
+        if (isOffline) {
+          console.log('🔍 PowerSync: Back online, connection restored');
+          setIsOffline(false);
+        }
+        
+        // Only update connection status if we're not offline
+        if (!isConnected && !isOffline) {
           console.log('🔍 PowerSync: Connection restored');
           setIsConnected(true);
           setConnectionError(null);
         }
       } catch (error) {
         console.warn('⚠️ PowerSync: Connection check failed:', error);
-        if (isConnected) {
-          setIsConnected(false);
-          setConnectionError('Connection lost');
+        
+        // Check if this is a network-related error (offline)
+        const errorMessage = error instanceof Error ? error.message : '';
+        const isNetworkError = errorMessage.includes('network') || 
+                              errorMessage.includes('fetch') || 
+                              errorMessage.includes('timeout') ||
+                              errorMessage.includes('ENOTFOUND') ||
+                              errorMessage.includes('ECONNREFUSED');
+        
+        if (isNetworkError) {
+          // Network error - mark as offline but keep database available
+          if (!isOffline) {
+            console.log('🔍 PowerSync: Network error detected, switching to offline mode');
+            setIsOffline(true);
+            setIsConnected(false);
+            setConnectionError('Offline mode');
+          }
+        } else {
+          // Other error - mark connection as lost
+          if (isConnected) {
+            setIsConnected(false);
+            setConnectionError('Connection lost');
+          }
         }
       }
     };
@@ -76,7 +107,7 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
     // Check connection every 60 seconds instead of 30 for better performance
     const interval = setInterval(checkConnection, 60000);
     return () => clearInterval(interval);
-  }, [db, isConnected]);
+  }, [db, isConnected, isOffline]);
 
   // Initialize PowerSync only when user logs in (not on mount)
   useEffect(() => {
@@ -169,7 +200,8 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
   }, [connector, platform, powersyncUrl, isInitializing, isConnected]);
 
   // Determine if PowerSync is available for use (both platforms now)
-  const isPowerSyncAvailable = isSupported && db !== null && isConnected && !connectionError;
+  // Modified to allow offline access to local database
+  const isPowerSyncAvailable = isSupported && db !== null && (isConnected || isOffline) && !connectionError;
 
   const value: PowerSyncContextType = {
     db,
@@ -179,6 +211,7 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
     isMobile,
     isWeb,
     connector,
+    isOffline, // NEW: Track offline status separately
   };
 
   // Only log context value changes, not on every render
@@ -191,9 +224,10 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
       isWeb,
       hasDb: !!db,
       platform,
-      connectionError
+      connectionError,
+      isOffline // NEW: Log offline status
     });
-  }, [isConnected, isSupported, isPowerSyncAvailable, isMobile, isWeb, db, platform, connectionError]);
+  }, [isConnected, isSupported, isPowerSyncAvailable, isMobile, isWeb, db, platform, connectionError, isOffline]);
 
   return (
     <PowerSyncContext.Provider value={value}>
