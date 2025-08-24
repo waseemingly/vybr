@@ -1140,48 +1140,6 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     );
 };
 
-// --- Styles ---
-const styles = StyleSheet.create({
-    container: { flex: 1, },
-    centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, },
-    errorText: { color: '#DC2626', textAlign: 'center', marginBottom: 15 },
-    retryButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, paddingVertical: 8, paddingHorizontal: 15, borderRadius: 6, },
-    retryButtonText: { color: 'white', fontWeight: '500', fontSize: 14, marginLeft: 6, },
-    emptyText: { textAlign: 'center', color: '#6B7280', marginTop: 40, fontSize: 15, },
-    tabsContainer: { flexDirection: 'row', backgroundColor: 'rgba(59, 130, 246, 0.05)', borderRadius: 10, padding: 4, marginBottom: 8, },
-    tabButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8, },
-    activeTabButton: { backgroundColor: "white", shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2, },
-    tabIcon: { marginRight: 6, },
-    tabText: { fontSize: 14, color: "#6B7280", fontWeight: '500' },
-    activeTabText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontWeight: "600", },
-    subTabsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        marginBottom: 12,
-        paddingHorizontal: 16,
-    },
-    subTabButton: {
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: 'transparent',
-    },
-    activeSubTabButton: {
-        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY_LIGHT || '#E0E7FF',
-        borderColor: APP_CONSTANTS.COLORS.PRIMARY || '#A5B4FC',
-    },
-    subTabText: {
-        fontSize: 13,
-        fontWeight: '500',
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY || '#4B5563',
-    },
-    activeSubTabText: {
-        color: APP_CONSTANTS.COLORS.PRIMARY_DARK || APP_CONSTANTS.COLORS.PRIMARY || '#3730A3',
-        fontWeight: '600',
-    },
-    tabContent: { flex: 1, },
-    listContent: { paddingTop: 4, paddingBottom: 16, },
-});
+import { chatsTabsStyles as styles } from '@/styles/chatstyles';
 
 export default ChatsTabs;

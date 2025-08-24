@@ -2,7 +2,6 @@ import React, { useState, useCallback } from 'react';
 import {
     View,
     Text,
-    StyleSheet,
     TouchableOpacity,
     TextInput,
     Platform,
@@ -255,107 +254,6 @@ const ChatsScreen = () => {
     );
 };
 
-// --- Styles ---
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#F9FAFB',
-    },
-    // Web-specific styles for 3-panel layout
-    webContainer: {
-        flex: 1,
-        flexDirection: 'row',
-        backgroundColor: '#F9FAFB',
-    },
-    webLeftPanel: {
-        width: 400,
-        backgroundColor: '#FFFFFF',
-        borderRightWidth: 1,
-        borderRightColor: '#E5E7EB',
-        flexDirection: 'column',
-    },
-    webRightPanel: {
-        flex: 1,
-        backgroundColor: '#FFFFFF',
-    },
-    webChatListContent: {
-        flex: 1,
-        paddingHorizontal: 16,
-        paddingTop: 0,
-    },
-    header: {
-        paddingTop: Platform.OS === 'android' ? 15 : 10,
-        paddingBottom: 12,
-        paddingHorizontal: 16,
-        backgroundColor: 'white',
-        borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB',
-    },
-    headerTitleRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    titleContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    headerIcon: {
-        marginRight: 10,
-    },
-    title: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#1F2937',
-    },
-    createGroupButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(59, 130, 246, 0.2)',
-    },
-    searchContainer: {
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        backgroundColor: 'white',
-    },
-    searchInputWrapper: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#F3F4F6',
-        borderRadius: 10,
-        paddingHorizontal: 12,
-        height: 42,
-    },
-    searchIcon: {
-        marginRight: 8,
-    },
-    searchInput: {
-        flex: 1,
-        fontSize: 15,
-        color: '#1F2937',
-        paddingVertical: 8,
-    },
-    clearButton: {
-        padding: 4,
-        marginLeft: 4,
-    },
-    content: {
-        flex: 1,
-        paddingHorizontal: Platform.OS === 'web' ? 0 : 16,
-        paddingTop: 0,
-    },
-    // Keep loading/error styles if they were used elsewhere or needed as fallbacks
-    centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-    loadingText: { marginTop: 10, fontSize: 16, color: '#6B7280' },
-    errorText: { marginTop: 15, fontSize: 18, fontWeight: '600', color: '#DC2626', textAlign: 'center' },
-    errorSubText: { marginTop: 8, fontSize: 14, color: '#4B5563', textAlign: 'center', maxWidth: '90%' },
-    retryButton: { flexDirection: 'row', alignItems: 'center', marginTop: 25, backgroundColor: APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6', paddingVertical: 12, paddingHorizontal: 25, borderRadius: 8 },
-    retryButtonText: { color: 'white', fontWeight: '600', fontSize: 15, marginLeft: 8 },
-});
+import { chatsScreenStyles as styles } from '@/styles/chatstyles';
 
 export default ChatsScreen;

@@ -21,6 +21,7 @@ import AddGroupMembersScreen from '@/screens/AddGroupMembersScreen';
 // Import types
 import type { ChatItem, IndividualChatListItem } from '@/components/ChatsTabs';
 import { APP_CONSTANTS } from '@/config/constants';
+import VybrLoadingAnimation from '@/components/VybrLoadingAnimation';
 
 interface ChatPanelWrapperProps {
     selectedChat: ChatItem | null;
@@ -130,8 +131,7 @@ const ChatPanelWrapper: React.FC<ChatPanelWrapperProps> = ({
         return (
             <View style={styles.container}>
                 <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} />
-                    <Text style={styles.loadingText}>Loading chat...</Text>
+                    <VybrLoadingAnimation size={80} duration={2500} />
                 </View>
             </View>
         );
@@ -193,44 +193,6 @@ const ChatPanelWrapper: React.FC<ChatPanelWrapperProps> = ({
     );
 };
 
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#FFFFFF',
-        borderLeftWidth: 1,
-        borderLeftColor: '#E5E7EB',
-    },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#FFFFFF',
-    },
-    loadingText: {
-        marginTop: 12,
-        fontSize: 14,
-        color: '#6B7280',
-    },
-    emptyState: {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 32,
-    },
-    emptyStateTitle: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#374151',
-        marginTop: 16,
-        textAlign: 'center',
-    },
-    emptyStateSubtitle: {
-        fontSize: 14,
-        color: '#6B7280',
-        marginTop: 8,
-        textAlign: 'center',
-        lineHeight: 20,
-    },
-});
+import { chatPanelWrapperStyles as styles } from '@/styles/chatstyles';
 
 export default ChatPanelWrapper; 
