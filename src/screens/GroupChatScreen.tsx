@@ -21,6 +21,7 @@ import { shareImage, copyToClipboard, downloadImage } from '../utils/sharingUtil
 import type { ChatItem } from '@/components/ChatsTabs';
 import { groupChatScreenStyles as styles } from '@/styles/chatstyles';
 import VybrLoadingAnimation from '@/components/VybrLoadingAnimation';
+import { MessageUtils } from '@/utils/message/MessageUtils';
 
 // NEW: Import new modular services (parallel implementation)
 import { useMessageFetching } from '@/hooks/message/useMessageFetching';
@@ -665,7 +666,7 @@ const GroupChatScreen: React.FC = () => {
     const navigation = useNavigation<GroupChatScreenNavigationProp>();
     const { session } = useAuth();
     const { refreshUnreadCount } = useUnreadCount();
-    const { presenceState, subscribeToGroupChat, sendGroupTypingIndicator, sendBroadcast, subscribeToEvent, unsubscribeFromEvent } = useRealtime();
+    const { presenceState, subscribeToGroupChat, sendGroupTypingIndicator, sendBroadcast, subscribeToEvent, unsubscribeFromEvent, isNetworkConnected, createNetworkAwareSubscription } = useRealtime();
     const currentUserId = session?.user?.id;
     const { groupId, sharedEventData: initialSharedEventData } = route.params;
 
@@ -2121,16 +2122,17 @@ const GroupChatScreen: React.FC = () => {
         console.log(`[GroupChatScreen] Setting up realtime subscription for group: ${groupId}`);
         
         // Subscribe to direct database changes for new messages
-        const groupMessageSubscription = supabase
-            .channel('group_messages_direct')
-            .on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'group_chat_messages',
-                    filter: `group_id=eq.${groupId}`
-                },
+        const groupMessageSubscription = createNetworkAwareSubscription('group_messages_direct', {});
+        if (groupMessageSubscription) {
+            groupMessageSubscription
+                .on(
+                    'postgres_changes',
+                    {
+                        event: 'INSERT',
+                        schema: 'public',
+                        table: 'group_chat_messages',
+                        filter: `group_id=eq.${groupId}`
+                    },
                 async (payload) => {
                     const newMessageDb = payload.new as DbGroupMessage;
                     console.log('[GroupChatScreen] New message received via direct DB subscription:', newMessageDb.id, 'from:', newMessageDb.sender_id);
@@ -2282,10 +2284,12 @@ const GroupChatScreen: React.FC = () => {
             .subscribe((status) => {
                 console.log('[GroupChatScreen] Direct DB subscription status:', status);
             });
+        }
 
         // Subscribe to message updates (edits, deletes)
-        const groupMessageUpdateSubscription = supabase
-            .channel('group_messages_update')
+        const groupMessageUpdateSubscription = createNetworkAwareSubscription('group_messages_update', {});
+        if (groupMessageUpdateSubscription) {
+            groupMessageUpdateSubscription
             .on(
                 'postgres_changes',
                 {
@@ -2367,6 +2371,7 @@ const GroupChatScreen: React.FC = () => {
             .subscribe((status) => {
                 console.log('[GroupChatScreen] Message update subscription status:', status);
             });
+        }
         
         const unsubscribe = subscribeToGroupChat(groupId, {
             onMessage: async (payload: any) => {
@@ -2797,8 +2802,9 @@ const GroupChatScreen: React.FC = () => {
 
         // Subscribe to group_message_status table changes for real-time seen updates
         console.log('[GroupChatScreen] Setting up group_message_status real-time subscription for group:', groupId);
-        const groupMessageStatusSubscription = supabase
-            .channel('group_message_status_changes')
+        const groupMessageStatusSubscription = createNetworkAwareSubscription('group_message_status_changes', {});
+        if (groupMessageStatusSubscription) {
+            groupMessageStatusSubscription
             .on(
                 'postgres_changes',
                 {
@@ -2898,6 +2904,7 @@ const GroupChatScreen: React.FC = () => {
             .subscribe((status) => {
                 console.log('[GroupChatScreen] group_message_status subscription status:', status);
             });
+        }
 
         subscribeToEvent('group_message_status_updated', handleGroupMessageStatusUpdate);
 
@@ -3270,7 +3277,12 @@ const GroupChatScreen: React.FC = () => {
     };
 
     const handleShowMessageInfo = async () => {
-        if (!selectedMessageForAction) return;
+        if (!selectedMessageForAction || selectedMessageForAction.user._id !== currentUserId) {
+            Alert.alert("Info", "Message status is shown with checkmarks.");
+            setMessageActionModalVisible(false);
+            setSelectedMessageForAction(null);
+            return;
+        }
         setMessageActionModalVisible(false);
         setLoadingMessageInfo(true);
         setMessageInfoVisible(true);
@@ -4244,10 +4256,12 @@ const GroupChatScreen: React.FC = () => {
                                 <Text style={styles.actionModalButtonText}>Copy</Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.actionModalButton} onPress={handleShowMessageInfo}>
-                                <Feather name="info" size={20} color="#3B82F6" style={styles.actionModalIcon} />
-                                <Text style={styles.actionModalButtonText}>Info</Text>
-                            </TouchableOpacity>
+                            {selectedMessageForAction.user._id === currentUserId && (
+                                <TouchableOpacity style={styles.actionModalButton} onPress={handleShowMessageInfo}>
+                                    <Feather name="info" size={20} color="#3B82F6" style={styles.actionModalIcon} />
+                                    <Text style={styles.actionModalButtonText}>Info</Text>
+                                </TouchableOpacity>
+                            )}
 
                             <TouchableOpacity style={styles.actionModalButton} onPress={handleDeleteForMe}>
                                 <Feather name="trash" size={20} color="#EF4444" style={styles.actionModalIcon} />
@@ -4321,11 +4335,11 @@ const GroupChatScreen: React.FC = () => {
                     <Text style={styles.messageInfoTitle}>Message Info</Text>
                     {loadingMessageInfo ? (
                         <View style={{ alignItems: 'center', paddingVertical: 20 }}>
-                            <VybrLoadingAnimation size={60} duration={2000} />
+                            <Text style={styles.messageInfoDetailText}>Loading...</Text>
                         </View>
                     ) : messageInfoData ? (
                         <ScrollView>
-                            <Text style={styles.messageInfoSectionTitle}>Sent at: {formatTime(new Date(messageInfoData.sent_at))}</Text>
+                            <Text style={styles.messageInfoSectionTitle}>Sent at: {MessageUtils.formatDateTime(new Date(messageInfoData.sent_at))}</Text>
                             <Text style={styles.messageInfoSectionTitle}>Seen by: {messageInfoData.seen_count} / {messageInfoData.total_members}</Text>
 
                             {messageInfoData.seen_users && messageInfoData.seen_users.length > 0 && (
@@ -4333,7 +4347,7 @@ const GroupChatScreen: React.FC = () => {
                                     <Text style={styles.messageInfoSectionTitle}>Seen by:</Text>
                                     {messageInfoData.seen_users.map((seenUser: any, index: number) => (
                                         <Text key={`${seenUser.user_id}-${seenUser.seen_at}`} style={styles.messageInfoDetailText}>
-                                            • {seenUser.name} at {formatTime(new Date(seenUser.seen_at))}
+                                            • {seenUser.name} at {MessageUtils.formatDateTime(new Date(seenUser.seen_at))}
                                         </Text>
                                     ))}
                                 </View>

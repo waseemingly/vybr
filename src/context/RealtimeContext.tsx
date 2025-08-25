@@ -11,10 +11,14 @@ type ListenerCallback = (payload: any) => void;
 interface RealtimeContextType {
     channel: RealtimeChannel | null;
     presenceState: RealtimePresenceState;
+    isNetworkConnected: boolean; // Add network state to context
     trackStatus: (status: object) => Promise<string>;
     untrackStatus: () => Promise<string>;
     subscribeToEvent: (eventName: string, callback: ListenerCallback) => void;
     unsubscribeFromEvent: (eventName: string, callback: ListenerCallback) => void;
+    
+    // Network-aware subscription method
+    createNetworkAwareSubscription: (channelName: string, config: any) => RealtimeChannel | null;
     
     // Chat-specific methods
     subscribeToIndividualChat: (matchUserId: string, callbacks: {
@@ -170,13 +174,33 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Schedule reconnection
         const delay = reconnectDelay * Math.pow(2, currentAttempts); // Exponential backoff
         reconnectTimeoutRef.current = setTimeout(() => {
+            // Double-check network state before attempting reconnection
+            if (!networkStateRef.current) {
+                console.log(`[RealtimeContext] Network still down, cancelling reconnection for ${channelName}`);
+                return;
+            }
+            
             console.log(`[RealtimeContext] Reconnecting ${channelName} after ${delay}ms delay`);
             
             // Recreate the channel based on its type
             if (channelName === 'user_presence') {
-                setupMainChannels();
+                // Trigger main channels setup by calling it directly
+                if (session?.user?.id) {
+                    console.log('[RealtimeContext] Triggering main channels re-setup');
+                    // Use setTimeout to avoid circular dependency
+                    setTimeout(() => {
+                        setupMainChannels();
+                    }, 100);
+                }
             } else if (channelName.startsWith('notifications_for_')) {
-                setupMainChannels(); // This will recreate both channels
+                // Trigger main channels setup by calling it directly
+                if (session?.user?.id) {
+                    console.log('[RealtimeContext] Triggering main channels re-setup');
+                    // Use setTimeout to avoid circular dependency
+                    setTimeout(() => {
+                        setupMainChannels();
+                    }, 100);
+                }
             } else if (channelName.startsWith('chat_')) {
                 // Individual chat channels are recreated when the component re-subscribes
                 console.log(`[RealtimeContext] Individual chat channel ${channelName} will be recreated on next subscription`);
@@ -185,12 +209,17 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 console.log(`[RealtimeContext] Group chat channel ${channelName} will be recreated on next subscription`);
             }
         }, delay);
-    }, []);
+    }, [session?.user?.id]);
 
     // Setup main channels with error handling
     const setupMainChannels = useCallback(() => {
         if (!session?.user?.id) {
             console.log('[RealtimeContext] No session, skipping main channel setup');
+            return;
+        }
+        
+        if (!networkStateRef.current) {
+            console.log('[RealtimeContext] Network is down, skipping main channel setup');
             return;
         }
         
@@ -349,7 +378,12 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     }
                 } else if (status === 'CHANNEL_ERROR') {
                     console.error('[RealtimeContext] ❌ Main channel error');
-                    handleChannelError('user_presence', mainChannel);
+                    // Only handle error if network is available
+                    if (networkStateRef.current) {
+                        handleChannelError('user_presence', mainChannel);
+                    } else {
+                        console.log('[RealtimeContext] Network is down, skipping error handling for main channel');
+                    }
                 }
             }),
             notificationChannel.subscribe((status) => {
@@ -360,7 +394,12 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     reconnectAttemptsRef.current.delete(`notifications_for_${userId}`);
                 } else if (status === 'CHANNEL_ERROR') {
                     console.error('[RealtimeContext] ❌ Notification channel error');
-                    handleChannelError(`notifications_for_${userId}`, notificationChannel);
+                    // Only handle error if network is available
+                    if (networkStateRef.current) {
+                        handleChannelError(`notifications_for_${userId}`, notificationChannel);
+                    } else {
+                        console.log('[RealtimeContext] Network is down, skipping error handling for notification channel');
+                    }
                 }
             })
         ]);
@@ -371,7 +410,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Network connectivity handler
     const handleNetworkChange = useCallback((state: any) => {
         const wasConnected = networkStateRef.current;
-        const isConnected = state.isConnected && state.isInternetReachable;
+        const isConnected = !!(state.isConnected && state.isInternetReachable);
         
         networkStateRef.current = isConnected;
         setIsNetworkConnected(isConnected);
@@ -452,6 +491,11 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             console.warn('[RealtimeContext] No user session for individual chat subscription');
             return () => {};
         }
+        
+        if (!networkStateRef.current) {
+            console.log('[RealtimeContext] Network is down, skipping individual chat subscription');
+            return () => {};
+        }
 
         const channelName = `chat_${[session.user.id, matchUserId].sort().join('_')}`;
         
@@ -527,7 +571,12 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 reconnectAttemptsRef.current.delete(channelName);
             } else if (status === 'CHANNEL_ERROR') {
                 console.error(`[RealtimeContext] ❌ Individual chat channel error: ${channelName}`);
-                handleChannelError(channelName, chatChannel);
+                // Only handle error if network is available
+                if (networkStateRef.current) {
+                    handleChannelError(channelName, chatChannel);
+                } else {
+                    console.log(`[RealtimeContext] Network is down, skipping error handling for individual chat channel: ${channelName}`);
+                }
             }
         });
 
@@ -568,6 +617,11 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }) => {
         if (!session?.user?.id) {
             console.warn('[RealtimeContext] No user session for group chat subscription');
+            return () => {};
+        }
+        
+        if (!networkStateRef.current) {
+            console.log('[RealtimeContext] Network is down, skipping group chat subscription');
             return () => {};
         }
 
@@ -663,7 +717,12 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 reconnectAttemptsRef.current.delete(channelName);
             } else if (status === 'CHANNEL_ERROR') {
                 console.error(`[RealtimeContext] ❌ Group chat channel error: ${channelName}`);
-                handleChannelError(channelName, chatChannel);
+                // Only handle error if network is available
+                if (networkStateRef.current) {
+                    handleChannelError(channelName, chatChannel);
+                } else {
+                    console.log(`[RealtimeContext] Network is down, skipping error handling for group chat channel: ${channelName}`);
+                }
             }
         });
 
@@ -750,6 +809,18 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
     }, [session?.user?.id]);
 
+    // Network-aware subscription method
+    const createNetworkAwareSubscription = useCallback((channelName: string, config: any): RealtimeChannel | null => {
+        console.log(`[RealtimeContext] createNetworkAwareSubscription called for ${channelName}, network state: ${networkStateRef.current}`);
+        if (!networkStateRef.current) {
+            console.log(`[RealtimeContext] Network is down, skipping subscription creation for ${channelName}`);
+            return null;
+        }
+        
+        console.log(`[RealtimeContext] Creating network-aware subscription for ${channelName}`);
+        return supabase.channel(channelName, config);
+    }, []);
+
     // Get group member presence
     const getGroupMemberPresence = useCallback((memberIds: string[]): Record<string, boolean> => {
         const onlineStatus: Record<string, boolean> = {};
@@ -783,8 +854,12 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
             console.log('[RealtimeContext] App has come to the foreground!');
             // More robust reconnection
-            cleanup();
-            setTimeout(() => setupMainChannels(), 250);
+            if (networkStateRef.current) {
+                cleanup();
+                setTimeout(() => setupMainChannels(), 250);
+            } else {
+                console.log('[RealtimeContext] App came to foreground but network is down, skipping reconnection');
+            }
         }
 
         appState.current = nextAppState;
@@ -818,7 +893,20 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
         });
 
-        setupMainChannels();
+        // Check initial network state and setup channels if available
+        NetInfo.fetch().then(state => {
+            const isConnected = !!(state.isConnected && state.isInternetReachable);
+            networkStateRef.current = isConnected;
+            setIsNetworkConnected(isConnected);
+            
+            console.log(`[RealtimeContext] Initial network state: ${isConnected}`);
+            
+            if (isConnected) {
+                setupMainChannels();
+            } else {
+                console.log('[RealtimeContext] Network not available, skipping initial main channels setup');
+            }
+        });
 
         let cleanupFn = () => {
             authListener.subscription.unsubscribe();
@@ -832,6 +920,8 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                         // More robust reconnection
                         cleanup();
                         setTimeout(() => setupMainChannels(), 250);
+                    } else {
+                        console.log('[RealtimeContext] Web tab became visible but network is down, skipping reconnection');
                     }
                 }
             };
@@ -879,10 +969,12 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const contextValue: RealtimeContextType = {
         channel,
         presenceState,
+        isNetworkConnected,
         trackStatus,
         untrackStatus,
         subscribeToEvent,
         unsubscribeFromEvent,
+        createNetworkAwareSubscription,
         subscribeToIndividualChat,
         subscribeToGroupChat,
         sendBroadcast,

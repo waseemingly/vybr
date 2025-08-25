@@ -20,22 +20,59 @@ export class MessageUtils {
    */
   static formatTimestamp(timestamp: string | null): string {
     if (!timestamp) return '';
+    
     try {
       const date = new Date(timestamp);
       const now = new Date();
-      const diffMs = now.getTime() - date.getTime();
-      const diffMinutes = Math.floor(diffMs / (1000 * 60));
-      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-      if (diffMinutes < 1) return 'now';
-      if (diffMinutes < 60) return `${diffMinutes}m`;
-      if (diffHours < 24) return `${diffHours}h`;
-      if (diffDays < 7) return `${diffDays}d`;
+      const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
       
-      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    } catch {
+      if (diffInHours < 24) {
+        return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      } else if (diffInHours < 48) {
+        return 'Yesterday';
+      } else {
+        return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      }
+    } catch (e) {
+      console.warn("Format timestamp error:", timestamp, e);
       return '';
+    }
+  }
+
+  /**
+   * Format date and time together for message info display
+   */
+  static formatDateTime(date: Date | string | number): string {
+    try {
+      const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
+      if (!dateObj || isNaN(dateObj.getTime())) return '--:--';
+      
+      const now = new Date();
+      const isToday = dateObj.toDateString() === now.toDateString();
+      const isYesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000).toDateString() === dateObj.toDateString();
+      
+      const timeString = dateObj.toLocaleTimeString(undefined, { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: true 
+      });
+      
+      if (isToday) {
+        return `Today at ${timeString}`;
+      } else if (isYesterday) {
+        return `Yesterday at ${timeString}`;
+      } else {
+        const dateString = dateObj.toLocaleDateString(undefined, { 
+          weekday: 'short',
+          month: 'short', 
+          day: 'numeric',
+          year: 'numeric'
+        });
+        return `${dateString} at ${timeString}`;
+      }
+    } catch (e) {
+      console.warn("Format date time error:", date, e);
+      return '--:--';
     }
   }
 

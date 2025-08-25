@@ -33,6 +33,7 @@ import { shareImage, copyToClipboard, downloadImage } from '../utils/sharingUtil
 import type { ChatItem } from '@/components/ChatsTabs';
 import { individualChatScreenStyles as styles } from '@/styles/chatstyles';
 import VybrLoadingAnimation from '@/components/VybrLoadingAnimation';
+import { MessageUtils } from '@/utils/message/MessageUtils';
 
 // NEW: Import new modular services (parallel implementation)
 import { useMessageFetching } from '@/hooks/message/useMessageFetching';
@@ -574,7 +575,7 @@ const IndividualChatScreen: React.FC = () => {
     const route = useRoute<IndividualChatScreenRouteProp>();
     const navigation = useNavigation<RootNavigationProp>();
     const { session, musicLoverProfile } = useAuth();
-    const { presenceState, subscribeToIndividualChat, sendIndividualTypingIndicator, sendBroadcast, subscribeToEvent, unsubscribeFromEvent } = useRealtime();
+    const { presenceState, subscribeToIndividualChat, sendIndividualTypingIndicator, sendBroadcast, subscribeToEvent, unsubscribeFromEvent, isNetworkConnected, createNetworkAwareSubscription } = useRealtime();
     const { refreshUnreadCount } = useUnreadCount();
 
     const currentUserIdFromSession = session?.user?.id;
@@ -1560,8 +1561,9 @@ const IndividualChatScreen: React.FC = () => {
         console.log(`[IndividualChatScreen] Setting up realtime subscription for ${matchUserId}`);
         
         // Subscribe to direct database changes for new messages (similar to GroupChatScreen)
-        const individualMessageSubscription = supabase
-            .channel('individual_messages_direct')
+        const individualMessageSubscription = createNetworkAwareSubscription('individual_messages_direct', {});
+        if (individualMessageSubscription) {
+            individualMessageSubscription
             .on(
                 'postgres_changes',
                 {
@@ -1698,10 +1700,12 @@ const IndividualChatScreen: React.FC = () => {
             .subscribe((status) => {
                 console.log('[IndividualChatScreen] Direct DB subscription status:', status);
             });
+        }
 
         // Subscribe to message updates (edits, deletes)
-        const individualMessageUpdateSubscription = supabase
-            .channel('individual_messages_update')
+        const individualMessageUpdateSubscription = createNetworkAwareSubscription('individual_messages_update', {});
+        if (individualMessageUpdateSubscription) {
+            individualMessageUpdateSubscription
             .on(
                 'postgres_changes',
                 {
@@ -1762,6 +1766,7 @@ const IndividualChatScreen: React.FC = () => {
             .subscribe((status) => {
                 console.log('[IndividualChatScreen] Message update subscription status:', status);
             });
+        }
         
         const unsubscribe = subscribeToIndividualChat(matchUserId, {
             onMessage: async (payload: any) => {
@@ -2013,8 +2018,9 @@ const IndividualChatScreen: React.FC = () => {
 
         // Subscribe to individual message status table changes for real-time seen updates
         console.log('[IndividualChatScreen] Setting up message_status real-time subscription for individual chat');
-        const messageStatusSubscription = supabase
-            .channel('individual_message_status_changes')
+        const messageStatusSubscription = createNetworkAwareSubscription('individual_message_status_changes', {});
+        if (messageStatusSubscription) {
+            messageStatusSubscription
             .on(
                 'postgres_changes',
                 {
@@ -2062,15 +2068,22 @@ const IndividualChatScreen: React.FC = () => {
             .subscribe((status) => {
                 console.log('[IndividualChatScreen] Message status subscription status:', status);
             });
+        }
 
         subscribeToEvent('message_status_updated', handleMessageStatusUpdate);
 
         return () => {
             unsubscribe();
             unsubscribeFromEvent('message_status_updated', handleMessageStatusUpdate);
-            messageStatusSubscription.unsubscribe();
-            individualMessageSubscription.unsubscribe();
-            individualMessageUpdateSubscription.unsubscribe();
+            if (messageStatusSubscription) {
+                messageStatusSubscription.unsubscribe();
+            }
+            if (individualMessageSubscription) {
+                individualMessageSubscription.unsubscribe();
+            }
+            if (individualMessageUpdateSubscription) {
+                individualMessageUpdateSubscription.unsubscribe();
+            }
         };
     }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage, checkMutualInitiation, messages, musicLoverProfile?.firstName, dynamicMatchName, sendBroadcast, subscribeToIndividualChat, subscribeToEvent, unsubscribeFromEvent]);
 
@@ -3596,10 +3609,12 @@ const IndividualChatScreen: React.FC = () => {
                                 <Text style={styles.actionModalButtonText}>Copy</Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.actionModalButton} onPress={handleShowMessageInfo}>
-                                <Feather name="info" size={20} color="#3B82F6" style={styles.actionModalIcon}/>
-                                <Text style={styles.actionModalButtonText}>Info</Text>
-                            </TouchableOpacity>
+                            {selectedMessageForAction.user._id === currentUserId && (
+                                <TouchableOpacity style={styles.actionModalButton} onPress={handleShowMessageInfo}>
+                                    <Feather name="info" size={20} color="#3B82F6" style={styles.actionModalIcon}/>
+                                    <Text style={styles.actionModalButtonText}>Info</Text>
+                                </TouchableOpacity>
+                            )}
 
                             <TouchableOpacity style={styles.actionModalButton} onPress={handleDeleteForMe}>
                                 <Feather name="trash" size={20} color="#EF4444" style={styles.actionModalIcon}/>
@@ -3673,13 +3688,13 @@ const IndividualChatScreen: React.FC = () => {
                     <Text style={styles.messageInfoTitle}>Message Info</Text>
                     {loadingMessageInfo ? (
                         <View style={{ alignItems: 'center', paddingVertical: 20 }}>
-                            <VybrLoadingAnimation size={60} duration={2000} />
+                            <Text style={styles.messageInfoDetailText}>Loading...</Text>
                         </View>
                     ) : messageInfoData ? (
                         <ScrollView>
-                            <Text style={styles.messageInfoSectionTitle}>Sent at: {formatTime(new Date(messageInfoData.sent_at))}</Text>
+                            <Text style={styles.messageInfoSectionTitle}>Sent at: {MessageUtils.formatDateTime(new Date(messageInfoData.sent_at))}</Text>
                             {messageInfoData.is_seen && messageInfoData.seen_at ? (
-                                <Text style={styles.messageInfoDetailText}>Seen: {formatTime(new Date(messageInfoData.seen_at))}</Text>
+                                <Text style={styles.messageInfoDetailText}>Seen: {MessageUtils.formatDateTime(new Date(messageInfoData.seen_at))}</Text>
                             ) : (
                                 <Text style={styles.messageInfoDetailText}>Seen: Not yet</Text>
                             )}
