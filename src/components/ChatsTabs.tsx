@@ -244,6 +244,8 @@ interface ChatsTabsProps {
     onChatOpen: (item: ChatItem) => void;
     onProfileOpen?: (item: ChatItem) => void;
     searchQuery?: string;
+    selectedChatId?: string; // New prop for notification navigation
+    selectedChatType?: 'individual' | 'group'; // New prop for notification navigation
 }
 
 // Helper function to format timestamps
@@ -335,6 +337,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     onChatOpen,
     onProfileOpen,
     searchQuery = '',
+    selectedChatId,
+    selectedChatType,
 }) => {
     const { session } = useAuth();
     const { subscribeToEvent, unsubscribeFromEvent } = useRealtime();
@@ -875,6 +879,36 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             (global as any).debugUnreadCounts = debugUnreadCounts;
         }
     }, [debugUnreadCounts]);
+
+    // Auto-select chat when notification navigation occurs (web only)
+    useEffect(() => {
+        if (Platform.OS === 'web' && selectedChatId && selectedChatType && filteredListData.length > 0) {
+            console.log('[ChatsTabs] Auto-selecting chat from notification:', { selectedChatId, selectedChatType });
+            
+            // Find the chat in the filtered list
+            const targetChat = filteredListData.find(chat => {
+                if (selectedChatType === 'individual' && chat.type === 'individual') {
+                    return chat.data.partner_user_id === selectedChatId;
+                } else if (selectedChatType === 'group' && chat.type === 'group') {
+                    return chat.data.group_id === selectedChatId;
+                }
+                return false;
+            });
+            
+            if (targetChat) {
+                console.log('[ChatsTabs] Found target chat, auto-selecting:', targetChat);
+                onChatOpen(targetChat);
+            } else {
+                console.log('[ChatsTabs] Target chat not found in list, may need to switch tabs');
+                // If the chat is not in the current tab, switch to the correct tab
+                if (selectedChatType === 'individual' && activeTab !== 'individual') {
+                    setActiveTab('individual');
+                } else if (selectedChatType === 'group' && activeTab !== 'groups') {
+                    setActiveTab('groups');
+                }
+            }
+        }
+    }, [selectedChatId, selectedChatType, filteredListData, onChatOpen, activeTab, setActiveTab]);
 
     // --- Renders the Individual Chat List ---
     const renderIndividualList = () => {
