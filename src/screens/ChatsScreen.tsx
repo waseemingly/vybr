@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
     View,
     Text,
@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons'; // Ensure Feather is imported
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 // --- Adjust Imports ---
@@ -27,6 +27,7 @@ export type IndividualSubTab = 'chats' | 'pending';
 
 const ChatsScreen = () => {
     const navigation = useNavigation<ChatsScreenNavigationProp>();
+    const route = useRoute();
 
     // State managed by this screen: Search Query and Active Tab
     const [searchQuery, setSearchQuery] = useState('');
@@ -36,6 +37,27 @@ const ChatsScreen = () => {
     
     // New state for web chat panel
     const [selectedChat, setSelectedChat] = useState<ChatItem | null>(null);
+
+    // Handle route parameters for notification navigation (web only)
+    const [notificationChatId, setNotificationChatId] = useState<string | undefined>();
+    const [notificationChatType, setNotificationChatType] = useState<'individual' | 'group' | undefined>();
+
+    useEffect(() => {
+        if (Platform.OS === 'web' && route.params) {
+            const { selectedChatId, chatType } = route.params as any;
+            
+            if (selectedChatId && chatType) {
+                console.log('[ChatsScreen] Notification navigation detected:', { selectedChatId, chatType });
+                
+                // Set the notification chat info for ChatsTabs to handle
+                setNotificationChatId(selectedChatId);
+                setNotificationChatType(chatType);
+                
+                // Clear the route params to prevent re-triggering
+                (navigation as any).setParams({ selectedChatId: undefined, chatType: undefined });
+            }
+        }
+    }, [route.params, navigation]);
 
     // --- Handlers ---
 
@@ -53,6 +75,12 @@ const ChatsScreen = () => {
             // On web, use the chat panel instead of navigation
             console.log('🔍 ChatsScreen: Using web chat panel');
             setSelectedChat(selectedChatItem);
+            
+            // Clear notification state if this was triggered by a notification
+            if (notificationChatId && notificationChatType) {
+                setNotificationChatId(undefined);
+                setNotificationChatType(undefined);
+            }
         } else {
             // On mobile, use normal navigation
             console.log('🔍 ChatsScreen: Using mobile navigation');
@@ -97,7 +125,7 @@ const ChatsScreen = () => {
                 }
             }
         }
-    }, [navigation]);
+    }, [navigation, notificationChatId, notificationChatType]);
 
     // Handle closing chat panel (web only)
     const handleCloseChat = useCallback(() => {
@@ -207,6 +235,8 @@ const ChatsScreen = () => {
                             onChatOpen={handleChatOpen}
                             onProfileOpen={handleProfileOpen}
                             searchQuery={searchQuery}
+                            selectedChatId={notificationChatId}
+                            selectedChatType={notificationChatType}
                         />
                     </View>
                 </View>

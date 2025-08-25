@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { RootStackParamList } from '../navigation/AppNavigator'; // Adjust path if needed
 
 /**
@@ -32,19 +33,49 @@ export const parseDeepLink = (url: string): { routeName: keyof RootStackParamLis
       case 'chat':
       case 'individual-chat':
         if (rest[0]) {
-          return {
-            routeName: 'IndividualChatScreen',
-            params: { matchUserId: rest[0] },
-          };
+          // On web, navigate to Chats tab and set the selected chat
+          if (Platform.OS === 'web') {
+            return {
+              routeName: 'MainApp',
+              params: { 
+                screen: 'UserTabs', 
+                params: { 
+                  screen: 'Chats',
+                  params: { selectedChatId: rest[0], chatType: 'individual' }
+                } 
+              },
+            };
+          } else {
+            // On mobile, navigate directly to the chat screen
+            return {
+              routeName: 'IndividualChatScreen',
+              params: { matchUserId: rest[0] },
+            };
+          }
         }
         break;
       
       case 'group-chat':
         if (rest[0]) {
+          // On web, navigate to Chats tab and set the selected chat
+          if (Platform.OS === 'web') {
             return {
-                routeName: 'GroupChatScreen',
-                params: { groupId: rest[0] },
+              routeName: 'MainApp',
+              params: { 
+                screen: 'UserTabs', 
+                params: { 
+                  screen: 'Chats',
+                  params: { selectedChatId: rest[0], chatType: 'group' }
+                } 
+              },
             };
+          } else {
+            // On mobile, navigate directly to the chat screen
+            return {
+              routeName: 'GroupChatScreen',
+              params: { groupId: rest[0] },
+            };
+          }
         }
         break;
 
