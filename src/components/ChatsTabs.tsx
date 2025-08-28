@@ -210,7 +210,7 @@ import { useMessageSending } from '@/hooks/message/useMessageSending';
 import { MessageStatusService } from '@/services/message/MessageStatusService';
 
 // PowerSync imports for mobile
-import { useIndividualChatListWithUnread, useGroupChatListWithUnread } from '@/lib/powersync/chatFunctions';
+import { useIndividualChatList, useGroupChatList } from '@/lib/powersync/chatFunctions';
 import { usePowerSync } from '@/context/PowerSyncContext';
 // --- End Adjustments ---
 
@@ -358,11 +358,11 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     // Use ref to store the latest fetchData function
     const fetchDataRef = useRef<((refreshing?: boolean) => Promise<void>) | undefined>(undefined);
 
-    // PowerSync hooks for mobile - use WITH unread counts
-    const individualChatResult = useIndividualChatListWithUnread(session?.user?.id || '');
-    const groupChatResult = useGroupChatListWithUnread(session?.user?.id || '');
+    // PowerSync hooks for mobile
+    const individualChatResult = useIndividualChatList(session?.user?.id || '');
+    const groupChatResult = useGroupChatList(session?.user?.id || '');
 
-    // Fetch data function (fetches chat lists WITH unread counts)
+    // Fetch data function (fetches chat lists WITHOUT unread counts - those come from useUnreadCount)
     const fetchData = useCallback(async (refreshing = false) => {
         if (!session?.user?.id) {
             setError("Not logged in."); 
@@ -387,10 +387,10 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         console.log("ChatsTabs: Fetching chat lists from Supabase...");
 
         try {
-            // Fetch chat lists WITH unread counts
+            // Fetch chat lists WITHOUT unread counts to avoid duplicate calls
             const [individualResult, groupResult] = await Promise.all([
-                supabase.rpc('get_chat_list_with_unread'), // Use get_chat_list_with_unread to include unread counts
-                supabase.rpc('get_group_chat_list_with_unread') // Use get_group_chat_list_with_unread to include unread counts
+                supabase.rpc('get_chat_list'), // Changed to get_chat_list without unread
+                supabase.rpc('get_group_chat_list') // Changed to get_group_chat_list without unread
             ]);
 
             if (individualResult.error) throw new Error(`Individual chats: ${individualResult.error.message}`);
@@ -522,17 +522,10 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 existingChat.last_message_content = newMessage.content;
                 existingChat.last_message_created_at = newMessage.created_at;
                 existingChat.last_message_sender_id = newMessage.sender_id;
-                // Don't manually increment unread_count - let the database query handle it
+                existingChat.unread_count = (existingChat.unread_count || 0) + 1;
                 
                 // Remove the old item and prepend the updated one to move it to the top
                 const updatedList = [existingChat, ...currentList.filter(c => c.partner_user_id !== partnerId)];
-                
-                // Refresh data to get updated unread counts
-                setTimeout(() => {
-                    fetchDataRef.current?.();
-                    refreshUnreadCount();
-                }, 100);
-                
                 return updatedList;
             });
         };
@@ -612,18 +605,11 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 existingChat.last_message_content = newMessage.content;
                 existingChat.last_message_created_at = newMessage.created_at;
                 existingChat.last_message_sender_id = newMessage.sender_id;
-                // Don't manually increment unread_count - let the database query handle it
+                existingChat.unread_count = (existingChat.unread_count || 0) + 1;
                 // Note: The sender's name is not in the real-time payload.
                 // The name preview will update on the next full refresh.
                 
                 const updatedList = [existingChat, ...currentList.filter(c => c.group_id !== newMessage.group_id)];
-                
-                // Refresh data to get updated unread counts
-                setTimeout(() => {
-                    fetchDataRef.current?.();
-                    refreshUnreadCount();
-                }, 100);
-                
                 return updatedList;
             });
         };

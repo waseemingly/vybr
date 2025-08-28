@@ -658,6 +658,15 @@ const IndividualChatScreen: React.FC = () => {
     // Use new services if explicitly enabled OR if on mobile with PowerSync available
     const useNewServices = process.env.REACT_APP_USE_NEW_CHAT_SERVICES === 'true' || (isMobile && isPowerSyncAvailable);
 
+    // Set document title immediately when component mounts (web only)
+    useEffect(() => {
+        if (Platform.OS === 'web' && typeof document !== 'undefined') {
+            const currentName = route.params.matchName || 'Chat';
+            console.log('[IndividualChatScreen] Component mount: Setting document title to:', `${currentName} - vybr`);
+            document.title = `${currentName} - vybr`;
+        }
+    }, [route.params.matchName]);
+
     // NEW: Add new modular hooks (parallel implementation - doesn't break existing functionality)
     const {
         messages: newMessages,
@@ -1356,13 +1365,26 @@ const IndividualChatScreen: React.FC = () => {
         useCallback(() => {
             console.log(`[ChatScreen] Focus effect running for user: ${matchUserId}`);
             fetchInteractionStatus();
-        }, [fetchInteractionStatus, matchUserId])
+            
+            // Update document title on focus for web platform
+            if (Platform.OS === 'web' && typeof document !== 'undefined') {
+                const currentName = route.params.matchName || 'Chat';
+                console.log('[IndividualChatScreen] useFocusEffect: Setting document title to:', `${currentName} - vybr`);
+                document.title = `${currentName} - vybr`;
+            }
+        }, [fetchInteractionStatus, matchUserId, route.params.matchName])
     );
 
     // Update header options when dynamic data changes
     useEffect(() => {
         const currentName = route.params.matchName || 'Chat';
         setDynamicMatchName(currentName);
+        
+        // Update document title for web platform
+        if (Platform.OS === 'web' && typeof document !== 'undefined') {
+            console.log('[IndividualChatScreen] Setting document title to:', `${currentName} - vybr`);
+            document.title = `${currentName} - vybr`;
+        }
         
         navigation.setOptions({
              headerShown: false,
@@ -1436,6 +1458,15 @@ const IndividualChatScreen: React.FC = () => {
              headerStyle: { backgroundColor: 'white' },
          });
     }, [navigation, route.params.matchName, route.params.matchProfilePicture, matchUserId, isBlocked, isMatchMuted, isChatMutuallyInitiated, isMatchOnline, dynamicMatchName, messages, sendBroadcast]);
+
+    // Cleanup document title when component unmounts (web only)
+    useEffect(() => {
+        return () => {
+            if (Platform.OS === 'web' && typeof document !== 'undefined') {
+                document.title = 'vybr';
+            }
+        };
+    }, []);
 
     // Fetch initial messages AFTER checking block status
     useEffect(() => {
@@ -2087,6 +2118,20 @@ const IndividualChatScreen: React.FC = () => {
         };
     }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage, checkMutualInitiation, messages, musicLoverProfile?.firstName, dynamicMatchName, sendBroadcast, subscribeToIndividualChat, subscribeToEvent, unsubscribeFromEvent]);
 
+    // --- Android Initial Load State ---
+    const [isAndroidInitialRender, setIsAndroidInitialRender] = useState(Platform.OS === 'android');
+
+    // Complete Android initial render after messages are stable
+    useEffect(() => {
+        if (Platform.OS === 'android' && isAndroidInitialRender && messages.length > 0 && !loading) {
+            // Delay to ensure Android RecyclerView stabilizes
+            const timer = setTimeout(() => {
+                setIsAndroidInitialRender(false);
+            }, 150);
+            return () => clearTimeout(timer);
+        }
+    }, [messages.length, loading, isAndroidInitialRender]);
+
     // Group messages by date for section headers
     const sections = useMemo(() => {
         const groups: Record<string, ChatMessage[]> = {};
@@ -2098,13 +2143,45 @@ const IndividualChatScreen: React.FC = () => {
         const today = new Date(), yesterday = new Date(today.getTime() - 86400000);
         return sortedKeys.map(dateKey => {
             const date = new Date(dateKey);
-            let title = date.toDateString() === today.toDateString() ? 'Today'
+            const title = date.toDateString() === today.toDateString() ? 'Today'
                 : date.toDateString() === yesterday.toDateString() ? 'Yesterday'
                 : (today.getTime() - date.getTime() <= 7 * 86400000) ? date.toLocaleDateString(undefined, { weekday: 'long' })
                 : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
             return { title, data: groups[dateKey] };
         });
     }, [messages]);
+
+    // --- Stable Key Extractor (Android Optimization) ---
+    const getStableMessageKey = useCallback((item: ChatMessage) => {
+        // Use only stable identifiers to prevent unnecessary re-renders on Android
+        return `${item._id}`;
+    }, []);
+
+    // --- Stable Section Header Renderer (Android Optimization) ---
+    const renderStableSectionHeader = useCallback(({ section: { title, data } }: { section: { title: string; data: ChatMessage[] } }) => {
+        // On Android, show minimal header during initial render to prevent glitching
+        if (Platform.OS === 'android' && isAndroidInitialRender) {
+            return (
+                <View style={[styles.sectionHeader, styles.sectionHeaderAndroid]}>
+                    <Text style={styles.sectionHeaderText}>{title}</Text>
+                </View>
+            );
+        }
+
+        return (
+            <View style={[styles.sectionHeader, Platform.OS === 'android' && styles.sectionHeaderAndroid]}>
+                <Text style={styles.sectionHeaderText}>{title}</Text>
+                {/* New Messages Divider - Only show after initial render is complete */}
+                {hasUnreadMessages && data.some((msg: ChatMessage) => msg._id === earliestUnreadMessageId) && (
+                    <View style={styles.newMessagesDivider}>
+                        <View style={styles.newMessagesDividerLine} />
+                        <Text style={styles.newMessagesDividerText}>New Messages</Text>
+                        <View style={styles.newMessagesDividerLine} />
+                    </View>
+                )}
+            </View>
+        );
+    }, [hasUnreadMessages, earliestUnreadMessageId, isAndroidInitialRender]);
 
     // --- Proper Scroll to Message Handler ---
     const handleScrollToMessage = useCallback((messageId: string) => {
@@ -3388,8 +3465,12 @@ const IndividualChatScreen: React.FC = () => {
                     sections={sections}
                     style={styles.messageList}
                     contentContainerStyle={styles.messageListContent}
-                    keyExtractor={(item) => `${item._id}-${item.isSeen ? 'seen' : 'unseen'}`}
+                    keyExtractor={getStableMessageKey}
                     initialScrollIndex={(() => {
+                        // On Android, prevent initial scroll during first render to avoid header glitch
+                        if (Platform.OS === 'android' && isAndroidInitialRender) {
+                            return -1;
+                        }
                         const index = calculateInitialScrollIndex();
                         console.log(`[IndividualChatScreen] Calculated initial scroll index: ${index}`);
                         return index;
@@ -3411,28 +3492,18 @@ const IndividualChatScreen: React.FC = () => {
                             isHighlighted={item._id === highlightedMessageId}
                         />
                     )}
-                    renderSectionHeader={({ section: { title, data } }) => (
-                        <View style={styles.sectionHeader}>
-                            <Text style={styles.sectionHeaderText}>{title}</Text>
-                            {/* New Messages Divider */}
-                            {hasUnreadMessages && data.some((msg: ChatMessage) => msg._id === earliestUnreadMessageId) && (
-                                <View style={styles.newMessagesDivider}>
-                                    <View style={styles.newMessagesDividerLine} />
-                                    <Text style={styles.newMessagesDividerText}>New Messages</Text>
-                                    <View style={styles.newMessagesDividerLine} />
-                                </View>
-                            )}
-                        </View>
-                    )}
+                    renderSectionHeader={renderStableSectionHeader}
                     onContentSizeChange={() => {
                         // Only auto-scroll on content size change if we're near bottom and not user scrolling
-                        if (!isUserScrolling && !isScrollingToMessage && isNearBottom) {
+                        // AND not during Android initial render to prevent header glitch
+                        if (!isUserScrolling && !isScrollingToMessage && isNearBottom && !(Platform.OS === 'android' && isAndroidInitialRender)) {
                             handleAutoScrollToBottom();
                         }
                     }}
                     onLayout={() => {
                         // Only auto-scroll on layout if we're near bottom and not user scrolling
-                        if (!isUserScrolling && !isScrollingToMessage && isNearBottom) {
+                        // AND not during Android initial render to prevent header glitch
+                        if (!isUserScrolling && !isScrollingToMessage && isNearBottom && !(Platform.OS === 'android' && isAndroidInitialRender)) {
                             handleAutoScrollToBottom();
                         }
                     }}
