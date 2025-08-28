@@ -76,9 +76,8 @@ const ShareEventScreen = () => {
   useEffect(() => {
     fetchChats();
     
-    // Set navigation title
+    // Set navigation options (title removed to maintain static "Vybr Web" title)
     navigation.setOptions({
-      title: 'Share Event',
       headerRight: () => (
         <TouchableOpacity
           style={{ marginRight: 8 }}

@@ -465,7 +465,6 @@ const OtherUserProfileScreen: React.FC = () => {
 
         navigation.setOptions({
             headerShown: false,
-            headerTitle: title,
             headerTitleAlign: 'center',
             headerBackTitleVisible: false,
             headerLeft: () => (

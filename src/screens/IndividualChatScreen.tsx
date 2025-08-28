@@ -658,14 +658,7 @@ const IndividualChatScreen: React.FC = () => {
     // Use new services if explicitly enabled OR if on mobile with PowerSync available
     const useNewServices = process.env.REACT_APP_USE_NEW_CHAT_SERVICES === 'true' || (isMobile && isPowerSyncAvailable);
 
-    // Set document title immediately when component mounts (web only)
-    useEffect(() => {
-        if (Platform.OS === 'web' && typeof document !== 'undefined') {
-            const currentName = route.params.matchName || 'Chat';
-            console.log('[IndividualChatScreen] Component mount: Setting document title to:', `${currentName} - vybr`);
-            document.title = `${currentName} - vybr`;
-        }
-    }, [route.params.matchName]);
+
 
     // NEW: Add new modular hooks (parallel implementation - doesn't break existing functionality)
     const {
@@ -1366,12 +1359,6 @@ const IndividualChatScreen: React.FC = () => {
             console.log(`[ChatScreen] Focus effect running for user: ${matchUserId}`);
             fetchInteractionStatus();
             
-            // Update document title on focus for web platform
-            if (Platform.OS === 'web' && typeof document !== 'undefined') {
-                const currentName = route.params.matchName || 'Chat';
-                console.log('[IndividualChatScreen] useFocusEffect: Setting document title to:', `${currentName} - vybr`);
-                document.title = `${currentName} - vybr`;
-            }
         }, [fetchInteractionStatus, matchUserId, route.params.matchName])
     );
 
@@ -1380,11 +1367,6 @@ const IndividualChatScreen: React.FC = () => {
         const currentName = route.params.matchName || 'Chat';
         setDynamicMatchName(currentName);
         
-        // Update document title for web platform
-        if (Platform.OS === 'web' && typeof document !== 'undefined') {
-            console.log('[IndividualChatScreen] Setting document title to:', `${currentName} - vybr`);
-            document.title = `${currentName} - vybr`;
-        }
         
         navigation.setOptions({
              headerShown: false,
@@ -1459,14 +1441,7 @@ const IndividualChatScreen: React.FC = () => {
          });
     }, [navigation, route.params.matchName, route.params.matchProfilePicture, matchUserId, isBlocked, isMatchMuted, isChatMutuallyInitiated, isMatchOnline, dynamicMatchName, messages, sendBroadcast]);
 
-    // Cleanup document title when component unmounts (web only)
-    useEffect(() => {
-        return () => {
-            if (Platform.OS === 'web' && typeof document !== 'undefined') {
-                document.title = 'vybr';
-            }
-        };
-    }, []);
+
 
     // Fetch initial messages AFTER checking block status
     useEffect(() => {
