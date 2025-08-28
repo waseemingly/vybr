@@ -273,7 +273,7 @@ const OrganizerTabNav = createBottomTabNavigator<OrganizerTabParamList>();
 // --- Reusable Components ---
 const LoadingScreen = () => ( <View style={styles.loadingContainer}><ActivityIndicator size="large" color={APP_CONSTANTS?.COLORS?.PRIMARY || '#3B82F6'} /></View> );
 const AuthScreens = () => ( 
-  <AuthStackNav.Navigator screenOptions={{ headerShown: false }}>
+          <AuthStackNav.Navigator screenOptions={{ headerShown: false, title: undefined }}>
     <AuthStackNav.Screen name="Landing" component={LandingScreen} />
     <AuthStackNav.Screen name="MusicLoverLogin">{(props) => <LoginScreen {...props} userType="music_lover" />}</AuthStackNav.Screen>
     <AuthStackNav.Screen name="OrganizerLogin">{(props) => <LoginScreen {...props} userType="organizer" />}</AuthStackNav.Screen>
@@ -626,11 +626,12 @@ const WebVerticalTabsOrganizer = () => {
           screenOptions={({ route }) => ({
             tabBarStyle: { display: 'none' }, // Hide the bottom tab bar on web
             headerShown: false,
+            title: undefined,
           })}
         >
-          <OrganizerTabNav.Screen name="Posts" component={OrganizerPostsScreen} options={{ title: "Events" }} />
-          <OrganizerTabNav.Screen name="Create" component={CreateEventScreen} options={{ title: "Create" }} />
-          <OrganizerTabNav.Screen name="OrganizerProfile" component={OrganizerProfileScreen} options={{ title: "Profile" }} />
+          <OrganizerTabNav.Screen name="Posts" component={OrganizerPostsScreen} />
+          <OrganizerTabNav.Screen name="Create" component={CreateEventScreen} />
+          <OrganizerTabNav.Screen name="OrganizerProfile" component={OrganizerProfileScreen} />
         </OrganizerTabNav.Navigator>
       </View>
     </View>
@@ -642,7 +643,8 @@ const MobileUserTabs = () => {
   const { unreadCount } = useUnreadCount();
   
   return (
-    <UserTabNav.Navigator screenOptions={({ route }) => ({ 
+            <UserTabNav.Navigator screenOptions={({ route }) => ({
+            title: undefined, 
       tabBarIcon: ({ focused, color, size }) => { 
         let iconName: keyof typeof Feather.glyphMap = "help-circle"; 
         if (route.name === "Matches") iconName = "heart"; 
@@ -702,7 +704,8 @@ const MobileUserTabs = () => {
 };
 
 const MobileOrganizerTabs = () => ( 
-  <OrganizerTabNav.Navigator screenOptions={({ route }) => ({ 
+  <OrganizerTabNav.Navigator screenOptions={({ route }) => ({
+      title: undefined,
     tabBarIcon: ({ focused, color, size }) => { 
       let iconName: keyof typeof Feather.glyphMap = "help-circle"; 
       if (route.name === "Posts") iconName = "layout"; 
@@ -716,9 +719,9 @@ const MobileOrganizerTabs = () => (
     headerShown: false, 
     tabBarShowLabel: true, 
   })}>
-    <OrganizerTabNav.Screen name="Posts" component={OrganizerPostsScreen} options={{ title: "Events" }} />
-    <OrganizerTabNav.Screen name="Create" component={CreateEventScreen} options={{ title: "Create" }} />
-    <OrganizerTabNav.Screen name="OrganizerProfile" component={OrganizerProfileScreen} options={{ title: "Profile" }} />
+    <OrganizerTabNav.Screen name="Posts" component={OrganizerPostsScreen} />
+    <OrganizerTabNav.Screen name="Create" component={CreateEventScreen} />
+    <OrganizerTabNav.Screen name="OrganizerProfile" component={OrganizerProfileScreen} />
   </OrganizerTabNav.Navigator> 
 );
 
@@ -1101,56 +1104,56 @@ const MainAppStack = () => {
   const [initialRouteName, setInitialRouteName] = useState<keyof MainStackParamList | null>(null);
 
   return (
-      <MainStack.Navigator screenOptions={{ headerShown: false, contentStyle: styles.cardStyle }} >
+      <MainStack.Navigator screenOptions={{ headerShown: false, contentStyle: styles.cardStyle, title: undefined }} >
           {isOrganizerMode ? (
                <>
                    <MainStack.Screen name="OrganizerTabs" component={OrganizerTabs} options={{ headerShown: false }} />
-                   <MainStack.Screen name="EventDetail" component={wrapScreenForWeb(EventDetailScreen, true)} options={{ title: 'Event Details' }}/>
-                   <MainStack.Screen name="EditEvent" component={wrapScreenForWeb(EditEventScreen, true)} options={{ title: 'Edit Event' }}/>
-                   <MainStack.Screen name="ViewBookings" component={wrapScreenForWeb(ViewBookingsScreen, true)} options={{ title: 'Event Bookings' }}/>
-                   <MainStack.Screen name="OrganizerSettingsScreen" component={wrapScreenForWeb(OrganizerSettingsScreen, true)} options={{ title: 'Settings' }}/>
-                   <MainStack.Screen name="SetAvailabilityScreen" component={wrapScreenForWeb(SetAvailabilityScreen, true)} options={{ title: 'Set Availability' }}/>
-                   <MainStack.Screen name="EditOrganizerProfileScreen" component={wrapScreenForWeb(EditOrganizerProfileScreen, true)} options={{ title: 'Edit Profile' }}/>
-                   <MainStack.Screen name="ManagePlanScreen" component={wrapScreenForWeb(ManagePlanScreen, true)} options={{ title: 'Manage Plan' }}/>
-                   <MainStack.Screen name="OrgBillingHistoryScreen" component={wrapScreenForWeb(OrgBillingHistoryScreen, true)} options={{ title: 'Billing History' }}/>
-                   <MainStack.Screen name="UserListScreen" component={wrapScreenForWeb(UserListScreen, true)} options={{ title: 'Followers' }}/>
-                   <MainStack.Screen name="OverallAnalyticsScreen" component={wrapScreenForWeb(OverallAnalyticsScreen, true)} options={{ title: 'Overall Analytics' }}/>
-                   <MainStack.Screen name="ShareEventScreen" component={wrapScreenForWeb(ShareEventScreen, true)} options={{ title: 'Share Event' }}/>
-                   <MainStack.Screen name="OrganizerReservationsScreen" component={wrapScreenForWeb(OrganizerReservationsScreen, true)} options={{ title: 'Organizer Reservations' }}/>
+                   <MainStack.Screen name="EventDetail" component={wrapScreenForWeb(EventDetailScreen, true)} />
+                   <MainStack.Screen name="EditEvent" component={wrapScreenForWeb(EditEventScreen, true)} />
+                   <MainStack.Screen name="ViewBookings" component={wrapScreenForWeb(ViewBookingsScreen, true)} />
+                   <MainStack.Screen name="OrganizerSettingsScreen" component={wrapScreenForWeb(OrganizerSettingsScreen, true)} />
+                   <MainStack.Screen name="SetAvailabilityScreen" component={wrapScreenForWeb(SetAvailabilityScreen, true)} />
+                   <MainStack.Screen name="EditOrganizerProfileScreen" component={wrapScreenForWeb(EditOrganizerProfileScreen, true)} />
+                   <MainStack.Screen name="ManagePlanScreen" component={wrapScreenForWeb(ManagePlanScreen, true)} />
+                   <MainStack.Screen name="OrgBillingHistoryScreen" component={wrapScreenForWeb(OrgBillingHistoryScreen, true)} />
+                   <MainStack.Screen name="UserListScreen" component={wrapScreenForWeb(UserListScreen, true)} />
+                   <MainStack.Screen name="OverallAnalyticsScreen" component={wrapScreenForWeb(OverallAnalyticsScreen, true)} />
+                   <MainStack.Screen name="ShareEventScreen" component={wrapScreenForWeb(ShareEventScreen, true)} />
+                   <MainStack.Screen name="OrganizerReservationsScreen" component={wrapScreenForWeb(OrganizerReservationsScreen, true)} />
                </>
           ) : (
                <>
                    <MainStack.Screen name="UserTabs" component={UserTabs} options={{ headerShown: false }}/>
-                   <MainStack.Screen name="UserSettingsScreen" component={wrapScreenForWeb(UserSettingsScreen, false)} options={{ title: 'Settings' }} />
-                   <MainStack.Screen name="EditUserProfileScreen" component={wrapScreenForWeb(EditUserProfileScreen, false)} options={{ title: 'Edit Profile' }} />
-                   <MainStack.Screen name="UserManageSubscriptionScreen" component={wrapScreenForWeb(UserManageSubscriptionScreen, false)} options={{ title: 'Subscription' }} />
-                   <MainStack.Screen name="ManagePlan" component={wrapScreenForWeb(ManagePlanScreen, false)} options={{ title: 'Manage Plan' }} />
-                   <MainStack.Screen name="UserMutedListScreen" component={wrapScreenForWeb(UserMutedListScreen, false)} options={{ title: 'Muted Users' }} />
-                   <MainStack.Screen name="UserBlockedListScreen" component={wrapScreenForWeb(UserBlockedListScreen, false)} options={{ title: 'Blocked Users' }} />
-                   <MainStack.Screen name="FriendsListScreen" component={wrapScreenForWeb(FriendsListScreen, false)} options={{ title: 'Friends' }} />
-                   <MainStack.Screen name="OrganizerListScreen" component={wrapScreenForWeb(OrganizerListScreen, false)} options={{ title: 'Following' }}/>
-                   <MainStack.Screen name="UpgradeScreen" component={wrapScreenForWeb(UpgradeScreen, false)} options={{ title: 'Go Premium' }} />
-                   <MainStack.Screen name="AttendedEventsScreen" component={wrapScreenForWeb(AttendedEventsScreen, false)} options={{ title: 'Attended Events' }} />
-                   <MainStack.Screen name="UserBillingHistoryScreen" component={wrapScreenForWeb(UserBillingHistoryScreen, false)} options={{ title: 'Billing History' }} />
-                   <MainStack.Screen name="UpdateMusicFavoritesScreen" component={wrapScreenForWeb(UpdateMusicFavoritesScreen, false)} options={{ title: 'Music Favorites' }} />
-                   <MainStack.Screen name="LinkMusicServicesScreen" component={wrapScreenForWeb(LinkMusicServicesScreen, false)} options={{ title: 'Link Music Services' }} />
+                   <MainStack.Screen name="UserSettingsScreen" component={wrapScreenForWeb(UserSettingsScreen, false)} />
+                   <MainStack.Screen name="EditUserProfileScreen" component={wrapScreenForWeb(EditUserProfileScreen, false)} />
+                   <MainStack.Screen name="UserManageSubscriptionScreen" component={wrapScreenForWeb(UserManageSubscriptionScreen, false)} />
+                   <MainStack.Screen name="ManagePlan" component={wrapScreenForWeb(ManagePlanScreen, false)} />
+                   <MainStack.Screen name="UserMutedListScreen" component={wrapScreenForWeb(UserMutedListScreen, false)} />
+                   <MainStack.Screen name="UserBlockedListScreen" component={wrapScreenForWeb(UserBlockedListScreen, false)} />
+                   <MainStack.Screen name="FriendsListScreen" component={wrapScreenForWeb(FriendsListScreen, false)} />
+                   <MainStack.Screen name="OrganizerListScreen" component={wrapScreenForWeb(OrganizerListScreen, false)} />
+                   <MainStack.Screen name="UpgradeScreen" component={wrapScreenForWeb(UpgradeScreen, false)} />
+                   <MainStack.Screen name="AttendedEventsScreen" component={wrapScreenForWeb(AttendedEventsScreen, false)} />
+                   <MainStack.Screen name="UserBillingHistoryScreen" component={wrapScreenForWeb(UserBillingHistoryScreen, false)} />
+                   <MainStack.Screen name="UpdateMusicFavoritesScreen" component={wrapScreenForWeb(UpdateMusicFavoritesScreen, false)} />
+                   <MainStack.Screen name="LinkMusicServicesScreen" component={wrapScreenForWeb(LinkMusicServicesScreen, false)} />
                    <MainStack.Screen name="MyBookingsScreen" component={wrapScreenForWeb(MyBookingsScreen, false)} />
-                   <MainStack.Screen name="PremiumSignupScreen" component={wrapScreenForWeb(PremiumSignupScreen, false)} options={{ title: 'Payment' }} />
-                   <MainStack.Screen name="PaymentConfirmationScreen" component={wrapScreenForWeb(PaymentConfirmationScreen, false)} options={{ title: 'Payment Confirmation' }} />
+                   <MainStack.Screen name="PremiumSignupScreen" component={wrapScreenForWeb(PremiumSignupScreen, false)} />
+                   <MainStack.Screen name="PaymentConfirmationScreen" component={wrapScreenForWeb(PaymentConfirmationScreen, false)} />
                    <MainStack.Screen name="PaymentSuccessScreen" component={wrapScreenForWeb(PaymentSuccessScreen, false)} />
-                   <MainStack.Screen name="ShareEventScreen" component={wrapScreenForWeb(ShareEventScreen, false)} options={{ title: 'Share Event' }}/>
+                   <MainStack.Screen name="ShareEventScreen" component={wrapScreenForWeb(ShareEventScreen, false)} />
                </>
           )}
           {/* Screens accessible by both modes */}
-          <MainStack.Screen name="CreateEventScreen" component={wrapScreenForWeb(CreateEventScreen, isOrganizerMode)} options={{title: "Create Event"}} />
-          <MainStack.Screen name="OtherUserProfileScreen" component={wrapScreenForWeb(OtherUserProfileScreen, isOrganizerMode)} options={{title: "Profile"}} />
-          <MainStack.Screen name="BookingConfirmation" component={wrapScreenForWeb(BookingConfirmationScreen, isOrganizerMode)} options={{ title: 'Booking Confirmed' }} />
+          <MainStack.Screen name="CreateEventScreen" component={wrapScreenForWeb(CreateEventScreen, isOrganizerMode)} />
+          <MainStack.Screen name="OtherUserProfileScreen" component={wrapScreenForWeb(OtherUserProfileScreen, isOrganizerMode)} />
+          <MainStack.Screen name="BookingConfirmation" component={wrapScreenForWeb(BookingConfirmationScreen, isOrganizerMode)} />
           <MainStack.Screen name="UpcomingEventsListScreen" component={wrapScreenForWeb(UpcomingEventsListScreen, isOrganizerMode)} />
           <MainStack.Screen name="PastEventsListScreen" component={wrapScreenForWeb(PastEventsListScreen, isOrganizerMode)} />
           {/* *** ViewOrganizerProfileScreen now registered in Main Stack *** */}
           <MainStack.Screen name="ViewOrganizerProfileScreen" component={wrapScreenForWeb(ViewOrganizerProfileScreen, isOrganizerMode)} />
           {/* *** END Move *** */}
-          <MainStack.Screen name="NotFoundMain" component={wrapScreenForWeb(NotFoundScreen, isOrganizerMode)} options={{ title: 'Oops!' }} />
+          <MainStack.Screen name="NotFoundMain" component={wrapScreenForWeb(NotFoundScreen, isOrganizerMode)} />
       </MainStack.Navigator>
   );
 }
@@ -1178,7 +1181,7 @@ const AppNavigator = () => {
   }
 
   return (
-      <RootStack.Navigator screenOptions={{ headerShown: false }} >
+      <RootStack.Navigator screenOptions={{ headerShown: false, title: undefined }} >
         {!session ? (
           // 1. Not Logged In - Show Auth
           <RootStack.Screen name="Auth" component={AuthScreens} />
@@ -1221,7 +1224,7 @@ const AppNavigator = () => {
             <RootStack.Screen
                 name="CreateGroupChatScreen"
                 component={CreateGroupChatScreen}
-                options={{ headerShown: true, title: 'New Group', headerBackTitleVisible: false }}
+                options={{ headerShown: true, headerBackTitleVisible: false }}
             />
             <RootStack.Screen
                 name="GroupChatScreen"
@@ -1231,12 +1234,12 @@ const AppNavigator = () => {
              <RootStack.Screen
                 name="GroupInfoScreen"
                 component={GroupInfoScreen}
-                options={{ headerShown: true, title: 'Group Info', headerBackTitleVisible: false }} // Title can also be set dynamically
+                options={{ headerShown: true, headerBackTitleVisible: false }} // Title can also be set dynamically
             />
             <RootStack.Screen
                 name="AddGroupMembersScreen"
                 component={AddGroupMembersScreen}
-                options={{ headerShown: true, title: 'Add Members', headerBackTitleVisible: false }}
+                options={{ headerShown: true, headerBackTitleVisible: false }}
             />
             {/* *** END REGISTRATION *** */}
           </>

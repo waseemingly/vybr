@@ -327,7 +327,6 @@ const ViewOrganizerProfileScreen: React.FC = () => {
         // Set header title dynamically with custom back button
         navigation.setOptions({ 
             headerShown: false, // Use custom header for all platforms
-            title: organizerProfile?.company_name || 'Organizer Profile', 
             headerBackVisible: false, // Hide default back button
             headerBackTitleVisible: false, // Hide back title
             headerLeft: Platform.OS !== 'web' ? () => (

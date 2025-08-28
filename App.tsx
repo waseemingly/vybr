@@ -94,6 +94,41 @@ export default function App() {
   const [isReady, setIsReady] = React.useState(false);
   const [initialState, setInitialState] = React.useState();
 
+  // Force document title to stay as "Vybr Web"
+  React.useEffect(() => {
+    if (platform === 'web' && typeof document !== 'undefined') {
+      // Set initial title
+      document.title = 'Vybr Web';
+      
+      // Watch for title changes and force it back to "Vybr Web"
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if (mutation.type === 'childList' && document.title !== 'Vybr Web') {
+            document.title = 'Vybr Web';
+          }
+        });
+      });
+      
+      // Observe the document head for title changes
+      observer.observe(document.head, {
+        childList: true,
+        subtree: true
+      });
+      
+      // Also set up an interval to check and correct the title
+      const interval = setInterval(() => {
+        if (document.title !== 'Vybr Web') {
+          document.title = 'Vybr Web';
+        }
+      }, 100);
+      
+      return () => {
+        observer.disconnect();
+        clearInterval(interval);
+      };
+    }
+  }, []);
+
   React.useEffect(() => {
     const restoreState = async () => {
       try {

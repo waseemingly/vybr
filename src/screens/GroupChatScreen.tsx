@@ -2050,13 +2050,7 @@ const GroupChatScreen: React.FC = () => {
             const markTimer = setTimeout(() => {
                 markMessagesAsSeen();
             }, 300);
-            
-            // Update document title on focus for web platform
-            if (Platform.OS === 'web' && typeof document !== 'undefined') {
-                const displayGroupName = currentGroupName || route.params.groupName || 'Group Chat';
-                console.log('[GroupChatScreen] useFocusEffect: Setting document title to:', `${displayGroupName} - vybr`);
-                document.title = `${displayGroupName} - vybr`;
-            }
+
             
             return () => {
                 clearTimeout(checkTimer);
@@ -2965,12 +2959,7 @@ const GroupChatScreen: React.FC = () => {
         
         // Ensure we have a proper group name
         const displayGroupName = currentGroupName || route.params.groupName || 'Group Chat';
-        
-        // Update document title for web platform
-        if (Platform.OS === 'web' && typeof document !== 'undefined') {
-            console.log('[GroupChatScreen] Setting document title to:', `${displayGroupName} - vybr`);
-            document.title = `${displayGroupName} - vybr`;
-        }
+
         
         navigation.setOptions({ 
             headerTitleAlign: 'center',
@@ -3057,14 +3046,7 @@ const GroupChatScreen: React.FC = () => {
         }); 
     }, [navigation, currentGroupName, currentGroupImage, groupId, isCurrentUserAdmin, canMembersAddOthers, canMembersEditInfo, onlineMembers, groupMembers, route.params.groupName, route.params.groupImage, route.params.onCloseChat]);
 
-    // Cleanup document title when component unmounts (web only)
-    useEffect(() => {
-        return () => {
-            if (Platform.OS === 'web' && typeof document !== 'undefined') {
-                document.title = 'vybr';
-            }
-        };
-    }, []);
+
 
     // Modal and Actions
     const handleUpdateName = async () => { const n = editingName.trim(); if (!n || n === currentGroupName || isUpdatingName || !groupId) { setIsEditModalVisible(false); return; } setIsUpdatingName(true); try { const { error } = await supabase.rpc('rename_group_chat', { group_id_input: groupId, new_group_name: n }); if (error) throw error; sendBroadcast('group', groupId, 'group_update', { type: 'rename', name: n, updated_by: currentUserId }); setIsEditModalVisible(false); } catch (e: any) { Alert.alert("Error", `Update fail: ${e.message}`); } finally { setIsUpdatingName(false); } };

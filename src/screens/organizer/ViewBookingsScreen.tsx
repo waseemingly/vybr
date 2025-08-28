@@ -43,7 +43,7 @@ const ViewBookingsScreen = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    navigation.setOptions({ title: eventTitle || 'Event Bookings' });
+    // Removed title setting to maintain static "Vybr Web" title
   }, [navigation, eventTitle]);
 
   const fetchBookings = useCallback(async () => {
