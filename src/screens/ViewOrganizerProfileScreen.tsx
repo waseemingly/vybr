@@ -324,23 +324,11 @@ const ViewOrganizerProfileScreen: React.FC = () => {
 
     // --- Render Logic ---
     useEffect(() => {
-        // Set header title dynamically with custom back button
+        // Hide the default header completely since we're using custom headers
         navigation.setOptions({ 
-            headerShown: false, // Use custom header for all platforms
-            headerBackVisible: false, // Hide default back button
-            headerBackTitleVisible: false, // Hide back title
-            headerLeft: Platform.OS !== 'web' ? () => (
-                <TouchableOpacity 
-                    onPress={() => navigation.goBack()} 
-                    style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}
-                >
-                    <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                </TouchableOpacity>
-            ) : undefined,
-            headerStyle: { backgroundColor: 'white' },
-            headerTitleStyle: { fontWeight: '600', color: '#1F2937' },
+            headerShown: false,
         });
-    }, [navigation, organizerProfile?.company_name]);
+    }, [navigation]);
 
 
     if (profileLoading && !isRefreshing) {
@@ -360,25 +348,16 @@ const ViewOrganizerProfileScreen: React.FC = () => {
 
     return (
         <SafeAreaView edges={["top", "bottom", "left", "right"]} style={styles.container}>
-            {/* Custom Header */}
-            <View style={styles.customHeader}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackButton}>
-                    <Feather name="chevron-left" size={26} color={APP_CONSTANTS.COLORS.PRIMARY} />
+            {/* Single Custom Header */}
+            <View style={Platform.OS === 'web' ? styles.webHeader : styles.customHeader}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={Platform.OS === 'web' ? styles.backButton : styles.headerBackButton}>
+                    <Feather name="chevron-left" size={Platform.OS === 'web' ? 28 : 26} color={Platform.OS === 'web' ? "#111827" : APP_CONSTANTS.COLORS.PRIMARY} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>{organizerProfile?.company_name || 'Organizer Profile'}</Text>
-                <View style={{ width: 30 }} />
+                <Text style={Platform.OS === 'web' ? styles.webHeaderTitle : styles.headerTitle}>
+                    {organizerProfile?.company_name || 'Organizer Profile'}
+                </Text>
+                <View style={{ width: Platform.OS === 'web' ? 28 : 30 }} />
             </View>
-            {/* Web Header */}
-            {Platform.OS === 'web' && (
-                <View style={styles.webHeader}>
-                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                        <Feather name="chevron-left" size={28} color="#111827" />
-                    </TouchableOpacity>
-                    <Text style={styles.webHeaderTitle}>{organizerProfile?.company_name || 'Organizer Profile'}</Text>
-                    {/* Spacer */}
-                    <View style={{ width: 28 }} />
-                </View>
-            )}
             <ScrollView
                 style={styles.scrollViewContainer}
                 contentContainerStyle={styles.scrollContent}
