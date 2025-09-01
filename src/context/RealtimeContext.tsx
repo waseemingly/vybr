@@ -410,12 +410,24 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Network connectivity handler
     const handleNetworkChange = useCallback((state: any) => {
         const wasConnected = networkStateRef.current;
-        const isConnected = !!(state.isConnected && state.isInternetReachable);
+        
+        // On web, be more lenient with network detection since isInternetReachable might not work properly
+        let isConnected;
+        if (Platform.OS === 'web') {
+            // On web, just check if connected, don't require internet reachability
+            isConnected = !!state.isConnected;
+            console.log(`[RealtimeContext] Web platform - Network state: isConnected=${state.isConnected}, isInternetReachable=${state.isInternetReachable}`);
+        } else {
+            // On mobile, be more lenient - prioritize isConnected over isInternetReachable
+            // isInternetReachable can be unreliable on some devices/networks
+            isConnected = state.isConnected || (state.isConnected && state.isInternetReachable);
+            console.log(`[RealtimeContext] Mobile platform - Network state: isConnected=${state.isConnected}, isInternetReachable=${state.isInternetReachable}, final=${isConnected}`);
+        }
         
         networkStateRef.current = isConnected;
         setIsNetworkConnected(isConnected);
         
-        console.log(`[RealtimeContext] Network state changed: ${wasConnected} -> ${isConnected}`);
+        console.log(`[RealtimeContext] Network state changed: ${wasConnected} -> ${isConnected} (Platform: ${Platform.OS})`);
         
         if (!wasConnected && isConnected) {
             // Network came back online, attempt to reconnect all channels
@@ -894,19 +906,36 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
 
         // Check initial network state and setup channels if available
-        NetInfo.fetch().then(state => {
-            const isConnected = !!(state.isConnected && state.isInternetReachable);
-            networkStateRef.current = isConnected;
-            setIsNetworkConnected(isConnected);
-            
-            console.log(`[RealtimeContext] Initial network state: ${isConnected}`);
-            
-            if (isConnected) {
+        if (Platform.OS === 'web') {
+            // On web, assume network is available initially and set up channels
+            console.log('[RealtimeContext] Web platform detected, assuming network is available initially');
+            networkStateRef.current = true;
+            setIsNetworkConnected(true);
+            setupMainChannels();
+        } else {
+            // On mobile, use NetInfo but be more lenient with isInternetReachable
+            NetInfo.fetch().then(state => {
+                // On mobile, prioritize isConnected over isInternetReachable
+                // isInternetReachable can be unreliable on some devices/networks
+                const isConnected = state.isConnected || (state.isConnected && state.isInternetReachable);
+                networkStateRef.current = isConnected;
+                setIsNetworkConnected(isConnected);
+                
+                console.log(`[RealtimeContext] Mobile network state: isConnected=${state.isConnected}, isInternetReachable=${state.isInternetReachable}, final=${isConnected}`);
+                
+                if (isConnected) {
+                    setupMainChannels();
+                } else {
+                    console.log('[RealtimeContext] Network not available, skipping initial main channels setup');
+                }
+            }).catch(error => {
+                // If NetInfo fails, assume network is available and set up channels
+                console.warn('[RealtimeContext] NetInfo.fetch() failed, assuming network is available:', error);
+                networkStateRef.current = true;
+                setIsNetworkConnected(true);
                 setupMainChannels();
-            } else {
-                console.log('[RealtimeContext] Network not available, skipping initial main channels setup');
-            }
-        });
+            });
+        }
 
         let cleanupFn = () => {
             authListener.subscription.unsubscribe();
