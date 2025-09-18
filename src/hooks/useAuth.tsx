@@ -206,11 +206,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     useEffect(() => {
         if (Platform.OS !== 'web') {
             const webClientId = Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "830574548321-h59962oi42ok7tejuhkefud8tbooo18j.apps.googleusercontent.com";
+            const iosClientId = "830574548321-h59962oi42k7sjuhkefud8tbooo18j.apps.googleusercontent.com";
             console.log('🔍 DEBUG: Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID =', Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID);
             console.log('🔍 DEBUG: Using webClientId =', webClientId);
+            console.log('🔍 DEBUG: Using iosClientId =', iosClientId);
             
             GoogleSignin.configure({
                 webClientId: webClientId, // Web client ID for backend verification
+                iosClientId: iosClientId, // iOS client ID for native iOS authentication
                 offlineAccess: true,
             });
         }
