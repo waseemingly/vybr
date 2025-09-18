@@ -1338,21 +1338,9 @@ const EventsScreen: React.FC = () => {
                   </View>
                   <Text style={styles.subtitle}>Discover concerts and music events</Text>
                 </View>
-                {/* Wrap renderMainContent in a View that can have a RefreshControl if TabView itself doesn't support it well */}
-                 <View style={{flex: 1}}> 
-                    {/* It's often better to put RefreshControl on individual lists within tabs 
-                        or use a custom solution if a global one over TabView is needed.
-                        For simplicity, if FlatLists inside tabs become scrollable, their own
-                        RefreshControl would be more standard. Adding a global one here for now.
-                          */}
-                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]}>
-                         {/* This ^ might not work as expected if TabView's content isn't directly scrollable from here.
-                             Consider adding refreshControl to each FlatList in renderScene instead.
-                             Removing from here for now as it's better on individual lists.
-                          */}
-                    </RefreshControl>
+                <View style={{flex: 1}}> 
                     {renderMainContent()}
-                 </View>
+                </View>
             </View>
             <EventDetailModal
                 event={selectedEvent}

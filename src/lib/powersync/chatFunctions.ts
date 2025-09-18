@@ -129,7 +129,7 @@ export class PowerSyncChatFunctions {
         FROM messages m
         LEFT JOIN message_status ms ON m.id = ms.message_id
         WHERE m.receiver_id = ? 
-          AND (ms.is_seen IS NULL OR ms.is_seen = 0)
+          AND (ms.is_seen IS NULL OR (ms.user_id = ? AND ms.is_seen = 0))
           AND m.sender_id != ?
         GROUP BY sender_id
       )
@@ -185,7 +185,7 @@ export class PowerSyncChatFunctions {
           LIMIT 1
         )
       ) lm ON gc.id = lm.group_id
-      ORDER BY lm.last_message_created_at DESC NULLS LAST
+      ORDER BY lm.last_message_created_at DESC
     `;
   }
 
@@ -195,26 +195,26 @@ export class PowerSyncChatFunctions {
   static getGroupChatListWithUnreadQuery(userId: string): string {
     return `
       WITH last_messages AS (
-        SELECT DISTINCT ON (gcm.group_id)
+        SELECT 
           gcm.group_id,
           gcm.content AS last_message_content,
           gcm.created_at AS last_message_created_at,
           gcm.sender_id AS last_message_sender_id,
-          COALESCE(sender_prof.first_name || ' ' || sender_prof.last_name, sender_prof.username, 'User') as last_message_sender_name
+          COALESCE(sender_prof.first_name || ' ' || sender_prof.last_name, sender_prof.username, 'User') as last_message_sender_name,
+          ROW_NUMBER() OVER (PARTITION BY gcm.group_id ORDER BY gcm.created_at DESC) as rn
         FROM group_chat_messages gcm
         LEFT JOIN music_lover_profiles sender_prof ON gcm.sender_id = sender_prof.user_id
         WHERE gcm.group_id IN (SELECT gcp.group_id FROM group_chat_participants gcp WHERE gcp.user_id = ?)
-        ORDER BY gcm.group_id, gcm.created_at DESC
       ),
       unread_counts AS (
         SELECT
           gcm.group_id,
           COUNT(*) as unread_count
         FROM group_chat_messages gcm
-        LEFT JOIN group_message_status gms ON gcm.id = gms.message_id AND gms.user_id = ?
+        LEFT JOIN group_message_status gms ON gcm.id = gms.message_id
         WHERE gcm.group_id IN (SELECT gcp.group_id FROM group_chat_participants gcp WHERE gcp.user_id = ?)
           AND gcm.sender_id != ?
-          AND (gms.id IS NULL OR gms.is_seen = 0)
+          AND (gms.id IS NULL OR (gms.user_id = ? AND gms.is_seen = 0))
         GROUP BY gcm.group_id
       ),
       member_counts AS (
@@ -236,11 +236,11 @@ export class PowerSyncChatFunctions {
         COALESCE(uc.unread_count, 0) as unread_count
       FROM group_chats gc
       JOIN group_chat_participants gcp ON gc.id = gcp.group_id
-      LEFT JOIN last_messages lm ON gc.id = lm.group_id
+      LEFT JOIN last_messages lm ON gc.id = lm.group_id AND lm.rn = 1
       LEFT JOIN unread_counts uc ON gc.id = uc.group_id
       LEFT JOIN member_counts mc ON gc.id = mc.group_id
       WHERE gcp.user_id = ?
-      ORDER BY lm.last_message_created_at DESC NULLS LAST
+      ORDER BY lm.last_message_created_at DESC
     `;
   }
 
@@ -263,9 +263,10 @@ export class PowerSyncChatFunctions {
         p.last_name,
         p.profile_picture
       FROM messages m
-      LEFT JOIN message_status ms ON m.id = ms.message_id AND ms.user_id = ?
+      LEFT JOIN message_status ms ON m.id = ms.message_id
       LEFT JOIN music_lover_profiles p ON m.sender_id = p.user_id
-      WHERE (m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?)
+      WHERE ((m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?))
+        AND (ms.user_id = ? OR ms.user_id IS NULL)
       ORDER BY m.created_at DESC
       LIMIT ? OFFSET ?
     `;
@@ -290,9 +291,9 @@ export class PowerSyncChatFunctions {
         p.last_name,
         p.profile_picture
       FROM group_chat_messages gcm
-      LEFT JOIN group_message_status gms ON gcm.id = gms.message_id AND gms.user_id = ?
+      LEFT JOIN group_message_status gms ON gcm.id = gms.message_id
       LEFT JOIN music_lover_profiles p ON gcm.sender_id = p.user_id
-      WHERE gcm.group_id = ?
+      WHERE gcm.group_id = ? AND (gms.user_id = ? OR gms.user_id IS NULL)
       ORDER BY gcm.created_at DESC
       LIMIT ? OFFSET ?
     `;
@@ -390,8 +391,8 @@ export class PowerSyncChatFunctions {
         ms.is_seen,
         ms.seen_at
       FROM messages m
-      LEFT JOIN message_status ms ON m.id = ms.message_id AND ms.user_id = ?
-      WHERE m.id = ? AND (m.sender_id = ? OR m.receiver_id = ?)
+      LEFT JOIN message_status ms ON m.id = ms.message_id
+      WHERE m.id = ? AND (m.sender_id = ? OR m.receiver_id = ?) AND (ms.user_id = ? OR ms.user_id IS NULL)
     `;
   }
 
@@ -411,8 +412,8 @@ export class PowerSyncChatFunctions {
         gms.is_seen,
         gms.seen_at
       FROM group_chat_messages gcm
-      LEFT JOIN group_message_status gms ON gcm.id = gms.message_id AND gms.user_id = ?
-      WHERE gcm.id = ?
+      LEFT JOIN group_message_status gms ON gcm.id = gms.message_id
+      WHERE gcm.id = ? AND (gms.user_id = ? OR gms.user_id IS NULL)
     `;
   }
 
@@ -488,7 +489,7 @@ export function useIndividualChatList(userId: string) {
 export function useIndividualChatListWithUnread(userId: string) {
   const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const query = PowerSyncChatFunctions.getIndividualChatListWithUnreadQuery(userId);
-  const params = [userId, userId, userId, userId, userId, userId];
+  const params = [userId, userId, userId, userId, userId, userId, userId];
 
   const { data, loading, error } = usePowerSyncDataWatcher<IndividualChatListItem>(query, params);
 
