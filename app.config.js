@@ -15,14 +15,22 @@ export default {
     ],
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.vybr.app",
-      associatedDomains: ["applinks:vybr.app"]
+      bundleIdentifier: "com.vybr.music",
+      buildNumber: "12",
+      associatedDomains: ["applinks:vybr.app"],
+      infoPlist: {
+        ITSAppUsesNonExemptEncryption: false,
+        NSPhotoLibraryUsageDescription: "This app needs access to your photo library to let you select and share profile pictures and event images.",
+        NSCameraUsageDescription: "This app needs access to your camera to let you take photos for your profile and events.",
+        NSMicrophoneUsageDescription: "This app needs access to your microphone for voice features and audio recording.",
+        NSLocationWhenInUseUsageDescription: "This app needs access to your location to show nearby events and venues."
+      }
     },
     android: {
       adaptiveIcon: {
         backgroundColor: "#ffffff"
       },
-      package: "com.vybr.app",
+      package: "com.vybr.music",
       intentFilters: [
         {
           action: "VIEW",
