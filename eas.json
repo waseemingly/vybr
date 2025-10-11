@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 12.0.0"
+    "version": ">= 12.0.0",
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
@@ -25,6 +26,13 @@
           "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr",
           "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
         }
+      },
+      "ios": {
+        "env": {
+          "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "830574548321-h59962oi42k7sjuhkefud8tbooo18j.apps.googleusercontent.com",
+          "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr",
+          "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+        }
       }
     },
     "production": {
@@ -35,10 +43,23 @@
           "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr",
           "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
         }
+      },
+      "ios": {
+        "env": {
+          "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "830574548321-h59962oi42k7sjuhkefud8tbooo18j.apps.googleusercontent.com",
+          "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr",
+          "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+        }
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleId": "vybr.connect@gmail.com",
+        "ascAppId": "6752904443",
+        "appleTeamId": "R8UV449WRY"
+      }
+    }
   }
 }
