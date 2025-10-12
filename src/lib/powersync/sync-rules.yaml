@@ -6,7 +6,7 @@ bucket_definitions:
   user_messages:
     parameters: SELECT request.user_id() as base_user_id
     data:
-      - SELECT id, sender_id, receiver_id, content, created_at
+      - SELECT id, sender_id, receiver_id, content, created_at, image_url, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id, metadata
         FROM public.messages
         WHERE sender_id = bucket.base_user_id
            OR receiver_id = bucket.base_user_id
@@ -54,7 +54,7 @@ bucket_definitions:
       - SELECT group_id || '_' || user_id as id, group_id, user_id, is_admin, joined_at
         FROM public.group_chat_participants
         WHERE group_id = bucket.group_id
-      - SELECT id, group_id, sender_id, content, created_at
+      - SELECT id, group_id, sender_id, content, created_at, image_url, original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id, metadata
         FROM public.group_chat_messages
         WHERE group_id = bucket.group_id
       - SELECT group_id || '_' || message_id || '_' || user_id as id, group_id, message_id, user_id, is_delivered, delivered_at, is_seen, seen_at, created_at

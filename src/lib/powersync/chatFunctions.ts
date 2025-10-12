@@ -13,7 +13,7 @@ export class PowerSyncChatFunctions {
       console.log('🔍 PowerSync Debug - Checking available tables...');
       
       // Check if tables exist
-      const tables = ['messages', 'messageStatus', 'musicLoverProfiles', 'groupChats', 'groupChatParticipants', 'groupChatMessages', 'groupMessageStatus'];
+      const tables = ['messages', 'message_status', 'music_lover_profiles', 'group_chats', 'group_chat_participants', 'group_chat_messages', 'group_message_status'];
       
       for (const table of tables) {
         try {
@@ -358,7 +358,7 @@ export class PowerSyncChatFunctions {
   static getUserProfileQuery(userId: string): string {
     return `
       SELECT user_id, first_name, last_name, profile_picture, username
-      FROM musicLoverProfiles
+      FROM music_lover_profiles
       WHERE user_id = ?
     `;
   }
@@ -370,7 +370,7 @@ export class PowerSyncChatFunctions {
     const placeholders = userIds.map(() => '?').join(',');
     return `
       SELECT user_id, first_name, last_name, profile_picture, username
-      FROM musicLoverProfiles
+      FROM music_lover_profiles
       WHERE user_id IN (${placeholders})
     `;
   }
@@ -440,6 +440,53 @@ export class PowerSyncChatFunctions {
       }
     }
   }
+
+  /**
+   * Debug function to check chat data specifically
+   */
+  static async debugChatData(db: any, userId: string) {
+    console.log('🔍 PowerSync Debug - Checking chat data for user:', userId);
+    
+    try {
+      // Check individual messages
+      const individualMessages = await db.getAll(`
+        SELECT COUNT(*) as count FROM messages 
+        WHERE sender_id = ? OR receiver_id = ?
+      `, [userId, userId]);
+      console.log(`📱 Individual messages: ${individualMessages[0]?.count || 0}`);
+
+      // Check group messages
+      const groupMessages = await db.getAll(`
+        SELECT COUNT(*) as count FROM group_chat_messages gcm
+        JOIN group_chat_participants gcp ON gcm.group_id = gcp.group_id
+        WHERE gcp.user_id = ?
+      `, [userId]);
+      console.log(`👥 Group messages: ${groupMessages[0]?.count || 0}`);
+
+      // Check profiles
+      const profiles = await db.getAll(`
+        SELECT COUNT(*) as count FROM music_lover_profiles
+      `);
+      console.log(`👤 Profiles: ${profiles[0]?.count || 0}`);
+
+      // Check individual chat list query
+      const individualChats = await db.getAll(
+        PowerSyncChatFunctions.getIndividualChatListQuery(userId),
+        [userId, userId, userId, userId]
+      );
+      console.log(`💬 Individual chats found: ${individualChats.length}`);
+
+      // Check group chat list query
+      const groupChats = await db.getAll(
+        PowerSyncChatFunctions.getGroupChatListQuery(userId),
+        [userId, userId]
+      );
+      console.log(`👥 Group chats found: ${groupChats.length}`);
+
+    } catch (error) {
+      console.error('❌ PowerSync Debug - Error checking chat data:', error);
+    }
+  }
 }
 
 /**
@@ -492,6 +539,14 @@ export function useIndividualChatListWithUnread(userId: string) {
   const params = [userId, userId, userId, userId, userId, userId, userId];
 
   const { data, loading, error } = usePowerSyncDataWatcher<IndividualChatListItem>(query, params);
+
+  // Debug logging
+  useEffect(() => {
+    if (db && userId && isPowerSyncAvailable) {
+      console.log('🔍 PowerSync: Individual chat list debug for user:', userId);
+      PowerSyncChatFunctions.debugChatData(db, userId);
+    }
+  }, [db, userId, isPowerSyncAvailable]);
 
   const chatItems: ChatItem[] = useMemo(() => {
     return data.map((chat: IndividualChatListItem) => ({
@@ -574,6 +629,14 @@ export function useGroupChatListWithUnread(userId: string) {
   const params = [userId, userId, userId, userId, userId];
 
   const { data, loading, error } = usePowerSyncDataWatcher<GroupChatListItem>(query, params);
+
+  // Debug logging
+  useEffect(() => {
+    if (db && userId && isPowerSyncAvailable) {
+      console.log('🔍 PowerSync: Group chat list debug for user:', userId);
+      PowerSyncChatFunctions.debugChatData(db, userId);
+    }
+  }, [db, userId, isPowerSyncAvailable]);
 
   const chatItems: ChatItem[] = useMemo(() => {
     return data.map((chat: GroupChatListItem) => ({

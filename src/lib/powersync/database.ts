@@ -29,9 +29,20 @@ export const createPowerSyncDatabase = async () => {
     try {
       console.log(`🔍 PowerSync: Creating ${platform} database...`);
       
-      // Import PowerSync React Native SDK dynamically
-      const powersyncNativeModule = await import('@powersync/react-native');
-      const { PowerSyncDatabase: PowerSyncDatabaseNative } = powersyncNativeModule;
+      // Import PowerSync React Native SDK dynamically with error handling
+      let PowerSyncDatabaseNative;
+      try {
+        const powersyncNativeModule = await import('@powersync/react-native');
+        PowerSyncDatabaseNative = powersyncNativeModule.PowerSyncDatabase;
+      } catch (importError) {
+        console.error('❌ PowerSync: Failed to import @powersync/react-native:', importError);
+        return null;
+      }
+      
+      if (!PowerSyncDatabaseNative) {
+        console.error('❌ PowerSync: PowerSyncDatabase not found in module');
+        return null;
+      }
       
       // Create the schema dynamically
       const schema = await createAppSchema();

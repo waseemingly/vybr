@@ -63,8 +63,10 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Reconnection state
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const reconnectAttemptsRef = useRef<Map<string, number>>(new Map());
-    const maxReconnectAttempts = 5;
+    const lastErrorTimeRef = useRef<Map<string, number>>(new Map());
+    const maxReconnectAttempts = 3; // Reduced from 5 to 3
     const reconnectDelay = 2000; // 2 seconds
+    const errorDebounceTime = 5000; // 5 seconds between error handling for same channel
     
     // App state
     const appState = useRef(AppState.currentState);
@@ -141,7 +143,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
     }, [session?.user?.id]);
 
-    // Reconnection handler
+    // Reconnection handler with improved error handling
     const handleChannelError = useCallback((channelName: string, channel: RealtimeChannel) => {
         console.warn(`[RealtimeContext] Channel error detected for: ${channelName}`);
         
@@ -150,6 +152,15 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             console.log(`[RealtimeContext] Network is down, skipping reconnection for ${channelName}`);
             return;
         }
+        
+        // Debounce error handling - ignore errors that happen too frequently
+        const now = Date.now();
+        const lastErrorTime = lastErrorTimeRef.current.get(channelName) || 0;
+        if (now - lastErrorTime < errorDebounceTime) {
+            console.log(`[RealtimeContext] Ignoring frequent error for ${channelName} (debounced)`);
+            return;
+        }
+        lastErrorTimeRef.current.set(channelName, now);
         
         const currentAttempts = reconnectAttemptsRef.current.get(channelName) || 0;
         
@@ -171,8 +182,14 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             console.warn(`[RealtimeContext] Error removing failed channel ${channelName}:`, error);
         }
         
-        // Schedule reconnection
-        const delay = reconnectDelay * Math.pow(2, currentAttempts); // Exponential backoff
+        // Use a more reasonable delay with exponential backoff (capped at 30 seconds)
+        const delay = Math.min(reconnectDelay * Math.pow(1.5, currentAttempts), 30000);
+        
+        // Clear any existing timeout for this channel
+        if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+        }
+        
         reconnectTimeoutRef.current = setTimeout(() => {
             // Double-check network state before attempting reconnection
             if (!networkStateRef.current) {
@@ -182,32 +199,20 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             
             console.log(`[RealtimeContext] Reconnecting ${channelName} after ${delay}ms delay`);
             
-            // Recreate the channel based on its type
-            if (channelName === 'user_presence') {
-                // Trigger main channels setup by calling it directly
+            // Only reconnect main channels, let chat channels reconnect naturally
+            if (channelName === 'user_presence' || channelName.startsWith('notifications_for_')) {
+                // Trigger main channels setup only once
                 if (session?.user?.id) {
                     console.log('[RealtimeContext] Triggering main channels re-setup');
-                    // Use setTimeout to avoid circular dependency
-                    setTimeout(() => {
-                        setupMainChannels();
-                    }, 100);
+                    setupMainChannels();
                 }
-            } else if (channelName.startsWith('notifications_for_')) {
-                // Trigger main channels setup by calling it directly
-                if (session?.user?.id) {
-                    console.log('[RealtimeContext] Triggering main channels re-setup');
-                    // Use setTimeout to avoid circular dependency
-                    setTimeout(() => {
-                        setupMainChannels();
-                    }, 100);
-                }
-            } else if (channelName.startsWith('chat_')) {
-                // Individual chat channels are recreated when the component re-subscribes
-                console.log(`[RealtimeContext] Individual chat channel ${channelName} will be recreated on next subscription`);
-            } else if (channelName.startsWith('group_chat_')) {
-                // Group chat channels are recreated when the component re-subscribes
-                console.log(`[RealtimeContext] Group chat channel ${channelName} will be recreated on next subscription`);
+            } else {
+                console.log(`[RealtimeContext] Chat channel ${channelName} will reconnect naturally on next subscription`);
             }
+            
+            // Reset error tracking on successful reconnection
+            reconnectAttemptsRef.current.delete(channelName);
+            lastErrorTimeRef.current.delete(channelName);
         }, delay);
     }, [session?.user?.id]);
 

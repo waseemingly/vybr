@@ -674,7 +674,7 @@ const IndividualChatScreen: React.FC = () => {
         chatId: matchUserId || '',
         userId: currentUserId || '',
         partnerName: dynamicMatchName,
-        autoFetch: false // Don't auto-fetch yet, we'll control this manually
+        autoFetch: true // Auto-fetch messages when the hook is initialized
     });
 
     const {
@@ -1449,12 +1449,8 @@ const IndividualChatScreen: React.FC = () => {
             if (useNewServices) {
                 // NEW: Use new message fetching service
                 console.log('[NEW] Using new message fetching service');
-                newFetchMessages().then(() => {
-                    // Sync new messages to old state for compatibility
-                    setMessages(newMessages);
-                    setLoading(newLoading);
-                    setError(newError);
-                });
+                // Don't manually call newFetchMessages here - let the hook handle auto-fetch
+                // The hook will automatically fetch messages when initialized
             } else {
                 // OLD: Use existing message fetching
                 console.log('[OLD] Using existing message fetching service');
@@ -1463,14 +1459,22 @@ const IndividualChatScreen: React.FC = () => {
         } else if (isBlocked) {
             setMessages([]); // Ensure messages are cleared if blocked
         }
-    }, [fetchMessages, newFetchMessages, newMessages, newLoading, newError, isBlocked, currentUserId, matchUserId, useNewServices]); // Run when block status or IDs change
+    }, [fetchMessages, isBlocked, currentUserId, matchUserId, useNewServices]); // Removed newMessages dependencies
 
     // Sync new messages to old state when newMessages changes
     useEffect(() => {
-        if (useNewServices && newMessages.length > 0) {
+        if (useNewServices) {
             setMessages(newMessages);
         }
     }, [newMessages, useNewServices]);
+
+    // Sync new loading state to old loading state
+    useEffect(() => {
+        if (useNewServices) {
+            setLoading(newLoading);
+            setError(newError);
+        }
+    }, [newLoading, newError, useNewServices]);
 
     // Update online status from presence state
     useEffect(() => {

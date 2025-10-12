@@ -12,7 +12,6 @@ config.resolver.extraNodeModules = {
 };
 
 // Add custom resolver for platform-specific modules
-const originalResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform, realModuleName) => {
   // Handle PowerSync modules for web
   if (platform === 'web') {
@@ -28,7 +27,7 @@ config.resolver.resolveRequest = (context, moduleName, platform, realModuleName)
       };
     }
   } else {
-    // For mobile platforms, exclude web-specific modules
+    // For mobile platforms (iOS/Android), exclude web-specific modules
     if (moduleName === '@powersync/web') {
       return {
         type: 'empty'
@@ -36,10 +35,7 @@ config.resolver.resolveRequest = (context, moduleName, platform, realModuleName)
     }
   }
 
-  // For other modules or platforms, use the default resolver
-  if (typeof originalResolveRequest === 'function') {
-    return originalResolveRequest(context, moduleName, platform, realModuleName);
-  }
+  // For other modules, use the default resolver
   return context.resolveRequest(context, moduleName, platform, realModuleName);
 };
 

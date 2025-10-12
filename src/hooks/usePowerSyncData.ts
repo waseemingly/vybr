@@ -82,14 +82,26 @@ export function usePowerSyncDataWatcher<T>(
     }
 
     let mounted = true;
+    let watchIterator: AsyncIterator<any> | null = null;
 
     const watchData = async () => {
       try {
         setLoading(true);
         setError(null);
         
-        // Use the watch method for real-time updates
-        for await (const result of db.watch(query, params)) {
+        console.log('🔍 PowerSync: Starting data watcher for query:', query);
+        
+        // Get initial data first
+        const initialResult = await db.getAll(query, params);
+        if (mounted) {
+          setData(initialResult as T[]);
+          setLoading(false);
+        }
+        
+        // Then set up the watcher for real-time updates
+        watchIterator = db.watch(query, params);
+        
+        for await (const result of watchIterator) {
           if (!mounted) break;
           
           const rows = result.rows?._array ?? [];
@@ -99,6 +111,7 @@ export function usePowerSyncDataWatcher<T>(
       } catch (err) {
         if (mounted) {
           const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+          console.error('🔍 PowerSync: Data watcher error:', errorMessage);
           
           // Check if this is a network-related error (offline scenario)
           const isNetworkError = errorMessage.includes('network') || 
@@ -124,6 +137,10 @@ export function usePowerSyncDataWatcher<T>(
 
     return () => {
       mounted = false;
+      // Clean up the iterator if it exists
+      if (watchIterator && typeof watchIterator.return === 'function') {
+        watchIterator.return();
+      }
     };
   }, [db, isPowerSyncAvailable, isOffline, query, ...params]); // Use spread operator instead of JSON.stringify
 

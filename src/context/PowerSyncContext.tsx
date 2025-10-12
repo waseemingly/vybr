@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Platform } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '@/lib/supabase';
 import { getAuthToken, PowerSyncConnector } from '@/lib/powersync';
 import Constants from 'expo-constants';
@@ -144,7 +145,7 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
               
               // Add timeout to prevent blocking auth flow
               const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('PowerSync initialization timeout')), 10000); // 10 second timeout
+                setTimeout(() => reject(new Error('PowerSync initialization timeout')), 15000); // 15 second timeout
               });
               
               // Import and create platform-specific database with timeout
@@ -169,6 +170,9 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
               setConnectionError(null);
               console.log(`✅ PowerSync: ${platform} database connected successfully after auth`);
               
+              // Force a small delay to ensure connection is stable
+              await new Promise(resolve => setTimeout(resolve, 500));
+              
             } catch (error) {
               console.error('❌ Failed to initialize PowerSync after auth:', error);
               console.log('⚠️ PowerSync: Continuing without PowerSync, using Supabase fallback');
@@ -181,13 +185,14 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
           } else {
             console.log('⚠️ PowerSync: Web platform not supported, using Supabase instead');
           }
-        }, 1000); // 1 second delay instead of 2 to ensure auth flow is complete
+        }, 2000); // 2 second delay to ensure auth flow is complete
         
       } else if (event === 'SIGNED_OUT') {
         console.log('🔍 PowerSync: User signed out, cleaning up PowerSync...');
         setDb(null);
         setIsConnected(false);
         setConnectionError(null);
+        setIsOffline(false);
       }
     };
 
@@ -198,6 +203,28 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
       subscription.unsubscribe();
     };
   }, [connector, platform, powersyncUrl, isInitializing, isConnected]);
+
+  // NetInfo integration for better offline detection
+  useEffect(() => {
+    // Check initial network state
+    NetInfo.fetch().then(state => {
+      const isCurrentlyOffline = !state.isConnected;
+      console.log(`🔍 PowerSync: Initial network state - isConnected: ${state.isConnected}, isOffline: ${isCurrentlyOffline}, connectionType: ${state.type}`);
+      setIsOffline(isCurrentlyOffline);
+    });
+
+    const unsubscribe = NetInfo.addEventListener(state => {
+      const isCurrentlyOffline = !state.isConnected;
+      console.log(`🔍 PowerSync: Network state changed - isConnected: ${state.isConnected}, isOffline: ${isCurrentlyOffline}, connectionType: ${state.type}, current isOffline: ${isOffline}`);
+      
+      if (isCurrentlyOffline !== isOffline) {
+        console.log(`🔍 PowerSync: Updating offline state from ${isOffline} to ${isCurrentlyOffline}`);
+        setIsOffline(isCurrentlyOffline);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // Determine if PowerSync is available for use (both platforms now)
   // Modified to allow offline access to local database
@@ -228,6 +255,37 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
       isOffline // NEW: Log offline status
     });
   }, [isConnected, isSupported, isPowerSyncAvailable, isMobile, isWeb, db, platform, connectionError, isOffline]);
+
+  // Debug PowerSync database content
+  useEffect(() => {
+    if (db && isConnected) {
+      const debugDatabase = async () => {
+        try {
+          console.log('🔍 PowerSync: Checking database content...');
+          
+          // Check if tables exist
+          const tables = await db.getAll(`
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name NOT LIKE 'sqlite_%'
+          `);
+          console.log('🔍 PowerSync: Available tables:', tables.map((t: any) => t.name));
+          
+          // Check message count
+          const messageCount = await db.getAll('SELECT COUNT(*) as count FROM messages');
+          console.log('🔍 PowerSync: Message count:', messageCount[0]?.count || 0);
+          
+          // Check profile count
+          const profileCount = await db.getAll('SELECT COUNT(*) as count FROM music_lover_profiles');
+          console.log('🔍 PowerSync: Profile count:', profileCount[0]?.count || 0);
+          
+        } catch (error) {
+          console.error('🔍 PowerSync: Error checking database:', error);
+        }
+      };
+      
+      debugDatabase();
+    }
+  }, [db, isConnected]);
 
   return (
     <PowerSyncContext.Provider value={value}>

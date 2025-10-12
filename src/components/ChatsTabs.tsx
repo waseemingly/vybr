@@ -179,6 +179,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRealtime } from '@/context/RealtimeContext';
+import NetInfo from '@react-native-community/netinfo';
 
 // --- Adjust Imports ---
 import ChatCard from './ChatCard';
@@ -355,6 +356,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [useNewServices] = useState(false);
+    const [isNetworkConnected, setIsNetworkConnected] = useState(true);
 
     // Use ref to store the latest fetchData function
     const fetchDataRef = useRef<((refreshing?: boolean) => Promise<void>) | undefined>(undefined);
@@ -362,6 +364,33 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     // PowerSync hooks for mobile
     const individualChatResult = useIndividualChatListWithUnread(session?.user?.id || '');
     const groupChatResult = useGroupChatListWithUnread(session?.user?.id || '');
+
+    // Network state listener
+    useEffect(() => {
+        const unsubscribe = NetInfo.addEventListener(state => {
+            const isConnected = state.isConnected && state.isInternetReachable;
+            setIsNetworkConnected(isConnected);
+            console.log(`ChatsTabs: Network state changed - Connected: ${isConnected}`);
+        });
+
+        return () => unsubscribe();
+    }, []);
+
+    // Debug PowerSync data availability
+    useEffect(() => {
+        if (isMobile && isPowerSyncAvailable) {
+            console.log('🔍 PowerSync Debug - Data Availability:', {
+                individualChats: individualChatResult.chats.length,
+                groupChats: groupChatResult.chats.length,
+                individualLoading: individualChatResult.loading,
+                groupLoading: groupChatResult.loading,
+                individualError: individualChatResult.error,
+                groupError: groupChatResult.error,
+                isOffline: isOffline,
+                isNetworkConnected: isNetworkConnected
+            });
+        }
+    }, [isMobile, isPowerSyncAvailable, individualChatResult.chats.length, groupChatResult.chats.length, individualChatResult.loading, groupChatResult.loading, isOffline, isNetworkConnected]);
 
     // Fetch data function (fetches chat lists WITHOUT unread counts - those come from useUnreadCount)
     const fetchData = useCallback(async (refreshing = false) => {
@@ -372,12 +401,34 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             return;
         }
         
-        // For mobile, PowerSync handles the data automatically
-        if (isMobile && isPowerSyncAvailable) {
-            console.log(`ChatsTabs: Using PowerSync for mobile${isOffline ? ' (OFFLINE MODE)' : ''}`);
+        // Check if we're offline or PowerSync has data - skip Supabase call
+        console.log(`ChatsTabs: Network check - isNetworkConnected: ${isNetworkConnected}, isOffline: ${isOffline}, PowerSync available: ${isPowerSyncAvailable}`);
+        
+        // First check: Are we offline?
+        if (!isNetworkConnected || isOffline) {
+            console.log("ChatsTabs: No network connection or offline - skipping Supabase call");
+            console.log("ChatsTabs: Using PowerSync data for offline mode");
             setIsLoading(false);
             setIsRefreshing(false);
             return;
+        }
+        
+        // Second check: If PowerSync is available and has data, skip Supabase call for chat lists
+        if (isMobile && isPowerSyncAvailable) {
+            const hasIndividualData = individualChatResult.chats.length > 0;
+            const hasGroupData = groupChatResult.chats.length > 0;
+            
+            if (hasIndividualData || hasGroupData) {
+                console.log("ChatsTabs: PowerSync has chat data available, skipping Supabase call");
+                setIsLoading(false);
+                setIsRefreshing(false);
+                return;
+            }
+        }
+        
+        // For mobile without PowerSync, use Supabase
+        if (isMobile && !isPowerSyncAvailable) {
+            console.log(`ChatsTabs: PowerSync disabled - using Supabase only`);
         }
         
         // For web, use Supabase
@@ -404,14 +455,28 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
 
         } catch (err: any) {
             console.error("ChatsTabs: Error fetching chat lists:", err);
-            setError("Failed to load chats.");
-            setIndividualList([]); 
-            setGroupList([]);
+            
+            // Check if this is a network error and we have PowerSync data
+            const errorMessage = err.message || '';
+            const isNetworkError = errorMessage.includes('Network request failed') || 
+                                  errorMessage.includes('Network request timed out') ||
+                                  errorMessage.includes('fetch') ||
+                                  errorMessage.includes('timeout');
+            
+            if (isNetworkError && isMobile && isPowerSyncAvailable) {
+                console.log("ChatsTabs: Network error detected, but PowerSync is available - using cached data");
+                // Don't set error, just use PowerSync data
+                setError(null);
+            } else {
+                setError("Failed to load chats.");
+                setIndividualList([]); 
+                setGroupList([]);
+            }
         } finally {
             setIsLoading(false); 
             setIsRefreshing(false);
         }
-    }, [session?.user?.id, isMobile, isPowerSyncAvailable, isOffline]);
+    }, [session?.user?.id, isMobile, isPowerSyncAvailable, isOffline, isNetworkConnected]);
 
     // Update the ref with the latest fetchData function
     useEffect(() => {
@@ -442,8 +507,25 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 chatCount: individualChatResult.chats.length,
                 isOffline: isOffline
             });
-            return individualChatResult.chats.map(chat => chat.data as IndividualChatListItem);
+            
+            // Use PowerSync data if available
+            if (individualChatResult.chats.length > 0) {
+                console.log(`🔍 PowerSync: Using ${individualChatResult.chats.length} individual chats from PowerSync`);
+                return individualChatResult.chats.map(chat => chat.data as IndividualChatListItem);
+            }
+            
+            // If PowerSync is still loading, show loading state
+            if (individualChatResult.loading) {
+                console.log('🔍 PowerSync: Still loading individual chats from PowerSync');
+                return individualList; // Keep existing data while loading
+            }
+            
+            // If PowerSync has no data and not loading, fallback to Supabase
+            console.log('🔍 PowerSync: No individual chats found, using Supabase fallback');
+            return individualList;
         }
+        // Fallback to Supabase data if PowerSync is not available
+        console.log('🔍 PowerSync: Using Supabase fallback for individual chats');
         return individualList;
     }, [isMobile, isPowerSyncAvailable, individualChatResult.chats, individualList, isOffline]);
 
@@ -456,19 +538,35 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 chatCount: groupChatResult.chats.length,
                 isOffline: isOffline
             });
-            return groupChatResult.chats.map(chat => chat.data as GroupChatListItem);
+            
+            // Use PowerSync data if available
+            if (groupChatResult.chats.length > 0) {
+                console.log(`🔍 PowerSync: Using ${groupChatResult.chats.length} group chats from PowerSync`);
+                return groupChatResult.chats.map(chat => chat.data as GroupChatListItem);
+            }
+            
+            // If PowerSync is still loading, show loading state
+            if (groupChatResult.loading) {
+                console.log('🔍 PowerSync: Still loading group chats from PowerSync');
+                return groupList; // Keep existing data while loading
+            }
+            
+            // If PowerSync has no data and not loading, fallback to Supabase
+            console.log('🔍 PowerSync: No group chats found, using Supabase fallback');
+            return groupList;
         }
+        // Fallback to Supabase data if PowerSync is not available
+        console.log('🔍 PowerSync: Using Supabase fallback for group chats');
         return groupList;
     }, [isMobile, isPowerSyncAvailable, groupChatResult.chats, groupList, isOffline]);
 
     const getIsLoading = useMemo(() => {
         if (isMobile && isPowerSyncAvailable) {
-            // For mobile with PowerSync, we don't show loading since data is instantly available
-            // Even in offline mode, we should have cached data
-            return false;
+            // For mobile with PowerSync, show loading only if both individual and group chats are loading
+            return individualChatResult.loading || groupChatResult.loading;
         }
         return isLoading;
-    }, [isMobile, isPowerSyncAvailable, isLoading]);
+    }, [isMobile, isPowerSyncAvailable, individualChatResult.loading, groupChatResult.loading, isLoading]);
 
     const getError = useMemo(() => {
         if (isMobile && isPowerSyncAvailable) {
@@ -481,6 +579,10 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 }
             }
             return individualChatResult.error || groupChatResult.error;
+        }
+        // If PowerSync is not available on mobile, show Supabase error
+        if (isMobile && !isPowerSyncAvailable) {
+            return error;
         }
         return error;
     }, [isMobile, isPowerSyncAvailable, individualChatResult.error, groupChatResult.error, error, isOffline]);

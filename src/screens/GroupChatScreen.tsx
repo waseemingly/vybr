@@ -760,7 +760,7 @@ const GroupChatScreen: React.FC = () => {
         chatId: groupId || '',
         userId: currentUserId || '',
         partnerName: currentGroupName,
-        autoFetch: false // Don't auto-fetch yet, we'll control this manually
+        autoFetch: true // Auto-fetch messages when the hook is initialized
     });
 
     const {
@@ -3058,19 +3058,15 @@ const GroupChatScreen: React.FC = () => {
         if (useNewServices) {
             // NEW: Use new message fetching service
             console.log('[NEW] Using new group message fetching service');
-            newFetchMessages().then(() => {
-                // Sync new messages to old state for compatibility
-                setMessages(newMessages);
-                setLoading(newLoading);
-                setLoadError(newError);
-            });
+            // Don't manually call newFetchMessages here - let the hook handle auto-fetch
+            // The hook will automatically fetch messages when initialized
         } else {
             // OLD: Use existing message fetching
             console.log('[OLD] Using existing group message fetching service');
             fetchInitialData();
         }
         return () => { }; 
-    }, [fetchInitialData, newFetchMessages, newMessages, newLoading, newError, useNewServices]));
+    }, [fetchInitialData, useNewServices])); // Removed newMessages dependencies
 
     // Sync new messages to old state when newMessages changes
     useEffect(() => {
