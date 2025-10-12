@@ -49,7 +49,8 @@
           "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "830574548321-h59962oi42k7sjuhkefud8tbooo18j.apps.googleusercontent.com",
           "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr",
           "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
-        }
+        },
+        "buildConfiguration": "Release"
       }
     }
   },
