@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vybr.music",
-      "buildNumber": "13",
+      "buildNumber": "14",
       "associatedDomains": [
         "applinks:vybr.com"
       ]
@@ -60,6 +60,7 @@
       "SPOTIFY_CLIENT_ID": "7724af6090634c3db7c82fd54f1a0fff",
       "SPOTIFY_CLIENT_SECRET": "6b5182f34c854e4ba3642f225f9b9ed6",
       "SPOTIFY_REDIRECT_URI": "http://127.0.0.1:8081/callback",
+      "POWERSYNC_URL": "https://68961d41fd729385fadb5576.powersync.journeyapps.com",
       "eas": {
         "projectId": "your-eas-project-id"
       }
