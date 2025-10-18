@@ -1015,17 +1015,29 @@ const IndividualChatScreen: React.FC = () => {
         } catch (err: any) {
             console.error("[ChatScreen] Error fetching mute/block status:", err);
             
-            // In offline mode, suppress network-related errors since PowerSync handles offline data
+            // In offline mode, suppress ALL errors since PowerSync handles offline data
+            if (isOffline) {
+                console.log("[ChatScreen] Suppressing error in offline mode - PowerSync will handle data");
+                // Don't set any error in offline mode since PowerSync provides the data
+                return;
+            }
+            
+            // In online mode, check for specific network errors to suppress
             const isNetworkError = err.message?.includes('network') || 
                                  err.message?.includes('fetch') || 
                                  err.message?.includes('timeout') ||
                                  err.message?.includes('ENOTFOUND') ||
                                  err.message?.includes('ECONNREFUSED') ||
-                                 err.message?.includes('Failed to fetch');
+                                 err.message?.includes('Failed to fetch') ||
+                                 err.message?.includes('Network request failed') ||
+                                 err.message?.includes('connection') ||
+                                 err.message?.includes('Connection') ||
+                                 err.code === 'NETWORK_ERROR' ||
+                                 err.code === 'ECONNREFUSED' ||
+                                 err.code === 'ENOTFOUND';
             
-            if (isOffline && isNetworkError) {
-                console.log("[ChatScreen] Suppressing network error in offline mode - PowerSync will handle data");
-                // Don't set error in offline mode for network issues
+            if (isNetworkError) {
+                console.log("[ChatScreen] Suppressing network error - network issue detected");
                 return;
             }
             
@@ -1095,6 +1107,10 @@ const IndividualChatScreen: React.FC = () => {
 
                 setMessages(enhancedMessages);
                 checkMutualInitiation(enhancedMessages);
+                // Clear any previous errors since messages loaded successfully
+                if (enhancedMessages.length > 0) {
+                    setError(null);
+                }
                 console.log(`[ChatScreen] Fetched ${enhancedMessages.length} messages.`);
             } else {
                 setMessages([]);
@@ -1392,6 +1408,14 @@ const IndividualChatScreen: React.FC = () => {
             
         }, [fetchInteractionStatus, matchUserId, route.params.matchName])
     );
+
+    // Clear errors when offline and messages are loaded (PowerSync is working)
+    useEffect(() => {
+        if (isOffline && messages.length > 0 && error) {
+            console.log("[ChatScreen] Clearing error in offline mode - PowerSync has loaded messages successfully");
+            setError(null);
+        }
+    }, [isOffline, messages.length, error]);
 
     // Update header options when dynamic data changes
     useEffect(() => {
