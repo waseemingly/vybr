@@ -487,6 +487,7 @@ export class PowerSyncChatFunctions {
       console.error('❌ PowerSync Debug - Error checking chat data:', error);
     }
   }
+
 }
 
 /**
@@ -675,7 +676,8 @@ export function useGroupChatListWithUnread(userId: string) {
 export function useIndividualMessages(userId: string, partnerId: string, limit: number = 50, offset: number = 0) {
   const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const query = PowerSyncChatFunctions.getIndividualMessagesQuery(userId, partnerId, limit, offset);
-  const params = [userId, userId, partnerId, partnerId, userId, limit, offset];
+  const params = [userId, partnerId, partnerId, userId, userId, limit, offset];
+  
   
   const result = usePowerSyncDataWatcher(query, params);
 
@@ -717,7 +719,8 @@ export function useIndividualMessages(userId: string, partnerId: string, limit: 
 export function useGroupMessages(groupId: string, userId: string, limit: number = 50, offset: number = 0) {
   const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const query = PowerSyncChatFunctions.getGroupMessagesQuery(groupId, userId, limit, offset);
-  const params = [userId, groupId, limit, offset];
+  const params = [groupId, userId, limit, offset];
+  
   
   const result = usePowerSyncDataWatcher(query, params);
 

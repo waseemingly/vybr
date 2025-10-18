@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vybr.music",
-      "buildNumber": "14",
+      "buildNumber": "16",
       "associatedDomains": [
         "applinks:vybr.com"
       ]
