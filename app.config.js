@@ -16,7 +16,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.vybr.music",
-      buildNumber: "16",
+      buildNumber: "17",
       associatedDomains: ["applinks:vybr.app"],
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,

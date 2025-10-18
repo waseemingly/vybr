@@ -652,7 +652,7 @@ const IndividualChatScreen: React.FC = () => {
     const isCurrentUserPremium = musicLoverProfile?.isPremium;
 
     // PowerSync context for platform detection
-    const { isMobile, isPowerSyncAvailable } = usePowerSync();
+    const { isMobile, isPowerSyncAvailable, isOffline } = usePowerSync();
 
     // NEW: Feature flag to control which implementation to use
     // Use new services if explicitly enabled OR if on mobile with PowerSync available
@@ -1014,9 +1014,24 @@ const IndividualChatScreen: React.FC = () => {
 
         } catch (err: any) {
             console.error("[ChatScreen] Error fetching mute/block status:", err);
+            
+            // In offline mode, suppress network-related errors since PowerSync handles offline data
+            const isNetworkError = err.message?.includes('network') || 
+                                 err.message?.includes('fetch') || 
+                                 err.message?.includes('timeout') ||
+                                 err.message?.includes('ENOTFOUND') ||
+                                 err.message?.includes('ECONNREFUSED') ||
+                                 err.message?.includes('Failed to fetch');
+            
+            if (isOffline && isNetworkError) {
+                console.log("[ChatScreen] Suppressing network error in offline mode - PowerSync will handle data");
+                // Don't set error in offline mode for network issues
+                return;
+            }
+            
             setError(prev => prev || "Could not load chat status."); // Show error
         }
-    }, [currentUserId, matchUserId, error]);
+    }, [currentUserId, matchUserId, error, isOffline]);
 
     const checkMutualInitiation = useCallback((currentMessages: ChatMessage[]) => {
         if (!currentUserId || !matchUserId) {
@@ -1088,13 +1103,29 @@ const IndividualChatScreen: React.FC = () => {
             }
         } catch (err: any) {
             console.error("[ChatScreen] Error fetching messages:", err);
-            setError("Could not load messages.");
-            setMessages([]);
-            setIsChatMutuallyInitiated(false);
+            
+            // In offline mode, suppress network-related errors since PowerSync handles offline data
+            const isNetworkError = err.message?.includes('network') || 
+                                 err.message?.includes('fetch') || 
+                                 err.message?.includes('timeout') ||
+                                 err.message?.includes('ENOTFOUND') ||
+                                 err.message?.includes('ECONNREFUSED') ||
+                                 err.message?.includes('Failed to fetch');
+            
+            if (isOffline && isNetworkError) {
+                console.log("[ChatScreen] Suppressing network error in offline mode - PowerSync will handle data");
+                // Don't set error in offline mode for network issues
+                setMessages([]);
+                setIsChatMutuallyInitiated(false);
+            } else {
+                setError("Could not load messages.");
+                setMessages([]);
+                setIsChatMutuallyInitiated(false);
+            }
         } finally {
             setLoading(false);
         }
-    }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage, checkMutualInitiation, enhanceSharedEventsWithDateTime]);
+    }, [currentUserId, matchUserId, isBlocked, mapDbMessageToChatMessage, checkMutualInitiation, enhanceSharedEventsWithDateTime, isOffline]);
 
     // --- Share Event (using inline logic instead of RPC) --- 
     const shareEventToUser = useCallback(async (eventDataToShare: typeof initialSharedEventData) => {
