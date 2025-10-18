@@ -93,6 +93,7 @@ export function usePowerSyncDataWatcher<T>(
         
         // Get initial data first
         const initialResult = await db.getAll(query, params);
+        
         if (mounted) {
           setData(initialResult as T[]);
           setLoading(false);
@@ -101,12 +102,14 @@ export function usePowerSyncDataWatcher<T>(
         // Then set up the watcher for real-time updates
         watchIterator = db.watch(query, params);
         
-        for await (const result of watchIterator) {
-          if (!mounted) break;
-          
-          const rows = result.rows?._array ?? [];
-          setData(rows as T[]);
-          setLoading(false);
+        if (watchIterator) {
+          for await (const result of watchIterator) {
+            if (!mounted) break;
+            
+            const rows = result.rows?._array ?? [];
+            setData(rows as T[]);
+            setLoading(false);
+          }
         }
       } catch (err) {
         if (mounted) {
