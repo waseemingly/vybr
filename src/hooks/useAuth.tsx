@@ -10,7 +10,7 @@ import {
     MusicLoverBio as SupabaseMusicLoverBio,
 } from '../lib/supabase';
 import { useOrganizerMode } from './useOrganizerMode'; // Ensure path is correct
-import { Platform, Alert } from 'react-native';
+import { Platform, Alert, AppState } from 'react-native';
 import Constants from 'expo-constants'; // For fallback Supabase URL
 // *** ADD expo-file-system ***
 import * as FileSystem from 'expo-file-system';
@@ -22,6 +22,7 @@ import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-si
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as AuthSession from 'expo-auth-session';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // Import notification service
 import NotificationService from '../services/NotificationService';
 // Import the new deep link parser
@@ -202,6 +203,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     
     // Flag to prevent auth state change listener from navigating during login/signup
     const isManualAuthInProgress = useRef(false);
+    
+    // Additional session persistence keys
+    const SESSION_PERSISTENCE_KEY = '@vybr_session_persistence';
+    const LAST_SESSION_KEY = '@vybr_last_session';
 
     useEffect(() => {
         if (Platform.OS !== 'web') {
@@ -221,6 +226,74 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
     useEffect(() => {
         previousSessionRef.current = session;
+    }, [session]);
+
+    // Enhanced session persistence for mobile
+    const saveSessionToStorage = useCallback(async (sessionData: UserSession | null) => {
+        try {
+            if (Platform.OS !== 'web') {
+                if (sessionData) {
+                    await AsyncStorage.setItem(LAST_SESSION_KEY, JSON.stringify({
+                        user: sessionData.user,
+                        access_token: (sessionData as any).access_token,
+                        refresh_token: (sessionData as any).refresh_token,
+                        expires_at: (sessionData as any).expires_at,
+                        userType: sessionData.userType,
+                        timestamp: Date.now()
+                    }));
+                    await AsyncStorage.setItem(SESSION_PERSISTENCE_KEY, 'true');
+                    console.log('[AuthProvider] Session saved to AsyncStorage');
+                } else {
+                    await AsyncStorage.removeItem(LAST_SESSION_KEY);
+                    await AsyncStorage.removeItem(SESSION_PERSISTENCE_KEY);
+                    console.log('[AuthProvider] Session cleared from AsyncStorage');
+                }
+            }
+        } catch (error) {
+            console.error('[AuthProvider] Error saving session to storage:', error);
+        }
+    }, []);
+
+    // Load session from storage on app start
+    const loadSessionFromStorage = useCallback(async () => {
+        try {
+            if (Platform.OS !== 'web') {
+                const persistenceFlag = await AsyncStorage.getItem(SESSION_PERSISTENCE_KEY);
+                if (persistenceFlag === 'true') {
+                    const storedSession = await AsyncStorage.getItem(LAST_SESSION_KEY);
+                    if (storedSession) {
+                        const sessionData = JSON.parse(storedSession);
+                        // Check if session is not too old (e.g., within 30 days)
+                        const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+                        if (sessionData.timestamp > thirtyDaysAgo) {
+                            console.log('[AuthProvider] Found valid stored session, attempting restoration...');
+                            return sessionData;
+                        } else {
+                            console.log('[AuthProvider] Stored session is too old, clearing...');
+                            await AsyncStorage.removeItem(LAST_SESSION_KEY);
+                            await AsyncStorage.removeItem(SESSION_PERSISTENCE_KEY);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('[AuthProvider] Error loading session from storage:', error);
+        }
+        return null;
+    }, []);
+
+    // Handle app state changes for better session management
+    useEffect(() => {
+        const handleAppStateChange = (nextAppState: string) => {
+            if (nextAppState === 'active' && session) {
+                console.log('[AuthProvider] App became active, checking session validity...');
+                // Refresh session when app becomes active
+                // We'll call checkSession after it's defined
+            }
+        };
+
+        const subscription = AppState.addEventListener('change', handleAppStateChange);
+        return () => subscription?.remove();
     }, [session]);
 
     // Attempt to use service role key if environment provides it (bypass RLS)
@@ -434,16 +507,47 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         let userType: UserTypes | null = null; // Define userType in broader scope
 
         try {
-            const { data: { session: supabaseSession }, error: sessionError } = await supabase.auth.getSession();
-
-            if (sessionError) {
-                console.error("[AuthProvider] Error getting session:", sessionError);
-                throw sessionError;
+            // First, try to load from our custom storage for mobile
+            if (Platform.OS !== 'web') {
+                const storedSession = await loadSessionFromStorage();
+                if (storedSession) {
+                    console.log("[AuthProvider] Found stored session, attempting to restore...");
+                    // Try to restore the session with Supabase
+                    try {
+                        const { data: { session: restoredSession }, error: restoreError } = await supabase.auth.setSession({
+                            access_token: storedSession.access_token,
+                            refresh_token: storedSession.refresh_token
+                        });
+                        
+                        if (restoredSession && !restoreError) {
+                            console.log("[AuthProvider] Successfully restored session from storage");
+                            currentSession = {
+                                ...restoredSession,
+                                userType: storedSession.userType
+                            } as UserSession;
+                            setSession(currentSession);
+                            await saveSessionToStorage(currentSession);
+                        } else {
+                            console.log("[AuthProvider] Failed to restore session, falling back to Supabase getSession");
+                        }
+                    } catch (restoreError) {
+                        console.log("[AuthProvider] Error restoring session, falling back to Supabase getSession:", restoreError);
+                    }
+                }
             }
 
-            if (supabaseSession) {
-                console.log("[AuthProvider] Supabase session found, user ID:", supabaseSession.user.id);
-                const userId = supabaseSession.user.id;
+            // If we don't have a restored session, get it from Supabase
+            if (!currentSession) {
+                const { data: { session: supabaseSession }, error: sessionError } = await supabase.auth.getSession();
+
+                if (sessionError) {
+                    console.error("[AuthProvider] Error getting session:", sessionError);
+                    throw sessionError;
+                }
+
+                if (supabaseSession) {
+                    console.log("[AuthProvider] Supabase session found, user ID:", supabaseSession.user.id);
+                    const userId = supabaseSession.user.id;
                 
                 // ENHANCED: Better user type determination with multiple fallbacks (reordered for reliability)
                 userType = (supabaseSession.user.user_metadata?.user_type as UserTypes) || null;
@@ -736,6 +840,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
             setSession(currentSession);
 
+            // Save session to storage for mobile persistence
+            await saveSessionToStorage(currentSession);
+
             // IMPROVED: Add a small delay to ensure auth state is properly synchronized
             // This helps prevent race conditions between auth state changes and navigation
             if (options?.navigateToProfile && currentSession) {
@@ -777,20 +884,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 console.warn("[AuthProvider] Navigation Ref not ready, navigation skipped.");
             }
             // --- End Navigation Logic ---
-
+        }
         } catch (e) {
             console.error("[AuthProvider] Error in checkSession process:", e);
             setSession(null);
             setMusicLoverProfile(null);
             setOrganizerProfile(null);
             setIsOrganizerMode(false);
+            // Clear storage on error
+            await saveSessionToStorage(null);
             // Optionally navigate to Auth on error
             // navigationRef.current?.reset({ index: 0, routes: [{ name: 'Auth' }] });
         } finally {
-                setLoading(false);
+            setLoading(false);
             console.log("[AuthProvider] checkSession finished.");
         }
-    }, [navigationRef, setIsOrganizerMode]); // Added dependencies
+    }, [navigationRef, setIsOrganizerMode, saveSessionToStorage, loadSessionFromStorage]);
 
     // --- Refresh Session Data --- 
     const refreshSessionData = useCallback(async () => {
@@ -1460,6 +1569,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             setOrganizerProfile(null);
             setIsOrganizerMode(false);
             setLoading(false);
+            // Clear storage on logout
+            await saveSessionToStorage(null);
         }
     };
 
@@ -1904,7 +2015,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                                 .insert({
                                                     id: sessionData.session.user.id,
                                                     email: sessionData.session.user.email,
-                                                    user_type: userType
+                                                    user_type: 'music_lover' // Default to music_lover for Google sign-in
                                                 })
                                                 .select()
                                                 .single();

@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 // Access environment variables
 const supabaseUrl = process.env.SUPABASE_URL || Constants.expoConfig?.extra?.SUPABASE_URL;
@@ -10,6 +12,44 @@ if (!supabaseUrl || !supabaseKey) {
   console.error('Supabase URL and/or key is missing. Please check your environment variables.');
 }
 
+// Custom storage implementation for better mobile session persistence
+const customStorage = {
+  getItem: async (key: string) => {
+    try {
+      if (Platform.OS === 'web') {
+        return localStorage.getItem(key);
+      } else {
+        return await AsyncStorage.getItem(key);
+      }
+    } catch (error) {
+      console.error('Error getting item from storage:', error);
+      return null;
+    }
+  },
+  setItem: async (key: string, value: string) => {
+    try {
+      if (Platform.OS === 'web') {
+        localStorage.setItem(key, value);
+      } else {
+        await AsyncStorage.setItem(key, value);
+      }
+    } catch (error) {
+      console.error('Error setting item in storage:', error);
+    }
+  },
+  removeItem: async (key: string) => {
+    try {
+      if (Platform.OS === 'web') {
+        localStorage.removeItem(key);
+      } else {
+        await AsyncStorage.removeItem(key);
+      }
+    } catch (error) {
+      console.error('Error removing item from storage:', error);
+    }
+  },
+};
+
 export const supabase = createClient(
   supabaseUrl as string, 
   supabaseKey as string, 
@@ -17,6 +57,8 @@ export const supabase = createClient(
     auth: {
       autoRefreshToken: true,
       persistSession: true,
+      storage: customStorage,
+      detectSessionInUrl: Platform.OS === 'web', // Only detect session in URL on web
     },
     global: {
       headers: {
