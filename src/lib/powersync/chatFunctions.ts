@@ -293,7 +293,7 @@ export class PowerSyncChatFunctions {
       FROM group_chat_messages gcm
       LEFT JOIN group_message_status gms ON gcm.id = gms.message_id
       LEFT JOIN music_lover_profiles p ON gcm.sender_id = p.user_id
-      WHERE gcm.group_id = ? AND (gms.user_id = ? OR gms.user_id IS NULL)
+      WHERE gcm.group_id = ?
       ORDER BY gcm.created_at DESC
       LIMIT ? OFFSET ?
     `;
@@ -719,7 +719,7 @@ export function useIndividualMessages(userId: string, partnerId: string, limit: 
 export function useGroupMessages(groupId: string, userId: string, limit: number = 50, offset: number = 0) {
   const { db, isPowerSyncAvailable, isOffline } = usePowerSync();
   const query = PowerSyncChatFunctions.getGroupMessagesQuery(groupId, userId, limit, offset);
-  const params = [groupId, userId, limit, offset];
+  const params = [groupId, limit, offset];
   
   
   const result = usePowerSyncDataWatcher(query, params);

@@ -685,6 +685,7 @@ const GroupChatScreen: React.FC = () => {
     const [canMembersAddOthers, setCanMembersAddOthers] = useState(false);
     const [canMembersEditInfo, setCanMembersEditInfo] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
+    const isLoadingRef = useRef(false); // Prevent infinite loading loops
     const [imageViewerVisible, setImageViewerVisible] = useState(false);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [selectedImageIndex, setSelectedImageIndex] = useState(0);
@@ -1107,6 +1108,14 @@ const GroupChatScreen: React.FC = () => {
             setLoading(false);
             return;
         }
+        
+        // Prevent infinite loops
+        if (isLoadingRef.current) {
+            console.log('[GroupChatScreen] Already loading, skipping fetchInitialData');
+            return;
+        }
+        
+        isLoadingRef.current = true;
         setLoading(true);
         setLoadError(null);
         setIsCurrentUserAdmin(false);
@@ -1169,7 +1178,9 @@ const GroupChatScreen: React.FC = () => {
             if (!messagesData || messagesData.length === 0) {
                 setMessages([]);
             } else {
+                console.log('[GroupChatScreen] Supabase messages before filtering:', messagesData.length);
                 const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id);
+                console.log('[GroupChatScreen] Supabase messages after filtering:', visibleMessages.length, 'senders:', visibleMessages.map(m => ({ sender_id: m.sender_id, content: m.content?.substring(0, 20) })));
                 const senderIds = Array.from(new Set(visibleMessages.map(msg => msg.sender_id).filter(id => id)));
                 const profilesMap = new Map<string, UserProfileInfo>();
                 if (senderIds.length > 0) {
@@ -1241,12 +1252,13 @@ const GroupChatScreen: React.FC = () => {
             setCanMembersEditInfo(false);
         } finally {
             setLoading(false);
+            isLoadingRef.current = false; // Reset loading ref
             // Mark initial load as complete in finally block to ensure it's set
             if (isInitialLoad) {
                 setIsInitialLoad(false);
             }
         }
-    }, [currentUserId, groupId, navigation, mapDbMessageToChatMessage, isInitialLoad]);
+    }, [currentUserId, groupId]); // Simplified dependencies - removed navigation, mapDbMessageToChatMessage, isInitialLoad
 
     // Send Text Message
     const sendTextMessage = useCallback(async (text: string) => {
@@ -1285,7 +1297,11 @@ const GroupChatScreen: React.FC = () => {
             seenBy: [], // Sender should not be in seenBy list
         };
 
-        setMessages(previousMessages => [...previousMessages, optimisticMessage]);
+        setMessages(previousMessages => {
+            const newMessages = [...previousMessages, optimisticMessage];
+            console.log('[GroupChatScreen] Added optimistic message, total messages:', newMessages.length);
+            return newMessages;
+        });
         setInputText('');
         setSendError(null);
         Keyboard.dismiss();
@@ -1899,28 +1915,49 @@ const GroupChatScreen: React.FC = () => {
                 });
 
                 if (bulkError) {
-                    // Check if it's an authentication error
-                    if (bulkError.message.includes('Unauthorized') || bulkError.message.includes('JWT') || bulkError.message.includes('not a member')) {
-                        console.warn('[GroupChatScreen] Authentication error in bulk mark, user may need to re-authenticate');
-                        // Don't attempt individual marks for auth errors - they'll likely fail too
-                        return;
-                    } else {
-                        // Fallback: mark messages individually for non-auth errors
-                        for (const messageId of messageIdsToMark) {
-                            try {
-                                const { error: individualError } = await supabase.rpc('mark_group_message_seen', {
-                                    message_id_input: messageId,
-                                    user_id_input: currentUserId
-                                });
-                                
-                                if (individualError) {
-                                    console.error(`Error marking individual message ${messageId} as seen:`, individualError.message);
-                                }
-                            } catch (individualErr: any) {
-                                console.error(`Exception marking individual message ${messageId} as seen:`, individualErr.message);
+                    console.warn('[GroupChatScreen] Bulk mark failed, trying individual marking:', bulkError.message);
+                    // Fallback: mark messages individually for any error
+                    for (const messageId of messageIdsToMark) {
+                        try {
+                            const { error: individualError } = await supabase.rpc('mark_group_message_seen', {
+                                message_id_input: messageId,
+                                user_id_input: currentUserId
+                            });
+                            
+                            if (individualError) {
+                                console.error(`Error marking individual message ${messageId} as seen:`, individualError.message);
+                            } else {
+                                console.log(`Successfully marked message ${messageId} as seen`);
                             }
+                        } catch (individualErr: any) {
+                            console.error(`Exception marking individual message ${messageId} as seen:`, individualErr.message);
                         }
                     }
+                }
+                
+                // Try direct database update as final fallback
+                try {
+                    console.log('[GroupChatScreen] Attempting direct database update for group message status');
+                    const { error: directUpdateError } = await supabase
+                        .from('group_message_status')
+                        .upsert(
+                            messageIdsToMark.map(messageId => ({
+                                message_id: messageId,
+                                user_id: currentUserId,
+                                group_id: groupId,
+                                is_seen: true,
+                                seen_at: new Date().toISOString()
+                            })),
+                            { onConflict: 'message_id,user_id' }
+                        );
+                    
+                    if (directUpdateError) {
+                        console.error('[GroupChatScreen] Direct database update failed:', directUpdateError);
+                    } else {
+                        console.log('[GroupChatScreen] Direct database update successful');
+                    }
+                } catch (directErr: any) {
+                    console.error('[GroupChatScreen] Exception in direct database update:', directErr.message);
                 }
                 
                 // Always broadcast the status update to ensure real-time updates
@@ -1950,11 +1987,21 @@ const GroupChatScreen: React.FC = () => {
                     }
                     return msg;
                 }));
+                
+                // Promptly refresh unread counts so badges clear
+                setTimeout(() => {
+                    try { 
+                        console.log('[GroupChatScreen] Refreshing unread count after marking messages seen');
+                        refreshUnreadCount(); 
+                    } catch (e) {
+                        console.error('[GroupChatScreen] Error refreshing unread count:', e);
+                    }
+                }, 100);
             }
         } catch (e: any) {
             console.error('Exception marking group messages as seen:', e.message);
         }
-    }, [currentUserId, groupId, messages, sendBroadcast, userProfileCache]);
+    }, [currentUserId, groupId, messages, sendBroadcast, userProfileCache, refreshUnreadCount]);
 
     // Enhanced function to check and update seen status for messages loaded from database
     const checkAndUpdateSeenStatus = useCallback(async () => {
@@ -2032,11 +2079,21 @@ const GroupChatScreen: React.FC = () => {
                     }
                     return msg;
                 }));
+                
+                // Refresh unread counts when we update seen status
+                setTimeout(() => {
+                    try { 
+                        console.log('[GroupChatScreen] Refreshing unread count after checkAndUpdateSeenStatus');
+                        refreshUnreadCount(); 
+                    } catch (e) {
+                        console.error('[GroupChatScreen] Error refreshing unread count:', e);
+                    }
+                }, 100);
             }
         } catch (e: any) {
             console.error('Exception checking group seen status:', e.message);
         }
-    }, [currentUserId, groupId, messages, userProfileCache]);
+    }, [currentUserId, groupId, messages, userProfileCache, refreshUnreadCount]);
 
     // Call markMessagesAsSeen when the screen focuses
     useFocusEffect(
@@ -2082,7 +2139,7 @@ const GroupChatScreen: React.FC = () => {
                 });
             }
         }
-    }, [messages.length, markMessagesAsSeen, currentUserId]); // Only depend on messages.length, not the entire messages array
+    }, [messages.length, currentUserId]); // Simplified dependencies - removed markMessagesAsSeen
 
     // Mark messages as seen immediately when component mounts (for notification navigation)
     useEffect(() => {
@@ -2093,7 +2150,7 @@ const GroupChatScreen: React.FC = () => {
             }, 200); // Slightly longer delay for initial load
             return () => clearTimeout(timer);
         }
-    }, [currentUserId, groupId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen]);
+    }, [currentUserId, groupId, messages.length]); // Simplified dependencies - removed checkAndUpdateSeenStatus, markMessagesAsSeen
 
     // Handle app state changes (when app comes back from background)
     useEffect(() => {
@@ -2110,7 +2167,7 @@ const GroupChatScreen: React.FC = () => {
 
         const subscription = AppState.addEventListener('change', handleAppStateChange);
         return () => subscription?.remove();
-    }, [currentUserId, groupId, messages.length, checkAndUpdateSeenStatus, markMessagesAsSeen]);
+    }, [currentUserId, groupId, messages.length]); // Simplified dependencies - removed checkAndUpdateSeenStatus, markMessagesAsSeen
 
 
 
@@ -2181,6 +2238,9 @@ const GroupChatScreen: React.FC = () => {
                                         return msg;
                                     });
                                 });
+                                
+                                // Promptly refresh unread counts
+                                try { refreshUnreadCount(); } catch (_) {}
                                 
                                 // Trigger a direct database update to ensure ChatsTabs gets notified
                                 // This ensures the RealtimeContext picks up the change and broadcasts group_message_status_updated
@@ -2432,6 +2492,16 @@ const GroupChatScreen: React.FC = () => {
                             } catch (dbUpdateError) {
                                 console.warn('Direct database update failed (this is expected if RPC already updated it):', dbUpdateError);
                             }
+                            
+                            // Refresh unread counts to clear badges immediately
+                            setTimeout(() => {
+                                try { 
+                                    console.log('[GroupChatScreen] Refreshing unread count after real-time message seen');
+                                    refreshUnreadCount(); 
+                                } catch (e) {
+                                    console.error('[GroupChatScreen] Error refreshing unread count:', e);
+                                }
+                            }, 100);
                         } else {
                             console.error('[GroupChatScreen] Error marking message as seen:', error);
                         }
@@ -2799,6 +2869,16 @@ const GroupChatScreen: React.FC = () => {
                 });
                 return needsUpdate ? newMessages : prevMessages;
             });
+            
+            // Refresh unread counts when status updates
+            setTimeout(() => {
+                try { 
+                    console.log('[GroupChatScreen] Refreshing unread count after handleGroupMessageStatusUpdate');
+                    refreshUnreadCount(); 
+                } catch (e) {
+                    console.error('[GroupChatScreen] Error refreshing unread count:', e);
+                }
+            }, 100);
         };
 
         // Subscribe to group_message_status table changes for real-time seen updates
@@ -2900,6 +2980,16 @@ const GroupChatScreen: React.FC = () => {
                         });
                         return needsUpdate ? newMessages : prevMessages;
                     });
+                    
+                    // Refresh unread counts when status updates via real-time
+                    setTimeout(() => {
+                        try { 
+                            console.log('[GroupChatScreen] Refreshing unread count after real-time status update');
+                            refreshUnreadCount(); 
+                        } catch (e) {
+                            console.error('[GroupChatScreen] Error refreshing unread count:', e);
+                        }
+                    }, 100);
                 }
             )
             .subscribe((status) => {
@@ -3055,6 +3145,7 @@ const GroupChatScreen: React.FC = () => {
 
     // Effects
     useFocusEffect(useCallback(() => { 
+        console.log('[GroupChatScreen] Focus effect running for group:', groupId, 'useNewServices:', useNewServices, 'isMobile:', isMobile, 'isPowerSyncAvailable:', isPowerSyncAvailable);
         if (useNewServices) {
             // NEW: Use new message fetching service
             console.log('[NEW] Using new group message fetching service');
@@ -3066,21 +3157,37 @@ const GroupChatScreen: React.FC = () => {
             fetchInitialData();
         }
         return () => { }; 
-    }, [fetchInitialData, useNewServices])); // Removed newMessages dependencies
+    }, [groupId, useNewServices, isMobile, isPowerSyncAvailable])); // Added debugging dependencies
 
     // Sync new messages to old state when newMessages changes
     useEffect(() => {
         if (useNewServices) {
+            console.log('[GroupChatScreen] Syncing new messages:', newMessages.length, 'loading:', newLoading, 'current messages:', messages.length);
             if (newMessages.length > 0) {
+                console.log('[GroupChatScreen] Setting messages from PowerSync, first message sender:', newMessages[0]?.user?.name);
                 setMessages(newMessages);
             }
             // Mark initial load as complete when loading is complete (regardless of message count)
             // This ensures we wait for PowerSync data to be ready
             if (isInitialLoad && !newLoading) {
+                console.log('[GroupChatScreen] Marking initial load as complete');
                 setIsInitialLoad(false);
             }
         }
-    }, [newMessages, useNewServices, isInitialLoad, newLoading]);
+    }, [newMessages, useNewServices, newLoading, isInitialLoad]); // Restored isInitialLoad dependency
+
+    // Fallback: If PowerSync fails to load messages after a delay, use Supabase
+    useEffect(() => {
+        if (useNewServices && isInitialLoad && !newLoading && newMessages.length === 0) {
+            console.log('[GroupChatScreen] PowerSync has no messages, falling back to Supabase');
+            const fallbackTimer = setTimeout(() => {
+                console.log('[GroupChatScreen] Executing fallback to Supabase fetch');
+                fetchInitialData();
+            }, 2000); // Wait 2 seconds for PowerSync to load
+            
+            return () => clearTimeout(fallbackTimer);
+        }
+    }, [useNewServices, isInitialLoad, newLoading, newMessages.length, fetchInitialData]);
 
     // Ensure group name is set properly when entering via notification
     useEffect(() => {
@@ -3686,7 +3793,7 @@ const GroupChatScreen: React.FC = () => {
             }, 500); // Increased delay to ensure seen status is updated
             return () => clearTimeout(timer);
         }
-    }, [messages.length, loading, hasScrolledToUnread, isInitialLoad, findAndScrollToEarliestUnread]);
+    }, [messages.length, loading, hasScrolledToUnread, isInitialLoad]); // Simplified dependencies - removed findAndScrollToEarliestUnread
 
     // Handle initial scroll after data is loaded (for PowerSync)
     useEffect(() => {
@@ -3699,7 +3806,7 @@ const GroupChatScreen: React.FC = () => {
             }, 100); // Short delay to ensure UI is ready
             return () => clearTimeout(timer);
         }
-    }, [isInitialLoad, messages.length, hasScrolledToUnread, findAndScrollToEarliestUnread]);
+    }, [isInitialLoad, messages.length, hasScrolledToUnread]); // Simplified dependencies - removed findAndScrollToEarliestUnread
 
 
 

@@ -188,6 +188,7 @@ export const useMessageFetching = (options: UseMessageFetchingOptions): UseMessa
         
         if (powerSyncMessages && powerSyncMessages.length > 0) {
           console.log(`🔍 PowerSync: Using ${powerSyncMessages.length} group messages from PowerSync`);
+          console.log(`🔍 PowerSync: Group messages details:`, powerSyncMessages.map(m => ({ id: m.id, sender_id: m.sender_id, content: m.content?.substring(0, 20) })));
           return powerSyncMessages.map((msg: any) => ({
             _id: msg.id,
             text: msg.content,

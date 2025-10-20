@@ -2,15 +2,22 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useRealtime } from '@/context/RealtimeContext';
+import { usePowerSync } from '@/context/PowerSyncContext';
+import { useIndividualChatListWithUnread, useGroupChatListWithUnread } from '@/lib/powersync/chatFunctions';
 
 export const useUnreadCount = () => {
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
   const { session } = useAuth();
   const { subscribeToEvent, unsubscribeFromEvent } = useRealtime();
+  const { isPowerSyncAvailable } = usePowerSync();
   
   // Use ref to store the latest fetchUnreadCount function
   const fetchUnreadCountRef = useRef<(() => Promise<void>) | undefined>(undefined);
+  
+  // PowerSync hooks for mobile
+  const individualChatResult = useIndividualChatListWithUnread(session?.user?.id || '');
+  const groupChatResult = useGroupChatListWithUnread(session?.user?.id || '');
 
   // Function to fetch the latest unread count
   const fetchUnreadCount = useCallback(async () => {
@@ -21,41 +28,69 @@ export const useUnreadCount = () => {
     }
 
     try {
-      // Call both individual and group chat functions to get complete unread count
-      const [individualResult, groupResult] = await Promise.all([
-        supabase.rpc('get_chat_list_with_unread'),
-        supabase.rpc('get_group_chat_list_with_unread')
-      ]);
+      if (isPowerSyncAvailable) {
+        // Use PowerSync data for mobile
+        console.log('useUnreadCount: Using PowerSync data for unread count');
+        
+        const individualUnreadCount = individualChatResult.chats?.reduce((sum: number, chat: any) => sum + (chat.data.unread_count || 0), 0) || 0;
+        const groupUnreadCount = groupChatResult.chats?.reduce((sum: number, chat: any) => sum + (chat.data.unread_count || 0), 0) || 0;
+        
+        const totalUnreadCount = individualUnreadCount + groupUnreadCount;
+        
+        console.log(`useUnreadCount (PowerSync): Individual unread: ${individualUnreadCount}, Group unread: ${groupUnreadCount}, Total: ${totalUnreadCount}`);
+        console.log('useUnreadCount (PowerSync): Individual chats:', individualChatResult.chats);
+        console.log('useUnreadCount (PowerSync): Group chats:', groupChatResult.chats);
+        
+        setUnreadCount(totalUnreadCount);
+      } else {
+        // Use Supabase for web
+        console.log('useUnreadCount: Using Supabase data for unread count');
+        
+        const [individualResult, groupResult] = await Promise.all([
+          supabase.rpc('get_chat_list_with_unread'),
+          supabase.rpc('get_group_chat_list_with_unread')
+        ]);
 
-      if (individualResult.error) {
-        console.error('Error fetching individual chat unread count:', individualResult.error);
+        if (individualResult.error) {
+          console.error('Error fetching individual chat unread count:', individualResult.error);
+        }
+
+        if (groupResult.error) {
+          console.error('Error fetching group chat unread count:', groupResult.error);
+        }
+
+        // Calculate total unread count by summing unread counts from both lists
+        const individualUnreadCount = individualResult.data?.reduce((sum: number, chat: any) => sum + (chat.unread_count || 0), 0) || 0;
+        const groupUnreadCount = groupResult.data?.reduce((sum: number, chat: any) => sum + (chat.unread_count || 0), 0) || 0;
+        
+        const totalUnreadCount = individualUnreadCount + groupUnreadCount;
+        
+        console.log(`useUnreadCount (Supabase): Individual unread: ${individualUnreadCount}, Group unread: ${groupUnreadCount}, Total: ${totalUnreadCount}`);
+        console.log('useUnreadCount (Supabase): Individual data:', individualResult.data);
+        console.log('useUnreadCount (Supabase): Group data:', groupResult.data);
+        
+        setUnreadCount(totalUnreadCount);
       }
-
-      if (groupResult.error) {
-        console.error('Error fetching group chat unread count:', groupResult.error);
-      }
-
-      // Calculate total unread count by summing unread counts from both lists
-      const individualUnreadCount = individualResult.data?.reduce((sum: number, chat: any) => sum + (chat.unread_count || 0), 0) || 0;
-      const groupUnreadCount = groupResult.data?.reduce((sum: number, chat: any) => sum + (chat.unread_count || 0), 0) || 0;
-      
-      const totalUnreadCount = individualUnreadCount + groupUnreadCount;
-      
-      console.log(`useUnreadCount: Individual unread: ${individualUnreadCount}, Group unread: ${groupUnreadCount}, Total: ${totalUnreadCount}`);
-      
-      setUnreadCount(totalUnreadCount);
     } catch (error) {
       console.error('Exception fetching unread count:', error);
       setUnreadCount(0);
     } finally {
       setLoading(false);
     }
-  }, [session?.user?.id]);
+  }, [session?.user?.id, isPowerSyncAvailable, individualChatResult.chats, groupChatResult.chats]);
 
   // Update the ref with the latest fetchUnreadCount function
   useEffect(() => {
     fetchUnreadCountRef.current = fetchUnreadCount;
   }, [fetchUnreadCount]);
+
+  // Auto-update unread count when PowerSync data changes
+  useEffect(() => {
+    if (isPowerSyncAvailable && session?.user?.id) {
+      console.log('useUnreadCount: PowerSync data changed, updating unread count');
+      fetchUnreadCount();
+    }
+  }, [isPowerSyncAvailable, individualChatResult.chats, groupChatResult.chats, fetchUnreadCount, session?.user?.id]);
 
   // Handle real-time message updates - now stable and doesn't depend on fetchUnreadCount
   const handleMessageUpdate = useCallback(() => {
