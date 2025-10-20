@@ -6,6 +6,7 @@ export default {
     orientation: "portrait",
     newArchEnabled: false,
     userInterfaceStyle: "light",
+    icon: "./logo/vyb (6).png",
     splash: {
       resizeMode: "contain",
       backgroundColor: "#ffffff"
