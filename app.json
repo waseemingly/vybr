@@ -60,7 +60,7 @@
       "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxZmd1ZXNod3VocGNrc3p5cnNqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMyNjQ1NzcsImV4cCI6MjA1ODg0MDU3N30.URSa8s4NeNpGJjD29i-UBAn_PZ4d3Xumhk4Iqz6fKkQ",
       "SPOTIFY_CLIENT_ID": "7724af6090634c3db7c82fd54f1a0fff",
       "SPOTIFY_CLIENT_SECRET": "6b5182f34c854e4ba3642f225f9b9ed6",
-      "SPOTIFY_REDIRECT_URI": "http://127.0.0.1:8081/callback",
+      "SPOTIFY_REDIRECT_URI": "https://unmodern-sleeveless-ahmad.ngrok-free.dev/callback",
       "POWERSYNC_URL": "https://68961d41fd729385fadb5576.powersync.journeyapps.com",
       "eas": {
         "projectId": "your-eas-project-id"

@@ -60,7 +60,7 @@ export type StreamingData = {
   last_updated?: string;  // Added
 };
 
-export type StreamingServiceId = 'spotify' | 'apple_music' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | ''; // Removed youtubemusic
+export type StreamingServiceId = 'spotify' | 'apple_music' | 'youtubemusic' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | '';
 
 // Helper utility functions (outside the hook)
 export const calculateTopGenres = (artists: TopArtist[]): TopGenre[] => {
@@ -130,6 +130,8 @@ export const calculateTopTracksFromRecent = (recentTracks: TopTrack[]): TopTrack
 export const useStreamingData = (userId?: string | null, authProps?: {
   isSpotifyLoggedIn: boolean; 
   spotifyAccessToken?: string | null;
+  isAppleMusicLoggedIn?: boolean;
+  appleMusicAccessToken?: string | null;
 }) => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);

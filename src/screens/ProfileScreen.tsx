@@ -614,6 +614,14 @@ const ProfileScreen: React.FC = () => {
                             </TouchableOpacity>
                         </View>
                     </View>
+                    
+                    {/* Apple Music Test Button - Always Visible */}
+                    <TouchableOpacity 
+                        style={[styles.connectServiceButton, { backgroundColor: '#34C759', marginTop: 16, marginHorizontal: 16 }]} 
+                        onPress={() => navigation.navigate('AppleMusicTestPage')}
+                    >
+                        <Text style={[styles.connectServiceButtonText, { color: 'white' }]}>🍎 Test Apple Music Integration</Text>
+                    </TouchableOpacity>
                 </View>
 
                 <ProfileSection title="Things About Me" icon="info" isPremiumUser={isPremium} hasData={allBioDetails.length > 0} >
@@ -696,12 +704,21 @@ const ProfileScreen: React.FC = () => {
                                         : 'Connect your streaming service to see top artists'}
                                 </Text>
                                 {!isSpotifyLoggedIn ? (
-                                    <TouchableOpacity 
-                                        style={styles.connectServiceButton} 
-                                        onPress={() => navigation.navigate('LinkMusicServicesScreen')}
-                                    >
-                                        <Text style={styles.connectServiceButtonText}>Connect Service</Text>
-                                    </TouchableOpacity>
+                                    <>
+                                        <TouchableOpacity 
+                                            style={styles.connectServiceButton} 
+                                            onPress={() => navigation.navigate('LinkMusicServicesScreen')}
+                                        >
+                                            <Text style={styles.connectServiceButtonText}>Connect Service</Text>
+                                        </TouchableOpacity>
+                                        
+                                        <TouchableOpacity 
+                                            style={[styles.connectServiceButton, { backgroundColor: '#34C759', marginTop: 8 }]} 
+                                            onPress={() => navigation.navigate('AppleMusicTestPage')}
+                                        >
+                                            <Text style={[styles.connectServiceButtonText, { color: 'white' }]}>Test Apple Music</Text>
+                                        </TouchableOpacity>
+                                    </>
                                 ) : (
                                     <TouchableOpacity 
                                         style={styles.refreshSpotifyButton}

@@ -1736,12 +1736,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 const { data, error } = await supabase.auth.signInWithOAuth({
                     provider: 'google',
                     options: {
-                        redirectTo: typeof window !== 'undefined' && window.location ? window.location.origin : 'https://vybr.app',
+                        redirectTo: 'https://unmodern-sleeveless-ahmad.ngrok-free.dev',
                         queryParams: {
                             access_type: 'offline',
                             prompt: 'consent',
                         },
-                        skipBrowserRedirect: true, // Skip redirect, we'll handle it manually
+                        skipBrowserRedirect: false, // Allow Supabase to handle redirect in same window
                     },
                 });
                 
@@ -1751,30 +1751,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     return { error };
                 }
                 
-                console.log('[useAuth] ✅ OAuth URL received:', data?.url ? data.url.substring(0, 100) + '...' : 'No URL');
+                console.log('[useAuth] ✅ OAuth redirect initiated - Supabase will handle the redirect');
                 
-                // Open popup manually with the OAuth URL
-                let popup: Window | null = null;
-                if (data?.url) {
-                    console.log('[useAuth] 🪟 Opening OAuth popup...');
-                    popup = window.open(
-                        data.url, 
-                        'google-oauth', 
-                        'width=500,height=600,scrollbars=yes,resizable=yes'
-                    );
-                    
-                    if (!popup) {
-                        console.error('[useAuth] ❌ Popup blocked by browser');
-                        setLoading(false);
-                        return { error: { message: "Popup blocked. Please allow popups for this site." } };
-                    }
-                    console.log('[useAuth] ✅ Popup opened successfully');
-                }
+                // Supabase will handle the redirect automatically
+                // No need for popup handling
                 
-                // Wait for the authentication to complete by listening for session changes
+                // Since we're using skipBrowserRedirect: false, Supabase will handle the redirect
+                // and the auth state change will be detected automatically
                 return new Promise((resolve) => {
-                    let attempts = 0;
-                    const maxAttempts = 120; // 60 seconds timeout
                     let resolved = false;
                     
                     console.log('[useAuth] 👂 Setting up auth state listener...');
@@ -1850,7 +1834,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                         } else {
                                             resolved = true;
                                             setLoading(false);
-                                            if (popup) popup.close();
+                                            // No popup to close
                                             authListener.subscription.unsubscribe();
                                             resolve({ error: { message: 'Failed to create user record: ' + (manualError?.message || 'Unknown error') } });
                                             return;
@@ -1859,7 +1843,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                         console.error('[useAuth] ❌ Manual user creation failed:', manualCreateError);
                                         resolved = true;
                                         setLoading(false);
-                                        if (popup) popup.close();
+                                        // No popup to close
                                         authListener.subscription.unsubscribe();
                                         resolve({ error: { message: 'User verification failed: ' + userCheckError.message } });
                                         return;
@@ -1871,14 +1855,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             
                             resolved = true;
                             setLoading(false);
-                            if (popup) {
-                                try {
-                                    popup.close();
-                                    console.log('[useAuth] 🪟 Popup closed');
-                                } catch (e) {
-                                    console.log('[useAuth] 🪟 Could not close popup (expected with COOP)');
-                                }
-                            }
+                            // No popup to close
                             authListener.subscription.unsubscribe();
                             
                             // CRITICAL: Set user_type immediately in user metadata
@@ -2031,7 +2008,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                             } else {
                                                 resolved = true;
                                                 setLoading(false);
-                                                if (popup) popup.close();
+                                                // No popup to close
                                                 authListener.subscription.unsubscribe();
                                                 resolve({ error: { message: 'Failed to create user record: ' + (manualError?.message || 'Unknown error') } });
                                                 return;
@@ -2040,7 +2017,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                             console.error('[useAuth] ❌ Manual user creation failed:', manualCreateError);
                                             resolved = true;
                                             setLoading(false);
-                                            if (popup) popup.close();
+                                            // No popup to close
                                             authListener.subscription.unsubscribe();
                                             resolve({ error: { message: 'User verification failed: ' + userCheckError.message } });
                                             return;
@@ -2052,14 +2029,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 
                                 resolved = true;
                                 setLoading(false);
-                                if (popup) {
-                                    try {
-                                        popup.close();
-                                        console.log('[useAuth] 🪟 Popup closed');
-                                    } catch (e) {
-                                        console.log('[useAuth] 🪟 Could not close popup (expected with COOP)');
-                                    }
-                                }
+                                // No popup to close
                                 authListener.subscription.unsubscribe();
                                 
                                 // CRITICAL: Set user_type immediately
@@ -2127,14 +2097,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             console.log('[useAuth] ⏰ Google authentication timeout');
                             resolved = true;
                             setLoading(false);
-                            if (popup) {
-                                try {
-                                    popup.close();
-                                    console.log('[useAuth] 🪟 Popup closed due to timeout');
-                                } catch (e) {
-                                    console.log('[useAuth] 🪟 Could not close popup (expected with COOP)');
-                                }
-                            }
+                            // No popup to close
                             authListener.subscription.unsubscribe();
                             resolve({ error: { message: "Authentication timeout. Please try again.", cancelled: true } });
                             return;

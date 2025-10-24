@@ -84,6 +84,9 @@ import ViewBookingsScreen from '@/screens/organizer/ViewBookingsScreen'; // <-- 
 // Link Music Services Screen (Commented out due to linter error)
 import LinkMusicServicesScreen from '@/screens/LinkMusicServicesScreen'; // <-- IMPORT NEW SCREEN
 
+// Apple Music Test Screen
+import AppleMusicTestPage from '@/pages/AppleMusicTestPage';
+
 // Overall Analytics Screen
 import OverallAnalyticsScreen from '@/screens/organizer/OverallAnalyticsScreen';
 
@@ -133,6 +136,7 @@ export type MainStackParamList = {
   UpdateMusicFavoritesScreen: undefined;
   LinkMusicServicesScreen: { autoLinkSpotify?: boolean } | undefined;
   MyBookingsScreen: undefined;
+  AppleMusicTestPage: undefined;
 
   // Organizer Specific Screens (outside tabs)
   EventDetail: { eventId: string };   // Corrected from EditEventScreen, eventId to string
@@ -1138,6 +1142,7 @@ const MainAppStack = () => {
                    <MainStack.Screen name="UpdateMusicFavoritesScreen" component={wrapScreenForWeb(UpdateMusicFavoritesScreen, false)} />
                    <MainStack.Screen name="LinkMusicServicesScreen" component={wrapScreenForWeb(LinkMusicServicesScreen, false)} />
                    <MainStack.Screen name="MyBookingsScreen" component={wrapScreenForWeb(MyBookingsScreen, false)} />
+                   <MainStack.Screen name="AppleMusicTestPage" component={wrapScreenForWeb(AppleMusicTestPage, false)} />
                    <MainStack.Screen name="PremiumSignupScreen" component={wrapScreenForWeb(PremiumSignupScreen, false)} />
                    <MainStack.Screen name="PaymentConfirmationScreen" component={wrapScreenForWeb(PaymentConfirmationScreen, false)} />
                    <MainStack.Screen name="PaymentSuccessScreen" component={wrapScreenForWeb(PaymentSuccessScreen, false)} />

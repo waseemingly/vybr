@@ -64,7 +64,7 @@ if (!STRIPE_PUBLISHABLE_KEY) {
 // Configure deep linking for all platforms
 const linking = {
   prefixes: [
-    Linking.createURL('/'),
+    'https://unmodern-sleeveless-ahmad.ngrok-free.dev',
     'vybr://',
     'https://vybr.app',
     'https://fqfgueshwuhpckszyrsj.supabase.co/auth/v1/callback'

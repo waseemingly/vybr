@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "dev": "vite",
     "build": "vite build",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "generate-apple-secret": "node generate-apple-music-secret.js"
   },
   "dependencies": {
     "@azure/core-asynciterator-polyfill": "^1.0.2",
@@ -96,6 +97,7 @@
     "hermes-engine": "^0.11.0",
     "immer": "^10.1.1",
     "input-otp": "^1.4.2",
+    "jsonwebtoken": "^9.0.2",
     "libmuse": "^0.1.1",
     "login": "^0.8.0",
     "lucide-react": "^0.484.0",

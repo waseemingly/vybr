@@ -11,7 +11,8 @@ import { FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Feather } from '@expo/vector-icons'; // Keep Feather for other icons
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/useAuth'; // Adjust import path as needed
-import { useSpotifyAuth } from '@/hooks/useSpotifyAuth'; // Spotify auth hook
+import { useSpotifyAuth } from '@/hooks/useSpotifyAuth';
+import { useAppleMusicAuth } from '@/hooks/useAppleMusicAuth'; // Spotify auth hook
 import { APP_CONSTANTS } from '@/config/constants'; // Assuming path is correct
 import { supabase } from '@/lib/supabase'; // Add supabase import
 import * as ImagePicker from 'expo-image-picker';
@@ -159,6 +160,15 @@ const MusicLoverSignUpFlow = () => {
         forceFetchAndSaveSpotifyData,
         verifyAuthorizationCompleted
     } = useSpotifyAuth();
+    
+    // Apple Music auth hook
+    const {
+        login: appleMusicLogin,
+        isLoggedIn: isAppleMusicLoggedIn,
+        isLoading: isAppleMusicLoading,
+        error: appleMusicError,
+        fetchAndSaveAppleMusicData
+    } = useAppleMusicAuth();
     
     // --- Update initial state ---
     const [formData, setFormData] = useState<MusicLoverFormData>({
@@ -893,19 +903,32 @@ const MusicLoverSignUpFlow = () => {
             }
 
             // Fetch streaming data if applicable
-            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None' && isSpotifyLoggedIn) {
-                console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
-                try {
-                    await forceFetchAndSaveSpotifyData(userId, false);
-                    console.log('[MusicLoverSignUpFlow] ✅ Spotify data fetched successfully');
-                } catch (spotifyError) {
-                    console.error('[MusicLoverSignUpFlow] ❌ Error fetching Spotify data:', spotifyError);
+            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None') {
+                if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
+                    console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
+                    try {
+                        await forceFetchAndSaveSpotifyData(userId, false);
+                        console.log('[MusicLoverSignUpFlow] ✅ Spotify data fetched successfully');
+                    } catch (spotifyError) {
+                        console.error('[MusicLoverSignUpFlow] ❌ Error fetching Spotify data:', spotifyError);
+                    }
+                } else if (formData.selectedStreamingService === 'apple_music' && isAppleMusicLoggedIn) {
+                    console.log('[MusicLoverSignUpFlow] 🍎 Fetching Apple Music data...');
+                    try {
+                        await fetchAndSaveAppleMusicData(false);
+                        console.log('[MusicLoverSignUpFlow] ✅ Apple Music data fetched successfully');
+                    } catch (appleMusicError) {
+                        console.error('[MusicLoverSignUpFlow] ❌ Error fetching Apple Music data:', appleMusicError);
+                    }
+                } else {
+                    console.log('[MusicLoverSignUpFlow] ⏭️ Skipping streaming data fetch:', {
+                        selectedStreamingService: formData.selectedStreamingService,
+                        isSpotifyLoggedIn: isSpotifyLoggedIn,
+                        isAppleMusicLoggedIn: isAppleMusicLoggedIn
+                    });
                 }
             } else {
-                console.log('[MusicLoverSignUpFlow] ⏭️ Skipping Spotify data fetch:', {
-                    selectedStreamingService: formData.selectedStreamingService,
-                    isSpotifyLoggedIn: isSpotifyLoggedIn
-                });
+                console.log('[MusicLoverSignUpFlow] ⏭️ No streaming service selected');
             }
 
             // Success - navigate to home/dashboard
@@ -1360,6 +1383,11 @@ const MusicLoverSignUpFlow = () => {
             // Existing Spotify login logic remains
             console.log('[SignUpFlow] Spotify selected. Initiating login...');
             spotifyLogin(); 
+        } else if (serviceId === 'apple_music') {
+            // Apple Music login logic
+            console.log('[SignUpFlow] Apple Music selected. Initiating login...');
+            console.log('[SignUpFlow] Apple Music hook state:', { isAppleMusicLoggedIn, isAppleMusicLoading, appleMusicError });
+            appleMusicLogin();
         } else if (serviceId === 'youtubemusic') {
             // YouTube Music selected - NO LONGER triggers UI connection
             // The user just selects it, data is assumed to be synced by the external Python script.

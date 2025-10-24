@@ -69,10 +69,10 @@ export default {
     extra: {
       SUPABASE_URL: "https://fqfgueshwuhpckszyrsj.supabase.co",
       SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxZmd1ZXNod3VocGNrc3p5cnNqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMyNjQ1NzcsImV4cCI6MjA1ODg0MDU3N30.URSa8s4NeNpGJjD29i-UBAn_PZ4d3Xumhk4Iqz6fKkQ",
-      SUPABASE_REDIRECT_URL: "vybr://auth/callback",
+      SUPABASE_REDIRECT_URL: "https://unmodern-sleeveless-ahmad.ngrok-free.dev/auth/callback",
       SPOTIFY_CLIENT_ID: "7724af6090634c3db7c82fd54f1a0fff",
       SPOTIFY_CLIENT_SECRET: "your-spotify-client-secret",
-      SPOTIFY_REDIRECT_URI: "http://127.0.0.1:19006/callback",
+      SPOTIFY_REDIRECT_URI: "https://unmodern-sleeveless-ahmad.ngrok-free.dev/callback",
       EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: "830574548321-h59962oi42ok7tejuhkefud8tbooo18j.apps.googleusercontent.com",
       EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID: "830574548321-1tm2a4o9ibib5ss4qk3370ufc16vu4jr.apps.googleusercontent.com",
       POWERSYNC_URL: "https://68961d41fd729385fadb5576.powersync.journeyapps.com",

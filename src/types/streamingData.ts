@@ -1,5 +1,73 @@
 // src/types/streamingData.ts
 
+// --- Apple Music API Interfaces ---
+export interface AppleMusicTrack {
+  id: string;
+  type: 'songs';
+  attributes: {
+    name: string;
+    artistName: string;
+    albumName: string;
+    durationInMillis: number;
+    genreNames: string[];
+    artwork: {
+      url: string;
+      width: number;
+      height: number;
+    };
+    playParams?: {
+      id: string;
+      kind: string;
+    };
+  };
+  relationships?: {
+    artists: {
+      data: AppleMusicArtist[];
+    };
+    albums: {
+      data: AppleMusicAlbum[];
+    };
+  };
+}
+
+export interface AppleMusicArtist {
+  id: string;
+  type: 'artists';
+  attributes: {
+    name: string;
+    genreNames: string[];
+    artwork?: {
+      url: string;
+      width: number;
+      height: number;
+    };
+  };
+}
+
+export interface AppleMusicAlbum {
+  id: string;
+  type: 'albums';
+  attributes: {
+    name: string;
+    artistName: string;
+    artwork: {
+      url: string;
+      height: number;
+      width: number;
+    };
+  };
+}
+
+export interface AppleMusicPlayHistory {
+  id: string;
+  type: 'play-history';
+  attributes: {
+    playDate: string;
+    song: AppleMusicTrack;
+  };
+}
+
+// --- Spotify API Interfaces ---
 // Basic structure for Spotify Artist from API
 export interface SpotifyApiArtistSimple {
     id: string;
@@ -75,7 +143,7 @@ export interface ProcessedStreamingData {
 // Structure for data stored in Supabase
 export interface UserStreamingDataDB {
     user_id: string;
-    service_id: 'spotify' | 'youtubemusic' | string; // Extend as needed
+    service_id: 'spotify' | 'youtubemusic' | 'apple_music' | string; // Extend as needed
     snapshot_date: string; // YYYY-MM-DD
     last_updated?: string; // ISO timestamp
     top_artists: TopArtist[]; // Stored as JSONB
