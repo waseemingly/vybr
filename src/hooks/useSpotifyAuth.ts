@@ -177,8 +177,14 @@ export const useSpotifyAuth = () => {
       setIsLoading(true);
       console.log('[useSpotifyAuth] AuthSession response:', JSON.stringify(response, null, 2));
       
-      // Remove automatic dismissal - let the browser window close naturally
-      // WebBrowser.dismissAuthSession();
+      // On web, ensure the callback page doesn't trigger navigation
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const currentPath = window.location.pathname;
+        if (currentPath.includes('/callback')) {
+          // Clean up the URL to prevent navigation triggers
+          window.history.replaceState({}, '', currentPath);
+        }
+      }
       
       if (response.type === 'error') {
         setError(response.error?.message || response.params.error_description || 'Authentication error');
@@ -391,33 +397,289 @@ export const useSpotifyAuth = () => {
     setError(null);
     console.log('[useSpotifyAuth] Prompting Spotify login...');
     
-    // Ensure credentials are loaded before proceeding
-    if (!credentialsLoaded || !spotifyClientId) {
-      console.log('[useSpotifyAuth] Credentials not loaded, fetching from Supabase before login...');
-      const credentials = await fetchSpotifyCredentials();
-      if (!credentials) {
-        setError('Failed to load Spotify configuration. Please try again.');
-        return;
-      }
-    }
-    
-    console.log(`[useSpotifyAuth] Requested scopes: ${SPOTIFY_SCOPES.join(', ')}`);
-    console.log(`[useSpotifyAuth] Redirect URI: ${redirectUri}`);
-    
-    if (!request) {
-      console.error('[useSpotifyAuth] Auth request is not available. Cannot prompt.');
-      setError('Spotify authentication setup failed. Please try again.');
-      return;
-    }
-    
     // Reset logged in state when starting the auth flow
     setIsLoggedIn(false);
     
     try {
-      // Clear any existing tokens before starting a new auth flow
+      // CRITICAL: On web, open popup FIRST (before any async operations)
+      // This ensures it's a direct user action and won't be blocked
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        console.log('[useSpotifyAuth] Web platform - opening popup immediately to preserve user activation...');
+        
+        // Use credentials from state - don't await anything before opening popup!
+        if (!spotifyClientId) {
+          console.error('[useSpotifyAuth] ❌ Spotify Client ID not loaded. Credentials should be loaded on mount.');
+          setError('Spotify configuration not ready. Please refresh the page and try again.');
+          setIsLoading(false);
+          return;
+        }
+        
+        const clientId = spotifyClientId;
+        
+        // Build the Spotify authorization URL
+        const state = Math.random().toString(36).substring(7);
+        const params = new URLSearchParams({
+          client_id: clientId || '',
+          response_type: 'code',
+          redirect_uri: redirectUri,
+          scope: SPOTIFY_SCOPES.join(' '),
+          show_dialog: 'true',
+          state: state
+        });
+        
+        const spotifyAuthUrl = `https://accounts.spotify.com/authorize?${params.toString()}`;
+        
+        console.log('[useSpotifyAuth] Opening Spotify OAuth in popup...');
+        console.log('[useSpotifyAuth] Auth URL:', spotifyAuthUrl.substring(0, 100) + '...');
+        console.log('[useSpotifyAuth] Redirect URI:', redirectUri);
+        
+        // Set up message listener for popup callback (fallback if WebBrowser doesn't work)
+        let messageHandler: ((event: MessageEvent) => void) | null = null;
+        const cleanup = () => {
+          if (messageHandler) {
+            window.removeEventListener('message', messageHandler);
+            messageHandler = null;
+          }
+        };
+        
+        // Promise that resolves when we get callback from popup via postMessage
+        const popupCallbackPromise = new Promise<{ type: string; url: string }>((resolve, reject) => {
+          console.log('[useSpotifyAuth] Setting up message listener for popup callback...');
+          console.log('[useSpotifyAuth] Listening on origin:', window.location.origin);
+          console.log('[useSpotifyAuth] Will also poll popup URL directly as fallback');
+          
+          messageHandler = (event: MessageEvent) => {
+            console.log('[useSpotifyAuth] 📨 Message received from:', event.origin);
+            console.log('[useSpotifyAuth] Message data:', event.data);
+            
+            // Accept messages from:
+            // 1. Same origin as current window
+            // 2. Callback redirect URI origin (ngrok URL)
+            const currentOrigin = window.location.origin;
+            const callbackOrigin = new URL(redirectUri).origin;
+            const allowedOrigins = [currentOrigin, callbackOrigin];
+            
+            if (!allowedOrigins.includes(event.origin)) {
+              console.log('[useSpotifyAuth] ⚠️ Ignoring message from different origin. Allowed:', allowedOrigins, 'Got:', event.origin);
+              return;
+            }
+            
+            console.log('[useSpotifyAuth] ✅ Origin check passed:', event.origin);
+            
+            if (event.data?.type === 'oauthCallback') {
+              console.log('[useSpotifyAuth] ✅ Received callback message from popup:', event.data.url);
+              cleanup();
+              resolve({ type: 'success', url: event.data.url });
+            } else {
+              console.log('[useSpotifyAuth] Message received but not oauthCallback type:', event.data?.type);
+            }
+          };
+          
+          window.addEventListener('message', messageHandler);
+          console.log('[useSpotifyAuth] ✅ Message listener registered');
+          
+          // Timeout after 5 minutes
+          setTimeout(() => {
+            cleanup();
+            reject(new Error('OAuth timeout - no callback message received'));
+          }, 5 * 60 * 1000);
+        });
+        
+        try {
+          // OPEN POPUP IMMEDIATELY using window.open for better browser compatibility
+          console.log('[useSpotifyAuth] Opening popup window directly...');
+          const popup = window.open(
+            spotifyAuthUrl,
+            'spotify-auth',
+            'width=600,height=700,scrollbars=yes,resizable=yes'
+          );
+          
+          if (!popup) {
+            throw new Error('Popup was blocked by browser. Please allow popups and try again.');
+          }
+          
+          console.log('[useSpotifyAuth] Popup opened successfully, waiting for callback...');
+          console.log('[useSpotifyAuth] Popup window reference:', popup);
+          
+          // Wait for callback message from popup OR poll popup's URL directly
+          const result = await Promise.race([
+            popupCallbackPromise,
+            new Promise<{ type: string; url: string }>((resolve, reject) => {
+              let hasResolved = false;
+              let checkCount = 0;
+              
+              const pollPopup = () => {
+                checkCount++;
+                
+                try {
+                  // Try to access popup's location (may fail due to cross-origin)
+                  if (!popup.closed) {
+                    try {
+                      const popupUrl = popup.location.href;
+                      
+                      // Check if popup has reached callback URL (same origin as redirect URI)
+                      const callbackOrigin = new URL(redirectUri).origin;
+                      const popupOrigin = new URL(popupUrl).origin;
+                      
+                      // Check if we're on the callback domain and have callback params
+                      if (popupOrigin === callbackOrigin && 
+                          (popupUrl.includes('/callback') || popupUrl.includes('code=') || popupUrl.includes('error='))) {
+                        console.log('[useSpotifyAuth] ✅ Callback URL detected in popup via polling:', popupUrl);
+                        clearInterval(checkInterval);
+                        clearInterval(pollInterval);
+                        cleanup();
+                        if (!hasResolved) {
+                          hasResolved = true;
+                          resolve({ type: 'success', url: popupUrl });
+                        }
+                        return;
+                      }
+                      
+                      // Also check if we have the callback params in URL regardless of origin check
+                      // (in case URL structure is different)
+                      const urlObj = new URL(popupUrl);
+                      if (urlObj.searchParams.has('code') || urlObj.searchParams.has('error')) {
+                        console.log('[useSpotifyAuth] ✅ OAuth params detected in popup URL:', popupUrl);
+                        clearInterval(checkInterval);
+                        clearInterval(pollInterval);
+                        cleanup();
+                        if (!hasResolved) {
+                          hasResolved = true;
+                          resolve({ type: 'success', url: popupUrl });
+                        }
+                        return;
+                      }
+                      
+                      // Log popup URL occasionally for debugging
+                      if (checkCount % 10 === 0) {
+                        console.log('[useSpotifyAuth] Popup URL:', popupUrl.substring(0, 100));
+                      }
+                    } catch (e: any) {
+                      // Cross-origin error - popup is on different domain (expected during OAuth)
+                      // This is normal when popup is on Spotify's domain
+                      if (checkCount % 10 === 0) {
+                        console.log('[useSpotifyAuth] Popup is on different origin (normal during OAuth):', e.message);
+                      }
+                    }
+                  }
+                } catch (e) {
+                  // Popup access error
+                }
+                
+                // Check if popup is closed (but allow time for redirects)
+                if (popup.closed && checkCount > 5) {
+                  console.log('[useSpotifyAuth] ⚠️ Popup closed after', checkCount, 'checks');
+                  // Don't reject immediately - wait to see if message comes
+                }
+              };
+              
+              // Poll popup URL frequently (every 500ms)
+              const pollInterval = setInterval(pollPopup, 500);
+              
+              // Also check for closure less frequently
+              const checkInterval = setInterval(() => {
+                if (popup.closed && checkCount > 10 && !hasResolved) {
+                  console.log('[useSpotifyAuth] ⚠️ Popup appears closed after', checkCount, 'polls');
+                  // Give it a few more seconds for message to arrive
+                  setTimeout(() => {
+                    if (!hasResolved) {
+                      clearInterval(checkInterval);
+                      clearInterval(pollInterval);
+                      cleanup();
+                      hasResolved = true;
+                      reject(new Error('Popup closed before authentication completed'));
+                    }
+                  }, 3000);
+                }
+              }, 2000);
+              
+              // Cleanup on timeout
+              setTimeout(() => {
+                clearInterval(checkInterval);
+                clearInterval(pollInterval);
+                cleanup();
+                if (!hasResolved) {
+                  hasResolved = true;
+                  reject(new Error('OAuth timeout - no callback received'));
+                }
+              }, 5 * 60 * 1000);
+            })
+          ]);
+          
+          cleanup();
+          
+          console.log('[useSpotifyAuth] OAuth callback received, result type:', result.type);
+          const resultUrl = result.url;
+          console.log('[useSpotifyAuth] Callback URL:', resultUrl?.substring(0, 100) || 'no URL');
+        
+          if (result.type === 'success' && resultUrl) {
+            console.log('[useSpotifyAuth] OAuth callback received:', resultUrl);
+            
+            // Parse the authorization code from the callback URL
+            const url = new URL(resultUrl);
+            const code = url.searchParams.get('code');
+            const error = url.searchParams.get('error');
+            
+            if (error) {
+              console.error('[useSpotifyAuth] OAuth error:', error);
+              setError(`Spotify login failed: ${error}`);
+              setIsLoading(false);
+              return;
+            }
+            
+            if (code) {
+              console.log('[useSpotifyAuth] Authorization code received, exchanging for tokens...');
+              // Now clear old tokens and exchange for new ones
+              await clearTokens();
+              await exchangeCodeForToken(code);
+            } else {
+              setError('No authorization code received');
+              setIsLoading(false);
+            }
+          } else if (result.type === 'cancel') {
+            console.log('[useSpotifyAuth] User cancelled OAuth flow');
+            setError('Spotify login was cancelled');
+            setIsLoading(false);
+          } else if (result.type === 'dismiss') {
+            console.log('[useSpotifyAuth] OAuth flow was dismissed');
+            setError('Spotify login was dismissed');
+            setIsLoading(false);
+          } else {
+            console.log('[useSpotifyAuth] OAuth flow failed. Result type:', result.type);
+            setError(`OAuth flow failed: ${result.type}`);
+            setIsLoading(false);
+          }
+          return;
+        } catch (browserError: any) {
+          cleanup();
+          console.error('[useSpotifyAuth] Error in WebBrowser.openAuthSessionAsync:', browserError);
+          setError(`Failed to complete Spotify authentication: ${browserError.message}`);
+          setIsLoading(false);
+          return;
+        }
+      }
+      
+      // For native platforms, continue with existing flow
+      // Ensure credentials are loaded before proceeding
+      if (!credentialsLoaded || !spotifyClientId) {
+        console.log('[useSpotifyAuth] Credentials not loaded, fetching from Supabase before login...');
+        const credentials = await fetchSpotifyCredentials();
+        if (!credentials) {
+          setError('Failed to load Spotify configuration. Please try again.');
+          return;
+        }
+      }
+      
+      // For native platforms only - clear tokens and use AuthSession
       await clearTokens();
       
-      console.log('[useSpotifyAuth] Starting authentication flow...');
+      if (!request) {
+        console.error('[useSpotifyAuth] Auth request is not available. Cannot prompt.');
+        setError('Spotify authentication setup failed. Please try again.');
+        return;
+      }
+      
+      console.log('[useSpotifyAuth] Starting authentication flow (native)...');
       const result = await promptAsync();
       console.log('[useSpotifyAuth] promptAsync result type:', result?.type);
       
@@ -431,11 +693,11 @@ export const useSpotifyAuth = () => {
         }
       }
     } catch (err: any) {
-      console.error('[useSpotifyAuth] Error during promptAsync:', err);
+      console.error('[useSpotifyAuth] Error during authentication:', err);
       setError(err.message || 'Failed to start Spotify authentication');
       setIsLoading(false);
     }
-  }, [request, promptAsync, credentialsLoaded, spotifyClientId]);
+  }, [request, promptAsync, credentialsLoaded, spotifyClientId, redirectUri]);
 
   // Function to fetch user profile
   const fetchUserProfile = async (token: string) => {

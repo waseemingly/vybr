@@ -11,6 +11,76 @@
 
   <body>
     <div id="root"></div>
+    <!-- OAuth Callback Handler - Runs immediately, before React loads -->
+    <script>
+      (function() {
+        // Only run in popup windows (OAuth callbacks)
+        if (window.opener && window.opener !== window) {
+          var currentUrl = window.location.href;
+          var currentPath = window.location.pathname;
+          
+          // Check if this is an OAuth callback
+          if (currentPath.includes('/callback') || currentPath.includes('apple-music-callback')) {
+            console.log('[OAuth Callback Handler] 🔔 Popup callback detected in pre-React script!');
+            console.log('[OAuth Callback Handler] Current URL:', currentUrl);
+            console.log('[OAuth Callback Handler] Window opener exists:', !!window.opener);
+            
+            // Try to send message immediately
+            var sendMessage = function() {
+              try {
+                if (window.opener && !window.opener.closed) {
+                  var message = {
+                    type: 'oauthCallback',
+                    url: currentUrl
+                  };
+                  
+                  // Try multiple origins
+                  var origins = [
+                    window.location.origin,
+                    window.location.origin.replace('https://', 'http://'),
+                    window.location.origin.replace('http://', 'https://'),
+                    '*'
+                  ];
+                  
+                  console.log('[OAuth Callback Handler] Attempting to send message:', message);
+                  console.log('[OAuth Callback Handler] Trying origins:', origins);
+                  
+                  for (var i = 0; i < origins.length; i++) {
+                    try {
+                      window.opener.postMessage(message, origins[i]);
+                      console.log('[OAuth Callback Handler] ✅ Message sent to origin:', origins[i]);
+                      return true;
+                    } catch (e) {
+                      console.log('[OAuth Callback Handler] ⚠️ Failed to send to origin:', origins[i]);
+                    }
+                  }
+                  
+                  return false;
+                } else {
+                  console.log('[OAuth Callback Handler] ⚠️ No opener window or opener is closed');
+                  return false;
+                }
+              } catch (error) {
+                console.error('[OAuth Callback Handler] ❌ Error sending message:', error);
+                return false;
+              }
+            };
+            
+            // Send immediately
+            sendMessage();
+            
+            // Also try after a short delay (in case opener needs a moment)
+            setTimeout(function() {
+              sendMessage();
+            }, 100);
+            
+            // Store in sessionStorage so React component can also see it
+            sessionStorage.setItem('oauth_callback_url', currentUrl);
+            sessionStorage.setItem('oauth_callback_sent', 'true');
+          }
+        }
+      })();
+    </script>
     <!-- IMPORTANT: DO NOT REMOVE THIS SCRIPT TAG OR THIS VERY COMMENT! -->
     <script src="https://cdn.gpteng.co/gptengineer.js" type="module"></script>
     <script type="module" src="/src/main.tsx"></script>

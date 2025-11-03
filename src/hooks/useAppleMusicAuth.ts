@@ -203,6 +203,9 @@ export const useAppleMusicAuth = () => {
     }
   }, [credentialsLoaded, generateDeveloperToken]);
 
+  // Note: Callback handling is now done in the login() function when using WebBrowser.openAuthSessionAsync
+  // This ensures the popup closes automatically and the main window can detect the state change
+
   // Check if tokens exist and are valid on mount
   useEffect(() => {
     const checkExistingTokens = async () => {
@@ -296,12 +299,8 @@ export const useAppleMusicAuth = () => {
       setIsLoading(true);
       setError(null);
 
-      if (!developerToken) {
-        console.log('[useAppleMusicAuth] ❌ Developer token not available');
-        setError('Apple Music developer token not available');
-        return;
-      }
-
+      // Developer token is not required for OAuth authentication
+      // It's only needed for API calls after authentication
       console.log('[useAppleMusicAuth] Starting Apple Music OAuth flow...');
 
       // Apple Music uses Sign in with Apple for authentication
@@ -311,29 +310,209 @@ export const useAppleMusicAuth = () => {
         `client_id=${APPLE_MUSIC_CLIENT_ID}&` +
         `redirect_uri=${encodeURIComponent(APPLE_MUSIC_REDIRECT_URI)}&` +
         `response_type=code&` +
-        `scope=name%20email&` +
+        `response_mode=query&` +
         `state=${state}`;
 
       console.log('[useAppleMusicAuth] Opening Apple OAuth URL:', appleAuthUrl);
+      console.log('[useAppleMusicAuth] Redirect URI:', APPLE_MUSIC_REDIRECT_URI);
+      console.log('[useAppleMusicAuth] Client ID:', APPLE_MUSIC_CLIENT_ID);
 
-      // Open Apple's OAuth page in browser
+      // On web, use WebBrowser popup (like Spotify) for consistent behavior
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        console.log('[useAppleMusicAuth] Opening Apple OAuth in popup (web platform)');
+        // Store state in sessionStorage to check on callback
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem('apple_music_oauth_state', state);
+        }
+        
+        // Use WebBrowser.openAuthSessionAsync to open in popup
+        console.log('[useAppleMusicAuth] Opening popup with URL:', appleAuthUrl.substring(0, 100) + '...');
+        console.log('[useAppleMusicAuth] Redirect URI:', APPLE_MUSIC_REDIRECT_URI);
+        
+        // Set up message listener for popup callback (fallback if WebBrowser doesn't work)
+        let messageHandler: ((event: MessageEvent) => void) | null = null;
+        const cleanup = () => {
+          if (messageHandler && typeof window !== 'undefined') {
+            window.removeEventListener('message', messageHandler);
+            messageHandler = null;
+          }
+        };
+        
+        // Promise that resolves when we get callback from popup
+        const popupCallbackPromise = new Promise<{ type: string; url: string }>((resolve, reject) => {
+          if (typeof window === 'undefined') {
+            reject(new Error('Window not available'));
+            return;
+          }
+          
+          messageHandler = (event: MessageEvent) => {
+            // Verify origin matches
+            if (event.origin !== window.location.origin) {
+              console.log('[useAppleMusicAuth] Ignoring message from different origin:', event.origin);
+              return;
+            }
+            
+            if (event.data?.type === 'oauthCallback') {
+              console.log('[useAppleMusicAuth] Received callback message from popup:', event.data.url);
+              cleanup();
+              resolve({ type: 'success', url: event.data.url });
+            }
+          };
+          
+          window.addEventListener('message', messageHandler);
+          
+          // Timeout after 5 minutes
+          setTimeout(() => {
+            cleanup();
+            reject(new Error('OAuth timeout'));
+          }, 5 * 60 * 1000);
+        });
+        
+        try {
+          // Try WebBrowser.openAuthSessionAsync first, with fallback to message handler
+          const result = await Promise.race([
+            WebBrowser.openAuthSessionAsync(appleAuthUrl, APPLE_MUSIC_REDIRECT_URI),
+            popupCallbackPromise
+          ]);
+          
+          cleanup();
+          
+          console.log('[useAppleMusicAuth] OAuth session result:', result.type);
+          const resultUrl = 'url' in result ? result.url : undefined;
+          console.log('[useAppleMusicAuth] OAuth session URL:', resultUrl?.substring(0, 100) || 'no URL');
+        
+        if (result.type === 'success' && resultUrl) {
+          console.log('[useAppleMusicAuth] OAuth callback received:', resultUrl);
+          
+          // Parse the authorization code from the callback URL
+          const url = new URL(resultUrl);
+          const code = url.searchParams.get('code');
+          const receivedState = url.searchParams.get('state');
+          const storedState = sessionStorage.getItem('apple_music_oauth_state');
+          
+          // Validate state
+          if (storedState && receivedState !== storedState) {
+            console.error('[useAppleMusicAuth] State mismatch - possible CSRF attack');
+            setError('Security validation failed. Please try again.');
+            sessionStorage.removeItem('apple_music_oauth_state');
+            setIsLoading(false);
+            return;
+          }
+          
+          if (storedState) {
+            sessionStorage.removeItem('apple_music_oauth_state');
+          }
+          
+          if (code) {
+            console.log('[useAppleMusicAuth] Authorization code received, exchanging for tokens...');
+            
+            // Exchange code for tokens
+            const tokenResponse = await fetch('https://appleid.apple.com/auth/token', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({
+                client_id: APPLE_MUSIC_CLIENT_ID,
+                client_secret: APPLE_MUSIC_CLIENT_SECRET,
+                code: code,
+                grant_type: 'authorization_code',
+                redirect_uri: APPLE_MUSIC_REDIRECT_URI
+              })
+            });
+
+            if (!tokenResponse.ok) {
+              const errorText = await tokenResponse.text();
+              console.error('[useAppleMusicAuth] Token exchange failed:', errorText);
+              throw new Error(`Token exchange failed: ${tokenResponse.status} - ${errorText}`);
+            }
+
+            const tokens = await tokenResponse.json();
+            console.log('[useAppleMusicAuth] Tokens received successfully');
+
+            // Store tokens
+            const accessToken = tokens.access_token;
+            const refreshToken = tokens.refresh_token;
+            const expiresIn = tokens.expires_in;
+            const expiryTime = Date.now() + (expiresIn * 1000);
+
+            // Save tokens to AsyncStorage
+            await AsyncStorage.multiSet([
+              [APPLE_MUSIC_ACCESS_TOKEN_KEY, accessToken],
+              [APPLE_MUSIC_REFRESH_TOKEN_KEY, refreshToken],
+              [APPLE_MUSIC_TOKEN_EXPIRY_KEY, expiryTime.toString()]
+            ]);
+
+            // Update state
+            setAccessToken(accessToken);
+            setRefreshToken(refreshToken);
+            setExpiresAt(expiryTime);
+            setIsLoggedIn(true);
+
+            // Fetch user profile
+            await fetchUserProfile(accessToken);
+
+            console.log('[useAppleMusicAuth] Apple Music login successful');
+            setIsLoading(false);
+          } else {
+            throw new Error('No authorization code received');
+          }
+        } else if (result.type === 'cancel') {
+          console.log('[useAppleMusicAuth] User cancelled OAuth flow');
+          setError('Apple Music login was cancelled');
+          setIsLoading(false);
+        } else if (result.type === 'dismiss') {
+          console.log('[useAppleMusicAuth] OAuth flow was dismissed');
+          setError('Apple Music login was dismissed');
+          setIsLoading(false);
+        } else {
+          console.log('[useAppleMusicAuth] OAuth flow failed. Result type:', result.type);
+          setError(`OAuth flow failed: ${result.type}`);
+          setIsLoading(false);
+        }
+        } catch (browserError: any) {
+          console.error('[useAppleMusicAuth] Error in WebBrowser.openAuthSessionAsync:', browserError);
+          setError(`Failed to complete Apple Music authentication: ${browserError.message}`);
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      // For native platforms (iOS/Android), use WebBrowser
+      console.log('[useAppleMusicAuth] Opening Apple OAuth for native platform');
       const result = await WebBrowser.openAuthSessionAsync(
         appleAuthUrl,
         APPLE_MUSIC_REDIRECT_URI
       );
-
+      
+      console.log('[useAppleMusicAuth] OAuth session result:', result.type);
+      
       if (result.type === 'success' && result.url) {
         console.log('[useAppleMusicAuth] OAuth callback received:', result.url);
         
         // Parse the authorization code from the callback URL
         const url = new URL(result.url);
         const code = url.searchParams.get('code');
-        const state = url.searchParams.get('state');
+        const receivedState = url.searchParams.get('state');
+        const storedState = sessionStorage.getItem('apple_music_oauth_state');
+        
+        // Validate state
+        if (storedState && receivedState !== storedState) {
+          console.error('[useAppleMusicAuth] State mismatch - possible CSRF attack');
+          setError('Security validation failed. Please try again.');
+          sessionStorage.removeItem('apple_music_oauth_state');
+          setIsLoading(false);
+          return;
+        }
+        
+        if (storedState) {
+          sessionStorage.removeItem('apple_music_oauth_state');
+        }
         
         if (code) {
           console.log('[useAppleMusicAuth] Authorization code received, exchanging for tokens...');
           
-          // Exchange authorization code for access token
+          // Exchange code for tokens
           const tokenResponse = await fetch('https://appleid.apple.com/auth/token', {
             method: 'POST',
             headers: {
@@ -349,7 +528,9 @@ export const useAppleMusicAuth = () => {
           });
 
           if (!tokenResponse.ok) {
-            throw new Error(`Token exchange failed: ${tokenResponse.status}`);
+            const errorText = await tokenResponse.text();
+            console.error('[useAppleMusicAuth] Token exchange failed:', errorText);
+            throw new Error(`Token exchange failed: ${tokenResponse.status} - ${errorText}`);
           }
 
           const tokens = await tokenResponse.json();
@@ -378,14 +559,22 @@ export const useAppleMusicAuth = () => {
           await fetchUserProfile(accessToken);
 
           console.log('[useAppleMusicAuth] Apple Music login successful');
+          setIsLoading(false);
         } else {
           throw new Error('No authorization code received');
         }
       } else if (result.type === 'cancel') {
         console.log('[useAppleMusicAuth] User cancelled OAuth flow');
         setError('Apple Music login was cancelled');
+        setIsLoading(false);
+      } else if (result.type === 'dismiss') {
+        console.log('[useAppleMusicAuth] OAuth flow was dismissed');
+        setError('Apple Music login was dismissed');
+        setIsLoading(false);
       } else {
-        throw new Error('OAuth flow failed');
+        console.log('[useAppleMusicAuth] OAuth flow failed. Result type:', result.type);
+        setError(`OAuth flow failed: ${result.type}`);
+        setIsLoading(false);
       }
       
     } catch (err: any) {

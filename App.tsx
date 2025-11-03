@@ -134,11 +134,18 @@ export default function App() {
       try {
         // Only restore state on web platform
         if (platform === 'web' && typeof localStorage !== 'undefined') {
-          const savedStateString = localStorage.getItem('NAVIGATION_STATE_V1');
-          const state = savedStateString ? JSON.parse(savedStateString) : undefined;
-
-          if (state !== undefined) {
-            setInitialState(state);
+          try {
+            const savedStateString = localStorage.getItem('NAVIGATION_STATE_V1');
+            if (savedStateString) {
+              const state = JSON.parse(savedStateString);
+              if (state !== undefined && state !== null) {
+                setInitialState(state);
+              }
+            }
+          } catch (parseError) {
+            console.warn('[App] Failed to parse navigation state from localStorage:', parseError);
+            // Clear invalid state
+            localStorage.removeItem('NAVIGATION_STATE_V1');
           }
         }
       } finally {

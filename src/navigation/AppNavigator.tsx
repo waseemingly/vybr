@@ -1185,6 +1185,139 @@ const AppNavigator = () => {
     return <LoadingScreen />; 
   }
 
+  // CRITICAL: Don't show navigation screens if we're in a popup window (OAuth callback)
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    const isInPopup = window.opener !== null && window.opener !== window;
+    const currentPath = window.location.pathname;
+    const isCallbackUrl = currentPath.includes('/callback') || currentPath.includes('apple-music-callback');
+    
+    if (isInPopup || isCallbackUrl) {
+      console.log("[AppNavigator] ⚠️ Detected popup or callback URL, showing minimal UI to allow OAuth to complete");
+      
+      // If we're in a popup on callback URL, send message to opener and close
+      if (isInPopup && isCallbackUrl && typeof window !== 'undefined') {
+        const CallbackHandler = () => {
+          useEffect(() => {
+            const currentUrl = window.location.href;
+            console.log("[AppNavigator] 🔔 Popup callback detected (React component)!");
+            console.log("[AppNavigator] Current URL:", currentUrl);
+            console.log("[AppNavigator] Window opener exists:", !!window.opener);
+            console.log("[AppNavigator] Window opener closed:", window.opener?.closed);
+            console.log("[AppNavigator] Current origin:", window.location.origin);
+            
+            // Check if message was already sent by pre-React script
+            const alreadySent = sessionStorage.getItem('oauth_callback_sent') === 'true';
+            if (alreadySent) {
+              console.log("[AppNavigator] ℹ️ Message already sent by pre-React script");
+            }
+            
+            // Send message to opener window with the callback URL
+            // Try multiple times in case the opener needs a moment
+            let attempts = 0;
+            const maxAttempts = 5;
+            
+            const sendMessage = () => {
+              attempts++;
+              console.log(`[AppNavigator] Attempt ${attempts} to send message to opener...`);
+              
+              if (window.opener && !window.opener.closed) {
+                try {
+                  const message = { 
+                    type: 'oauthCallback', 
+                    url: currentUrl 
+                  };
+                  
+                  // Try sending to both possible origins (in case main window is on different origin)
+                  const currentOrigin = window.location.origin;
+                  const possibleOrigins = [
+                    currentOrigin,
+                    currentOrigin.replace('https://', 'http://'), // If main window is on http
+                    currentOrigin.replace('http://', 'https://'), // If main window is on https
+                    '*' // Fallback - less secure but allows cross-origin (development only)
+                  ];
+                  
+                  console.log("[AppNavigator] 📤 Sending message:", message);
+                  console.log("[AppNavigator] Trying origins:", possibleOrigins);
+                  
+                  // Try each origin until one works
+                  let messageSent = false;
+                  for (const targetOrigin of possibleOrigins) {
+                    try {
+                      window.opener.postMessage(message, targetOrigin);
+                      console.log("[AppNavigator] ✅ Message sent to origin:", targetOrigin);
+                      messageSent = true;
+                      break;
+                    } catch (error) {
+                      console.log("[AppNavigator] ⚠️ Failed to send to origin:", targetOrigin, error);
+                    }
+                  }
+                  
+                  if (!messageSent) {
+                    // Last resort: send to any origin (development only)
+                    try {
+                      window.opener.postMessage(message, '*');
+                      console.log("[AppNavigator] ✅ Message sent with wildcard origin (development mode)");
+                    } catch (error) {
+                      console.error("[AppNavigator] ❌ Failed to send message to any origin:", error);
+                    }
+                  }
+                  console.log("[AppNavigator] ✅ Message sent successfully!");
+                  
+                  // Wait a moment before closing to ensure message is processed
+                  setTimeout(() => {
+                    console.log("[AppNavigator] Closing popup window");
+                    try {
+                      window.close();
+                    } catch (closeError) {
+                      console.error("[AppNavigator] Error closing popup:", closeError);
+                    }
+                  }, 1000); // Increased delay to ensure message is received
+                  
+                  return true; // Success
+                } catch (error) {
+                  console.error("[AppNavigator] ❌ Error sending message to opener:", error);
+                  if (attempts < maxAttempts) {
+                    setTimeout(sendMessage, 200);
+                  }
+                  return false;
+                }
+              } else {
+                console.warn("[AppNavigator] ⚠️ No opener window or opener is closed");
+                if (attempts < maxAttempts) {
+                  setTimeout(sendMessage, 200);
+                }
+                return false;
+              }
+            };
+            
+            // Start sending immediately, then retry if needed
+            if (!sendMessage()) {
+              // If first attempt failed, try again after a short delay
+              setTimeout(sendMessage, 100);
+            }
+          }, []);
+          
+          return (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+              <ActivityIndicator size="large" color="#3B82F6" />
+              <Text style={{ marginTop: 16, color: '#666' }}>Completing authentication...</Text>
+            </View>
+          );
+        };
+        
+        return <CallbackHandler />;
+      }
+      
+      // Return a minimal component that doesn't trigger navigation
+      return (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+          <ActivityIndicator size="large" color="#3B82F6" />
+          <Text style={{ marginTop: 16, color: '#666' }}>Completing authentication...</Text>
+        </View>
+      );
+    }
+  }
+
   return (
       <RootStack.Navigator screenOptions={{ headerShown: false, title: undefined }} >
         {!session ? (

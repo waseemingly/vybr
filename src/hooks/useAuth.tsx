@@ -853,6 +853,36 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             // --- Navigation logic --- 
             // Check if navigator is ready before attempting reset
             if (navigationRef.current?.isReady()) {
+                // CRITICAL: Don't navigate if we're in a popup window (OAuth callback in popup)
+                if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                    // Check if we're in a popup window (opened by WebBrowser.openAuthSessionAsync)
+                    const isInPopup = window.opener !== null && window.opener !== window;
+                    
+                    if (isInPopup) {
+                        console.log("[AuthProvider] ⚠️ Detected popup window, skipping ALL navigation to allow OAuth callback to complete");
+                        return; // Exit early - don't navigate in popup at all
+                    }
+                    
+                    // Don't navigate if we're on a callback URL (OAuth callback routes)
+                    const currentPath = window.location.pathname;
+                    if (currentPath.includes('/callback') || currentPath.includes('apple-music-callback')) {
+                        console.log("[AuthProvider] ⚠️ Detected OAuth callback URL, skipping navigation");
+                        return; // Exit early - don't navigate on callback URLs
+                    }
+                    
+                    // Don't navigate if user is already on signup flow (prevents redirect to landing)
+                    if (currentPath.includes('MusicLoverSignUpFlow') || currentPath.includes('OrganizerSignUpFlow')) {
+                        console.log("[AuthProvider] ⚠️ User is already on signup flow, skipping navigation to prevent redirect");
+                        return; // Exit early - user is already where they need to be
+                    }
+                }
+                
+                // CRITICAL: Don't navigate if manual auth is in progress (user is actively signing up)
+                if (isManualAuthInProgress.current) {
+                    console.log("[AuthProvider] ⚠️ Manual auth in progress, skipping navigation to prevent interrupting signup flow");
+                    return; // Exit early to prevent navigation
+                }
+                
                 if (options?.navigateToProfile && currentSession) {
                     // IMPROVED: More reliable profile completion check
                     const profileComplete = userType === 'music_lover'
@@ -934,6 +964,35 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 // Still update the session state, but don't navigate
                 checkSession({ navigateToProfile: false });
                 return;
+            }
+            
+            // CRITICAL: Don't navigate if user is on signup flow (OAuth callbacks should not redirect)
+            // CRITICAL: Don't navigate if we're in a popup window (OAuth callback in popup)
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                // Check if we're in a popup window (opened by WebBrowser.openAuthSessionAsync)
+                const isInPopup = window.opener !== null && window.opener !== window;
+                
+                if (isInPopup) {
+                    console.log("[AuthProvider] ⚠️ Detected popup window, skipping navigation to allow OAuth callback to complete");
+                    // Still update session, but don't navigate - let the popup close automatically
+                    checkSession({ navigateToProfile: false });
+                    return;
+                }
+                
+                const currentPath = window.location.pathname;
+                if (currentPath.includes('MusicLoverSignUpFlow') || currentPath.includes('OrganizerSignUpFlow')) {
+                    console.log("[AuthProvider] ⚠️ User is on signup flow, skipping navigation to prevent interrupting OAuth flow");
+                    // Still update session, but don't navigate
+                    checkSession({ navigateToProfile: false });
+                    return;
+                }
+                
+                // Don't navigate if we're on a callback URL (OAuth callback routes)
+                if (currentPath.includes('/callback') || currentPath.includes('apple-music-callback')) {
+                    console.log("[AuthProvider] ⚠️ Detected OAuth callback URL, skipping navigation");
+                    checkSession({ navigateToProfile: false });
+                    return;
+                }
             }
             
             // Simple comparison: re-fetch profile if user ID changes or logs in/out
@@ -1736,7 +1795,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 const { data, error } = await supabase.auth.signInWithOAuth({
                     provider: 'google',
                     options: {
-                        redirectTo: 'https://unmodern-sleeveless-ahmad.ngrok-free.dev',
+                        redirectTo: 'https://unmodern-sleeveless-ahmad.ngrok-free.dev/MusicLoverSignUpFlow',
                         queryParams: {
                             access_type: 'offline',
                             prompt: 'consent',
@@ -1760,6 +1819,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 // and the auth state change will be detected automatically
                 return new Promise((resolve) => {
                     let resolved = false;
+                    let attempts = 0;
+                    const maxAttempts = 60; // 30 seconds max wait time (500ms * 60)
                     
                     console.log('[useAuth] 👂 Setting up auth state listener...');
                     
