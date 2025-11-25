@@ -67,7 +67,9 @@ const linking = {
     Linking.createURL('/'),
     'vybr://',
     'https://vybr.app',
-    'https://fqfgueshwuhpckszyrsj.supabase.co/auth/v1/callback'
+    'https://fqfgueshwuhpckszyrsj.supabase.co/auth/v1/callback',
+    // Add ngrok URL for Apple Music HTTPS requirement
+    'https://unmodern-sleeveless-ahmad.ngrok-free.dev'
   ],
   config: {
     screens: {

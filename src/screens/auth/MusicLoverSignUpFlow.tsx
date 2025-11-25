@@ -12,6 +12,7 @@ import { Feather } from '@expo/vector-icons'; // Keep Feather for other icons
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/useAuth'; // Adjust import path as needed
 import { useSpotifyAuth } from '@/hooks/useSpotifyAuth'; // Spotify auth hook
+import { useAppleMusicAuth } from '@/hooks/useAppleMusicAuth'; // Apple Music auth hook
 import { APP_CONSTANTS } from '@/config/constants'; // Assuming path is correct
 import { supabase } from '@/lib/supabase'; // Add supabase import
 import * as ImagePicker from 'expo-image-picker';
@@ -159,6 +160,16 @@ const MusicLoverSignUpFlow = () => {
         forceFetchAndSaveSpotifyData,
         verifyAuthorizationCompleted
     } = useSpotifyAuth();
+    
+    // Apple Music auth hook
+    const {
+        login: appleMusicLogin,
+        isLoggedIn: isAppleMusicLoggedIn,
+        isLoading: isAppleMusicLoading,
+        error: appleMusicError,
+        forceFetchAndSaveAppleMusicData,
+        verifyAuthorizationCompleted: verifyAppleMusicAuthorizationCompleted
+    } = useAppleMusicAuth();
     
     // --- Update initial state ---
     const [formData, setFormData] = useState<MusicLoverFormData>({
@@ -893,19 +904,30 @@ const MusicLoverSignUpFlow = () => {
             }
 
             // Fetch streaming data if applicable
-            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None' && isSpotifyLoggedIn) {
-                console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
-                try {
-                    await forceFetchAndSaveSpotifyData(userId, false);
-                    console.log('[MusicLoverSignUpFlow] ✅ Spotify data fetched successfully');
-                } catch (spotifyError) {
-                    console.error('[MusicLoverSignUpFlow] ❌ Error fetching Spotify data:', spotifyError);
+            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None') {
+                if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
+                    console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
+                    try {
+                        await forceFetchAndSaveSpotifyData(userId, false);
+                        console.log('[MusicLoverSignUpFlow] ✅ Spotify data fetched successfully');
+                    } catch (spotifyError) {
+                        console.error('[MusicLoverSignUpFlow] ❌ Error fetching Spotify data:', spotifyError);
+                    }
+                } else if (formData.selectedStreamingService === 'apple_music' && isAppleMusicLoggedIn) {
+                    console.log('[MusicLoverSignUpFlow] 🎵 Fetching Apple Music data...');
+                    try {
+                        await forceFetchAndSaveAppleMusicData(userId, false);
+                        console.log('[MusicLoverSignUpFlow] ✅ Apple Music data fetched successfully');
+                    } catch (appleMusicError) {
+                        console.error('[MusicLoverSignUpFlow] ❌ Error fetching Apple Music data:', appleMusicError);
+                    }
+                } else {
+                    console.log('[MusicLoverSignUpFlow] ⏭️ Skipping streaming data fetch:', {
+                        selectedStreamingService: formData.selectedStreamingService,
+                        isSpotifyLoggedIn: isSpotifyLoggedIn,
+                        isAppleMusicLoggedIn: isAppleMusicLoggedIn
+                    });
                 }
-            } else {
-                console.log('[MusicLoverSignUpFlow] ⏭️ Skipping Spotify data fetch:', {
-                    selectedStreamingService: formData.selectedStreamingService,
-                    isSpotifyLoggedIn: isSpotifyLoggedIn
-                });
             }
 
             // Success - navigate to home/dashboard
@@ -1360,6 +1382,11 @@ const MusicLoverSignUpFlow = () => {
             // Existing Spotify login logic remains
             console.log('[SignUpFlow] Spotify selected. Initiating login...');
             spotifyLogin(); 
+        } else if (serviceId === 'apple_music') {
+            // Apple Music login logic
+            console.log('[SignUpFlow] Apple Music selected. Initiating login...');
+            console.log('[SignUpFlow] Apple Music hook state:', { isAppleMusicLoggedIn, isAppleMusicLoading, appleMusicError });
+            appleMusicLogin();
         } else if (serviceId === 'youtubemusic') {
             // YouTube Music selected - NO LONGER triggers UI connection
             // The user just selects it, data is assumed to be synced by the external Python script.
@@ -1378,8 +1405,9 @@ const MusicLoverSignUpFlow = () => {
         setFormData(prev => ({ ...prev, subscriptionTier: tier }));
 
         // Show alert about streaming service data limits based on selected service
-        if (formData.selectedStreamingService === 'spotify' || formData.selectedStreamingService === 'youtubemusic') {
-            const serviceName = formData.selectedStreamingService === 'spotify' ? 'Spotify' : 'YouTube Music';
+        if (formData.selectedStreamingService === 'spotify' || formData.selectedStreamingService === 'youtubemusic' || formData.selectedStreamingService === 'apple_music') {
+            const serviceName = formData.selectedStreamingService === 'spotify' ? 'Spotify' : 
+                               formData.selectedStreamingService === 'apple_music' ? 'Apple Music' : 'YouTube Music';
             const message = tier === 'premium'
                 ? `With Premium, you'll get access to your top 5 artists, songs, albums, and genres from ${serviceName}!`
                 : `With Free tier, you'll see your top 3 artists, songs, albums, and genres from ${serviceName}. Upgrade to Premium for top 5!`;
@@ -1415,6 +1443,46 @@ const MusicLoverSignUpFlow = () => {
             console.log('[MusicLoverSignUpFlow] Auto-navigation to subscription prevented due to manual back navigation.');
         }
     }, [isSpotifyLoggedIn, currentStep, formData.selectedStreamingService, verifyAuthorizationCompleted, isManualBackNavigation]);
+
+    // Effect to navigate after successful Apple Music login during signup
+    useEffect(() => {
+        // Check if we are on the correct step, Apple Music is selected, and login just completed
+        // Also prevent auto-navigation if user just navigated back manually
+        if (currentStep === 'streaming-service' && 
+            formData.selectedStreamingService === 'apple_music' && 
+            isAppleMusicLoggedIn && 
+            !isManualBackNavigation) {
+            
+            // Before navigating, verify the authorization was actually completed
+            const verifyAuth = async () => {
+                const isAuthComplete = await verifyAppleMusicAuthorizationCompleted();
+                
+                if (isAuthComplete) {
+                    console.log('[MusicLoverSignUpFlow] Apple Music authorization verified successfully, navigating to subscription step.');
+                    goToNextStep('subscription');
+                } else {
+                    console.log('[MusicLoverSignUpFlow] Apple Music authorization reported but not verified. Waiting for completion.');
+                    // Don't navigate - the user probably hasn't actually completed the authorization yet
+                }
+            };
+            
+            verifyAuth();
+        } else if (isManualBackNavigation) {
+            console.log('[MusicLoverSignUpFlow] Auto-navigation to subscription prevented due to manual back navigation.');
+        }
+    }, [isAppleMusicLoggedIn, currentStep, formData.selectedStreamingService, verifyAppleMusicAuthorizationCompleted, isManualBackNavigation]);
+
+    // Effect to handle Apple Music login errors during signup
+    useEffect(() => {
+        if (currentStep === 'streaming-service' && formData.selectedStreamingService === 'apple_music' && appleMusicError) {
+            console.error('[MusicLoverSignUpFlow] Apple Music login error detected:', appleMusicError);
+            Alert.alert(
+                'Apple Music Connection Error',
+                appleMusicError || 'Failed to connect to Apple Music. Please try again.',
+                [{ text: 'OK' }]
+            );
+        }
+    }, [appleMusicError, currentStep, formData.selectedStreamingService]);
 
     // Effect to handle Spotify login errors during signup
     useEffect(() => {
@@ -1758,19 +1826,30 @@ const MusicLoverSignUpFlow = () => {
             }
 
             // Fetch streaming data if applicable
-            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None' && isSpotifyLoggedIn) {
-                console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
-                try {
-                    await forceFetchAndSaveSpotifyData(userId, false);
-                    console.log('[MusicLoverSignUpFlow] ✅ Spotify data fetched successfully');
-                } catch (spotifyError) {
-                    console.error('[MusicLoverSignUpFlow] ❌ Error fetching Spotify data:', spotifyError);
+            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None') {
+                if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
+                    console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
+                    try {
+                        await forceFetchAndSaveSpotifyData(userId, false);
+                        console.log('[MusicLoverSignUpFlow] ✅ Spotify data fetched successfully');
+                    } catch (spotifyError) {
+                        console.error('[MusicLoverSignUpFlow] ❌ Error fetching Spotify data:', spotifyError);
+                    }
+                } else if (formData.selectedStreamingService === 'apple_music' && isAppleMusicLoggedIn) {
+                    console.log('[MusicLoverSignUpFlow] 🎵 Fetching Apple Music data...');
+                    try {
+                        await forceFetchAndSaveAppleMusicData(userId, false);
+                        console.log('[MusicLoverSignUpFlow] ✅ Apple Music data fetched successfully');
+                    } catch (appleMusicError) {
+                        console.error('[MusicLoverSignUpFlow] ❌ Error fetching Apple Music data:', appleMusicError);
+                    }
+                } else {
+                    console.log('[MusicLoverSignUpFlow] ⏭️ Skipping streaming data fetch:', {
+                        selectedStreamingService: formData.selectedStreamingService,
+                        isSpotifyLoggedIn: isSpotifyLoggedIn,
+                        isAppleMusicLoggedIn: isAppleMusicLoggedIn
+                    });
                 }
-            } else {
-                console.log('[MusicLoverSignUpFlow] ⏭️ Skipping Spotify data fetch:', {
-                    selectedStreamingService: formData.selectedStreamingService,
-                    isSpotifyLoggedIn: isSpotifyLoggedIn
-                });
             }
 
             console.log('[MusicLoverSignUpFlow] 🎉 Free user profile created successfully');
@@ -1795,7 +1874,7 @@ const MusicLoverSignUpFlow = () => {
                 flexWrap: 'wrap', 
                 justifyContent: 'space-between',
                 marginBottom: isWeb ? 24 : 20
-            }}> 
+            }}>
                 {STREAMING_SERVICES.map((service) => (
                     <TouchableOpacity 
                         key={service.id} 
@@ -1958,6 +2037,23 @@ const MusicLoverSignUpFlow = () => {
                 <View style={styles.successMessageContainer}>
                     <FontAwesome name="check-circle" size={20} color="#1DB954" />
                     <Text style={styles.successMessageText}>Successfully connected to Spotify!</Text>
+                </View>
+            )}
+
+            {/* Apple Music specific UI feedback */}
+            {isAppleMusicLoading && formData.selectedStreamingService === 'apple_music' && (
+                <View style={authStyles.loadingContainer}>
+                    <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
+                    <Text style={authStyles.loadingText}>Connecting to Apple Music...</Text>
+                </View>
+            )}
+            {appleMusicError && formData.selectedStreamingService === 'apple_music' && (
+                 <Text style={[authStyles.signupErrorText, { marginTop: 10 }]}>{appleMusicError}</Text>
+            )}
+            {isAppleMusicLoggedIn && formData.selectedStreamingService === 'apple_music' && (
+                <View style={styles.successMessageContainer}>
+                    <FontAwesome name="check-circle" size={20} color="#FA57C1" />
+                    <Text style={styles.successMessageText}>Successfully connected to Apple Music!</Text>
                 </View>
             )}
 
@@ -2198,7 +2294,7 @@ const MusicLoverSignUpFlow = () => {
                                     minHeight: '100%'
                                 }
                             ]}
-                        > 
+                        >
                             {renderCurrentStep()}
                         </Animated.View>
                     </ScrollView>

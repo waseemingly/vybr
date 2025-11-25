@@ -22,10 +22,24 @@ import { MUSIC_MOODS, generateGeminiMoodAnalysisPrompt, SongForMoodAnalysis, Gem
 const SPOTIFY_API_URL = 'https://api.spotify.com/v1';
 // CLIENT_ID and CLIENT_SECRET will be fetched from Supabase
 const AUTH_CALLBACK_SCHEME = 'vybr';
-const REGISTERED_WEB_REDIRECT_URI = 'http://127.0.0.1:19006/callback';
+const REGISTERED_WEB_REDIRECT_URI_LOCALHOST = 'http://127.0.0.1:19006/callback';
+const REGISTERED_WEB_REDIRECT_URI_NGROK = 'https://unmodern-sleeveless-ahmad.ngrok-free.dev/callback';
+
+// Get the appropriate redirect URI based on current origin
+const getSpotifyRedirectUri = (): string => {
+  if (typeof window !== 'undefined' && window.location) {
+    const origin = window.location.origin;
+    // If accessing via ngrok, use ngrok callback URL
+    if (origin.includes('ngrok-free.dev') || origin.includes('ngrok.io')) {
+      return REGISTERED_WEB_REDIRECT_URI_NGROK;
+    }
+  }
+  // Default to localhost
+  return REGISTERED_WEB_REDIRECT_URI_LOCALHOST;
+};
 
 // For Web, use the explicit redirect URI. For native, AuthSession will generate one.
-const explicitWebRedirectUri = REGISTERED_WEB_REDIRECT_URI || 
+const explicitWebRedirectUri = getSpotifyRedirectUri() || 
                         `${AUTH_CALLBACK_SCHEME}://spotify-auth-callback`;
 
 const discovery = {
@@ -113,13 +127,25 @@ export const useSpotifyAuth = () => {
     fetchSpotifyCredentials();
   }, []);
 
-  // Determine the redirect URI based on the platform
+  // Determine the redirect URI based on the platform and current origin
   const redirectUri = Platform.select({
-    web: REGISTERED_WEB_REDIRECT_URI, // Always use the registered URI for web
+    web: getSpotifyRedirectUri(), // Use dynamic redirect URI based on current origin
     default: AuthSession.makeRedirectUri({
       native: `${AUTH_CALLBACK_SCHEME}://spotify-auth-callback`,
     }),
   });
+  
+  // Store original origin before auth (for redirecting back after callback)
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const originalOrigin = window.location.origin;
+      // Only store if we're on ngrok (to redirect back after callback)
+      if (originalOrigin.includes('ngrok-free.dev') || originalOrigin.includes('ngrok.io')) {
+        sessionStorage.setItem('spotify_original_origin', originalOrigin);
+        console.log('[useSpotifyAuth] Stored original origin for redirect:', originalOrigin);
+      }
+    }
+  }, []);
 
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
@@ -183,21 +209,60 @@ export const useSpotifyAuth = () => {
       if (response.type === 'error') {
         setError(response.error?.message || response.params.error_description || 'Authentication error');
         setIsLoading(false);
+        // Redirect back to ngrok if we came from there
+        redirectBackToOriginalOrigin();
       } else if (response.type === 'success') {
         const { code } = response.params;
         if (code) {
           console.log(`[useSpotifyAuth] AuthSession success, obtained code: ${code}`);
-          exchangeCodeForToken(code);
+          exchangeCodeForToken(code).then(() => {
+            // After successful token exchange, redirect back to ngrok if needed
+            // Small delay to ensure state is fully updated
+            setTimeout(() => {
+              redirectBackToOriginalOrigin();
+            }, 1000);
+          }).catch((err) => {
+            console.error('[useSpotifyAuth] Token exchange error:', err);
+            // Even on error, try to redirect back
+            redirectBackToOriginalOrigin();
+          });
         } else {
           setError('Authentication successful but no code received.');
           setIsLoading(false);
+          redirectBackToOriginalOrigin();
         }
       } else if (response.type === 'cancel' || response.type === 'dismiss') {
         setError('Authentication cancelled or dismissed.');
         setIsLoading(false);
+        redirectBackToOriginalOrigin();
       }
     }
   }, [response]);
+  
+  // Function to redirect back to original origin (ngrok) after callback
+  const redirectBackToOriginalOrigin = () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const originalOrigin = sessionStorage.getItem('spotify_original_origin');
+      const currentOrigin = window.location.origin;
+      
+      // If we stored an ngrok origin and we're currently on localhost, redirect back
+      if (originalOrigin && 
+          (originalOrigin.includes('ngrok-free.dev') || originalOrigin.includes('ngrok.io')) && 
+          (currentOrigin.includes('127.0.0.1') || currentOrigin.includes('localhost'))) {
+        const currentPath = window.location.pathname;
+        const searchParams = window.location.search;
+        const hash = window.location.hash;
+        // Preserve the current path and any query params/hash
+        const redirectUrl = `${originalOrigin}${currentPath}${searchParams}${hash}`;
+        console.log('[useSpotifyAuth] Redirecting back to ngrok:', redirectUrl);
+        // Redirect immediately (state should be updated by now)
+        window.location.href = redirectUrl;
+      } else {
+        // Clean up sessionStorage if not needed
+        sessionStorage.removeItem('spotify_original_origin');
+      }
+    }
+  };
 
   // Function to exchange authorization code for tokens
   const exchangeCodeForToken = async (code: string) => {

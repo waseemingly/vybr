@@ -43,6 +43,12 @@
       ]
     },
     "web": {
+      "bundler": "metro",
+      "build": {
+        "babel": {
+          "include": ["@expo/metro-runtime"]
+        }
+      }
     },
     "scheme": "vybr",
     "plugins": [

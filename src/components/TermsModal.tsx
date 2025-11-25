@@ -26,7 +26,6 @@ const TermsModal: React.FC<TermsModalProps> = ({
     termsText,
     title = "Terms & Conditions",
 }) => {
-    console.log('TermsModal termsText:', termsText);
     return (
         <Modal
             animationType="slide"

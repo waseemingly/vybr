@@ -76,6 +76,10 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const networkStateRef = useRef(true);
     const networkSubscriptionRef = useRef<any>(null);
 
+    // Define supabaseUrl and supabaseKey here if not globally available
+    const supabaseUrl = process.env.SUPABASE_URL || 'https://fqfgueshwuhpckszyrsj.supabase.co';
+    const supabaseKey = process.env.SUPABASE_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+
     const updateUserStatus = async (userId: string, isOnline: boolean) => {
         // Add a guard to prevent calling the function with an invalid userId
         if (!userId || typeof userId !== 'string' || userId.trim() === '') {
@@ -91,11 +95,32 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
         
         try {
-            await supabase.functions.invoke('update-user-status', {
-                body: { userId, isOnline },
+            // Check for session/token before making the request
+            const { data: sessionData } = await supabase.auth.getSession();
+            const token = sessionData?.session?.access_token;
+
+            // Use fetch directly to bypass invoke's error handling and get the response body
+            const response = await fetch(`${supabaseUrl}/functions/v1/update-user-status`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': token ? `Bearer ${token}` : `Bearer ${supabaseKey}`,
+                    'apikey': supabaseKey || '',
+                },
+                body: JSON.stringify({ userId, isOnline }),
             });
-        } catch (error) {
-            console.error('Error updating user status:', error);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`[RealtimeContext] Error response from update-user-status (${response.status}):`, errorText);
+            } else {
+                // console.log('[RealtimeContext] User status updated successfully');
+            }
+        } catch (error: any) {
+            console.error('[RealtimeContext] Exception updating user status:', error);
+            if (error && typeof error === 'object') {
+                 console.error('[RealtimeContext] Exception details:', JSON.stringify(error, null, 2));
+            }
         }
     };
 

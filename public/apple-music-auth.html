@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Apple Music Auth</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://js-cdn.music.apple.com/musickit/v1/musickit.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f7;
+        }
+        .container {
+            text-align: center;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            max-width: 400px;
+            width: 90%;
+        }
+        h1 { margin-bottom: 24px; font-size: 24px; }
+        button {
+            background-color: #fa2d48;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        button:hover { background-color: #d61e3c; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        .error { color: red; margin-top: 16px; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Connect Apple Music</h1>
+        <p id="status">Initializing...</p>
+        <button id="authBtn" style="display: none;">Sign In</button>
+        <div id="error" class="error"></div>
+    </div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const devToken = params.get('devToken');
+        const statusEl = document.getElementById('status');
+        const authBtn = document.getElementById('authBtn');
+        const errorEl = document.getElementById('error');
+
+        if (!devToken) {
+            statusEl.textContent = 'Error: Missing developer token';
+            errorEl.textContent = 'Please close this window and try again.';
+        } else {
+            document.addEventListener('musickitloaded', async () => {
+                try {
+                    await MusicKit.configure({
+                        developerToken: devToken,
+                        app: {
+                            name: 'Vybr',
+                            build: '1.0.0'
+                        }
+                    });
+                    
+                    const music = MusicKit.getInstance();
+                    statusEl.textContent = 'Ready to connect';
+                    authBtn.style.display = 'inline-block';
+                    
+                    authBtn.addEventListener('click', async () => {
+                        try {
+                            authBtn.disabled = true;
+                            statusEl.textContent = 'Connecting...';
+                            
+                            const token = await music.authorize();
+                            
+                            if (token) {
+                                statusEl.textContent = 'Success! Redirecting...';
+                                // Send token back to opener
+                                if (window.opener) {
+                                    window.opener.postMessage({
+                                        type: 'APPLE_MUSIC_AUTH_SUCCESS',
+                                        token: token
+                                    }, '*');
+                                    setTimeout(() => window.close(), 1000);
+                                } else {
+                                    statusEl.textContent = 'Auth successful, but cannot return to app. Copy this token: ' + token.substring(0, 20) + '...';
+                                }
+                            } else {
+                                throw new Error('No token received');
+                            }
+                        } catch (err) {
+                            console.error(err);
+                            errorEl.textContent = 'Auth failed: ' + err.message;
+                            authBtn.disabled = false;
+                            statusEl.textContent = 'Please try again';
+                        }
+                    });
+                    
+                } catch (err) {
+                    console.error(err);
+                    statusEl.textContent = 'Configuration failed';
+                    errorEl.textContent = err.message;
+                }
+            });
+        }
+    </script>
+</body>
+</html>

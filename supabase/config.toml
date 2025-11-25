@@ -10,6 +10,8 @@ entrypoint = "./functions/get-matches-v2/index.ts"
 # static_files = [ "./functions/get-matches-v2/*.html" ]
 
 [functions.report-monthly-impression-usage]
-cron = "0 0 1 * *"
 verify_jwt = false
 import_map = "./functions/import_map.json"
+
+[db]
+major_version = 15
