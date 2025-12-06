@@ -13,8 +13,48 @@
 
           <body>
             <div id="root"></div>
-            <!-- MusicKit JS will be loaded in a separate popup to avoid conflicts -->
-            <!-- <script src="https://js-cdn.music.apple.com/musickit/v1/musickit.js" crossorigin="anonymous"></script> -->
+            <!-- Setup polyfills for MusicKit BEFORE loading it -->
+            <script>
+              console.log('[HTML] Setting up MusicKit polyfills...');
+              
+              // Add module polyfills for MusicKit's CommonJS dependencies
+              window.module = { exports: {} };
+              window.exports = window.module.exports;
+              window.global = window;
+              
+              // Add process polyfill
+              window.process = {
+                env: {},
+                version: '',
+                versions: { node: '16.0.0' },
+                platform: 'browser',
+                browser: true,
+                nextTick: function(fn) { setTimeout(fn, 0); },
+                cwd: function() { return '/'; },
+                chdir: function() {},
+                umask: function() { return 0; }
+              };
+              
+              // Mock require
+              window.require = function(module) {
+                console.log('[HTML] Mock require:', module);
+                return {};
+              };
+              window.require.resolve = function(module) { return module; };
+              
+              console.log('[HTML] Polyfills ready');
+            </script>
+            <!-- Load MusicKit JS after polyfills -->
+            <script src="https://js-cdn.music.apple.com/musickit/v1/musickit.js" crossorigin="anonymous"></script>
+            <script>
+              // Verify MusicKit loaded
+              console.log('[HTML] MusicKit loaded:', typeof window.MusicKit !== 'undefined');
+              if (window.MusicKit) {
+                console.log('[HTML] MusicKit.configure exists:', typeof window.MusicKit.configure === 'function');
+              } else {
+                console.error('[HTML] MusicKit failed to load!');
+              }
+            </script>
             <!-- IMPORTANT: DO NOT REMOVE THIS SCRIPT TAG OR THIS VERY COMMENT! -->
             <script src="https://cdn.gpteng.co/gptengineer.js" type="module"></script>
             <script type="module" src="/src/main.tsx"></script>

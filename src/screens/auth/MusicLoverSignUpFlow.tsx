@@ -7,7 +7,7 @@ import {
 import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 // Import specific icon sets from @expo/vector-icons
-import { FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
+import { FontAwesome } from '@expo/vector-icons';
 import { Feather } from '@expo/vector-icons'; // Keep Feather for other icons
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/useAuth'; // Adjust import path as needed
@@ -36,14 +36,13 @@ const isWeb = Platform.OS === 'web';
 // Step types
 type Step = 'username' | 'profile-details' | 'streaming-service' | 'subscription';
 type SubscriptionTier = 'free' | 'premium' | '';
-type StreamingServiceId = 'spotify' | 'apple_music' | 'youtubemusic' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | ''; // Updated 'youtube_music' to 'youtubemusic'
+type StreamingServiceId = 'spotify' | 'apple_music' | 'youtubemusic' | 'soundcloud' | 'tidal' | 'None' | ''; // Updated 'youtube_music' to 'youtubemusic'
 
 // Define Streaming Services Data - UPDATED with correct service IDs
 const STREAMING_SERVICES = [
     { id: 'spotify', name: 'Spotify', icon: 'spotify', color: '#1DB954', iconSet: 'FontAwesome', description: 'Browser authentication required' },
     { id: 'apple_music', name: 'Apple Music', icon: 'apple', color: '#FA57C1', iconSet: 'FontAwesome', description: 'Connect your Apple Music' },
     { id: 'youtubemusic', name: 'YouTube Music', icon: 'youtube-play', color: '#FF0000', iconSet: 'FontAwesome', description: 'Data synced externally' }, // Updated description
-    { id: 'deezer', name: 'Deezer', icon: 'deezer', color: '#EF5466', iconSet: 'MaterialCommunityIcons', description: 'Connect your Deezer account' },
     { id: 'soundcloud', name: 'SoundCloud', icon: 'soundcloud', color: '#FF5500', iconSet: 'FontAwesome', description: 'Connect to SoundCloud' },
     { id: 'tidal', name: 'Tidal', icon: 'headphones', color: '#000000', iconSet: 'Feather', description: 'Connect your Tidal account' },
 ];
@@ -1916,9 +1915,6 @@ const MusicLoverSignUpFlow = () => {
                         }]}>
                             {service.iconSet === 'FontAwesome' && (
                                 <FontAwesome name={service.icon as any} size={28} color="#FFF" />
-                            )}
-                            {service.iconSet === 'MaterialCommunityIcons' && (
-                                <MaterialCommunityIcons name={service.icon as any} size={28} color="#FFF" />
                             )}
                             {service.iconSet === 'Feather' && (
                                 <Feather name={service.icon as any} size={28} color="#FFF" />

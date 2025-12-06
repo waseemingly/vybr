@@ -26,6 +26,13 @@ config.resolver.resolveRequest = (context, moduleName, platform, realModuleName)
         type: 'sourceFile',
       };
     }
+    if (moduleName === 'vybr-apple-music') {
+      // For web, use the web implementation
+      return {
+        filePath: require.resolve('./modules/vybr-apple-music/index.web.ts'),
+        type: 'sourceFile',
+      };
+    }
   } else {
     // For mobile platforms (iOS/Android), exclude web-specific modules
     if (moduleName === '@powersync/web') {

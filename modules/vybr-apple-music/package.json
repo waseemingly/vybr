@@ -1,0 +1,27 @@
+{
+  "name": "vybr-apple-music",
+  "version": "2.0.0",
+  "description": "A unified Expo module for Apple Music integration on Web and iOS",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": {
+    ".": {
+      "web": "./index.web.ts",
+      "default": "./index.ts"
+    }
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "apple-music",
+    "musickit",
+    "ios",
+    "web",
+    "streaming"
+  ],
+  "dependencies": {
+    "expo-modules-core": "*"
+  },
+  "author": "Vybr Team",
+  "license": "MIT"
+}

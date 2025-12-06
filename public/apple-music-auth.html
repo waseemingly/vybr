@@ -1,116 +1,917 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Apple Music Auth</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="https://js-cdn.music.apple.com/musickit/v1/musickit.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in with Apple Music</title>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
-            background-color: #f5f5f7;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
         }
         .container {
             text-align: center;
-            background: white;
-            padding: 40px;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            padding: 2rem;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
             max-width: 400px;
-            width: 90%;
         }
-        h1 { margin-bottom: 24px; font-size: 24px; }
-        button {
-            background-color: #fa2d48;
+        h1 {
+            margin: 0 0 1rem 0;
+            font-size: 1.5rem;
+        }
+        .status {
+            margin: 1rem 0;
+            padding: 0.75rem;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .error {
+            background: rgba(255, 0, 0, 0.3);
+            color: #ffcccc;
+        }
+        .success {
+            background: rgba(0, 255, 0, 0.3);
+            color: #ccffcc;
+        }
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid white;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 1rem auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .sign-in-btn {
+            background: linear-gradient(135deg, #fa2d48 0%, #fc3c5c 100%);
             color: white;
             border: none;
-            padding: 12px 24px;
-            border-radius: 6px;
-            font-size: 16px;
+            padding: 16px 48px;
+            font-size: 18px;
+            font-weight: 600;
+            border-radius: 12px;
             cursor: pointer;
-            transition: background-color 0.2s;
+            margin-top: 1rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 15px rgba(250, 45, 72, 0.4);
         }
-        button:hover { background-color: #d61e3c; }
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
-        .error { color: red; margin-top: 16px; font-size: 14px; }
+        .sign-in-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(250, 45, 72, 0.5);
+        }
+        .sign-in-btn:active {
+            transform: translateY(0);
+        }
+        .sign-in-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .hidden {
+            display: none;
+        }
+        .apple-logo {
+            width: 60px;
+            height: 60px;
+            margin-bottom: 1rem;
+        }
+        .retry-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 1rem;
+            transition: all 0.2s;
+        }
+        .retry-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.7);
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Connect Apple Music</h1>
-        <p id="status">Initializing...</p>
-        <button id="authBtn" style="display: none;">Sign In</button>
-        <div id="error" class="error"></div>
+        <!-- Apple Music Icon -->
+        <svg class="apple-logo" viewBox="0 0 24 24" fill="white">
+            <path d="M23.994 6.124a9.23 9.23 0 00-.24-2.19c-.317-1.31-1.062-2.31-2.18-3.043a5.022 5.022 0 00-1.877-.726 10.496 10.496 0 00-1.564-.15c-.04-.003-.083-.01-.124-.013H5.986c-.152.01-.303.017-.455.026-.747.043-1.49.123-2.193.4-1.336.53-2.3 1.452-2.865 2.78-.192.448-.292.925-.363 1.408-.056.392-.088.785-.1 1.18 0 .032-.007.062-.01.093v12.223c.01.14.017.283.027.424.05.815.154 1.624.497 2.373.65 1.42 1.738 2.353 3.234 2.8.42.127.856.187 1.293.228.555.053 1.11.06 1.667.06h11.03c.525 0 1.048-.034 1.57-.1.823-.106 1.597-.35 2.296-.81.84-.553 1.472-1.287 1.88-2.208.186-.42.293-.87.37-1.324.113-.675.138-1.358.137-2.04-.002-3.8 0-7.595-.003-11.393zm-6.423 3.99v5.712c0 .417-.058.827-.244 1.206-.29.59-.76.962-1.388 1.14-.35.1-.706.157-1.07.173-.95.042-1.785-.47-2.106-1.34-.296-.804-.064-1.78.876-2.308.503-.283 1.06-.43 1.635-.525.38-.063.763-.104 1.143-.164.267-.042.442-.2.473-.47.005-.045.007-.09.007-.134V9.834c0-.17-.05-.3-.2-.37-.16-.07-.32-.03-.48.01l-4.67 1.14c-.09.02-.18.05-.27.08-.15.06-.23.18-.24.35v6.87c.01.36-.03.71-.15 1.05-.2.57-.56 1.01-1.1 1.28-.38.19-.79.3-1.21.35-.93.11-1.87-.35-2.33-1.18-.46-.84-.29-1.93.53-2.58.46-.37 1-.58 1.58-.69.46-.09.93-.15 1.39-.22.3-.05.49-.2.54-.51.01-.07.01-.14.01-.21V7.117c0-.14.03-.27.1-.39.1-.18.26-.29.46-.34l6.44-1.58c.2-.05.4-.09.61-.09.33 0 .56.19.6.53.01.1.01.2.01.3-.01 1.52-.01 3.04-.01 4.56z"/>
+        </svg>
+        <h1>Sign in with Apple Music</h1>
+        
+        <div id="status" class="status">
+            <div class="spinner"></div>
+            <p>Loading...</p>
+        </div>
+        
+        <button id="signInBtn" class="sign-in-btn hidden">
+            Continue with Apple ID
+        </button>
+        <button id="retryBtn" class="retry-btn hidden">
+            Get Fresh Token & Retry
+        </button>
     </div>
 
-    <script>
-        const params = new URLSearchParams(window.location.search);
-        const devToken = params.get('devToken');
-        const statusEl = document.getElementById('status');
-        const authBtn = document.getElementById('authBtn');
-        const errorEl = document.getElementById('error');
+    <!-- MusicKit JS v3 - Following official Apple documentation -->
+    <script 
+        src="https://js-cdn.music.apple.com/musickit/v3/musickit.js" 
+        async
+        crossorigin="anonymous"
+    ></script>
 
-        if (!devToken) {
-            statusEl.textContent = 'Error: Missing developer token';
-            errorEl.textContent = 'Please close this window and try again.';
-        } else {
-            document.addEventListener('musickitloaded', async () => {
+    <script>
+        (function() {
+            // Forward all console logs to parent window for debugging
+            const originalConsole = {
+                log: console.log.bind(console),
+                error: console.error.bind(console),
+                warn: console.warn.bind(console),
+                info: console.info.bind(console),
+                debug: console.debug.bind(console)
+            };
+            
+            function forwardToParent(level, ...args) {
+                // Call original console method
+                originalConsole[level](...args);
+                
+                // Forward to parent window if it exists
+                if (window.opener && !window.opener.closed) {
+                    try {
+                        // Convert arguments to strings for serialization
+                        const message = args.map(arg => {
+                            if (typeof arg === 'object') {
+                                try {
+                                    return JSON.stringify(arg, null, 2);
+                                } catch (e) {
+                                    return String(arg);
+                                }
+                            }
+                            return String(arg);
+                        }).join(' ');
+                        
+                        window.opener.postMessage({
+                            type: 'APPLE_MUSIC_AUTH_CONSOLE',
+                            level: level,
+                            message: message,
+                            timestamp: new Date().toISOString()
+                        }, '*');
+                    } catch (e) {
+                        // Silently fail if postMessage fails
+                    }
+                }
+            }
+            
+            // Override console methods
+            console.log = (...args) => forwardToParent('log', ...args);
+            console.error = (...args) => forwardToParent('error', ...args);
+            console.warn = (...args) => forwardToParent('warn', ...args);
+            console.info = (...args) => forwardToParent('info', ...args);
+            console.debug = (...args) => forwardToParent('debug', ...args);
+            
+            const statusEl = document.getElementById('status');
+            const signInBtn = document.getElementById('signInBtn');
+            const retryBtn = document.getElementById('retryBtn');
+            let musicInstance = null;
+            
+            function updateStatus(message, isError = false, isSuccess = false) {
+                statusEl.className = 'status' + (isError ? ' error' : '') + (isSuccess ? ' success' : '');
+                statusEl.innerHTML = isError || isSuccess 
+                    ? `<p>${message}</p>`
+                    : `<div class="spinner"></div><p>${message}</p>`;
+            }
+            
+            function showSignInButton() {
+                statusEl.innerHTML = '<p>Click below to sign in with your Apple ID</p>';
+                signInBtn.classList.remove('hidden');
+            }
+            
+            function hideSignInButton() {
+                signInBtn.classList.add('hidden');
+            }
+            
+            function showRetryButton() {
+                retryBtn.classList.remove('hidden');
+            }
+            
+            function hideRetryButton() {
+                retryBtn.classList.add('hidden');
+            }
+            
+            // Handle retry button - ask parent to refresh token and retry
+            retryBtn.addEventListener('click', function() {
+                if (window.opener) {
+                    window.opener.postMessage({
+                        type: 'APPLE_MUSIC_AUTH_RETRY',
+                        reason: 'token_expired_or_invalid'
+                    }, '*');
+                }
+                window.close();
+            });
+
+            // Get developer token from URL params
+            const urlParams = new URLSearchParams(window.location.search);
+            const developerToken = urlParams.get('developerToken');
+            
+            if (!developerToken) {
+                updateStatus('Error: Developer token is missing', true);
+                setTimeout(() => {
+                    if (window.opener) {
+                        window.opener.postMessage({ type: 'APPLE_MUSIC_AUTH_ERROR', error: 'Missing developer token' }, '*');
+                    }
+                    window.close();
+                }, 2000);
+                return;
+            }
+
+            // Validate and log token info (without exposing full token)
+            let tokenInfo = null;
+            try {
+                const tokenParts = developerToken.split('.');
+                if (tokenParts.length === 3) {
+                    // Decode JWT payload (second part)
+                    const payload = JSON.parse(atob(tokenParts[1]));
+                    const exp = payload.exp;
+                    const iat = payload.iat;
+                    const now = Math.floor(Date.now() / 1000);
+                    
+                    // Note: Token may be backdated (iat in 2024) but system time is 2025
+                    // So we check if exp is in the future relative to iat, not system time
+                    const tokenLifetime = exp - iat;
+                    const isExpiredRelativeToSystem = exp < now;
+                    const isExpiredRelativeToIssue = exp < iat; // This should never be true
+                    
+                    tokenInfo = {
+                        issuer: payload.iss,
+                        issuedAt: new Date(iat * 1000).toISOString(),
+                        expiresAt: new Date(exp * 1000).toISOString(),
+                        isExpired: isExpiredRelativeToSystem, // For display only - MusicKit will validate
+                        expiresInSeconds: exp - now,
+                        expiresInHours: Math.floor((exp - now) / 3600),
+                        tokenLifetimeDays: Math.floor(tokenLifetime / (24 * 60 * 60))
+                    };
+                    
+                    console.log('[AppleMusic Auth] Developer token info:', tokenInfo);
+                    console.log('[AppleMusic Auth] Token validation note: Token may be backdated. MusicKit will validate against Apple servers.');
+                    
+                    if (isExpiredRelativeToIssue) {
+                        console.error('[AppleMusic Auth] ⚠️ Token is invalid: exp < iat');
+                    } else if (isExpiredRelativeToSystem) {
+                        console.warn('[AppleMusic Auth] ⚠️ Token appears expired relative to system time (may be backdated - MusicKit will validate)', {
+                            expiredAt: tokenInfo.expiresAt,
+                            expiredBy: Math.abs(tokenInfo.expiresInSeconds),
+                            expiredByHours: Math.abs(tokenInfo.expiresInHours)
+                        });
+                        // Don't throw - let MusicKit handle it and provide better error
+                    } else {
+                        console.log('[AppleMusic Auth] ✓ Developer token format is valid', {
+                            expiresIn: tokenInfo.expiresInHours + ' hours',
+                            tokenLifetime: tokenInfo.tokenLifetimeDays + ' days'
+                        });
+                    }
+                } else {
+                    console.warn('[AppleMusic Auth] ⚠️ Token format appears invalid (not a JWT)');
+                }
+            } catch (e) {
+                console.warn('[AppleMusic Auth] Could not decode token for validation:', e);
+                // Don't block - let MusicKit validate it
+            }
+
+            updateStatus('Loading Apple Music...');
+
+            // Handle sign-in button click - MUST be user-initiated for popup to work
+            signInBtn.addEventListener('click', async function() {
+                if (!musicInstance) {
+                    updateStatus('Error: MusicKit not ready', true);
+                    return;
+                }
+                
+                hideSignInButton();
+                updateStatus('Opening Apple sign-in...');
+                
                 try {
-                    await MusicKit.configure({
-                        developerToken: devToken,
+                    // Authorize - this opens Apple's authentication popup
+                    // Because it's triggered by a user click, the browser allows the popup
+                    console.log('[AppleMusic Auth] Calling authorize()...');
+                    console.log('[AppleMusic Auth] MusicKit instance state before authorize:', {
+                        isAuthorized: musicInstance.isAuthorized,
+                        storefrontId: musicInstance.storefrontId,
+                        developerToken: musicInstance.developerToken ? musicInstance.developerToken.substring(0, 50) + '...' : 'not set',
+                        musicKitId: musicInstance.musicKitId || 'not set',
+                        api: {
+                            hasAuthorize: typeof musicInstance.authorize === 'function',
+                            hasGetInstance: typeof MusicKit?.getInstance === 'function'
+                        }
+                    });
+                    
+                    // Log the developer token being used (first 50 chars for security)
+                    if (developerToken) {
+                        const tokenParts = developerToken.split('.');
+                        if (tokenParts.length === 3) {
+                            try {
+                                const header = JSON.parse(atob(tokenParts[0]));
+                                const payload = JSON.parse(atob(tokenParts[1]));
+                                console.log('[AppleMusic Auth] Developer token being used:', {
+                                    header: header,
+                                    payload: {
+                                        iss: payload.iss,
+                                        iat: payload.iat,
+                                        exp: payload.exp,
+                                        iatDate: new Date(payload.iat * 1000).toISOString(),
+                                        expDate: new Date(payload.exp * 1000).toISOString()
+                                    },
+                                    signatureLength: tokenParts[2].length
+                                });
+                            } catch (e) {
+                                console.warn('[AppleMusic Auth] Could not decode token:', e);
+                            }
+                        }
+                    }
+                    
+                    const userToken = await musicInstance.authorize();
+                    
+                    console.log('[AppleMusic Auth] Authorization result:', userToken ? 'Token received' : 'No token');
+                    
+                    if (userToken) {
+                        updateStatus('✅ Successfully signed in!', false, true);
+                        
+                        // Send token back to parent window
+                        if (window.opener) {
+                            window.opener.postMessage({
+                                type: 'APPLE_MUSIC_AUTH_SUCCESS',
+                                token: userToken
+                            }, '*');
+                        }
+                        
+                        // Close popup after a short delay
+                        setTimeout(() => {
+                            window.close();
+                        }, 1500);
+                    } else {
+                        // authorize() can return undefined if user cancels or if there's an issue
+                        // Check authorization status
+                        if (musicInstance.isAuthorized) {
+                            // Authorized but no token returned - try to get it from the instance
+                            const mut = musicInstance.musicUserToken;
+                            if (mut) {
+                                updateStatus('✅ Successfully signed in!', false, true);
+                                if (window.opener) {
+                                    window.opener.postMessage({
+                                        type: 'APPLE_MUSIC_AUTH_SUCCESS',
+                                        token: mut
+                                    }, '*');
+                                }
+                                setTimeout(() => window.close(), 1500);
+                                return;
+                            }
+                        }
+                        throw new Error('Authorization cancelled or failed - no token received');
+                    }
+                } catch (error) {
+                    console.error('[AppleMusic Auth] Authorization error:', error);
+                    console.error('[AppleMusic Auth] Error details:', {
+                        name: error.name,
+                        message: error.message,
+                        stack: error.stack,
+                        code: error.code,
+                        status: error.status,
+                        isAuthorized: musicInstance?.isAuthorized
+                    });
+                    
+                    // Extract detailed error message
+                    let errorMessage = 'Authentication failed';
+                    if (error.message) {
+                        errorMessage = error.message;
+                    } else if (error.status) {
+                        errorMessage = `HTTP ${error.status}: ${error.message || 'Unauthorized'}`;
+                    } else if (error.code) {
+                        errorMessage = `Error ${error.code}: ${error.message || 'Unknown error'}`;
+                    }
+                    
+                    const isCancelled = errorMessage.toLowerCase().includes('cancel') || 
+                                       errorMessage.toLowerCase().includes('denied') ||
+                                       errorMessage.toLowerCase().includes('user') ||
+                                       errorMessage.toLowerCase().includes('authorization cancelled');
+                    
+                    // Check for 403 Forbidden - usually means token signature is invalid or configuration issue
+                    if (error.status === 403 || error.code === 403 || errorMessage.includes('403') || errorMessage.toLowerCase().includes('forbidden')) {
+                        const detailedError = '403 Forbidden: Apple Music API rejected the developer token.\n\n' +
+                            'This error can be caused by several issues:\n\n' +
+                            '🔑 MOST COMMON: Private Key Mismatch\n' +
+                            '   The private key in Supabase does NOT match Key ID: 55272UR5Y5\n' +
+                            '   → Go to Apple Developer Portal -> Keys\n' +
+                            '   → Find key with ID: 55272UR5Y5\n' +
+                            '   → Download the .p8 file\n' +
+                            '   → Copy ENTIRE contents to Supabase: APPLE_MUSIC_PRIVATE_KEY\n' +
+                            '   → Redeploy Edge Function\n\n' +
+                            '🏷️ MusicKit Identifier Issue\n' +
+                            '   Verify "media.com.vybr.musickit" is registered:\n' +
+                            '   → https://developer.apple.com/account/resources/identifiers/list\n' +
+                            '   → Find "media.com.vybr.musickit" identifier\n' +
+                            '   → Ensure MusicKit service is enabled\n' +
+                            '   → Check that the identifier matches exactly\n\n' +
+                            '🌐 Domain Registration Issue\n' +
+                            '   Current domain: ' + window.location.hostname + '\n' +
+                            '   → If using ngrok, the domain may need to be registered\n' +
+                            '   → Some MusicKit configurations require domain whitelisting\n' +
+                            '   → Check Apple Developer Portal for domain requirements\n\n' +
+                            '👤 Team ID Verification\n' +
+                            '   Token shows Team ID: R8UV449WRY\n' +
+                            '   → Verify this matches your Apple Developer account\n' +
+                            '   → Check: https://developer.apple.com/account\n' +
+                            '   → Ensure you have MusicKit API access enabled\n\n' +
+                            '📋 Configuration Checklist:\n' +
+                            '   ✓ APPLE_MUSIC_TEAM_ID = R8UV449WRY\n' +
+                            '   ✓ APPLE_MUSIC_KEY_ID = 55272UR5Y5\n' +
+                            '   ✓ APPLE_MUSIC_PRIVATE_KEY = Complete .p8 file content\n' +
+                            '   ✓ MusicKit identifier registered and enabled\n' +
+                            '   ✓ Edge Function redeployed after secret changes';
+                        
+                        console.error('[AppleMusic Auth] 403 Forbidden Error - Diagnostic Information:');
+                        console.error('==========================================');
+                        console.error('Token Information:');
+                        if (tokenInfo) {
+                            console.error('  Team ID (iss):', tokenInfo.issuer);
+                            console.error('  Key ID (kid): 55272UR5Y5');
+                            console.error('  Expires:', tokenInfo.expiresAt);
+                        }
+                        console.error('Current Configuration:');
+                        console.error('  Domain:', window.location.hostname);
+                        console.error('  MusicKit ID: media.com.vybr.musickit');
+                        console.error('==========================================');
+                        console.error('Most Likely Causes (in order):');
+                        console.error('1. Private key mismatch - Key ID 55272UR5Y5 doesn\'t match the key in Supabase');
+                        console.error('2. MusicKit identifier not registered or disabled');
+                        console.error('3. Domain not whitelisted (if required)');
+                        console.error('4. Team ID mismatch');
+                        console.error('==========================================');
+                        
+                        errorMessage = detailedError;
+                    }
+                    
+                    // Check for specific unauthorized error
+                    if (errorMessage.toLowerCase().includes('unauthorized') || 
+                        error.status === 401 || 
+                        error.code === 401) {
+                        errorMessage = 'Developer token is invalid or expired. Please check your Apple Music API configuration.';
+                    }
+                    
+                    // Check for ERROR_REQUEST_FAILED - common Apple Music error
+                    if (errorMessage.includes('ERROR_REQUEST_FAILED') || 
+                        errorMessage.includes('REQUEST_FAILED')) {
+                        errorMessage = 'Request failed. This usually means:\n' +
+                            '1. Developer token is invalid (check Supabase secrets)\n' +
+                            '2. Domain not registered in Apple Developer Portal\n' +
+                            '3. MusicKit identifier mismatch\n' +
+                            '4. Network/CORS issue\n\n' +
+                            'Check browser console for detailed error information.';
+                    }
+                    
+                    if (isCancelled && !errorMessage.toLowerCase().includes('unauthorized')) {
+                        // User cancelled - show button again and DON'T close
+                        console.log('[AppleMusic Auth] User cancelled authorization. Popup will stay open. Click "Sign in with Apple Music" to try again.');
+                        showSignInButton();
+                        // Don't send error message to parent - user just cancelled
+                        return; // Exit early, don't close popup
+                    } else {
+                        updateStatus('Error: ' + errorMessage, true);
+                        
+                        // Send detailed error information to parent window so it appears in main console
+                        if (window.opener) {
+                            // Send both the user-friendly message and detailed error info
+                            window.opener.postMessage({
+                                type: 'APPLE_MUSIC_AUTH_ERROR',
+                                error: errorMessage,
+                                errorDetails: {
+                                    name: error.name,
+                                    message: error.message,
+                                    code: error.code,
+                                    status: error.status,
+                                    statusCode: error.statusCode,
+                                    errorCode: error.errorCode,
+                                    description: error.description,
+                                    reason: error.reason,
+                                    isAuthorized: musicInstance?.isAuthorized,
+                                    stack: error.stack
+                                }
+                            }, '*');
+                            
+                            // Also log to parent console via postMessage (for debugging)
+                            console.error('[AppleMusic Auth] Sending error to parent window:', {
+                                error: errorMessage,
+                                details: {
+                                    status: error.status,
+                                    code: error.code,
+                                    name: error.name
+                                }
+                            });
+                        }
+                        
+                        // Don't auto-close - let user see the error and close manually
+                        // This helps debug what's actually wrong
+                        console.error('[AppleMusic Auth] ERROR - Popup will NOT auto-close. Please check the error above and close manually.');
+                        // setTimeout(() => {
+                        //     window.close();
+                        // }, 5000); // Give user time to read the error
+                    }
+                }
+            });
+
+            // Monitor network requests to Apple's servers
+            // Intercept fetch
+            const originalFetch = window.fetch;
+            window.fetch = function(...args) {
+                const url = args[0];
+                // Match any Apple Music related domain
+                if (typeof url === 'string' && (
+                    url.includes('music.apple.com') || 
+                    url.includes('api.music.apple.com') ||
+                    url.includes('apple.com') ||
+                    url.includes('musickit')
+                )) {
+                    console.log('[AppleMusic Auth] Network request (fetch) to Apple:', url);
+                    return originalFetch.apply(this, args)
+                        .then(response => {
+                            console.log('[AppleMusic Auth] Apple API response (fetch):', {
+                                url: url,
+                                status: response.status,
+                                statusText: response.statusText,
+                                headers: Object.fromEntries(response.headers.entries())
+                            });
+                            // Clone response to read body without consuming it
+                            const clonedResponse = response.clone();
+                            clonedResponse.text().then(text => {
+                                if (text) {
+                                    try {
+                                        const json = JSON.parse(text);
+                                        console.log('[AppleMusic Auth] Apple API response body (fetch):', json);
+                                    } catch (e) {
+                                        console.log('[AppleMusic Auth] Apple API response body (fetch, text):', text.substring(0, 500));
+                                    }
+                                }
+                            }).catch(() => {});
+                            return response;
+                        })
+                        .catch(error => {
+                            console.error('[AppleMusic Auth] Apple API request failed (fetch):', error);
+                            throw error;
+                        });
+                }
+                return originalFetch.apply(this, args);
+            };
+            
+            // Intercept XMLHttpRequest (MusicKit JS likely uses this)
+            const originalXHROpen = XMLHttpRequest.prototype.open;
+            const originalXHRSend = XMLHttpRequest.prototype.send;
+            const originalXHRSETRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+            
+            XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                this._url = url;
+                this._method = method;
+                this._requestHeaders = {};
+                return originalXHROpen.apply(this, [method, url, ...rest]);
+            };
+            
+            XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+                if (!this._requestHeaders) this._requestHeaders = {};
+                this._requestHeaders[name] = value;
+                return originalXHRSETRequestHeader.apply(this, [name, value]);
+            };
+            
+            XMLHttpRequest.prototype.send = function(...args) {
+                const url = this._url;
+                const method = this._method;
+                
+                // Log ALL XHR requests for debugging (can be removed later)
+                if (typeof url === 'string') {
+                    console.log('[AppleMusic Auth] XHR request:', { method, url: url.substring(0, 100) });
+                }
+                
+                // Match any Apple Music related domain
+                if (typeof url === 'string' && (
+                    url.includes('music.apple.com') || 
+                    url.includes('api.music.apple.com') ||
+                    url.includes('apple.com') ||
+                    url.includes('musickit')
+                )) {
+                    console.log('[AppleMusic Auth] Network request (XHR) to Apple:', {
+                        method: method,
+                        url: url,
+                        headers: this._requestHeaders
+                    });
+                    
+                    // Monitor response
+                    this.addEventListener('load', function() {
+                        console.log('[AppleMusic Auth] Apple API response (XHR):', {
+                            url: url,
+                            method: method,
+                            status: this.status,
+                            statusText: this.statusText,
+                            responseHeaders: this.getAllResponseHeaders()
+                        });
+                        
+                        // Try to read response body
+                        try {
+                            const responseText = this.responseText;
+                            if (responseText) {
+                                try {
+                                    const json = JSON.parse(responseText);
+                                    console.log('[AppleMusic Auth] Apple API response body (XHR):', json);
+                                } catch (e) {
+                                    console.log('[AppleMusic Auth] Apple API response body (XHR, text):', responseText.substring(0, 500));
+                                }
+                            }
+                        } catch (e) {
+                            console.log('[AppleMusic Auth] Could not read XHR response body:', e);
+                        }
+                    });
+                    
+                    this.addEventListener('error', function() {
+                        console.error('[AppleMusic Auth] Apple API request failed (XHR):', {
+                            url: url,
+                            method: method,
+                            status: this.status,
+                            statusText: this.statusText
+                        });
+                    });
+                }
+                
+                return originalXHRSend.apply(this, args);
+            };
+            
+            console.log('[AppleMusic Auth] Network monitoring interceptors installed (fetch + XMLHttpRequest)');
+            console.log('[AppleMusic Auth] 📡 To see network requests:');
+            console.log('[AppleMusic Auth]   1. Right-click in the popup window → Inspect');
+            console.log('[AppleMusic Auth]   2. Go to the "Network" tab');
+            console.log('[AppleMusic Auth]   3. Filter by "apple.com" or "musickit"');
+            console.log('[AppleMusic Auth]   4. Try the authorization again');
+            console.log('[AppleMusic Auth]   5. Look for failed requests (red) and check their Response tab');
+            
+            // Wait for musickitloaded event (official Apple pattern)
+            document.addEventListener('musickitloaded', async function() {
+                console.log('[AppleMusic Auth] MusicKit loaded');
+                
+                try {
+                    // Validate developer token format (basic JWT check)
+                    if (!developerToken || developerToken.split('.').length !== 3) {
+                        throw new Error('Invalid developer token format. Expected JWT token.');
+                    }
+                    
+                    updateStatus('Configuring...');
+                    console.log('[AppleMusic Auth] Configuring MusicKit with developer token...');
+                    
+                    // Configure MusicKit
+                    // Using explicit identifier
+                    const config = {
+                        developerToken: developerToken,
+                        musicKitId: 'media.com.vybr.musickit',
                         app: {
                             name: 'Vybr',
                             build: '1.0.0'
                         }
+                    };
+                    
+                    console.log('[AppleMusic Auth] Configuring MusicKit...', {
+                        hasToken: !!config.developerToken,
+                        musicKitId: config.musicKitId,
+                        appName: config.app.name
                     });
                     
-                    const music = MusicKit.getInstance();
-                    statusEl.textContent = 'Ready to connect';
-                    authBtn.style.display = 'inline-block';
+                    await MusicKit.configure(config);
+
+                    // Get the configured instance
+                    musicInstance = MusicKit.getInstance();
                     
-                    authBtn.addEventListener('click', async () => {
-                        try {
-                            authBtn.disabled = true;
-                            statusEl.textContent = 'Connecting...';
-                            
-                            const token = await music.authorize();
-                            
-                            if (token) {
-                                statusEl.textContent = 'Success! Redirecting...';
-                                // Send token back to opener
-                                if (window.opener) {
-                                    window.opener.postMessage({
-                                        type: 'APPLE_MUSIC_AUTH_SUCCESS',
-                                        token: token
-                                    }, '*');
-                                    setTimeout(() => window.close(), 1000);
-                                } else {
-                                    statusEl.textContent = 'Auth successful, but cannot return to app. Copy this token: ' + token.substring(0, 20) + '...';
-                                }
-                            } else {
-                                throw new Error('No token received');
-                            }
-                        } catch (err) {
-                            console.error(err);
-                            errorEl.textContent = 'Auth failed: ' + err.message;
-                            authBtn.disabled = false;
-                            statusEl.textContent = 'Please try again';
+                    if (!musicInstance) {
+                        throw new Error('Failed to get MusicKit instance after configuration');
+                    }
+
+                    console.log('[AppleMusic Auth] MusicKit configured successfully');
+                    console.log('[AppleMusic Auth] Instance details:', {
+                        isAuthorized: musicInstance.isAuthorized,
+                        storefrontId: musicInstance.storefrontId,
+                        hasAuthorize: typeof musicInstance.authorize === 'function',
+                        musicKitId: musicInstance.musicKitId || 'not set'
+                    });
+                    
+                    // Log configuration for debugging
+                    console.log('[AppleMusic Auth] Configuration used:', {
+                        hasDeveloperToken: !!developerToken,
+                        tokenLength: developerToken.length,
+                        musicKitId: 'media.com.vybr.musickit',
+                        appName: 'Vybr'
+                    });
+                    
+                    // Check if already authorized
+                    if (musicInstance.isAuthorized) {
+                        // Already authorized - get the token and return
+                        const existingToken = musicInstance.musicUserToken;
+                        console.log('[AppleMusic Auth] Already authorized, token:', existingToken ? 'Present' : 'Missing');
+                        
+                        updateStatus('✅ Already signed in!', false, true);
+                        
+                        if (window.opener) {
+                            window.opener.postMessage({
+                                type: 'APPLE_MUSIC_AUTH_SUCCESS',
+                                token: existingToken || 'authorized'
+                            }, '*');
                         }
-                    });
+                        
+                        setTimeout(() => {
+                            window.close();
+                        }, 1500);
+                    } else {
+                        // Not authorized - show sign-in button
+                        console.log('[AppleMusic Auth] Not authorized, showing sign-in button');
+                        showSignInButton();
+                    }
+                } catch (error) {
+                    console.error('[AppleMusic Auth] Configuration error:', error);
                     
-                } catch (err) {
-                    console.error(err);
-                    statusEl.textContent = 'Configuration failed';
-                    errorEl.textContent = err.message;
+                    // Log all error properties (including nested ones)
+                    const errorDetails = {
+                        name: error.name,
+                        message: error.message,
+                        stack: error.stack,
+                        code: error.code,
+                        status: error.status,
+                        statusCode: error.statusCode,
+                        errorCode: error.errorCode,
+                        description: error.description,
+                        reason: error.reason,
+                        // Try to get any nested error info
+                        error: error.error,
+                        response: error.response,
+                        tokenInfo: tokenInfo
+                    };
+                    
+                    // Log all enumerable properties
+                    console.error('[AppleMusic Auth] Full error object:', error);
+                    console.error('[AppleMusic Auth] Error details:', errorDetails);
+                    console.error('[AppleMusic Auth] Error keys:', Object.keys(error));
+                    
+                    // Try to extract more info if it's a MusicKit error
+                    if (error.errorCode || error.code) {
+                        console.error('[AppleMusic Auth] MusicKit error code:', error.errorCode || error.code);
+                    }
+                    if (error.description) {
+                        console.error('[AppleMusic Auth] MusicKit error description:', error.description);
+                    }
+                    
+                    let errorMessage = error.message || 'Failed to configure MusicKit';
+                    
+                    // Provide more specific error messages based on error type
+                    if (errorMessage.includes('ERROR_REQUEST_FAILED') || 
+                        errorMessage.includes('REQUEST_FAILED')) {
+                        // Handle ERROR_REQUEST_FAILED specifically
+                        let consoleError = 'ERROR_REQUEST_FAILED detected.\n\n';
+                        consoleError += 'This error typically indicates:\n';
+                        consoleError += '1. Developer token configuration issue\n';
+                        consoleError += '2. Domain not registered in Apple Developer Portal\n';
+                        consoleError += '3. MusicKit identifier mismatch\n';
+                        consoleError += '4. Network/CORS issue\n\n';
+                        
+                        if (tokenInfo) {
+                            consoleError += 'Token Info:\n';
+                            consoleError += `• Team ID: ${tokenInfo.issuer}\n`;
+                            consoleError += `• Expires: ${tokenInfo.expiresAt}\n`;
+                            consoleError += `• Valid: ${!tokenInfo.isExpired ? 'Yes' : 'No'}\n\n`;
+                        }
+                        
+                        consoleError += 'Configuration Check:\n';
+                        consoleError += `• musicKitId: media.com.vybr.musickit\n`;
+                        consoleError += `• Current domain: ${window.location.origin}\n`;
+                        consoleError += `• Expected domain registered in Apple Developer Portal\n\n`;
+                        consoleError += 'Action Items:\n';
+                        consoleError += '1. Verify Supabase secrets: APPLE_MUSIC_KEY_ID = 55272UR5Y5\n';
+                        consoleError += '2. Verify APPLE_MUSIC_PRIVATE_KEY matches the new .p8 file\n';
+                        consoleError += '3. Register domain in Apple Developer Portal\n';
+                        consoleError += '4. Verify musicKitId matches registered identifier (should be: media.com.vybr.musickit)\n';
+                        console.error('[AppleMusic Auth]', consoleError);
+                        
+                        errorMessage = 'Request failed. Check console for details. Verify Supabase secrets are updated with new Key ID: 55272UR5Y5';
+                    } else if (errorMessage.toLowerCase().includes('unauthorized') || 
+                        error.status === 401 || 
+                        error.code === 401 ||
+                        errorMessage.toLowerCase().includes('invalid') ||
+                        errorMessage.toLowerCase().includes('expired')) {
+                        
+                    // Build detailed error message for console
+                    let consoleError = 'Developer token issue detected.\n\n';
+                    if (tokenInfo) {
+                        if (tokenInfo.isExpired) {
+                            consoleError += `Token expired ${Math.abs(tokenInfo.expiresInHours)} hours ago.\n`;
+                        } else {
+                            consoleError += `Token expires in ${tokenInfo.expiresInHours} hours.\n`;
+                        }
+                        consoleError += `Issuer (Team ID): ${tokenInfo.issuer}\n`;
+                        consoleError += `Issued at: ${tokenInfo.issuedAt}\n`;
+                        consoleError += `Expires at: ${tokenInfo.expiresAt}\n`;
+                    } else {
+                        consoleError += '⚠️ Could not decode token to check expiration.\n';
+                    }
+                    consoleError += '\nToken validation:\n';
+                    consoleError += `• Token format: ${developerToken.split('.').length === 3 ? 'Valid JWT (3 parts)' : 'Invalid (not a JWT)'}\n`;
+                    consoleError += `• Token length: ${developerToken.length} characters\n`;
+                        consoleError += '\n⚠️ Token is valid but rejected by Apple Music API\n';
+                        consoleError += 'This indicates a BACKEND CONFIGURATION issue:\n\n';
+                        consoleError += 'Check your Supabase Edge Function secrets:\n';
+                        if (tokenInfo) {
+                            consoleError += `• APPLE_MUSIC_TEAM_ID should be: ${tokenInfo.issuer}\n`;
+                        }
+                        consoleError += '• APPLE_MUSIC_KEY_ID should match your Apple Music API Key ID\n';
+                        consoleError += '• APPLE_MUSIC_PRIVATE_KEY should be the complete .p8 file content\n\n';
+                        consoleError += 'Common issues:\n';
+                        consoleError += '1. Key ID mismatch - Key ID in token (55272UR5Y5) doesn\'t match Apple Developer Portal\n';
+                        consoleError += '2. Team ID mismatch - Team ID (R8UV449WRY) doesn\'t match your Apple Developer account\n';
+                        consoleError += '3. Private key mismatch - Private key doesn\'t match the Key ID\n';
+                        consoleError += '4. MusicKit identifier mismatch - Identifier (media.com.vybr.musickit) doesn\'t match registered identifier\n';
+                        consoleError += '   → Check: https://developer.apple.com/account/resources/identifiers/list\n';
+                        consoleError += '   → Find your MusicKit service identifier and verify it matches\n';
+                        consoleError += '5. Domain not registered - Domain (unmodern-sleeveless-ahmad.ngrok-free.dev) must be registered\n';
+                        consoleError += '   → Go to Apple Developer Portal -> Identifiers -> media.com.vybr.musickit\n';
+                        consoleError += '   → Ensure "MusicKit" is enabled\n';
+                        consoleError += '   → Check if you need to add this domain to the identifier configuration (if applicable)\n';
+                        consoleError += '   → Note: MusicKit JS requires the domain to be trusted. If using ngrok, ensure it is stable.\n';
+                        console.error('[AppleMusic Auth]', consoleError);
+                        
+                        // User-friendly error message
+                        // Note: tokenInfo.isExpired may be true due to backdating, but MusicKit error is authoritative
+                        if (errorMessage.toLowerCase().includes('expired') || errorMessage.toLowerCase().includes('invalid')) {
+                            // Use the actual MusicKit error message, don't override with our calculation
+                            if (!errorMessage.includes('Developer token')) {
+                                errorMessage = 'Developer token error: ' + errorMessage;
+                            }
+                        } else {
+                            errorMessage = 'Developer token is invalid or expired. Please check your Apple Music API configuration. Check the console for details.';
+                        }
+                    } else if (errorMessage.toLowerCase().includes('token')) {
+                        errorMessage = 'Developer token error: ' + errorMessage;
+                    }
+                    
+                    updateStatus('Error: ' + errorMessage, true);
+                    
+                    // Show retry button for token errors
+                    if (errorMessage.toLowerCase().includes('token') || 
+                        errorMessage.toLowerCase().includes('expired') ||
+                        errorMessage.toLowerCase().includes('invalid')) {
+                        showRetryButton();
+                    }
+                    
+                    if (window.opener) {
+                        window.opener.postMessage({
+                            type: 'APPLE_MUSIC_AUTH_ERROR',
+                            error: errorMessage
+                        }, '*');
+                    }
+                    
+                    // Don't auto-close if retry button is shown or if there's an error
+                    if (!retryBtn.classList.contains('hidden')) {
+                        // Keep popup open so user can click retry
+                    } else {
+                        // Commented out auto-close for debugging
+                        // setTimeout(() => {
+                        //    window.close();
+                        // }, 8000); 
+                    }
                 }
             });
-        }
+
+            // Timeout fallback
+            setTimeout(() => {
+                if (typeof MusicKit === 'undefined') {
+                    console.error('[AppleMusic Auth] MusicKit timeout');
+                    updateStatus('Error: Apple Music failed to load', true);
+                    setTimeout(() => {
+                        if (window.opener) {
+                            window.opener.postMessage({ 
+                                type: 'APPLE_MUSIC_AUTH_ERROR', 
+                                error: 'MusicKit failed to load' 
+                            }, '*');
+                        }
+                        // TEMPORARILY DISABLED: Don't auto-close so we can see the error
+                        // window.close();
+                        console.error('[AppleMusic Auth] ERROR - Popup will NOT auto-close. Please check the error above.');
+                    }, 2000);
+                }
+            }, 15000);
+        })();
     </script>
 </body>
 </html>
+
