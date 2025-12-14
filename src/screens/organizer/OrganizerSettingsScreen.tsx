@@ -17,6 +17,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 // --- ADJUST PATHS ---
 import { useAuth } from '../../hooks/useAuth';
+import { useUserGuide } from '../../hooks/useUserGuide';
 import { APP_CONSTANTS } from '../../config/constants';
 import { supabase } from '../../lib/supabase';
 // --------------------
@@ -110,6 +111,7 @@ const SettingsItem: React.FC<SettingsItemProps> = ({
 const OrganizerSettingsScreen: React.FC = () => {
     const navigation = useNavigation<OrganizerSettingsScreenNavigationProp>();
     const { session, logout, loading: authLoading, organizerProfile } = useAuth(); // Use Org profile
+    const { replay: replayTour } = useUserGuide();
 
     // State for notification toggles - Initialize with null
     const [notifications, setNotifications] = useState<{
@@ -432,6 +434,21 @@ const OrganizerSettingsScreen: React.FC = () => {
                         icon="log-out"
                         onPress={handleLogoutAllDevices}
                         disabled // Not implemented
+                    />
+                </SettingsSection>
+
+                <SettingsSection title="Help">
+                    <SettingsItem
+                        label="Replay App Tour"
+                        icon="help-circle"
+                        onPress={async () => {
+                            try {
+                                await replayTour();
+                            } catch (e: any) {
+                                Alert.alert('Error', e?.message || 'Could not start the tour. Please try again.');
+                            }
+                        }}
+                        disabled={authLoading}
                     />
                 </SettingsSection>
                 
