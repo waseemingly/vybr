@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome, MaterialCommunityIcons, Feather } from '@expo/vector-icons'; // Import necessary icon sets
 import { useAuth } from '@/hooks/useAuth';
 import { useSpotifyAuth } from '@/hooks/useSpotifyAuth'; // Import the Spotify hook
+import { useYouTubeMusicAuth } from '@/hooks/useYouTubeMusicAuth';
 import { APP_CONSTANTS } from '@/config/constants';
 import { supabase } from '@/lib/supabase'; // <-- IMPORT supabase client
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';

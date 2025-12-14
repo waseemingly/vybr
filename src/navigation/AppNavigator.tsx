@@ -13,6 +13,7 @@ import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation, NavigationProp, useNavigationState, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
+import UserGuideTour from '@/components/UserGuideTour';
 
 // --- Import ALL your screens ---
 import MatchesScreen from "@/screens/MatchesScreen";
@@ -1181,72 +1182,77 @@ const AppNavigator = () => {
   }
 
   return (
+    <>
       <RootStack.Navigator screenOptions={{ headerShown: false, title: undefined }} >
-        {!session ? (
-          // 1. Not Logged In - Show Auth
-          <RootStack.Screen name="Auth" component={AuthScreens} />
-        ) : !isProfileComplete ? (
-          // 2. Logged In, Profile Incomplete - Complete Signup
-          <RootStack.Screen
-            name={userType === 'music_lover' ? "MusicLoverSignUpFlow" : "OrganizerSignUpFlow"}
-            component={userType === 'music_lover' ? MusicLoverSignUpFlow : OrganizerSignUpFlow}
-            options={{ gestureEnabled: false }}
-          />
-        ) : requiresPaymentScreen ? (
-          // 3. 🚨 CRITICAL: Payment Required - Show PaymentRequiredStack (BULLETPROOF MIDDLEMAN)
-          <RootStack.Screen 
-            name="PaymentRequired" 
-            component={PaymentRequiredStack}
-            options={{ 
-              gestureEnabled: false, // Prevent any swipe navigation
-              headerShown: false,
-            }}
-          />
-        ) : (
-          // 4. Fully Authenticated and Payment Complete - Show Main App
-          <>
-            {/* Main App entry point (renders MainAppStack) */}
-            <RootStack.Screen name="MainApp" component={MainAppStack} />
+          {!session ? (
+            // 1. Not Logged In - Show Auth
+            <RootStack.Screen name="Auth" component={AuthScreens} />
+          ) : !isProfileComplete ? (
+            // 2. Logged In, Profile Incomplete - Complete Signup
+            <RootStack.Screen
+              name={userType === 'music_lover' ? "MusicLoverSignUpFlow" : "OrganizerSignUpFlow"}
+              component={userType === 'music_lover' ? MusicLoverSignUpFlow : OrganizerSignUpFlow}
+              options={{ gestureEnabled: false }}
+            />
+          ) : requiresPaymentScreen ? (
+            // 3. 🚨 CRITICAL: Payment Required - Show PaymentRequiredStack (BULLETPROOF MIDDLEMAN)
+            <RootStack.Screen 
+              name="PaymentRequired" 
+              component={PaymentRequiredStack}
+              options={{ 
+                gestureEnabled: false, // Prevent any swipe navigation
+                headerShown: false,
+              }}
+            />
+          ) : (
+            // 4. Fully Authenticated and Payment Complete - Show Main App
+            <>
+              {/* Main App entry point (renders MainAppStack) */}
+              <RootStack.Screen name="MainApp" component={MainAppStack} />
 
-            {/* Screens pushed on top of MainApp */}
-            <RootStack.Screen
-              name="IndividualChatScreen"
-              component={IndividualChatScreen}
-              options={{ headerShown: false, headerBackTitleVisible: false }} // Custom header
-            />
-            <RootStack.Screen
-              name="OtherUserProfileScreen"
-              component={OtherUserProfileScreen}
-              options={{ headerShown: false, headerBackTitleVisible: false }} // Custom header
-            />
-
-            {/* *** REGISTER NEW GROUP CHAT SCREENS HERE *** */}
-            <RootStack.Screen
-                name="CreateGroupChatScreen"
-                component={CreateGroupChatScreen}
-                options={{ headerShown: true, headerBackTitleVisible: false }}
-            />
-            <RootStack.Screen
-                name="GroupChatScreen"
-                component={GroupChatScreen}
+              {/* Screens pushed on top of MainApp */}
+              <RootStack.Screen
+                name="IndividualChatScreen"
+                component={IndividualChatScreen}
                 options={{ headerShown: false, headerBackTitleVisible: false }} // Custom header
-            />
-             <RootStack.Screen
-                name="GroupInfoScreen"
-                component={GroupInfoScreen}
-                options={{ headerShown: true, headerBackTitleVisible: false }} // Title can also be set dynamically
-            />
-            <RootStack.Screen
-                name="AddGroupMembersScreen"
-                component={AddGroupMembersScreen}
-                options={{ headerShown: true, headerBackTitleVisible: false }}
-            />
-            {/* *** END REGISTRATION *** */}
-          </>
-        )}
-        {/* Optional Global Fallback */}
-        {/* <RootStack.Screen name="NotFoundGlobal" component={NotFoundScreen} options={{ title: 'Oops!'}}/> */}
-      </RootStack.Navigator>
+              />
+              <RootStack.Screen
+                name="OtherUserProfileScreen"
+                component={OtherUserProfileScreen}
+                options={{ headerShown: false, headerBackTitleVisible: false }} // Custom header
+              />
+
+              {/* *** REGISTER NEW GROUP CHAT SCREENS HERE *** */}
+              <RootStack.Screen
+                  name="CreateGroupChatScreen"
+                  component={CreateGroupChatScreen}
+                  options={{ headerShown: true, headerBackTitleVisible: false }}
+              />
+              <RootStack.Screen
+                  name="GroupChatScreen"
+                  component={GroupChatScreen}
+                  options={{ headerShown: false, headerBackTitleVisible: false }} // Custom header
+              />
+               <RootStack.Screen
+                  name="GroupInfoScreen"
+                  component={GroupInfoScreen}
+                  options={{ headerShown: true, headerBackTitleVisible: false }} // Title can also be set dynamically
+              />
+              <RootStack.Screen
+                  name="AddGroupMembersScreen"
+                  component={AddGroupMembersScreen}
+                  options={{ headerShown: true, headerBackTitleVisible: false }}
+              />
+              {/* *** END REGISTRATION *** */}
+            </>
+          )}
+          {/* Optional Global Fallback */}
+          {/* <RootStack.Screen name="NotFoundGlobal" component={NotFoundScreen} options={{ title: 'Oops!'}}/> */}
+        </RootStack.Navigator>
+
+        {/* Global overlay tour (only shows for new users / replay) */}
+        <UserGuideTour />
+      </>
   );
   };
 

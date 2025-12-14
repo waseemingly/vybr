@@ -17,6 +17,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 // --- ADJUST PATHS ---
 import { useAuth } from '../hooks/useAuth';
+import { useUserGuide } from '../hooks/useUserGuide';
 import { APP_CONSTANTS } from '../config/constants';
 import { supabase } from '../lib/supabase';
 // --------------------
@@ -130,6 +131,7 @@ const SettingsItem: React.FC<SettingsItemProps> = ({
 const UserSettingsScreen: React.FC = () => {
     const navigation = useNavigation<UserSettingsScreenNavigationProp>();
     const { session, logout, loading: authLoading, musicLoverProfile } = useAuth(); // Use ML profile
+    const { replay: replayTour } = useUserGuide();
 
     // State for notification toggles
     const [notifications, setNotifications] = useState<{
@@ -505,6 +507,21 @@ const UserSettingsScreen: React.FC = () => {
                         </TouchableOpacity>
                      </SettingsSection>
                  )}
+
+                <SettingsSection title="Help">
+                    <SettingsItem
+                        label="Replay App Tour"
+                        icon="help-circle"
+                        onPress={async () => {
+                            try {
+                                await replayTour();
+                                // Keep the user on this screen; the tour overlay will appear globally.
+                            } catch (e: any) {
+                                Alert.alert('Error', e?.message || 'Could not start the tour. Please try again.');
+                            }
+                        }}
+                    />
+                </SettingsSection>
 
                 <SettingsSection title="Account Management">
                     <SettingsItem label="Download My Data" icon="download" onPress={handleDownloadData} disabled={isDeleting} />

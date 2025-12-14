@@ -45,6 +45,7 @@ export interface MusicLoverProfile {
   country: string | undefined;
   city: string | undefined;
   isPremium: boolean;
+  hasCompletedTour: boolean;
   musicData: any | null;
   selectedStreamingService: string | undefined;
   termsAccepted: boolean;
@@ -75,6 +76,7 @@ export interface OrganizerProfile {
     unavailable_dates?: string[]; // <-- ADDED
     companyName: string;
     age?: number | null;
+    hasCompletedTour: boolean;
 }
 
 export interface CreateMusicLoverProfileData {
@@ -675,6 +677,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                    country: profileData.country ?? undefined,
                                    city: profileData.city ?? undefined,
                                    isPremium: profileData.is_premium,
+                                   hasCompletedTour: profileData.has_completed_tour ?? false,
                                    musicData: profileData.music_data,
                                    selectedStreamingService: profileData.selected_streaming_service ?? undefined,
                                    termsAccepted: profileData.terms_accepted,
@@ -724,6 +727,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                    companyName: profileData.company_name,
                                    age: profileData.age ?? undefined,
                                    unavailable_dates: profileData.unavailable_dates ?? undefined,
+                                   hasCompletedTour: profileData.has_completed_tour ?? false,
                                  };
                                  setOrganizerProfile(fullProfile);
                                  if (currentSession) currentSession.organizerProfile = fullProfile;
@@ -1097,6 +1101,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 terms_accepted: termsAccepted,
                 selected_streaming_service: selectedStreamingService === null ? undefined : selectedStreamingService, // Convert null to undefined
                 is_premium: false,
+                has_completed_tour: false,
                 website: website,
                 capacity: capacity,
                 opening_hours: openingHours,
@@ -1197,6 +1202,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 logo: publicLogoUrl ?? undefined,
                 capacity: capacity,
                 opening_hours: openingHours,
+                has_completed_tour: false,
                  // Ensure all REQUIRED DB fields are present or have defaults
             };
             console.log('[AuthProvider] createOrganizerProfile: Preparing to upsert profile data:', { ...profileToInsert, logo: profileToInsert.logo ? 'URL exists' : 'null' });
