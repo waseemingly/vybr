@@ -111,6 +111,11 @@ const OrganizerPostsScreen = () => {
   const [selectedPost, setSelectedPost] = useState<MappedPost | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
+  // Refs to prevent multiple simultaneous load more calls
+  const loadingMoreRef = useRef(false);
+  const currentPageAllMyEventsRef = useRef(1);
+  const currentPageUpcomingRef = useRef(1);
+
   const fetchOrganizerPosts = useCallback(async (page: number, tabIndex: number) => {
     // FIX: Depend on the stable userId instead of the whole session object.
     if (!userId) {
@@ -153,25 +158,40 @@ const OrganizerPostsScreen = () => {
     }
   }, [userId, refreshing]);
 
-  const loadPostsForTab = useCallback(async (tabIndex: number, forRefresh = false) => {
+  const loadPostsForTab = useCallback(async (tabIndex: number, forRefresh = false, pageToFetch?: number) => {
     const isAllMyEventsTab = tabIndex === 0;
-    const currentPage = isAllMyEventsTab ? currentPageAllMyEvents : currentPageUpcoming;
-    const pageToFetch = forRefresh ? 1 : currentPage;
+    // Use provided pageToFetch, or get from ref if not provided
+    const page = pageToFetch !== undefined 
+      ? pageToFetch 
+      : (forRefresh ? 1 : (isAllMyEventsTab ? currentPageAllMyEventsRef.current : currentPageUpcomingRef.current));
 
     if (isAllMyEventsTab) { if(!forRefresh) setIsFetchingMoreAllMyEvents(true); } 
     else { if(!forRefresh) setIsFetchingMoreUpcoming(true); }
     
-    if (forRefresh || pageToFetch === 1) {
-        if (isAllMyEventsTab) { setLoadedAllMyEvents([]); setCurrentPageAllMyEvents(1); setAllMyEventsLoaded(false); }
-        else { setLoadedUpcomingEvents([]); setCurrentPageUpcoming(1); setAllUpcomingEventsLoaded(false); }
+    if (forRefresh || page === 1) {
+        if (isAllMyEventsTab) { 
+          setLoadedAllMyEvents([]); 
+          setCurrentPageAllMyEvents(1);
+          currentPageAllMyEventsRef.current = 1;
+          setAllMyEventsLoaded(false); 
+        }
+        else { 
+          setLoadedUpcomingEvents([]); 
+          setCurrentPageUpcoming(1);
+          currentPageUpcomingRef.current = 1;
+          setAllUpcomingEventsLoaded(false); 
+        }
     }
 
-    const { data: newPostsData, error: fetchError, isLastPage } = await fetchOrganizerPosts(pageToFetch, tabIndex);
+    const { data: newPostsData, error: fetchError, isLastPage } = await fetchOrganizerPosts(page, tabIndex);
 
     if (fetchError) {
         if (isAllMyEventsTab) setIsFetchingMoreAllMyEvents(false); else setIsFetchingMoreUpcoming(false);
-        if (forRefresh) setRefreshing(false);
-        setIsLoading(false);
+        if (forRefresh) {
+          setRefreshing(false);
+          setIsLoading(false);
+        }
+        loadingMoreRef.current = false;
         return;
     }
     
@@ -191,25 +211,57 @@ const OrganizerPostsScreen = () => {
     });
 
     if (isAllMyEventsTab) {
-        setLoadedAllMyEvents(prev => forRefresh ? mappedNewPosts : [...prev, ...mappedNewPosts]);
-        if (pageToFetch > 1) setCurrentPageAllMyEvents(pageToFetch);
+        setLoadedAllMyEvents(prev => {
+          // Prevent duplicate items
+          const existingIds = new Set(prev.map(p => p.id));
+          const newItems = mappedNewPosts.filter(p => !existingIds.has(p.id));
+          return forRefresh ? mappedNewPosts : [...prev, ...newItems];
+        });
+        if (page > 1) {
+          setCurrentPageAllMyEvents(page);
+          currentPageAllMyEventsRef.current = page;
+        }
         if (isLastPage) setAllMyEventsLoaded(true);
         setIsFetchingMoreAllMyEvents(false);
     } else {
-        setLoadedUpcomingEvents(prev => forRefresh ? mappedNewPosts : [...prev, ...mappedNewPosts]);
-        if (pageToFetch > 1) setCurrentPageUpcoming(pageToFetch);
+        setLoadedUpcomingEvents(prev => {
+          // Prevent duplicate items
+          const existingIds = new Set(prev.map(p => p.id));
+          const newItems = mappedNewPosts.filter(p => !existingIds.has(p.id));
+          return forRefresh ? mappedNewPosts : [...prev, ...newItems];
+        });
+        if (page > 1) {
+          setCurrentPageUpcoming(page);
+          currentPageUpcomingRef.current = page;
+        }
         if (isLastPage) setAllUpcomingEventsLoaded(true);
         setIsFetchingMoreUpcoming(false);
     }
-    if (forRefresh) setRefreshing(false);
-    setIsLoading(false);
+    if (forRefresh) {
+      setRefreshing(false);
+      setIsLoading(false);
+    }
+    loadingMoreRef.current = false;
 
-  }, [fetchOrganizerPosts, currentPageAllMyEvents, currentPageUpcoming ]);
+  }, [fetchOrganizerPosts]);
+
+  // Initialize refs when component mounts
+  useEffect(() => {
+    currentPageAllMyEventsRef.current = currentPageAllMyEvents;
+    currentPageUpcomingRef.current = currentPageUpcoming;
+  }, []);
 
   useEffect(() => {
     // FIX: Depend on the stable userId instead of session?.user?.id
     if (userId) {
         setIsLoading(true);
+        loadingMoreRef.current = false;
+        // Sync refs with state
+        if (activeTabIndex === 0) {
+          currentPageAllMyEventsRef.current = 1;
+        } else {
+          currentPageUpcomingRef.current = 1;
+        }
         loadPostsForTab(activeTabIndex, true);
     } else {
         setError("Please log in.");
@@ -236,12 +288,14 @@ const OrganizerPostsScreen = () => {
         setActiveTabIndex(tabToLoad);
     } else {
         setIsLoading(true);
+        loadingMoreRef.current = false;
         loadPostsForTab(tabToLoad, true);
     }
   }, [route.params, activeTabIndex, loadPostsForTab]));
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
+    loadingMoreRef.current = false;
     loadPostsForTab(activeTabIndex, true);
   }, [activeTabIndex, loadPostsForTab]);
 
@@ -258,21 +312,27 @@ const OrganizerPostsScreen = () => {
     getAndLogToken();
   }, []);
 
-  const handleLoadMoreAllMyEvents = () => {
-    if (!isFetchingMoreAllMyEvents && !allMyEventsLoaded) {
-      const nextPage = currentPageAllMyEvents + 1;
-      setCurrentPageAllMyEvents(nextPage);
-      loadPostsForTab(0, false); 
+  const handleLoadMoreAllMyEvents = useCallback(() => {
+    if (loadingMoreRef.current || isFetchingMoreAllMyEvents || allMyEventsLoaded) {
+      return;
     }
-  };
+    loadingMoreRef.current = true;
+    const nextPage = currentPageAllMyEventsRef.current + 1;
+    setCurrentPageAllMyEvents(nextPage);
+    currentPageAllMyEventsRef.current = nextPage;
+    loadPostsForTab(0, false, nextPage); 
+  }, [isFetchingMoreAllMyEvents, allMyEventsLoaded, loadPostsForTab]);
 
-  const handleLoadMoreUpcoming = () => {
-    if (!isFetchingMoreUpcoming && !allUpcomingEventsLoaded) {
-       const nextPage = currentPageUpcoming + 1;
-       setCurrentPageUpcoming(nextPage);
-       loadPostsForTab(1, false);
+  const handleLoadMoreUpcoming = useCallback(() => {
+    if (loadingMoreRef.current || isFetchingMoreUpcoming || allUpcomingEventsLoaded) {
+      return;
     }
-  };
+    loadingMoreRef.current = true;
+    const nextPage = currentPageUpcomingRef.current + 1;
+    setCurrentPageUpcoming(nextPage);
+    currentPageUpcomingRef.current = nextPage;
+    loadPostsForTab(1, false, nextPage);
+  }, [isFetchingMoreUpcoming, allUpcomingEventsLoaded, loadPostsForTab]);
 
   const handlePostPress = (post: MappedPost) => { 
     navigation.navigate("EventDetail", { eventId: post.id }); 
@@ -374,20 +434,29 @@ const OrganizerPostsScreen = () => {
     const isFetchingMore = activeTabIndex === 0 ? isFetchingMoreAllMyEvents : isFetchingMoreUpcoming;
     const allLoaded = activeTabIndex === 0 ? allMyEventsLoaded : allUpcomingEventsLoaded;
 
+    // Create footer component function (not using useMemo to avoid hooks violation)
+    const listFooter = () => renderListFooter(isFetchingMore, allLoaded, currentData.length > 0);
+
     return (
       <View style={{ flex: 1 }}>
         {renderCustomTabBar()}
         <FlatList
+          key={`flatlist-${activeTabIndex}`}
           data={currentData}
+          extraData={activeTabIndex}
           keyExtractor={(item) => `post-${item.id}`}
           renderItem={renderPostItem}
           contentContainerStyle={styles.postsList}
           style={styles.flatListContainerOnly}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
-          ListFooterComponent={() => renderListFooter(isFetchingMore, allLoaded, currentData.length > 0)}
+          removeClippedSubviews={false}
+          ListFooterComponent={listFooter}
           ListEmptyComponent={renderEmptyList}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} />}
+          maxToRenderPerBatch={10}
+          windowSize={10}
+          initialNumToRender={10}
         />
       </View>
     );

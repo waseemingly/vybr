@@ -28,20 +28,29 @@ const UpdateMusicFavoritesScreen = () => {
   // Form state
   const [favoriteArtists, setFavoriteArtists] = useState('');
   const [favoriteAlbums, setFavoriteAlbums] = useState('');
+  const [favoriteGenres, setFavoriteGenres] = useState('');
   const [favoriteSongs, setFavoriteSongs] = useState('');
   
   // Error states
   const [artistsError, setArtistsError] = useState('');
   const [albumsError, setAlbumsError] = useState('');
+  const [genresError, setGenresError] = useState('');
   const [songsError, setSongsError] = useState('');
   
   // UI state
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   
-  // Check if user is premium
+  // Check if user is premium and streaming service
   const isPremium = musicLoverProfile?.isPremium || false;
-  const maxItems = isPremium ? 5 : 3;
+  const isSpotifyUser = musicLoverProfile?.selectedStreamingService === 'spotify';
+  
+  // Set limits based on streaming service and premium status
+  // Spotify users: 3 free, 5 premium
+  // Other services: 6 free, 10 premium
+  const maxItems = isSpotifyUser 
+    ? (isPremium ? 5 : 3)
+    : (isPremium ? 10 : 6);
   
   // Load existing data
   useEffect(() => {
@@ -53,7 +62,7 @@ const UpdateMusicFavoritesScreen = () => {
         
         const { data, error } = await supabase
           .from('music_lover_profiles')
-          .select('favorite_artists, favorite_albums, favorite_songs')
+          .select('favorite_artists, favorite_albums, favorite_genres, favorite_songs')
           .eq('user_id', session.user.id)
           .single();
           
@@ -62,6 +71,7 @@ const UpdateMusicFavoritesScreen = () => {
         if (data) {
           setFavoriteArtists(data.favorite_artists || '');
           setFavoriteAlbums(data.favorite_albums || '');
+          setFavoriteGenres(data.favorite_genres || '');
           setFavoriteSongs(data.favorite_songs || '');
         }
       } catch (error) {
@@ -151,6 +161,19 @@ const UpdateMusicFavoritesScreen = () => {
     return true;
   };
   
+  const validateGenres = (value: string): boolean => {
+    const genres = parseCsvString(value);
+    
+    // Check limit
+    if (genres.length > maxItems) {
+      setGenresError(`You can only have ${maxItems} favorite genres as a ${isPremium ? 'premium' : 'free'} user.`);
+      return false;
+    }
+    
+    setGenresError('');
+    return true;
+  };
+  
   const validateSongs = (value: string): boolean => {
     const songs = parseCsvString(value);
     
@@ -190,9 +213,10 @@ const UpdateMusicFavoritesScreen = () => {
     // Validate all fields
     const isArtistsValid = validateArtists(favoriteArtists);
     const isAlbumsValid = validateAlbums(favoriteAlbums);
+    const isGenresValid = validateGenres(favoriteGenres);
     const isSongsValid = validateSongs(favoriteSongs);
     
-    if (!isArtistsValid || !isAlbumsValid || !isSongsValid) {
+    if (!isArtistsValid || !isAlbumsValid || !isGenresValid || !isSongsValid) {
       Alert.alert('Validation Error', 'Please fix the errors before saving.');
       return;
     }
@@ -205,6 +229,7 @@ const UpdateMusicFavoritesScreen = () => {
         .update({
           favorite_artists: favoriteArtists.trim(),
           favorite_albums: favoriteAlbums.trim(),
+          favorite_genres: favoriteGenres.trim(),
           favorite_songs: favoriteSongs.trim(),
           updated_at: new Date().toISOString()
         })
@@ -303,6 +328,30 @@ const UpdateMusicFavoritesScreen = () => {
                 placeholderTextColor="#9CA3AF"
               />
               {albumsError ? <Text style={styles.errorText}>{albumsError}</Text> : null}
+            </View>
+            
+            {/* Favorite Genres */}
+            <View style={styles.inputGroup}>
+              <View style={styles.labelContainer}>
+                <Text style={styles.label}>Favorite Genres</Text>
+                <CharacterCount 
+                  current={parseCsvString(favoriteGenres).length} 
+                  max={maxItems} 
+                  isError={!!genresError}
+                />
+              </View>
+              <TextInput
+                style={[styles.input, genresError ? styles.inputError : null]}
+                value={favoriteGenres}
+                onChangeText={(text) => {
+                  setFavoriteGenres(text);
+                  validateGenres(text);
+                }}
+                placeholder="e.g. Pop, Hip-Hop, Rock, Electronic"
+                multiline
+                placeholderTextColor="#9CA3AF"
+              />
+              {genresError ? <Text style={styles.errorText}>{genresError}</Text> : null}
             </View>
             
             {/* Favorite Songs */}

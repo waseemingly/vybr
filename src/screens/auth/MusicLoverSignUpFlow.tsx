@@ -33,19 +33,19 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
 
 // Step types
-type Step = 'username' | 'profile-details' | 'streaming-service' | 'subscription';
+type Step = 'username' | 'profile-details' | 'streaming-service' | 'subscription' | 'music-favorites';
 type SubscriptionTier = 'free' | 'premium' | '';
-type StreamingServiceId = 'spotify' | 'apple_music' | 'youtubemusic' | 'deezer' | 'soundcloud' | 'tidal' | 'None' | ''; // Updated 'youtube_music' to 'youtubemusic'
+type StreamingServiceId = 'spotify' | 'others' | 'None' | ''; // Simplified to only Spotify and Others
 
-// Define Streaming Services Data - UPDATED with correct service IDs
-const STREAMING_SERVICES = [
-    { id: 'spotify', name: 'Spotify', icon: 'spotify', color: '#1DB954', iconSet: 'FontAwesome', description: 'Browser authentication required' },
-    { id: 'apple_music', name: 'Apple Music', icon: 'apple', color: '#FA57C1', iconSet: 'FontAwesome', description: 'Connect your Apple Music' },
-    { id: 'youtubemusic', name: 'YouTube Music', icon: 'youtube-play', color: '#FF0000', iconSet: 'FontAwesome', description: 'Data synced externally' }, // Updated description
-    { id: 'deezer', name: 'Deezer', icon: 'deezer', color: '#EF5466', iconSet: 'MaterialCommunityIcons', description: 'Connect your Deezer account' },
-    { id: 'soundcloud', name: 'SoundCloud', icon: 'soundcloud', color: '#FF5500', iconSet: 'FontAwesome', description: 'Connect to SoundCloud' },
-    { id: 'tidal', name: 'Tidal', icon: 'headphones', color: '#000000', iconSet: 'Feather', description: 'Connect your Tidal account' },
-];
+// Define Spotify service data
+const SPOTIFY_SERVICE = {
+    id: 'spotify' as const,
+    name: 'Spotify',
+    icon: 'spotify',
+    color: '#1DB954',
+    iconSet: 'FontAwesome' as const,
+    description: 'Browser authentication required'
+};
 
 // --- Update the type for form data ---
 interface MusicLoverFormData {
@@ -72,6 +72,10 @@ interface MusicLoverFormData {
         cvv: string;
         name: string;
     };
+    favoriteArtists: string;
+    favoriteAlbums: string;
+    favoriteGenres: string;
+    favoriteSongs: string;
 }
 
 // --- Placeholder Terms Text (Replace with actual legal text) ---
@@ -148,6 +152,7 @@ const MusicLoverSignUpFlow = () => {
         verifyGoogleAuthCompleted, // Add new function
         updateUserMetadata,   // Add function to update user metadata
         setSetupInProgress,   // Add function to prevent navigation bouncing
+        refreshUserProfile,   // Add function to refresh user profile
     } = useAuth();
     
     // Spotify auth hook
@@ -179,6 +184,10 @@ const MusicLoverSignUpFlow = () => {
         selectedStreamingService: '',
         subscriptionTier: '',
         paymentInfo: { cardNumber: '', expiry: '', cvv: '', name: '' },
+        favoriteArtists: '',
+        favoriteAlbums: '',
+        favoriteGenres: '',
+        favoriteSongs: '',
     });
 
     // State variables
@@ -188,6 +197,12 @@ const MusicLoverSignUpFlow = () => {
     const [error, setError] = useState('');
     const slideAnim = useRef(new Animated.Value(0)).current; // Animation value
     const fadeAnim = useRef(new Animated.Value(1)).current; // Fade animation value
+    
+    // Music favorites error states
+    const [artistsError, setArtistsError] = useState('');
+    const [albumsError, setAlbumsError] = useState('');
+    const [genresError, setGenresError] = useState('');
+    const [songsError, setSongsError] = useState('');
 
     // Add state to hold Google User ID
     const [googleUserId, setGoogleUserId] = useState<string | null>(null);
@@ -660,7 +675,7 @@ const MusicLoverSignUpFlow = () => {
     // Get error message without setting state
     const getStreamingServiceError = (): string => {
         if (!formData.selectedStreamingService) {
-            return 'Please select a streaming service or "None / Other"';
+            return 'Please select a streaming service (Spotify or Others)';
         }
         return '';
     };
@@ -682,6 +697,101 @@ const MusicLoverSignUpFlow = () => {
         if (!formData.subscriptionTier) {
             return 'Please select a subscription tier (Free or Premium).';
         }
+        return '';
+    };
+
+    // Validation for music favorites step (only for "others" users)
+    const validateMusicFavoritesStep = (): boolean => {
+        console.log('[MusicLoverSignUpFlow] Validating Music Favorites Step...');
+        
+        const isPremium = formData.subscriptionTier === 'premium';
+        const maxItems = isPremium ? 10 : 6; // For "others" users: 6 free, 10 premium
+        
+        // Parse CSV strings
+        const parseCsvString = (str: string): string[] => {
+            return str.split(',')
+                .map(item => item.trim())
+                .filter(item => item.length > 0);
+        };
+        
+        // Check artists limit
+        const artists = parseCsvString(formData.favoriteArtists);
+        if (artists.length > maxItems) {
+            return false;
+        }
+        
+        // Check albums limit
+        const albums = parseCsvString(formData.favoriteAlbums);
+        if (albums.length > maxItems) {
+            return false;
+        }
+        
+        // Check genres limit
+        const genres = parseCsvString(formData.favoriteGenres);
+        if (genres.length > maxItems) {
+            return false;
+        }
+        
+        // Check songs limit and format
+        const songs = parseCsvString(formData.favoriteSongs);
+        if (songs.length > maxItems) {
+            return false;
+        }
+        
+        // Validate song format (must be "Artist - Song")
+        const isValidSongFormat = (song: string): boolean => {
+            return song.includes(' - ') && song.split(' - ').length >= 2;
+        };
+        
+        const invalidSongs = songs.filter(song => !isValidSongFormat(song));
+        if (invalidSongs.length > 0) {
+            return false;
+        }
+        
+        console.log('[MusicLoverSignUpFlow] Music Favorites Step Validation PASSED.');
+        return true;
+    };
+    
+    // Get error message for music favorites step
+    const getMusicFavoritesError = (): string => {
+        const isPremium = formData.subscriptionTier === 'premium';
+        const maxItems = isPremium ? 10 : 6;
+        
+        const parseCsvString = (str: string): string[] => {
+            return str.split(',')
+                .map(item => item.trim())
+                .filter(item => item.length > 0);
+        };
+        
+        const artists = parseCsvString(formData.favoriteArtists);
+        if (artists.length > maxItems) {
+            return `You can only have ${maxItems} favorite artists as a ${isPremium ? 'premium' : 'free'} user.`;
+        }
+        
+        const albums = parseCsvString(formData.favoriteAlbums);
+        if (albums.length > maxItems) {
+            return `You can only have ${maxItems} favorite albums as a ${isPremium ? 'premium' : 'free'} user.`;
+        }
+        
+        const genres = parseCsvString(formData.favoriteGenres);
+        if (genres.length > maxItems) {
+            return `You can only have ${maxItems} favorite genres as a ${isPremium ? 'premium' : 'free'} user.`;
+        }
+        
+        const songs = parseCsvString(formData.favoriteSongs);
+        if (songs.length > maxItems) {
+            return `You can only have ${maxItems} favorite songs as a ${isPremium ? 'premium' : 'free'} user.`;
+        }
+        
+        const isValidSongFormat = (song: string): boolean => {
+            return song.includes(' - ') && song.split(' - ').length >= 2;
+        };
+        
+        const invalidSongs = songs.filter(song => !isValidSongFormat(song));
+        if (invalidSongs.length > 0) {
+            return `The following songs are not in "Artist Name - Song" format: ${invalidSongs.join(', ')}`;
+        }
+        
         return '';
     };
 
@@ -791,7 +901,7 @@ const MusicLoverSignUpFlow = () => {
                 musicTaste: formData.bio.musicTaste?.trim() || '',
             },
             termsAccepted: formData.termsAccepted,
-            selectedStreamingService: formData.selectedStreamingService || 'None',
+            selectedStreamingService: formData.selectedStreamingService || 'others',
             profilePictureUri: formData.profilePictureUri,
             profilePictureMimeType: formData.profilePictureMimeType,
         };
@@ -800,6 +910,12 @@ const MusicLoverSignUpFlow = () => {
         profileData.country = formData.country || undefined;
         profileData.state = formData.state || undefined;
         profileData.city = formData.cityName || undefined;
+
+        // Add favorite fields (for "others" users)
+        profileData.favoriteArtists = formData.favoriteArtists.trim() || undefined;
+        profileData.favoriteAlbums = formData.favoriteAlbums.trim() || undefined;
+        profileData.favoriteGenres = formData.favoriteGenres.trim() || undefined;
+        profileData.favoriteSongs = formData.favoriteSongs.trim() || undefined;
 
         console.log('[MusicLoverSignUpFlow] Prepared profile data:', {
             email: profileData.email,
@@ -893,7 +1009,7 @@ const MusicLoverSignUpFlow = () => {
             }
 
             // Fetch streaming data if applicable
-            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None' && isSpotifyLoggedIn) {
+            if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
                 console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
                 try {
                     await forceFetchAndSaveSpotifyData(userId, false);
@@ -967,6 +1083,12 @@ const MusicLoverSignUpFlow = () => {
                     stepErrorMessage = getSubscriptionError();
                 }
                 break;
+            case 'music-favorites':
+                currentStepIsValid = validateMusicFavoritesStep();
+                if (!currentStepIsValid) {
+                    stepErrorMessage = getMusicFavoritesError();
+                }
+                break;
         }
         
         // Set error if any from non-username/email issues
@@ -993,24 +1115,61 @@ const MusicLoverSignUpFlow = () => {
                 goToNextStep('subscription');
                 break;
             case 'subscription':
-                // Handle based on subscription tier
+                // Handle based on streaming service
+                if (formData.selectedStreamingService === 'others') {
+                    // "Others" users go to music favorites step
+                    console.log('[MusicLoverSignUpFlow] 🎵 Others user - going to music favorites step...');
+                    goToNextStep('music-favorites');
+                } else {
+                    // Spotify users complete signup based on subscription tier
+                    if (formData.subscriptionTier === 'free') {
+                        // Free users complete signup immediately
+                        console.log('[MusicLoverSignUpFlow] 🆓 Free user selected - completing signup...');
+                        await handleFreeSignupCompletion();
+                    } else if (formData.subscriptionTier === 'premium') {
+                        // Premium users need to create profile first, then go to payment
+                        console.log('[MusicLoverSignUpFlow] 💎 Premium user selected - creating profile then redirecting to payment...');
+                        const { data: { session } } = await supabase.auth.getSession();
+                        if (session?.user) {
+                            await handleCreateProfileForPayment(session.user.id);
+                            // Navigate to PaymentRequired stack for payment setup
+                            (navigation as any).reset({
+                                index: 0,
+                                routes: [{ name: 'PaymentRequired' }],
+                            });
+                        } else {
+                            setError('You must be signed in to create a premium account. Please sign in first.');
+                        }
+                    }
+                }
+                break;
+            case 'music-favorites':
+                // Complete signup for "others" users after music favorites
                 if (formData.subscriptionTier === 'free') {
-                    // Free users complete signup immediately
-                    console.log('[MusicLoverSignUpFlow] 🆓 Free user selected - completing signup...');
+                    console.log('[MusicLoverSignUpFlow] 🆓 Free "others" user - completing signup...');
                     await handleFreeSignupCompletion();
                 } else if (formData.subscriptionTier === 'premium') {
-                    // Premium users need to create profile first, then go to payment
-                    console.log('[MusicLoverSignUpFlow] 💎 Premium user selected - creating profile then redirecting to payment...');
-                    const { data: { session } } = await supabase.auth.getSession();
-                    if (session?.user) {
-                        await handleCreateProfileForPayment(session.user.id);
-                        // Navigate to PaymentRequired stack for payment setup
-                        (navigation as any).reset({
-                            index: 0,
-                            routes: [{ name: 'PaymentRequired' }],
-                        });
-                    } else {
-                        setError('You must be signed in to create a premium account. Please sign in first.');
+                    console.log('[MusicLoverSignUpFlow] 💎 Premium "others" user - creating profile then redirecting to payment...');
+                    setIsLoading(true);
+                    try {
+                        const { data: { session } } = await supabase.auth.getSession();
+                        if (session?.user) {
+                            await handleCreateProfileForPayment(session.user.id);
+                            // Small delay to ensure profile is fully updated
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                            // Navigate to PaymentRequired stack for payment setup
+                            (navigation as any).reset({
+                                index: 0,
+                                routes: [{ name: 'PaymentRequired' }],
+                            });
+                        } else {
+                            setError('You must be signed in to create a premium account. Please sign in first.');
+                        }
+                    } catch (error: any) {
+                        console.error('[MusicLoverSignUpFlow] ❌ Error in music-favorites step:', error);
+                        setError(error.message || 'Failed to complete signup. Please try again.');
+                    } finally {
+                        setIsLoading(false);
                     }
                 }
                 break;
@@ -1360,16 +1519,9 @@ const MusicLoverSignUpFlow = () => {
             // Existing Spotify login logic remains
             console.log('[SignUpFlow] Spotify selected. Initiating login...');
             spotifyLogin(); 
-        } else if (serviceId === 'youtubemusic') {
-            // YouTube Music selected - NO LONGER triggers UI connection
-            // The user just selects it, data is assumed to be synced by the external Python script.
-            console.log('[SignUpFlow] YouTube Music selected. Data sync is handled externally.');
-            // Removed: setShowYTMCookieInput(true);
-        } else if (serviceId !== 'None' && serviceId !== '') {
-            Alert.alert(
-                "Connection Not Available",
-                `Connecting to ${STREAMING_SERVICES.find(s => s.id === serviceId)?.name || serviceId} is not yet implemented in the app. You can select it, but data won't be synced automatically through the app.`
-            );
+        } else if (serviceId === 'others') {
+            // Others selected - no action needed, just selection
+            console.log('[SignUpFlow] Others selected.');
         }
     };
 
@@ -1378,13 +1530,12 @@ const MusicLoverSignUpFlow = () => {
         setFormData(prev => ({ ...prev, subscriptionTier: tier }));
 
         // Show alert about streaming service data limits based on selected service
-        if (formData.selectedStreamingService === 'spotify' || formData.selectedStreamingService === 'youtubemusic') {
-            const serviceName = formData.selectedStreamingService === 'spotify' ? 'Spotify' : 'YouTube Music';
+        if (formData.selectedStreamingService === 'spotify') {
             const message = tier === 'premium'
-                ? `With Premium, you'll get access to your top 5 artists, songs, albums, and genres from ${serviceName}!`
-                : `With Free tier, you'll see your top 3 artists, songs, albums, and genres from ${serviceName}. Upgrade to Premium for top 5!`;
+                ? `With Premium, you'll get access to your top 5 artists, songs, albums, and genres from Spotify!`
+                : `With Free tier, you'll see your top 3 artists, songs, albums, and genres from Spotify. Upgrade to Premium for top 5!`;
 
-            Alert.alert(`${serviceName} Data Access`, message, [{ text: "OK" }]);
+            Alert.alert('Spotify Data Access', message, [{ text: "OK" }]);
         }
     };
 
@@ -1693,7 +1844,7 @@ const MusicLoverSignUpFlow = () => {
             }
 
             // Fetch streaming data if applicable
-            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None' && isSpotifyLoggedIn) {
+            if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
                 console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
                 try {
                     await forceFetchAndSaveSpotifyData(userId, false);
@@ -1704,6 +1855,11 @@ const MusicLoverSignUpFlow = () => {
             }
 
             console.log('[MusicLoverSignUpFlow] 🎉 Profile created successfully for payment flow');
+            
+            // Refresh the user profile so AppNavigator knows about the new state
+            console.log('[MusicLoverSignUpFlow] 🔄 Refreshing user profile...');
+            await refreshUserProfile();
+            console.log('[MusicLoverSignUpFlow] ✅ User profile refreshed');
             
         } catch (error: any) {
             console.error('[MusicLoverSignUpFlow] ❌ Error creating profile for payment:', error);
@@ -1758,7 +1914,7 @@ const MusicLoverSignUpFlow = () => {
             }
 
             // Fetch streaming data if applicable
-            if (formData.selectedStreamingService && formData.selectedStreamingService !== 'None' && isSpotifyLoggedIn) {
+            if (formData.selectedStreamingService === 'spotify' && isSpotifyLoggedIn) {
                 console.log('[MusicLoverSignUpFlow] 🎵 Fetching Spotify data...');
                 try {
                     await forceFetchAndSaveSpotifyData(userId, false);
@@ -1788,7 +1944,7 @@ const MusicLoverSignUpFlow = () => {
             <Text style={authStyles.signupStepTitle}>Music Services</Text>
             <Text style={authStyles.signupStepSubtitle}>What streaming service do you use most?</Text>
             
-            {/* Create a proper 2-column grid */}
+            {/* Create a proper 2-column grid with only Spotify and Others */}
             <View style={{ 
                 width: '100%', 
                 flexDirection: 'row', 
@@ -1796,85 +1952,7 @@ const MusicLoverSignUpFlow = () => {
                 justifyContent: 'space-between',
                 marginBottom: isWeb ? 24 : 20
             }}> 
-                {STREAMING_SERVICES.map((service) => (
-                    <TouchableOpacity 
-                        key={service.id} 
-                        style={[
-                            {
-                                width: '48%',
-                                aspectRatio: 1,
-                                borderRadius: isWeb ? 16 : 12,
-                                borderWidth: 1.5,
-                                borderColor: formData.selectedStreamingService === service.id ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.BORDER,
-                                padding: isWeb ? 16 : 12,
-                                marginBottom: isWeb ? 20 : 16,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                position: 'relative',
-                                elevation: 2,
-                                shadowColor: '#000',
-                                shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
-                                shadowOpacity: 0.08,
-                                shadowRadius: isWeb ? 8 : 4,
-                                backgroundColor: formData.selectedStreamingService === service.id ? `${APP_CONSTANTS.COLORS.PRIMARY}10` : 'white',
-                            }
-                        ]} 
-                        onPress={() => handleStreamingServiceSelect(service.id as StreamingServiceId)}
-                        >
-                        <View style={[{
-                            width: isWeb ? 72 : 60,
-                            height: isWeb ? 72 : 60,
-                            borderRadius: isWeb ? 36 : 30,
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            marginBottom: isWeb ? 16 : 12,
-                            elevation: 3,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
-                            shadowOpacity: 0.1,
-                            shadowRadius: isWeb ? 8 : 4,
-                            backgroundColor: service.color
-                        }]}>
-                            {service.iconSet === 'FontAwesome' && (
-                                <FontAwesome name={service.icon as any} size={28} color="#FFF" />
-                            )}
-                            {service.iconSet === 'MaterialCommunityIcons' && (
-                                <MaterialCommunityIcons name={service.icon as any} size={28} color="#FFF" />
-                            )}
-                            {service.iconSet === 'Feather' && (
-                                <Feather name={service.icon as any} size={28} color="#FFF" />
-                            )}
-                        </View>
-                        <Text style={{
-                            fontSize: isWeb ? 14 : 13,
-                            color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-                            fontWeight: '500',
-                            textAlign: 'center',
-                            fontFamily: 'Inter, sans-serif',
-                        }}>{service.name}</Text>
-                        {formData.selectedStreamingService === service.id && (
-                            <View style={{
-                                position: 'absolute',
-                                top: isWeb ? 12 : 8,
-                                right: isWeb ? 12 : 8,
-                                backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-                                borderRadius: isWeb ? 16 : 12,
-                                width: isWeb ? 32 : 24,
-                                height: isWeb ? 32 : 24,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                elevation: 4,
-                                shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
-                                shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
-                                shadowOpacity: 0.3,
-                                shadowRadius: isWeb ? 8 : 4,
-                            }}>
-                                <Feather name="check" size={16} color="#FFFFFF" />
-                            </View>
-                        )}
-                    </TouchableOpacity>
-                ))}
-
+                {/* Spotify Button */}
                 <TouchableOpacity 
                     style={[
                         {
@@ -1882,7 +1960,7 @@ const MusicLoverSignUpFlow = () => {
                             aspectRatio: 1,
                             borderRadius: isWeb ? 16 : 12,
                             borderWidth: 1.5,
-                            borderColor: formData.selectedStreamingService === 'None' ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.BORDER,
+                            borderColor: formData.selectedStreamingService === 'spotify' ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.BORDER,
                             padding: isWeb ? 16 : 12,
                             marginBottom: isWeb ? 20 : 16,
                             alignItems: 'center',
@@ -1893,11 +1971,80 @@ const MusicLoverSignUpFlow = () => {
                             shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
                             shadowOpacity: 0.08,
                             shadowRadius: isWeb ? 8 : 4,
-                            backgroundColor: formData.selectedStreamingService === 'None' ? `${APP_CONSTANTS.COLORS.PRIMARY}10` : 'white',
+                            backgroundColor: formData.selectedStreamingService === 'spotify' ? `${APP_CONSTANTS.COLORS.PRIMARY}10` : 'white',
                         }
                     ]} 
-                    onPress={() => handleStreamingServiceSelect('None')}
-                    >
+                    onPress={() => handleStreamingServiceSelect('spotify')}
+                >
+                    <View style={[{
+                        width: isWeb ? 72 : 60,
+                        height: isWeb ? 72 : 60,
+                        borderRadius: isWeb ? 36 : 30,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginBottom: isWeb ? 16 : 12,
+                        elevation: 3,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: isWeb ? 8 : 4,
+                        backgroundColor: SPOTIFY_SERVICE.color
+                    }]}>
+                        <FontAwesome name={SPOTIFY_SERVICE.icon as any} size={28} color="#FFF" />
+                    </View>
+                    <Text style={{
+                        fontSize: isWeb ? 14 : 13,
+                        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+                        fontWeight: '500',
+                        textAlign: 'center',
+                        fontFamily: 'Inter, sans-serif',
+                    }}>{SPOTIFY_SERVICE.name}</Text>
+                    {formData.selectedStreamingService === 'spotify' && (
+                        <View style={{
+                            position: 'absolute',
+                            top: isWeb ? 12 : 8,
+                            right: isWeb ? 12 : 8,
+                            backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
+                            borderRadius: isWeb ? 16 : 12,
+                            width: isWeb ? 32 : 24,
+                            height: isWeb ? 32 : 24,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            elevation: 4,
+                            shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
+                            shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
+                            shadowOpacity: 0.3,
+                            shadowRadius: isWeb ? 8 : 4,
+                        }}>
+                            <Feather name="check" size={16} color="#FFFFFF" />
+                        </View>
+                    )}
+                </TouchableOpacity>
+
+                {/* Others Button */}
+                <TouchableOpacity 
+                    style={[
+                        {
+                            width: '48%',
+                            aspectRatio: 1,
+                            borderRadius: isWeb ? 16 : 12,
+                            borderWidth: 1.5,
+                            borderColor: formData.selectedStreamingService === 'others' ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.BORDER,
+                            padding: isWeb ? 16 : 12,
+                            marginBottom: isWeb ? 20 : 16,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            position: 'relative',
+                            elevation: 2,
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
+                            shadowOpacity: 0.08,
+                            shadowRadius: isWeb ? 8 : 4,
+                            backgroundColor: formData.selectedStreamingService === 'others' ? `${APP_CONSTANTS.COLORS.PRIMARY}10` : 'white',
+                        }
+                    ]} 
+                    onPress={() => handleStreamingServiceSelect('others')}
+                >
                     <View style={[{
                         width: isWeb ? 72 : 60,
                         height: isWeb ? 72 : 60,
@@ -1912,7 +2059,7 @@ const MusicLoverSignUpFlow = () => {
                         shadowRadius: isWeb ? 8 : 4,
                         backgroundColor: '#5C5C5C'
                     }]}>
-                        <Feather name="zap-off" size={28} color="#FFF" />
+                        <Feather name="music" size={28} color="#FFF" />
                     </View>
                     <Text style={{
                         fontSize: isWeb ? 14 : 13,
@@ -1920,8 +2067,8 @@ const MusicLoverSignUpFlow = () => {
                         fontWeight: '500',
                         textAlign: 'center',
                         fontFamily: 'Inter, sans-serif',
-                    }}>None / Other</Text>
-                    {formData.selectedStreamingService === 'None' && (
+                    }}>Others</Text>
+                    {formData.selectedStreamingService === 'others' && (
                         <View style={{
                             position: 'absolute',
                             top: isWeb ? 12 : 8,
@@ -2094,7 +2241,10 @@ const MusicLoverSignUpFlow = () => {
                         <ActivityIndicator color="white" />
                     ) : (
                         <Text style={authStyles.signupPrimaryButtonText}>
-                            {formData.subscriptionTier === 'free' ? 'Complete Sign Up' : 'Continue to Payment'}
+                            {formData.selectedStreamingService === 'others' 
+                                ? 'Continue to Select Favorites'
+                                : (formData.subscriptionTier === 'free' ? 'Complete Sign Up' : 'Continue to Payment')
+                            }
                         </Text>
                     )}
                 </TouchableOpacity>
@@ -2103,6 +2253,216 @@ const MusicLoverSignUpFlow = () => {
             {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
         </View>
     );
+
+    const renderMusicFavoritesStep = () => {
+        const isPremium = formData.subscriptionTier === 'premium';
+        const maxItems = isPremium ? 10 : 6; // For "others" users: 6 free, 10 premium
+        
+        // Parse CSV strings
+        const parseCsvString = (str: string): string[] => {
+            return str.split(',')
+                .map(item => item.trim())
+                .filter(item => item.length > 0);
+        };
+        
+        // Validation functions
+        const validateArtists = (value: string): boolean => {
+            const artists = parseCsvString(value);
+            if (artists.length > maxItems) {
+                setArtistsError(`You can only have ${maxItems} favorite artists as a ${isPremium ? 'premium' : 'free'} user.`);
+                return false;
+            }
+            setArtistsError('');
+            return true;
+        };
+        
+        const validateAlbums = (value: string): boolean => {
+            const albums = parseCsvString(value);
+            if (albums.length > maxItems) {
+                setAlbumsError(`You can only have ${maxItems} favorite albums as a ${isPremium ? 'premium' : 'free'} user.`);
+                return false;
+            }
+            setAlbumsError('');
+            return true;
+        };
+        
+        const validateGenres = (value: string): boolean => {
+            const genres = parseCsvString(value);
+            if (genres.length > maxItems) {
+                setGenresError(`You can only have ${maxItems} favorite genres as a ${isPremium ? 'premium' : 'free'} user.`);
+                return false;
+            }
+            setGenresError('');
+            return true;
+        };
+        
+        const validateSongs = (value: string): boolean => {
+            const songs = parseCsvString(value);
+            if (songs.length > maxItems) {
+                setSongsError(`You can only have ${maxItems} favorite songs as a ${isPremium ? 'premium' : 'free'} user.`);
+                return false;
+            }
+            
+            // Check format
+            const isValidSongFormat = (song: string): boolean => {
+                return song.includes(' - ') && song.split(' - ').length >= 2;
+            };
+            
+            const invalidSongs = songs.filter(song => !isValidSongFormat(song));
+            if (invalidSongs.length > 0) {
+                setSongsError(`The following songs are not in "Artist Name - Song" format: ${invalidSongs.join(', ')}`);
+                return false;
+            }
+            
+            setSongsError('');
+            return true;
+        };
+        
+        // Character count component
+        const CharacterCount = ({ current, max, isError }: { current: number, max: number, isError: boolean }) => (
+            <Text style={[styles.characterCount, isError && styles.characterCountError]}>
+                {current}/{max}
+            </Text>
+        );
+        
+        return (
+            <View style={authStyles.signupStepContainer}>
+                <Text style={authStyles.signupStepTitle}>Your Music Favorites</Text>
+                <Text style={authStyles.signupStepSubtitle}>
+                    Help us connect you with like-minded music lovers. Separate multiple entries with commas. You can add up to {maxItems} items per category.
+                </Text>
+
+                <ScrollView style={{ maxHeight: isWeb ? 500 : 400 }} showsVerticalScrollIndicator={false}>
+                    <View style={styles.musicFavoritesFormContainer}>
+                        {/* Favorite Artists */}
+                        <View style={styles.musicFavoritesInputGroup}>
+                            <View style={styles.musicFavoritesLabelContainer}>
+                                <Text style={styles.musicFavoritesLabel}>Favorite Artists</Text>
+                                <CharacterCount 
+                                    current={parseCsvString(formData.favoriteArtists).length} 
+                                    max={maxItems} 
+                                    isError={!!artistsError}
+                                />
+                            </View>
+                            <TextInput
+                                style={[styles.musicFavoritesInput, artistsError ? styles.musicFavoritesInputError : null]}
+                                value={formData.favoriteArtists}
+                                onChangeText={(text) => {
+                                    handleChange('favoriteArtists', text);
+                                    validateArtists(text);
+                                }}
+                                placeholder="e.g. Taylor Swift, The Weeknd, Drake"
+                                multiline
+                                placeholderTextColor="#9CA3AF"
+                            />
+                            {artistsError ? <Text style={styles.musicFavoritesErrorText}>{artistsError}</Text> : null}
+                        </View>
+                        
+                        {/* Favorite Albums */}
+                        <View style={styles.musicFavoritesInputGroup}>
+                            <View style={styles.musicFavoritesLabelContainer}>
+                                <Text style={styles.musicFavoritesLabel}>Favorite Albums</Text>
+                                <CharacterCount 
+                                    current={parseCsvString(formData.favoriteAlbums).length} 
+                                    max={maxItems} 
+                                    isError={!!albumsError}
+                                />
+                            </View>
+                            <TextInput
+                                style={[styles.musicFavoritesInput, albumsError ? styles.musicFavoritesInputError : null]}
+                                value={formData.favoriteAlbums}
+                                onChangeText={(text) => {
+                                    handleChange('favoriteAlbums', text);
+                                    validateAlbums(text);
+                                }}
+                                placeholder="e.g. Abbey Road, DAMN., Blonde"
+                                multiline
+                                placeholderTextColor="#9CA3AF"
+                            />
+                            {albumsError ? <Text style={styles.musicFavoritesErrorText}>{albumsError}</Text> : null}
+                        </View>
+                        
+                        {/* Favorite Genres */}
+                        <View style={styles.musicFavoritesInputGroup}>
+                            <View style={styles.musicFavoritesLabelContainer}>
+                                <Text style={styles.musicFavoritesLabel}>Favorite Genres</Text>
+                                <CharacterCount 
+                                    current={parseCsvString(formData.favoriteGenres).length} 
+                                    max={maxItems} 
+                                    isError={!!genresError}
+                                />
+                            </View>
+                            <TextInput
+                                style={[styles.musicFavoritesInput, genresError ? styles.musicFavoritesInputError : null]}
+                                value={formData.favoriteGenres}
+                                onChangeText={(text) => {
+                                    handleChange('favoriteGenres', text);
+                                    validateGenres(text);
+                                }}
+                                placeholder="e.g. Pop, Hip-Hop, Rock, Electronic"
+                                multiline
+                                placeholderTextColor="#9CA3AF"
+                            />
+                            {genresError ? <Text style={styles.musicFavoritesErrorText}>{genresError}</Text> : null}
+                        </View>
+                        
+                        {/* Favorite Songs */}
+                        <View style={styles.musicFavoritesInputGroup}>
+                            <View style={styles.musicFavoritesLabelContainer}>
+                                <Text style={styles.musicFavoritesLabel}>Favorite Songs</Text>
+                                <CharacterCount 
+                                    current={parseCsvString(formData.favoriteSongs).length} 
+                                    max={maxItems} 
+                                    isError={!!songsError}
+                                />
+                            </View>
+                            <TextInput
+                                style={[styles.musicFavoritesInput, songsError ? styles.musicFavoritesInputError : null]}
+                                value={formData.favoriteSongs}
+                                onChangeText={(text) => {
+                                    handleChange('favoriteSongs', text);
+                                    validateSongs(text);
+                                }}
+                                placeholder="e.g. The Weeknd - Blinding Lights, Taylor Swift - Cruel Summer"
+                                multiline
+                                placeholderTextColor="#9CA3AF"
+                            />
+                            {songsError ? <Text style={styles.musicFavoritesErrorText}>{songsError}</Text> : null}
+                            <Text style={styles.musicFavoritesHelpText}>Format: "Artist Name - Song Title"</Text>
+                        </View>
+                    </View>
+                </ScrollView>
+
+                <View style={authStyles.signupButtonContainer}>
+                    <TouchableOpacity 
+                        style={authStyles.signupSecondaryButton} 
+                        onPress={() => goToPreviousStep('subscription')}
+                    >
+                        <Text style={authStyles.signupSecondaryButtonText}>Back</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={[
+                            authStyles.signupPrimaryButton,
+                            isLoading && authStyles.signupPrimaryButtonDisabled
+                        ]}
+                        onPress={handleStepSubmit}
+                        disabled={isLoading}
+                    >
+                        {isLoading ? (
+                            <ActivityIndicator color="white" />
+                        ) : (
+                            <Text style={authStyles.signupPrimaryButtonText}>
+                                {formData.subscriptionTier === 'free' ? 'Complete Sign Up' : 'Continue to Payment'}
+                            </Text>
+                        )}
+                    </TouchableOpacity>
+                </View>
+
+                {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
+            </View>
+        );
+    };
 
     // --- Render Functions for Steps ---
 
@@ -2113,6 +2473,7 @@ const MusicLoverSignUpFlow = () => {
                 {currentStep === 'profile-details' && renderProfileDetailsStep()}
                 {currentStep === 'streaming-service' && renderStreamingServiceStep()}
                 {currentStep === 'subscription' && renderSubscriptionStep()}
+                {currentStep === 'music-favorites' && renderMusicFavoritesStep()}
             </View>
         );
     };
@@ -2146,7 +2507,9 @@ const MusicLoverSignUpFlow = () => {
                                     // After sign out, the auth flow will automatically navigate to Landing
                                 });
                             } else {
-                                const steps: Step[] = ['username', 'profile-details', 'streaming-service', 'subscription'];
+                                const steps: Step[] = formData.selectedStreamingService === 'others' 
+                                    ? ['username', 'profile-details', 'streaming-service', 'subscription', 'music-favorites']
+                                    : ['username', 'profile-details', 'streaming-service', 'subscription'];
                                 const currentIndex = steps.indexOf(currentStep);
                                 if (currentIndex > 0) {
                                     goToPreviousStep(steps[currentIndex - 1]);
@@ -2161,22 +2524,30 @@ const MusicLoverSignUpFlow = () => {
                             authStyles.signupStepIndicator, 
                             currentStep === 'username' ? authStyles.signupStepIndicatorCurrent : 
                             (currentStep === 'profile-details' || currentStep === 'streaming-service' || 
-                            currentStep === 'subscription') ? authStyles.signupStepIndicatorActive : {}
+                            currentStep === 'subscription' || currentStep === 'music-favorites') ? authStyles.signupStepIndicatorActive : {}
                         ]} />
                         <View style={[
                             authStyles.signupStepIndicator, 
                             currentStep === 'profile-details' ? authStyles.signupStepIndicatorCurrent : 
-                            (currentStep === 'streaming-service' || currentStep === 'subscription') ? authStyles.signupStepIndicatorActive : {}
+                            (currentStep === 'streaming-service' || currentStep === 'subscription' || 
+                            currentStep === 'music-favorites') ? authStyles.signupStepIndicatorActive : {}
                         ]} />
                         <View style={[
                             authStyles.signupStepIndicator, 
                             currentStep === 'streaming-service' ? authStyles.signupStepIndicatorCurrent : 
-                            currentStep === 'subscription' ? authStyles.signupStepIndicatorActive : {}
+                            (currentStep === 'subscription' || currentStep === 'music-favorites') ? authStyles.signupStepIndicatorActive : {}
                         ]} />
                         <View style={[
                             authStyles.signupStepIndicator, 
-                            currentStep === 'subscription' ? authStyles.signupStepIndicatorCurrent : {}
+                            currentStep === 'subscription' ? authStyles.signupStepIndicatorCurrent : 
+                            currentStep === 'music-favorites' ? authStyles.signupStepIndicatorActive : {}
                         ]} />
+                        {formData.selectedStreamingService === 'others' && (
+                            <View style={[
+                                authStyles.signupStepIndicator, 
+                                currentStep === 'music-favorites' ? authStyles.signupStepIndicatorCurrent : {}
+                            ]} />
+                        )}
                     </View>
                     <View style={{ width: 24 }} />
                 </View>
@@ -2661,6 +3032,65 @@ const styles = StyleSheet.create({
         color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
         marginTop: 10,
         textAlign: 'center',
+    },
+    
+    // --- Music Favorites Step Styles ---
+    musicFavoritesFormContainer: {
+        backgroundColor: 'white',
+        borderRadius: 8,
+        padding: 16,
+        marginBottom: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2.5,
+        elevation: 2,
+    },
+    musicFavoritesInputGroup: {
+        marginBottom: 20,
+    },
+    musicFavoritesLabelContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    musicFavoritesLabel: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#4B5563',
+    },
+    characterCount: {
+        fontSize: 12,
+        color: '#6B7280',
+    },
+    characterCountError: {
+        color: '#EF4444',
+    },
+    musicFavoritesInput: {
+        backgroundColor: '#F9FAFB',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        borderRadius: 8,
+        padding: 12,
+        fontSize: 16,
+        color: '#1F2937',
+        minHeight: 100,
+        textAlignVertical: 'top',
+    },
+    musicFavoritesInputError: {
+        borderColor: '#EF4444',
+    },
+    musicFavoritesErrorText: {
+        fontSize: 12,
+        color: '#EF4444',
+        marginTop: 4,
+    },
+    musicFavoritesHelpText: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginTop: 4,
+        fontStyle: 'italic',
     },
 });
 

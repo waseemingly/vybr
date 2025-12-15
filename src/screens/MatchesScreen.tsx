@@ -26,6 +26,7 @@ interface MatchDbResult {
     common_tracks: string[];  // Specifically common tracks
     common_genres: string[];  // Specifically common genres
     common_moods: string[];   // Specifically common moods
+    presented_on_date?: string | null; // Timestamp when match was presented (from new matching algo)
 }
 
 const MatchesScreen: React.FC = () => {
@@ -63,37 +64,48 @@ const MatchesScreen: React.FC = () => {
         console.log('[MatchesScreen] Calling RPC with p_current_user_id:', session.user.id);
 
         try {
-            const { data, error } = await supabase.rpc('get_matches_for_user', {
+            console.log('[MatchesScreen] Calling RPC with user_id:', session.user.id);
+            const { data, error } = await supabase.rpc('atestget_user_matches', {
                 p_current_user_id: session.user.id,
                 p_minimum_score: 0.01 // <-- This filters out all 0% matches
             });
 
+            console.log('[MatchesScreen] RPC Response - error:', error);
+            console.log('[MatchesScreen] RPC Response - data:', data);
+            console.log('[MatchesScreen] RPC Response - data type:', typeof data);
+            console.log('[MatchesScreen] RPC Response - data length:', Array.isArray(data) ? data.length : 'not an array');
+
             if (error) {
                 console.error('[MatchesScreen] Error fetching matches:', error);
                 if (!isSilentRefresh) Alert.alert('Error', 'Could not load matches. ' + error.message);
-            } else if (data) {
-                const formattedMatches: MatchCardProps[] = data.map((match: MatchDbResult) => ({
-                    id: match.match_user_id,
-                    userId: match.match_user_id,
-                    name: match.name,
-                    image: match.profile_picture,
-                    bio: match.bio,
-                    isPremium: match.is_premium,
-                    commonTags: match.common_tags || [],
-                    compatibilityScore: currentUserIsPremium ? (match.compatibility_score ?? undefined) : undefined,
-                    isViewerPremium: currentUserIsPremium,
-                    topArtists: match.common_artists || [],
-                    topTracks: match.common_tracks || [],
-                    topGenres: match.common_genres || [],
-                    topMoods: match.common_moods || [],
-                }));
+                setMatches([]);
+            } else if (data && Array.isArray(data) && data.length > 0) {
+                console.log('[MatchesScreen] Processing matches. Raw data count:', data.length);
+                const formattedMatches: MatchCardProps[] = data.map((match: MatchDbResult) => {
+                    console.log('[MatchesScreen] Processing match:', match.match_user_id, match.name);
+                    return {
+                        id: match.match_user_id,
+                        userId: match.match_user_id,
+                        name: match.name,
+                        image: match.profile_picture,
+                        bio: match.bio,
+                        isPremium: match.is_premium,
+                        commonTags: match.common_tags || [],
+                        compatibilityScore: currentUserIsPremium ? (match.compatibility_score ?? undefined) : undefined,
+                        isViewerPremium: currentUserIsPremium,
+                        topArtists: match.common_artists || [],
+                        topTracks: match.common_tracks || [],
+                        topGenres: match.common_genres || [],
+                        topMoods: match.common_moods || [],
+                    };
+                });
+                console.log(`[MatchesScreen] ✅ Fetched ${formattedMatches.length} matches. Formatted data:`, formattedMatches);
                 setMatches(formattedMatches);
-                console.log(`[MatchesScreen] Fetched ${formattedMatches.length} matches. Data:`, formattedMatches);
                 setCurrentMatchIndex(0);
             } else {
-                 setMatches([]); 
-                 setCurrentMatchIndex(0);
-                 console.log('[MatchesScreen] No matches data returned by RPC.');
+                console.warn('[MatchesScreen] ⚠️ No matches data returned by RPC. Data:', data, 'Type:', typeof data, 'IsArray:', Array.isArray(data));
+                setMatches([]); 
+                setCurrentMatchIndex(0);
             }
         } catch (e: any) {
             console.error('[MatchesScreen] Unexpected error fetching matches:', e);
@@ -336,7 +348,9 @@ const MatchesScreen: React.FC = () => {
         }
     };
 
-    console.log('[MatchesScreen] Rendering. Current Index:', currentMatchIndex, 'Matches Count:', matches.length, 'InitialLoadAttempted:', initialMatchesLoadAttempted);
+    console.log('[MatchesScreen] Rendering. Current Index:', currentMatchIndex, 'Matches Count:', matches.length, 'InitialLoadAttempted:', initialMatchesLoadAttempted, 'Loading:', loadingMatches, 'AuthLoading:', authLoading);
+    console.log('[MatchesScreen] Will show matches?', matches.length > 0 && initialMatchesLoadAttempted);
+    console.log('[MatchesScreen] Matches array:', matches);
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
