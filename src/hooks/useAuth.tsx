@@ -96,6 +96,10 @@ export interface CreateMusicLoverProfileData {
     website?: string;
     capacity?: number; // <-- ADDED
     openingHours?: OpeningHours; // <-- ADDED
+    favoriteArtists?: string | null;
+    favoriteAlbums?: string | null;
+    favoriteGenres?: string | null;
+    favoriteSongs?: string | null;
 }
 
 export interface CreateOrganizerProfileData {
@@ -1086,7 +1090,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             }
 
             // --- Prepare DB Data (Match DB Columns) ---
-            const { userId, profilePictureUri, profilePictureMimeType, termsAccepted, bio, country, city, age, selectedStreamingService, website, capacity, openingHours, ...basicProfileData } = profileData;
+            const { userId, profilePictureUri, profilePictureMimeType, termsAccepted, bio, country, city, age, selectedStreamingService, website, capacity, openingHours, favoriteArtists, favoriteAlbums, favoriteGenres, favoriteSongs, ...basicProfileData } = profileData;
             const profileToInsert = {
                 user_id: userId,
                 first_name: basicProfileData.firstName,
@@ -1105,6 +1109,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 website: website,
                 capacity: capacity,
                 opening_hours: openingHours,
+                favorite_artists: favoriteArtists === null || favoriteArtists === undefined ? undefined : favoriteArtists,
+                favorite_albums: favoriteAlbums === null || favoriteAlbums === undefined ? undefined : favoriteAlbums,
+                favorite_genres: favoriteGenres === null || favoriteGenres === undefined ? undefined : favoriteGenres,
+                favorite_songs: favoriteSongs === null || favoriteSongs === undefined ? undefined : favoriteSongs,
                  // Ensure all REQUIRED DB fields are present or have defaults
                 // music_data: {} // Example default if required and not nullable
             };
