@@ -124,6 +124,12 @@ export interface MusicLoverProfile {
   country?: string;
   city?: string;
   isPremium?: boolean;
+  /**
+   * UI-level flag for onboarding/tour completion.
+   * In Supabase this is stored as `has_completed_tour` (snake_case) and typically mapped
+   * to this camelCase field when constructing app state.
+   */
+  hasCompletedTour?: boolean;
   musicData?: SpotifyData; // Keep if still relevant
   favorite_artists?: string | null;
   favorite_songs?: string | null;
@@ -142,6 +148,12 @@ export interface OrganizerProfile {
   website?: string;
   stripe_customer_id?: string | null; // Allow null
   stripe_connect_account_id?: string | null; // Add this for payouts
+  /**
+   * UI-level flag for onboarding/tour completion.
+   * In Supabase this is stored as `has_completed_tour` (snake_case) and typically mapped
+   * to this camelCase field when constructing app state.
+   */
+  hasCompletedTour?: boolean;
 }
 
 export interface UserSession {

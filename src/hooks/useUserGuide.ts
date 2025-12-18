@@ -4,6 +4,24 @@ import { useAuth } from '@/hooks/useAuth';
 import type { TourStep, TourUserType } from '@/config/tourConfig';
 import { getTourSteps } from '@/config/tourConfig';
 
+function readHasCompletedTour(profile: unknown): boolean | undefined {
+  if (!profile || typeof profile !== 'object') return undefined;
+  const p = profile as Record<string, unknown>;
+  const camel = p.hasCompletedTour;
+  if (typeof camel === 'boolean') return camel;
+  const snake = p.has_completed_tour;
+  if (typeof snake === 'boolean') return snake;
+  return undefined;
+}
+
+type UseUserGuideOptions = {
+  /**
+   * When true, the tour will NOT auto-start from `hasCompletedTour === false`.
+   * Manual starts (via `start()` / `replay()`) still work because they set `overrideActive`.
+   */
+  suppressAuto?: boolean;
+};
+
 type UseUserGuideResult = {
   userType: TourUserType | null;
   steps: TourStep[];
@@ -18,10 +36,11 @@ type UseUserGuideResult = {
   replay: () => void;
 };
 
-export function useUserGuide(): UseUserGuideResult {
+export function useUserGuide(options?: UseUserGuideOptions): UseUserGuideResult {
   const { session, musicLoverProfile, organizerProfile, refreshSessionData } = useAuth();
   const [overrideActive, setOverrideActive] = useState<boolean | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
+  const suppressAuto = options?.suppressAuto ?? false;
 
   const userType: TourUserType | null = useMemo(() => {
     const t =
@@ -36,8 +55,8 @@ export function useUserGuide(): UseUserGuideResult {
 
   const hasCompletedTour = useMemo(() => {
     if (!session) return true;
-    if (userType === 'organizer') return organizerProfile?.hasCompletedTour ?? true;
-    if (userType === 'music_lover') return musicLoverProfile?.hasCompletedTour ?? true;
+    if (userType === 'organizer') return readHasCompletedTour(organizerProfile) ?? true;
+    if (userType === 'music_lover') return readHasCompletedTour(musicLoverProfile) ?? true;
     return true;
   }, [session, userType, organizerProfile, musicLoverProfile]);
 
@@ -51,8 +70,9 @@ export function useUserGuide(): UseUserGuideResult {
     if (!userType) return false;
     if (!steps.length) return false;
     if (overrideActive !== null) return overrideActive;
+    if (suppressAuto) return false;
     return hasCompletedTour === false;
-  }, [session, userType, steps.length, overrideActive, hasCompletedTour]);
+  }, [session, userType, steps.length, overrideActive, hasCompletedTour, suppressAuto]);
 
   const step: TourStep | null = useMemo(() => {
     if (!active) return null;

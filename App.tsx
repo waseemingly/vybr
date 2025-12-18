@@ -1,6 +1,7 @@
 import '@azure/core-asynciterator-polyfill';
 import './src/utils/EventTargetPolyfill';
 import * as Linking from 'expo-linking';
+import * as SplashScreen from 'expo-splash-screen';
 
 
 // Set up EventTarget for Hermes
@@ -17,6 +18,14 @@ import { NavigationContainer, createNavigationContainerRef } from "@react-naviga
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Text } from 'react-native';
+
+// Keep the native splash screen visible until we decide the app is ready.
+// This prevents a blank/white flash between the iOS launch screen and first React render.
+if (typeof window === 'undefined') {
+  SplashScreen.preventAutoHideAsync().catch(() => {
+    // no-op: it's fine if it's already been called
+  });
+}
 
 // Platform detection that works for both web and mobile
 const getPlatform = () => {
@@ -93,6 +102,14 @@ const linking = {
 export default function App() {
   const [isReady, setIsReady] = React.useState(false);
   const [initialState, setInitialState] = React.useState();
+
+  React.useEffect(() => {
+    if (platform !== 'web' && isReady) {
+      SplashScreen.hideAsync().catch(() => {
+        // no-op
+      });
+    }
+  }, [isReady]);
 
   // Force document title to stay as "Vybr Web"
   React.useEffect(() => {

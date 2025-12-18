@@ -9,6 +9,13 @@ import { TourTooltip } from '@/components/TourTooltip';
 import { useUserGuide } from '@/hooks/useUserGuide';
 import type { TourTarget } from '@/config/tourConfig';
 
+type Props = {
+  /**
+   * Prevent the tour from auto-starting (based on profile flag). Manual replay still works.
+   */
+  suppressAuto?: boolean;
+};
+
 function getUserTabIndexForPlatform(tab: keyof UserTabParamList): number {
   // Mobile order from AppNavigator: Matches, Chats, Search, Events, Profile
   const mobileOrder: (keyof UserTabParamList)[] = ['Matches', 'Chats', 'Search', 'Events', 'Profile'];
@@ -70,10 +77,10 @@ function computeSpotlightRect(
   return null;
 }
 
-export default function UserGuideTour() {
+export default function UserGuideTour({ suppressAuto }: Props) {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { width, height } = useWindowDimensions();
-  const { active, steps, step, stepIndex, userType, next, prev, skip } = useUserGuide();
+  const { active, steps, step, stepIndex, userType, next, prev, skip } = useUserGuide({ suppressAuto });
 
   const spotlight = useMemo(() => {
     if (!step) return null;

@@ -6,8 +6,9 @@
     "orientation": "portrait",
     "newArchEnabled": true,
     "userInterfaceStyle": "light",
-    "icon": "./logo/vyb (6).png",
+    "icon": "./assets/icon.png",
     "splash": {
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -24,6 +25,7 @@
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#ffffff"
       },
       "package": "com.vybr.app",

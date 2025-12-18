@@ -1,5 +1,5 @@
 // navigation/AppNavigator.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet, Platform, Text, TouchableOpacity } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -1170,6 +1170,26 @@ const AppNavigator = () => {
     currentStripeCustomerId,
   } = usePaymentRequirementCheck();
 
+  // --- Tour suppression ---
+  // We want to prevent the user guide from auto-starting while the PaymentRequired gate
+  // is active, and also immediately after the user completes the RequiredPayment flow.
+  // Manual replay (from Settings) must still work.
+  const prevRequiresPaymentRef = useRef<boolean | null>(null);
+  const [suppressTourAutoAfterPaymentGate, setSuppressTourAutoAfterPaymentGate] = useState(false);
+
+  useEffect(() => {
+    const prev = prevRequiresPaymentRef.current;
+
+    // If we just transitioned from "payment required" -> "payment NOT required",
+    // suppress auto-start for the rest of this app session so the payment completion
+    // flow is never interrupted by the tour.
+    if (prev === true && requiresPaymentScreen === false) {
+      setSuppressTourAutoAfterPaymentGate(true);
+    }
+
+    prevRequiresPaymentRef.current = requiresPaymentScreen;
+  }, [requiresPaymentScreen]);
+
   // Monitor payment method changes and force re-evaluation
   useEffect(() => {
     console.log("[AppNavigator] Payment method change detected, stripe_customer_id:", currentStripeCustomerId ? `${currentStripeCustomerId.substring(0, 10)}...` : 'None');
@@ -1251,7 +1271,7 @@ const AppNavigator = () => {
         </RootStack.Navigator>
 
         {/* Global overlay tour (only shows for new users / replay) */}
-        <UserGuideTour />
+        <UserGuideTour suppressAuto={requiresPaymentScreen || suppressTourAutoAfterPaymentGate} />
       </>
   );
   };

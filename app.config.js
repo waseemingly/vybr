@@ -6,8 +6,10 @@ export default {
     orientation: "portrait",
     newArchEnabled: false,
     userInterfaceStyle: "light",
-    icon: "./logo/vyb (6).png",
+    // Use stable asset paths (avoid spaces/parentheses) for native build tooling.
+    icon: "./assets/icon.png",
     splash: {
+      image: "./assets/splash.png",
       resizeMode: "contain",
       backgroundColor: "#ffffff"
     },
@@ -29,6 +31,7 @@ export default {
     },
     android: {
       adaptiveIcon: {
+        foregroundImage: "./assets/icon.png",
         backgroundColor: "#ffffff"
       },
       package: "com.vybr.music",

@@ -29,6 +29,13 @@ export const MUSIC_LOVER_TOUR_STEPS: TourStep[] = [
     target: { kind: 'userTab', tab: 'Matches' },
   },
   {
+    id: 'friends-requests',
+    title: 'Accepting Friends',
+    description:
+      'When someone sends you a friend request, open your Friends List and switch to the Requests tab to Accept or Decline.',
+    target: { kind: 'mainScreen', screen: 'FriendsListScreen' },
+  },
+  {
     id: 'events',
     title: 'Events',
     description: 'Explore events and see what’s happening near you.',
@@ -57,18 +64,6 @@ export const MUSIC_LOVER_TOUR_STEPS: TourStep[] = [
     title: 'My Bookings',
     description: 'Find your upcoming bookings and booking codes anytime in one place.',
     target: { kind: 'mainScreen', screen: 'MyBookingsScreen' },
-  },
-  {
-    id: 'settings',
-    title: 'Settings',
-    description: 'Manage your account, privacy, notifications, and get help from here.',
-    target: { kind: 'mainScreen', screen: 'UserSettingsScreen' },
-  },
-  {
-    id: 'link-music-services',
-    title: 'Link Music Services',
-    description: 'Connect your streaming service to improve matching and personalize recommendations.',
-    target: { kind: 'mainScreen', screen: 'LinkMusicServicesScreen' },
   },
   {
     id: 'update-favorites',
