@@ -640,13 +640,39 @@ const MusicLoverSignUpFlow = () => {
         return '';
     };
 
+    // Keep render-time checks lightweight (no logging / no side effects)
+    const isProfileDetailsStepComplete = (): boolean => {
+        // Profile picture
+        if (!formData.profilePictureUri?.trim()) return false;
+
+        // Age is required and must be valid
+        const ageStr = formData.age?.trim();
+        if (!ageStr) return false;
+        if (!/^\d+$/.test(ageStr)) return false;
+        const age = parseInt(ageStr, 10);
+        if (age < 1 || age > 120) return false;
+
+        // Location
+        if (!formData.countryCode) return false;
+        // Singapore is special-cased (state is auto-set), but for other countries require a state/province selection
+        if (formData.countryCode !== 'SG' && !formData.stateCode) return false;
+        if (!formData.cityName) return false;
+
+        // Bio prompts
+        if (!formData.bio.firstSong?.trim()) return false;
+        if (!formData.bio.goToSong?.trim()) return false;
+        if (!formData.bio.mustListenAlbum?.trim()) return false;
+        if (!formData.bio.dreamConcert?.trim()) return false;
+        if (!formData.bio.musicTaste?.trim()) return false;
+
+        return true;
+    };
+
     const validateProfileDetailsStep = (): boolean => {
         console.log('[MusicLoverSignUpFlow] Validating Profile Details Step...');
         
-        // Don't set error state here
-        if (formData.age && (!/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 1 || parseInt(formData.age, 10) > 120)) {
-            return false;
-        }
+        // All fields on this step are required
+        if (!isProfileDetailsStepComplete()) return false;
         
         console.log('[MusicLoverSignUpFlow] Profile Details Step Validation PASSED.');
         return true;
@@ -654,9 +680,24 @@ const MusicLoverSignUpFlow = () => {
     
     // Get error message without setting state
     const getProfileDetailsError = (): string => {
-        if (formData.age && (!/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 1 || parseInt(formData.age, 10) > 120)) {
-            return 'Please enter a valid age (1-120) or leave blank';
-        }
+        if (!formData.profilePictureUri?.trim()) return 'Please select a profile picture';
+
+        const ageStr = formData.age?.trim();
+        if (!ageStr) return 'Please enter your age';
+        if (!/^\d+$/.test(ageStr)) return 'Please enter a valid age (numbers only)';
+        const age = parseInt(ageStr, 10);
+        if (age < 1 || age > 120) return 'Please enter a valid age (1-120)';
+
+        if (!formData.countryCode) return 'Please select your country';
+        if (formData.countryCode !== 'SG' && !formData.stateCode) return 'Please select your state/province';
+        if (!formData.cityName) return 'Please select your city';
+
+        if (!formData.bio.firstSong?.trim()) return 'Please answer: Your first concert / favorite music memory?';
+        if (!formData.bio.goToSong?.trim()) return 'Please answer: Go-to song right now?';
+        if (!formData.bio.mustListenAlbum?.trim()) return 'Please answer: An album everyone should listen to?';
+        if (!formData.bio.dreamConcert?.trim()) return 'Please answer: Dream concert lineup?';
+        if (!formData.bio.musicTaste?.trim()) return 'Please answer: Describe your music taste in a few words?';
+
         return '';
     };
 
@@ -865,11 +906,12 @@ const MusicLoverSignUpFlow = () => {
 
     // Helper to consolidate profile data creation before calling the hook
     const prepareProfileData = async (userId: string): Promise<CreateMusicLoverProfileData> => {
-        // Validate age input
-        const age = formData.age ? parseInt(formData.age) : null;
-        if (formData.age && (age === null || isNaN(age) || age < 1 || age > 120)) {
-             Alert.alert('Invalid Age', 'Please enter a valid age between 1 and 120, or leave it blank.');
-             throw new Error('Invalid age provided.');
+        // Validate age input (required)
+        const ageStr = formData.age?.trim();
+        const age = ageStr ? parseInt(ageStr, 10) : NaN;
+        if (!ageStr || isNaN(age) || age < 1 || age > 120) {
+            Alert.alert('Invalid Age', 'Please enter a valid age between 1 and 120.');
+            throw new Error('Invalid age provided.');
         }
 
         // Get email from the authenticated user session
@@ -1337,7 +1379,7 @@ const MusicLoverSignUpFlow = () => {
             {/* Profile Picture */}
             {isWeb ? (
                 <View style={authStyles.signupInputContainer}>
-                    <Text style={[authStyles.signupInputLabel, !isWeb && { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>Profile Picture</Text>
+                    <Text style={[authStyles.signupInputLabel, !isWeb && { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>Profile Picture *</Text>
                     <View style={authStyles.signupProfilePicContainer}>
                         {formData.profilePicturePreview ? (
                             <Image source={{ uri: formData.profilePicturePreview }} style={authStyles.signupProfilePicPreview} />
@@ -1357,7 +1399,7 @@ const MusicLoverSignUpFlow = () => {
             ) : (
                 <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'center' }}>
                     <View style={authStyles.signupProfilePicSectionMobile}>
-                        <Text style={[authStyles.signupInputLabel, { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>Profile Picture</Text>
+                        <Text style={[authStyles.signupInputLabel, { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>Profile Picture *</Text>
                         <View style={authStyles.signupProfilePicContainer}>
                             {formData.profilePicturePreview ? (
                                 <Image source={{ uri: formData.profilePicturePreview }} style={authStyles.signupProfilePicPreview} />
@@ -1380,7 +1422,7 @@ const MusicLoverSignUpFlow = () => {
             <View style={!isWeb && { paddingHorizontal: 16 }}>
                 {/* Age */}
                 <View style={authStyles.signupInputContainer}>
-                    <Text style={authStyles.signupInputLabel}>Age</Text>
+                    <Text style={authStyles.signupInputLabel}>Age *</Text>
                     <TextInput 
                         style={authStyles.signupInput} 
                         placeholder="e.g. 25" 
@@ -1395,7 +1437,7 @@ const MusicLoverSignUpFlow = () => {
                 
                 {/* Location Section - Country Dropdown */}
                 <View style={authStyles.signupInputContainer}>
-                    <Text style={authStyles.signupInputLabel}>Country</Text>
+                    <Text style={authStyles.signupInputLabel}>Country *</Text>
                     <View style={styles.pickerContainer}>
                         <Picker
                             selectedValue={formData.countryCode}
@@ -1417,7 +1459,7 @@ const MusicLoverSignUpFlow = () => {
                 {/* State/Province Dropdown - Only show if country is selected and not Singapore */}
                 {formData.countryCode && formData.countryCode !== 'SG' && (
                     <View style={authStyles.signupInputContainer}>
-                        <Text style={authStyles.signupInputLabel}>State/Province</Text>
+                        <Text style={authStyles.signupInputLabel}>State/Province *</Text>
                         <View style={styles.pickerContainer}>
                             <Picker
                                 selectedValue={formData.stateCode}
@@ -1441,7 +1483,7 @@ const MusicLoverSignUpFlow = () => {
                 {/* City Dropdown - Only show if state is selected */}
                 {formData.stateCode && (
                     <View style={authStyles.signupInputContainer}>
-                        <Text style={authStyles.signupInputLabel}>City</Text>
+                        <Text style={authStyles.signupInputLabel}>City *</Text>
                         <View style={styles.pickerContainer}>
                             <Picker
                                 selectedValue={formData.cityName}
@@ -1463,28 +1505,29 @@ const MusicLoverSignUpFlow = () => {
                 )}
                 
                 {/* Bio Section */}
-                <Text style={[authStyles.signupInputLabel, authStyles.signupBioHeader]}>Music Bio (Share your sound!)</Text>
+                <Text style={[authStyles.signupInputLabel, authStyles.signupBioHeader]}>Music Bio (Share your sound!) *</Text>
                 <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Your first concert / favorite music memory?</Text>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Your first concert / favorite music memory? *</Text>
                     <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.firstSong} onChangeText={(text) => handleChange('bio.firstSong', text)} placeholder="That unforgettable show..." multiline returnKeyType="next" blurOnSubmit={false} />
                 </View>
                 <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Go-to song right now?</Text>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Go-to song right now? *</Text>
                     <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.goToSong} onChangeText={(text) => handleChange('bio.goToSong', text)} placeholder="The track on repeat..." returnKeyType="next" blurOnSubmit={false} />
                 </View>
                 <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>An album everyone should listen to?</Text>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>An album everyone should listen to? *</Text>
                     <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.mustListenAlbum} onChangeText={(text) => handleChange('bio.mustListenAlbum', text)} placeholder="Your essential pick..." returnKeyType="next" blurOnSubmit={false} />
                 </View>
                 <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Dream concert lineup?</Text>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Dream concert lineup? *</Text>
                     <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.dreamConcert} onChangeText={(text) => handleChange('bio.dreamConcert', text)} placeholder="Headliner? Opener?" returnKeyType="next" blurOnSubmit={false} />
                 </View>
                 <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Describe your music taste in a few words?</Text>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Describe your music taste in a few words? *</Text>
                     <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.musicTaste} onChangeText={(text) => handleChange('bio.musicTaste', text)} placeholder="Indie rock, 90s hip hop, electronic..." returnKeyType="done" onSubmitEditing={handleStepSubmit} />
                 </View>
                 {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
+                <Text style={[authStyles.signupRequiredText, !isWeb && { marginBottom: 16, textAlign: 'center' }]}>* Required fields</Text>
                 
                 {/* Back/Continue Buttons */}
                 <View style={authStyles.signupButtonContainer}>
@@ -1498,10 +1541,10 @@ const MusicLoverSignUpFlow = () => {
                     <TouchableOpacity
                         style={[
                             authStyles.signupPrimaryButton,
-                            (isLoading || authLoading) && authStyles.signupPrimaryButtonDisabled
+                            (isLoading || authLoading || !isProfileDetailsStepComplete()) && authStyles.signupPrimaryButtonDisabled
                         ]}
                         onPress={handleStepSubmit}
-                        disabled={isLoading || authLoading}
+                        disabled={isLoading || authLoading || !isProfileDetailsStepComplete()}
                     >
                         <Text style={authStyles.signupPrimaryButtonText}>Continue</Text>
                     </TouchableOpacity>

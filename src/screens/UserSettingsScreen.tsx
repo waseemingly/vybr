@@ -455,7 +455,12 @@ const UserSettingsScreen: React.FC = () => {
 
                 <SettingsSection title="Music Preferences">
                     <SettingsItem label="Update Favorites" icon="sliders" onPress={navigateToUpdateMusicFavorites} />
-                    <SettingsItem label="Link Music Services" icon="link" onPress={navigateToLinkMusicServices} />
+                    <SettingsItem
+                        label="Link Music Services"
+                        icon="link"
+                        value="Not available"
+                        disabled
+                    />
                     <SettingsItem
                         label="Show Music Profile to Friends"
                         icon="share-2"
@@ -497,6 +502,12 @@ const UserSettingsScreen: React.FC = () => {
 
                 {isPremiumUser ? (
                      <SettingsSection title="Premium Subscription" isPremiumFeature isPremiumUser={isPremiumUser}>
+                        <SettingsItem
+                            label="AI Radio"
+                            icon="radio"
+                            value="Coming soon"
+                            disabled
+                        />
                         <SettingsItem label="Cancel Subscription" icon="x-circle" onPress={navigateToManageSubscription} />
                      </SettingsSection>
                  ) : (
