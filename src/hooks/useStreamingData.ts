@@ -1,6 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from './useAuth';
+
+// Toggle verbose logs for this hook (kept off by default to avoid terminal spam).
+const DEBUG_STREAMING_LOGS = false;
+const log = (...args: any[]) => {
+  if (DEBUG_STREAMING_LOGS) console.log(...args);
+};
+const warn = (...args: any[]) => {
+  if (DEBUG_STREAMING_LOGS) console.warn(...args);
+};
 
 // Type definitions
 export type TopArtist = {
@@ -315,7 +324,7 @@ export const useStreamingData = (userId?: string | null, authProps?: {
   };
 
   // Fetch streaming data for the current user
-  const fetchStreamingData = async (forceRefresh = false) => {
+  const fetchStreamingData = useCallback(async (forceRefresh = false) => {
     if (!userId) return; // userId here is the one passed to the hook, can be current user or other user
 
     try {
@@ -323,7 +332,7 @@ export const useStreamingData = (userId?: string | null, authProps?: {
       setError(null); // Clear previous errors at the start
       
       if (forceRefresh) {
-        console.log(`[useStreamingData] Force refreshing streaming data for user: ${userId}`);
+        log(`[useStreamingData] Force refreshing streaming data for user: ${userId}`);
         // Clear existing state to ensure fresh data is displayed
         setHasData(false);
         setStreamingData(null);
@@ -334,7 +343,7 @@ export const useStreamingData = (userId?: string | null, authProps?: {
         setTopAlbums([]);
         setTopMoods([]);
       } else {
-        console.log(`[useStreamingData] Attempting to fetch latest streaming data for user: ${userId}`);
+        log(`[useStreamingData] Attempting to fetch latest streaming data for user: ${userId}`);
       }
 
       // Get the most recent snapshot for this user from user_streaming_data
@@ -367,7 +376,7 @@ export const useStreamingData = (userId?: string | null, authProps?: {
       }
 
       if (dbData) { // A record was found
-        console.log(`[useStreamingData] Latest data record found for user ${userId}:`, JSON.stringify(dbData).substring(0, 300) + "...");
+        log(`[useStreamingData] Latest data record found for user ${userId}:`, JSON.stringify(dbData).substring(0, 300) + "...");
         
         const streamingDataResult: StreamingData = {
           top_artists: dbData.top_artists || [],
@@ -402,10 +411,10 @@ export const useStreamingData = (userId?: string | null, authProps?: {
                            ) || false;
         setHasData(hasAnyData);
         
-        console.log(`[useStreamingData] Successfully processed data for user ${userId} from service ${dbData.service_id}. Has Data: ${hasAnyData}. Artists: ${streamingDataResult.top_artists.length}, Tracks: ${streamingDataResult.top_tracks.length}, Moods: ${streamingDataResult.top_moods?.length || 0}, Snapshot: ${streamingDataResult.snapshot_date}${forceRefresh ? ' (FORCE REFRESH)' : ''}`);
+        log(`[useStreamingData] Successfully processed data for user ${userId} from service ${dbData.service_id}. Has Data: ${hasAnyData}. Artists: ${streamingDataResult.top_artists.length}, Tracks: ${streamingDataResult.top_tracks.length}, Moods: ${streamingDataResult.top_moods?.length || 0}, Snapshot: ${streamingDataResult.snapshot_date}${forceRefresh ? ' (FORCE REFRESH)' : ''}`);
       } else {
         // No data record found for this user
-        console.log(`[useStreamingData] No streaming data record found for user ${userId} in user_streaming_data table.`);
+        log(`[useStreamingData] No streaming data record found for user ${userId} in user_streaming_data table.`);
         setHasData(false);
         setStreamingData(null);
         setServiceId(null);
@@ -429,7 +438,7 @@ export const useStreamingData = (userId?: string | null, authProps?: {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
 
   // Check user's premium status
   const checkPremiumStatus = async (userId: string): Promise<boolean> => {
@@ -453,7 +462,7 @@ export const useStreamingData = (userId?: string | null, authProps?: {
     if (userId) {
       fetchStreamingData();
     }
-  }, [userId]);
+  }, [userId, fetchStreamingData]);
 
   return {
     loading,

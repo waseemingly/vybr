@@ -61,13 +61,15 @@ import type { NavigationContainerRef } from '@react-navigation/native';
 const queryClient = new QueryClient();
 export const navigationRef = createNavigationContainerRef<any>(); // Or your RootStackParamList
 
-// --- DEFINE YOUR STRIPE PUBLISHABLE KEY ---
-// IMPORTANT: Replace with your ACTUAL Stripe Publishable Key
-// It's best to load this from an environment variable (e.g., using react-native-dotenv)
-const STRIPE_PUBLISHABLE_KEY = "pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN"; // <<<<<< REPLACE THIS
+// --- Stripe Publishable Key ---
+// Prefer build-time configuration; fall back to the existing test key for local/dev.
+const STRIPE_PUBLISHABLE_KEY =
+  process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
+  process.env.STRIPE_PUBLISHABLE_KEY ||
+  "pk_test_51RDGZeDz14cfDAXkmWK8eowRamZEWD7wAr1Mjae9QjhtBGRZ0VFXGDQxS9Q8XQfX1Gkoy4PlTcNWIz2E54Y6n7Yw00wY8abUlU";
 
 if (!STRIPE_PUBLISHABLE_KEY) {
-  // In a real app, you might want to show an error UI or prevent the app from loading
+  console.error("[App] Missing Stripe publishable key. Set EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY for production builds.");
 }
 
 // Configure deep linking for all platforms
@@ -202,6 +204,7 @@ export default function App() {
         <PowerSyncProvider>
           <CustomStripeProvider
             publishableKey={STRIPE_PUBLISHABLE_KEY}
+            urlScheme="vybr"
           >
             <OrganizerModeProvider>
               <AuthProvider navigationRef={navigationRef as React.RefObject<NavigationContainerRef<any>>}>

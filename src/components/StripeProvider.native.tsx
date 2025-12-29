@@ -3,12 +3,13 @@ import { StripeProvider as NativeStripeProvider } from '@stripe/stripe-react-nat
 
 interface CustomStripeProviderProps {
   publishableKey: string;
+  urlScheme?: string;
   children: React.ReactNode;
 }
 
-const CustomStripeProvider = ({ publishableKey, children }: CustomStripeProviderProps) => {
+const CustomStripeProvider = ({ publishableKey, urlScheme, children }: CustomStripeProviderProps) => {
   return (
-    <NativeStripeProvider publishableKey={publishableKey}>
+    <NativeStripeProvider publishableKey={publishableKey} urlScheme={urlScheme}>
       <>{React.Children.toArray(children)}</>
     </NativeStripeProvider>
   );

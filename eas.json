@@ -42,6 +42,7 @@
         "env": {
           "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "830574548321-h59962oi42k7sjuhkefud8tbooo18j.apps.googleusercontent.com",
           "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr",
+          "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51RDGZeDz14cfDAXkmWK8eowRamZEWD7wAr1Mjae9QjhtBGRZ0VFXGDQxS9Q8XQfX1Gkoy4PlTcNWIz2E54Y6n7Yw00wY8abUlU",
           "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
         }
       },
@@ -49,6 +50,7 @@
         "env": {
           "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "830574548321-h59962oi42k7sjuhkefud8tbooo18j.apps.googleusercontent.com",
           "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr",
+          "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51RDGZeDz14cfDAXkmWK8eowRamZEWD7wAr1Mjae9QjhtBGRZ0VFXGDQxS9Q8XQfX1Gkoy4PlTcNWIz2E54Y6n7Yw00wY8abUlU",
           "EXPO_NO_CAPABILITY_SYNC": "1",
           "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
         },

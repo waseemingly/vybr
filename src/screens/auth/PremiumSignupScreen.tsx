@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, ScrollView, Platform, GestureResponderEvent
 } from 'react-native';
 import { usePlatformStripe } from '@/hooks/useStripe';
+import { useStripe as useNativeStripe } from '@stripe/stripe-react-native';
 
 // WEB Stripe
 import { loadStripe, StripeElementsOptions, Appearance } from '@stripe/stripe-js';
@@ -20,9 +21,9 @@ type PremiumSignupScreenRouteProp = RouteProp<MainStackParamList, 'PremiumSignup
 type PremiumSignupNavigationProp = NavigationProp<RootStackParamList>;
 
 // Replace with your actual Stripe Price ID for the premium plan
-const PREMIUM_PLAN_PRICE_ID = 'price_1ROtS1DHMm6OC3yQAkqDjUWd'; // EXAMPLE - USE YOUR ACTUAL PRICE ID
+const PREMIUM_PLAN_PRICE_ID = 'price_1SjiYFDz14cfDAXkFrVys2hD'; // Premium subscription price
 // Replace with your actual Stripe Publishable Key for WEB
-const STRIPE_PUBLISHABLE_KEY_WEB = 'pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN'; // EXAMPLE - USE YOUR ACTUAL WEB PUBLISHABLE KEY
+const STRIPE_PUBLISHABLE_KEY_WEB = 'pk_test_51RDGZeDz14cfDAXkmWK8eowRamZEWD7wAr1Mjae9QjhtBGRZ0VFXGDQxS9Q8XQfX1Gkoy4PlTcNWIz2E54Y6n7Yw00wY8abUlU'; // Matching key for new account
 
 const stripePromise = Platform.OS === 'web' ? loadStripe(STRIPE_PUBLISHABLE_KEY_WEB) : null;
 
@@ -129,6 +130,7 @@ const PremiumSignupScreen = () => {
     const [isLoadingData, setIsLoadingData] = useState(false); // For processing after setup
 
     const { initPaymentSheet, presentPaymentSheet } = usePlatformStripe();
+    const nativeStripe = useNativeStripe();
     const navigation = useNavigation<PremiumSignupNavigationProp>();
     const route = useRoute<PremiumSignupScreenRouteProp>();
     const { userEmail, userId } = route.params;
@@ -326,11 +328,20 @@ const PremiumSignupScreen = () => {
 
             if (invokeError) {
                 console.error('Supabase function error during fetch:', invokeError);
+                console.error('Supabase function error details:', JSON.stringify(invokeError, null, 2));
                 throw new Error(invokeError.message || 'Failed to create payment setup session. Please try again.');
             }
+            
+            // Log the response to see what we got
+            console.log('[PremiumSignupScreen] Function response:', JSON.stringify(data, null, 2));
 
             if (!data || !data.clientSecret || !data.customerId || !data.ephemeralKey) {
                 console.error('Invalid response from Supabase function (missing crucial keys):', data);
+                // Check if there's an error message in the response
+                if (data?.error) {
+                    console.error('Backend error:', data.error);
+                    throw new Error(`Backend error: ${data.error}`);
+                }
                 throw new Error('Invalid response from payment service. Crucial data missing.');
             }
             
@@ -361,6 +372,42 @@ const PremiumSignupScreen = () => {
 
         setIsStripeActionActive(true);
         try {
+            // Quick preflight: verify the device can reach Stripe before opening PaymentSheet.
+            // This helps distinguish "Stripe API unreachable" from configuration issues.
+            try {
+                const urls = [
+                    'https://api.stripe.com',
+                    'https://m.stripe.network',
+                    'https://r.stripe.com',
+                ];
+                const failures: string[] = [];
+                for (const url of urls) {
+                    const controller = new AbortController();
+                    const timeout = setTimeout(() => controller.abort(), 7000);
+                    try {
+                        await fetch(url, { method: 'HEAD', signal: controller.signal });
+                    } catch {
+                        failures.push(url);
+                    } finally {
+                        clearTimeout(timeout);
+                    }
+                }
+
+                if (failures.length > 0) {
+                    Alert.alert(
+                        "Network Issue",
+                        `This device can’t reach Stripe services right now:\n\n${failures.join('\n')}\n\nPlease check Wi‑Fi/VPN/DNS and try again (or try cellular).`,
+                    );
+                    return;
+                }
+            } catch {
+                Alert.alert(
+                    "Network Issue",
+                    "This device can’t reach Stripe right now. Please check Wi‑Fi/VPN/DNS and try again (or try cellular).",
+                );
+                return;
+            }
+
             const { error: initError } = await initPaymentSheet({
                 merchantDisplayName: 'VYBR Premium',
                 customerId: paymentParams.customerId,
@@ -374,8 +421,12 @@ const PremiumSignupScreen = () => {
                 throw new Error(`Init Error: ${initError.message} (Code: ${initError.code})`);
             }
 
+            // SetupIntent initialized successfully
+
             const result = await presentPaymentSheet();
-            console.log('[PremiumSignupScreen Mobile] presentPaymentSheet Response:', JSON.stringify(result));
+            if (__DEV__) {
+                console.log('[PremiumSignupScreen Mobile] presentPaymentSheet Response:', JSON.stringify(result));
+            }
 
             if (result.error) {
                 if (result.error.code !== 'Canceled') {
@@ -391,7 +442,15 @@ const PremiumSignupScreen = () => {
             }
         } catch (e: any) {
             console.error('[PremiumSignupScreen Mobile] Error:', e);
-            Alert.alert("Error", `Premium subscription setup failed: ${e.message}`);
+            const msg = `${e?.message || e}`;
+            if (msg.includes('kCFErrorDomainCFNetwork') && msg.includes('-1001')) {
+                Alert.alert(
+                    "Network Timeout",
+                    "The payment sheet timed out while contacting Stripe. Please check your connection and try again.",
+                );
+            } else {
+                Alert.alert("Error", `Premium subscription setup failed: ${msg}`);
+            }
         } finally {
             setIsStripeActionActive(false);
         }

@@ -71,7 +71,7 @@ const showAlert = (title: string, message: string, buttons?: Array<{ text: strin
 };
 
 // --- Stripe Configuration ---
-const STRIPE_PUBLISHABLE_KEY = "pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN"; 
+const STRIPE_PUBLISHABLE_KEY = "pk_test_51RDGZeDz14cfDAXkmWK8eowRamZEWD7wAr1Mjae9QjhtBGRZ0VFXGDQxS9Q8XQfX1Gkoy4PlTcNWIz2E54Y6n7Yw00wY8abUlU"; 
 const stripePromiseWeb = Platform.OS === 'web' ? loadStripe(STRIPE_PUBLISHABLE_KEY) : null;
 
 // --- Web Payment Form Component ---

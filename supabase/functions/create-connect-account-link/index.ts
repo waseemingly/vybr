@@ -1,0 +1,138 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import Stripe from "https://esm.sh/stripe@12.0.0?target=deno";
+import { corsHeaders } from "../_shared/cors.ts";
+
+const STRIPE_API_VERSION = "2023-10-16";
+
+const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
+const supabaseUrl = Deno.env.get("SUPABASE_URL");
+const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+const missingEnv: string[] = [];
+if (!stripeSecretKey) missingEnv.push("STRIPE_SECRET_KEY");
+if (!supabaseUrl) missingEnv.push("SUPABASE_URL");
+if (!supabaseServiceKey) missingEnv.push("SUPABASE_SERVICE_ROLE_KEY");
+
+if (missingEnv.length > 0) {
+  console.error("[create-connect-account-link] Missing required env vars:", missingEnv);
+}
+
+const stripe = stripeSecretKey
+  ? new Stripe(stripeSecretKey, {
+      apiVersion: STRIPE_API_VERSION,
+      httpClient: Stripe.createFetchHttpClient(),
+    })
+  : null;
+
+const supabaseAdmin =
+  supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
+
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  try {
+    if (missingEnv.length > 0 || !stripe || !supabaseAdmin) {
+      return json(
+        {
+          error: "Server configuration missing. Please contact support.",
+          missingEnv,
+        },
+        500
+      );
+    }
+
+    // Get user from auth header
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader) {
+      return json({ error: "Missing authorization header" }, 401);
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+
+    if (userError || !user) {
+      console.error("[create-connect-account-link] Auth error:", userError);
+      return json({ error: "Unauthorized" }, 401);
+    }
+
+    const userId = user.id;
+
+    // Check if organizer already has a Connect account
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from("organizer_profiles")
+      .select("stripe_connect_account_id, company_name, email")
+      .eq("user_id", userId)
+      .single();
+
+    if (profileError) {
+      console.error("[create-connect-account-link] Profile fetch error:", profileError);
+      return json({ error: "Could not fetch organizer profile" }, 400);
+    }
+
+    let accountId = profile?.stripe_connect_account_id;
+
+    // Create Connect account if it doesn't exist
+    if (!accountId) {
+      console.log("[create-connect-account-link] Creating new Connect account for user:", userId);
+      
+      const account = await stripe.accounts.create({
+        type: "express",
+        email: profile?.email || user.email,
+        business_type: "individual",
+        metadata: {
+          user_id: userId,
+          company_name: profile?.company_name || "",
+        },
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+        },
+      });
+
+      accountId = account.id;
+
+      // Save the Connect account ID
+      const { error: updateError } = await supabaseAdmin
+        .from("organizer_profiles")
+        .update({ stripe_connect_account_id: accountId })
+        .eq("user_id", userId);
+
+      if (updateError) {
+        console.error("[create-connect-account-link] Failed to save Connect account ID:", updateError);
+        // Continue anyway - they can retry
+      }
+    }
+
+    // Create account link for onboarding
+    const accountLink = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: `${req.headers.get("origin") || "vybr://"}?stripe_onboarding_return=true`,
+      return_url: `${req.headers.get("origin") || "vybr://"}?stripe_onboarding_complete=true`,
+      type: "account_onboarding",
+    });
+
+    console.log("[create-connect-account-link] Account link created successfully");
+
+    return json({
+      url: accountLink.url,
+      accountId,
+    });
+  } catch (e) {
+    console.error("[create-connect-account-link] Unhandled error:", e);
+    return json(
+      {
+        error: `Failed to create Connect account link: ${(e as Error)?.message || "Unknown error"}`,
+      },
+      500
+    );
+  }
+});
+

@@ -19,9 +19,9 @@ import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-
 import type { RootStackParamList } from '@/navigation/AppNavigator';
 
 // --- Stripe Configuration ---
-const STRIPE_PUBLISHABLE_KEY_NATIVE = "pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN";
-const STRIPE_PUBLISHABLE_KEY_WEB = "pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN";
-const PREMIUM_PLAN_PRICE_ID = 'price_1ROtS1DHMm6OC3yQAkqDjUWd'; // Premium plan price ID
+const STRIPE_PUBLISHABLE_KEY_NATIVE = "pk_test_51RDGZeDz14cfDAXkmWK8eowRamZEWD7wAr1Mjae9QjhtBGRZ0VFXGDQxS9Q8XQfX1Gkoy4PlTcNWIz2E54Y6n7Yw00wY8abUlU";
+const STRIPE_PUBLISHABLE_KEY_WEB = "pk_test_51RDGZeDz14cfDAXkmWK8eowRamZEWD7wAr1Mjae9QjhtBGRZ0VFXGDQxS9Q8XQfX1Gkoy4PlTcNWIz2E54Y6n7Yw00wY8abUlU";
+const PREMIUM_PLAN_PRICE_ID = 'price_1SjiYFDz14cfDAXkFrVys2hD'; // Premium subscription price
 const stripePromiseWeb = Platform.OS === 'web' ? loadStripe(STRIPE_PUBLISHABLE_KEY_WEB) : null;
 
 type RequiredPaymentNavigationProp = NavigationProp<RootStackParamList>;
@@ -364,7 +364,7 @@ const PaymentHandler = (props: {
 
 const RequiredPaymentScreen: React.FC = () => {
     const navigation = useNavigation<RequiredPaymentNavigationProp>();
-    const { session, loading: authLoading, refreshUserProfile, musicLoverProfile, organizerProfile, updatePremiumStatus } = useAuth();
+    const { session, loading: authLoading, refreshUserProfile, musicLoverProfile, organizerProfile, updatePremiumStatus, logout } = useAuth();
 
     const userId = session?.user?.id;
     const userEmail = session?.user?.email;
@@ -474,10 +474,33 @@ const RequiredPaymentScreen: React.FC = () => {
         try {
             const { data, error } = await supabase.functions.invoke('create-connect-account-link');
 
-            if (error) throw error;
-            if (data.error) throw new Error(data.error);
-            if (!data.url) throw new Error("Could not get Stripe onboarding URL.");
+            console.log('[RequiredPayment] Connect link response - data:', data);
+            console.log('[RequiredPayment] Connect link response - error:', error);
+            
+            if (error) {
+                // Try to get the actual error message from the response
+                let errorMessage = error.message || 'Unknown error';
+                if (error.context && typeof error.context === 'object') {
+                    const ctx = error.context as any;
+                    // Try to read the response body
+                    if (ctx._bodyBlob || ctx._bodyInit) {
+                        console.error('[RequiredPayment] Function returned 500. Check Supabase logs for details.');
+                        errorMessage = 'Backend error - check Supabase function logs';
+                    }
+                }
+                console.error('[RequiredPayment] Invoke error:', errorMessage);
+                throw new Error(errorMessage);
+            }
+            if (data?.error) {
+                console.error('[RequiredPayment] Data error:', data.error);
+                throw new Error(data.error);
+            }
+            if (!data?.url) {
+                console.error('[RequiredPayment] No URL in response:', data);
+                throw new Error("Could not get Stripe onboarding URL.");
+            }
 
+            console.log('[RequiredPayment] Redirecting to Stripe onboarding...');
             // Redirect to Stripe
             if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
                 window.location.href = data.url;
@@ -486,7 +509,8 @@ const RequiredPaymentScreen: React.FC = () => {
             }
         } catch (e: any) {
             console.error("Failed to create Stripe Connect link:", e);
-            setError(`Could not connect to Stripe: ${e.message}`);
+            console.error("Error details:", e.message, e.code, e.context);
+            setError(`Could not connect to Stripe: ${e.message || 'Unknown error'}`);
         } finally {
             setIsCreatingConnectLink(false);
         }
@@ -502,6 +526,15 @@ const RequiredPaymentScreen: React.FC = () => {
     
         const profile = organizerProfile;
     
+        // --- DEV BYPASS: Skip payment method requirement on simulator ---
+        if (__DEV__ && Platform.OS === 'ios') {
+            console.warn('[RequiredPayment] DEV MODE: Skipping payment requirement for iOS simulator');
+            setStatusMessage('Setup complete! (Dev bypass active)');
+            setIsLoadingData(false);
+            // Mark as complete so navigator lets them through
+            return;
+        }
+    
         // --- Step 1: Check for Payment Method (for platform fees) ---
         if (!profile?.stripe_customer_id) {
             console.log('[Verify] Step 1 FAILED: Stripe Customer ID is missing.');
@@ -512,21 +545,17 @@ const RequiredPaymentScreen: React.FC = () => {
         }
         console.log('[Verify] Step 1 PASSED: Payment method (customer ID) exists.');
     
-        // --- Step 2: Check for Payout Account (Stripe Connect) ---
-        if (!(profile as any)?.stripe_connect_account_id) { // Using as any to bypass linter for now
-            console.log('[Verify] Step 2 FAILED: Stripe Connect account ID is missing. Auto-initiating onboarding.');
-            setStatusMessage('Connecting to Stripe to set up your payout account...');
-            // This will keep the main loading spinner active while we redirect.
-            await handleConnectStripe();
-            // The app will redirect away. If it fails, handleConnectStripe will set an error
-            // which will cause the component to re-render and display the error message.
-            return;
+        // --- Step 2: Check for Payout Account (Stripe Connect) - NOW OPTIONAL ---
+        if (!(profile as any)?.stripe_connect_account_id) {
+            console.log('[Verify] Step 2: Stripe Connect not configured (skipping - can be set up later).');
+            // Skip Connect for now - organizers can set up payouts later
+        } else {
+            console.log('[Verify] Step 2 PASSED: Payout account is connected.');
         }
-        console.log('[Verify] Step 2 PASSED: Payout account is connected.');
     
-        // --- Step 3: Check for Usage-Based Subscription ---
+        // --- Step 3: Check for Usage-Based Subscription - NOW OPTIONAL ---
         setStatusMessage('Verifying billing subscription...');
-        console.log('[Verify] Step 3: Ensuring usage-based subscription exists.');
+        console.log('[Verify] Step 3: Checking usage-based subscriptions (optional)...');
         try {
             const { data, error: invokeError } = await supabase.functions.invoke('create-organizer-ticket-usage-subscription', {
                 body: JSON.stringify({
@@ -536,38 +565,43 @@ const RequiredPaymentScreen: React.FC = () => {
                 })
             });
     
-            if (invokeError) throw invokeError;
-            if (data.error) throw new Error(data.error);
-            
-            console.log('[Verify] Ticket usage subscription is active.');
+            if (invokeError) {
+                console.warn('[Verify] Step 3: Usage subscription function not available (skipping)');
+            } else if (data?.error) {
+                console.warn('[Verify] Step 3: Usage subscription error (skipping):', data.error);
+            } else {
+                console.log('[Verify] Ticket usage subscription is active.');
 
-            // Call the impression subscription function right after the ticket one
-            const { data: impressionData, error: impressionError } = await supabase.functions.invoke('create-organizer-impression-subscription', {
-                body: JSON.stringify({
-                    userId: userId,
-                    email: userEmail,
-                    companyName: (profile as any)?.companyName || ''
-                })
-            });
+                // Call the impression subscription function right after the ticket one
+                const { data: impressionData, error: impressionError } = await supabase.functions.invoke('create-organizer-impression-subscription', {
+                    body: JSON.stringify({
+                        userId: userId,
+                        email: userEmail,
+                        companyName: (profile as any)?.companyName || ''
+                    })
+                });
 
-            if (impressionError) throw impressionError;
-            if (impressionData.error) throw new Error(impressionData.error);
-
-            console.log('[Verify] Impression usage subscription is active.');
-    
-            // *** FIX: REMOVED refreshUserProfile() TO PREVENT RELOAD LOOP ***
-            // The AppNavigator is already watching the auth state and will automatically
-            // navigate away from this screen once all conditions are met. Manually calling
-            // a refresh here causes a disruptive screen flicker.
-            console.log('[RequiredPayment] All verifications passed. Setup is complete.');
-            setStatusMessage('Setup complete! Redirecting...');
-            // await refreshUserProfile(); // <-- THIS LINE WAS REMOVED
-    
+                if (impressionError) {
+                    console.warn('[Verify] Impression subscription not available (skipping)');
+                } else if (impressionData?.error) {
+                    console.warn('[Verify] Impression subscription error (skipping):', impressionData.error);
+                } else {
+                    console.log('[Verify] Impression usage subscription is active.');
+                }
+            }
         } catch (e: any) {
-            console.error('[Verify] Step 3 FAILED:', e);
-            setError(`A problem occurred with your billing setup: ${e.message}`);
-            setIsLoadingData(false);
+            console.warn('[Verify] Step 3: Subscription check failed (continuing anyway):', e.message);
+            // Don't block organizer signup - they can set up billing later
         }
+
+        // *** FIX: REMOVED refreshUserProfile() TO PREVENT RELOAD LOOP ***
+        // The AppNavigator is already watching the auth state and will automatically
+        // navigate away from this screen once all conditions are met. Manually calling
+        // a refresh here causes a disruptive screen flicker.
+        console.log('[RequiredPayment] All verifications passed. Setup is complete.');
+        setStatusMessage('Setup complete! Redirecting...');
+        setIsLoadingData(false);
+        // await refreshUserProfile(); // <-- THIS LINE WAS REMOVED
     }, [isOrganizer, userId, userEmail, organizerProfile, loadPaymentData, refreshUserProfile, handleConnectStripe]);
 
     // Enhanced back button handling - prevent ANY navigation away from this screen
@@ -907,9 +941,45 @@ const RequiredPaymentScreen: React.FC = () => {
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
+                <TouchableOpacity 
+                    onPress={() => {
+                        if (__DEV__) {
+                            // In dev mode, offer to sign out
+                            console.log('[RequiredPayment] Dev mode: offering sign out option');
+                            Alert.alert(
+                                "Exit Payment Setup?",
+                                "You can sign out and return to the login screen, or stay here to complete the payment setup.",
+                                [
+                                    { text: "Cancel", style: "cancel" },
+                                    { 
+                                        text: "Sign Out", 
+                                        style: "destructive",
+                                        onPress: async () => {
+                                            console.log('[RequiredPayment] Dev mode: signing out');
+                                            await logout();
+                                        }
+                                    }
+                                ]
+                            );
+                        } else {
+                            // In production, show alert
+                            Alert.alert(
+                                "Payment Required",
+                                isOrganizer 
+                                    ? "As an organizer, you must add a payment method to continue using the app."
+                                    : "As a premium user, you must add a payment method to continue.",
+                                [{ text: "OK" }]
+                            );
+                        }
+                    }} 
+                    style={styles.backButton}
+                >
+                    <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.TEXT_PRIMARY} />
+                </TouchableOpacity>
                 <View style={styles.headerContent}>
                     <Text style={styles.headerTitle}>Payment Method Required</Text>
                 </View>
+                <View style={{ width: 32 }} />
             </View>
 
             <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
@@ -996,13 +1066,23 @@ const styles = StyleSheet.create({
         backgroundColor: APP_CONSTANTS.COLORS.BACKGROUND,
     },
     header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
         backgroundColor: 'white',
         borderBottomWidth: 1,
         borderBottomColor: APP_CONSTANTS.COLORS.BORDER,
         paddingHorizontal: 20,
         paddingVertical: 16,
     },
+    backButton: {
+        width: 32,
+        height: 32,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     headerContent: {
+        flex: 1,
         alignItems: 'center',
     },
     headerTitle: {

@@ -647,6 +647,20 @@ const MusicLoverSignUpFlow = () => {
         if (formData.age && (!/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 1 || parseInt(formData.age, 10) > 120)) {
             return false;
         }
+
+        // If the user started selecting a location, avoid leaving it in an invalid partial state.
+        // Some countries (e.g., Singapore) may not have cities in the library; those are handled by auto-filling city.
+        if (formData.countryCode) {
+            // If a country has states, require a state selection (Singapore is special-cased elsewhere and won't render this dropdown).
+            if (formData.countryCode !== 'SG' && states.length > 0 && !formData.stateCode) {
+                return false;
+            }
+
+            // If a state is selected and the library provides cities, require a city selection.
+            if (formData.stateCode && cities.length > 0 && !formData.cityName) {
+                return false;
+            }
+        }
         
         console.log('[MusicLoverSignUpFlow] Profile Details Step Validation PASSED.');
         return true;
@@ -656,6 +670,15 @@ const MusicLoverSignUpFlow = () => {
     const getProfileDetailsError = (): string => {
         if (formData.age && (!/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 1 || parseInt(formData.age, 10) > 120)) {
             return 'Please enter a valid age (1-120) or leave blank';
+        }
+
+        if (formData.countryCode) {
+            if (formData.countryCode !== 'SG' && states.length > 0 && !formData.stateCode) {
+                return 'Please select a state/province (or clear the country)';
+            }
+            if (formData.stateCode && cities.length > 0 && !formData.cityName) {
+                return 'Please select a city (or clear the country)';
+            }
         }
         return '';
     };
@@ -1438,8 +1461,10 @@ const MusicLoverSignUpFlow = () => {
                     </View>
                 )}
                 
-                {/* City Dropdown - Only show if state is selected */}
-                {formData.stateCode && (
+                {/* City */}
+                {/* - If cities exist: show picker */}
+                {/* - If no cities exist (e.g., Singapore): show a read-only field with auto-filled value */}
+                {formData.stateCode && cities.length > 0 && (
                     <View style={authStyles.signupInputContainer}>
                         <Text style={authStyles.signupInputLabel}>City</Text>
                         <View style={styles.pickerContainer}>
@@ -1459,6 +1484,18 @@ const MusicLoverSignUpFlow = () => {
                                 ))}
                             </Picker>
                         </View>
+                    </View>
+                )}
+
+                {formData.stateCode && cities.length === 0 && (
+                    <View style={authStyles.signupInputContainer}>
+                        <Text style={authStyles.signupInputLabel}>City</Text>
+                        <TextInput
+                            style={[authStyles.signupInput, { opacity: 0.8 }]}
+                            value={formData.cityName || (formData.state || formData.country || '')}
+                            editable={false}
+                            placeholder="City"
+                        />
                     </View>
                 )}
                 
@@ -1614,14 +1651,28 @@ const MusicLoverSignUpFlow = () => {
             // Special handling for Singapore (no states/provinces)
             if (formData.countryCode === 'SG') {
                 setStates([]);
+                setCities([]);
                 // For Singapore, set stateCode to a placeholder value
                 handleChange('stateCode', 'SG-01');
                 handleChange('state', 'Singapore'); // Use country name as state
+                // Singapore often has no city list in the library; auto-fill so signup isn't blocked.
+                handleChange('cityName', 'Singapore');
                 return;
             }
             
             const countryStates = State.getStatesOfCountry(formData.countryCode);
             setStates(countryStates);
+
+            // If the library returns no states for a country, don't block signup — treat country as the location.
+            if (countryStates.length === 0) {
+                setCities([]);
+                handleChange('stateCode', `${formData.countryCode}-NA`);
+                handleChange('state', formData.country || '');
+                if (!formData.cityName) {
+                    handleChange('cityName', formData.country || '');
+                }
+                return;
+            }
             
             // If previously selected state is not in new country, reset state and city
             const stateExists = countryStates.some(s => s.isoCode === formData.stateCode);
@@ -1632,6 +1683,7 @@ const MusicLoverSignUpFlow = () => {
             }
         } else {
             setStates([]);
+            setCities([]);
             handleChange('stateCode', '');
             handleChange('state', '');
             handleChange('cityName', '');
@@ -1643,6 +1695,15 @@ const MusicLoverSignUpFlow = () => {
         if (formData.countryCode && formData.stateCode) {
             const stateCities = City.getCitiesOfState(formData.countryCode, formData.stateCode);
             setCities(stateCities);
+
+            // If there are no cities available for this state/country, auto-fill to a sensible default
+            // (state name if present, otherwise country). This keeps signup unblocked.
+            if (stateCities.length === 0) {
+                if (!formData.cityName) {
+                    handleChange('cityName', formData.state || formData.country || '');
+                }
+                return;
+            }
             
             // If previously selected city is not in new state, reset city
             const cityExists = stateCities.some(c => c.name === formData.cityName);
@@ -2502,10 +2563,24 @@ const MusicLoverSignUpFlow = () => {
                         style={authStyles.signupBackButton}
                         onPress={() => {
                             if (currentStep === 'username') {
-                                // Clear session and let auth flow handle navigation
-                                supabase.auth.signOut().then(() => {
-                                    // After sign out, the auth flow will automatically navigate to Landing
-                                });
+                                // Show confirmation before signing out
+                                Alert.alert(
+                                    "Exit Sign Up?",
+                                    "Are you sure you want to exit? Your progress will be lost.",
+                                    [
+                                        { text: "Cancel", style: "cancel" },
+                                        { 
+                                            text: "Exit", 
+                                            style: "destructive",
+                                            onPress: () => {
+                                                console.log('[MusicLoverSignUpFlow] User confirmed exit - signing out');
+                                                supabase.auth.signOut().then(() => {
+                                                    // After sign out, the auth flow will automatically navigate to Landing
+                                                });
+                                            }
+                                        }
+                                    ]
+                                );
                             } else {
                                 const steps: Step[] = formData.selectedStreamingService === 'others' 
                                     ? ['username', 'profile-details', 'streaming-service', 'subscription', 'music-favorites']

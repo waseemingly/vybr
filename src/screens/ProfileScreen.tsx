@@ -153,29 +153,18 @@ const ProfileScreen: React.FC = () => {
         }
     }, [navigation, route.params]);
 
-    // This effect handles the INITIAL fetch of streaming data when the component loads
-    // or when the user changes. Subsequent fetches are handled by manual actions (pull-to-refresh, buttons).
-    useEffect(() => {
-        // We fetch if:
-        // 1. We have a valid user ID.
-        // 2. There is no streaming data loaded yet (streamingData is null/undefined).
-        // 3. We are not already in the process of loading data.
-        if (musicLoverProfile?.userId && !streamingData && !streamingDataLoading) {
-            console.log("[ProfileScreen] Initial data check: No streaming data found. Triggering fetch.");
-            fetchStreamingData();
-        }
-    }, [musicLoverProfile?.userId, streamingData, streamingDataLoading, fetchStreamingData]);
+    // Initial streaming data fetch is handled inside `useStreamingData`.
+    // Keeping an extra auto-fetch here caused repeated requests/log spam when the callback identity changed.
 
 
     // Add debug logging when streaming data changes
     useEffect(() => {
+        // Reduce noisy logs in development; these were spamming terminals.
+        if (!__DEV__) return;
         if (serviceId) {
             console.log(`[ProfileScreen] Streaming data loaded for service: ${serviceId}`);
-            console.log(`[ProfileScreen] Data summary: ${topArtists.length} artists, ${topTracks.length} tracks, ${topGenres.length} genres, ${topMoods?.length || 0} moods`);
-        } else if (!streamingDataLoading && musicLoverProfile?.userId) {
-            console.log("[ProfileScreen] No streaming data found. User may need to connect a service.");
         }
-    }, [serviceId, topArtists, topTracks, topGenres, topMoods, streamingDataLoading, musicLoverProfile]);
+    }, [serviceId]);
 
     // Fetch friend count and followed organizers count
     const fetchCounts = useCallback(async () => {

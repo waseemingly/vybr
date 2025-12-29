@@ -11,7 +11,7 @@
 
 
 // // Ensure this is the same key used in PremiumSignupScreen for `loadStripe`
-// const STRIPE_PUBLISHABLE_KEY_WEB = 'pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN'; // Your actual key
+// const STRIPE_PUBLISHABLE_KEY_WEB = 'pk_test_51RDGZeDz14cfDAXkmWK8eowRamZEWD7wAr1Mjae9QjhtBGRZ0VFXGDQxS9Q8XQfX1Gkoy4PlTcNWIz2E54Y6n7Yw00wY8abUlU'; // Your actual key
 // const stripePromise = Platform.OS === 'web' ? loadStripe(STRIPE_PUBLISHABLE_KEY_WEB) : null;
 
 // const PaymentConfirmationScreen = () => {
@@ -269,7 +269,7 @@ import { Feather } from '@expo/vector-icons';
 
 
 // Ensure this is the same key used in PremiumSignupScreen for `loadStripe`
-const STRIPE_PUBLISHABLE_KEY_WEB = 'pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN'; // Your actual key
+const STRIPE_PUBLISHABLE_KEY_WEB = 'pk_test_51RDGZeDz14cfDAXkmWK8eowRamZEWD7wAr1Mjae9QjhtBGRZ0VFXGDQxS9Q8XQfX1Gkoy4PlTcNWIz2E54Y6n7Yw00wY8abUlU'; // Your actual key
 const stripePromise = Platform.OS === 'web' ? loadStripe(STRIPE_PUBLISHABLE_KEY_WEB) : null;
 
 const PaymentConfirmationScreen = () => {
