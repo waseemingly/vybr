@@ -1172,23 +1172,8 @@ const AppNavigator = () => {
 
   // --- Tour suppression ---
   // We want to prevent the user guide from auto-starting while the PaymentRequired gate
-  // is active, and also immediately after the user completes the RequiredPayment flow.
+  // is active. The tour will be enabled via has_completed_tour flag after signup/payment flows complete.
   // Manual replay (from Settings) must still work.
-  const prevRequiresPaymentRef = useRef<boolean | null>(null);
-  const [suppressTourAutoAfterPaymentGate, setSuppressTourAutoAfterPaymentGate] = useState(false);
-
-  useEffect(() => {
-    const prev = prevRequiresPaymentRef.current;
-
-    // If we just transitioned from "payment required" -> "payment NOT required",
-    // suppress auto-start for the rest of this app session so the payment completion
-    // flow is never interrupted by the tour.
-    if (prev === true && requiresPaymentScreen === false) {
-      setSuppressTourAutoAfterPaymentGate(true);
-    }
-
-    prevRequiresPaymentRef.current = requiresPaymentScreen;
-  }, [requiresPaymentScreen]);
 
   // Monitor payment method changes and force re-evaluation
   useEffect(() => {
@@ -1271,7 +1256,7 @@ const AppNavigator = () => {
         </RootStack.Navigator>
 
         {/* Global overlay tour (only shows for new users / replay) */}
-        <UserGuideTour suppressAuto={requiresPaymentScreen || suppressTourAutoAfterPaymentGate} />
+        <UserGuideTour suppressAuto={requiresPaymentScreen} />
       </>
   );
   };

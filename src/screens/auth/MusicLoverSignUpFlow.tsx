@@ -1047,6 +1047,23 @@ const MusicLoverSignUpFlow = () => {
                 });
             }
 
+            // Enable app tour for free users after signup completes
+            console.log('[MusicLoverSignUpFlow] 🎯 Enabling app tour for free user...');
+            try {
+                await supabase
+                    .from('music_lover_profiles')
+                    .update({ has_completed_tour: false })
+                    .eq('user_id', userId);
+                console.log('[MusicLoverSignUpFlow] ✅ App tour enabled in database');
+                
+                // Refresh profile so the updated flag is available in memory
+                await refreshUserProfile();
+                console.log('[MusicLoverSignUpFlow] ✅ Profile refreshed with tour flag');
+            } catch (tourError) {
+                console.error('[MusicLoverSignUpFlow] ⚠️ Error enabling app tour:', tourError);
+                // Don't block navigation if tour setup fails
+            }
+
             // Success - navigate to home/dashboard
             console.log('[MusicLoverSignUpFlow] 🎉 Free signup completed successfully, navigating to home.');
             navigation.reset({

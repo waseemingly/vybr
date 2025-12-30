@@ -641,14 +641,29 @@ const RequiredPaymentScreen: React.FC = () => {
             // Don't block organizer signup - they can set up billing later
         }
 
-        // *** FIX: REMOVED refreshUserProfile() TO PREVENT RELOAD LOOP ***
-        // The AppNavigator is already watching the auth state and will automatically
-        // navigate away from this screen once all conditions are met. Manually calling
-        // a refresh here causes a disruptive screen flicker.
+        // Enable app tour for organizers after setup completes
+        // Note: This ensures tour is enabled even if handleCardSavedSuccessfully didn't run
+        if (userId) {
+            console.log('[RequiredPayment] 🎯 Enabling app tour for organizer after setup completion...');
+            try {
+                await supabase
+                    .from('organizer_profiles')
+                    .update({ has_completed_tour: false })
+                    .eq('user_id', userId);
+                console.log('[RequiredPayment] ✅ App tour enabled in database for organizer');
+                
+                // Refresh profile so the updated flag is available in memory
+                await refreshUserProfile();
+                console.log('[RequiredPayment] ✅ Profile refreshed with tour flag');
+            } catch (tourError) {
+                console.error('[RequiredPayment] ⚠️ Error enabling app tour:', tourError);
+                // Don't block flow if tour setup fails
+            }
+        }
+        
         console.log('[RequiredPayment] All verifications passed. Setup is complete.');
         setStatusMessage('Setup complete! Redirecting...');
         setIsLoadingData(false);
-        // await refreshUserProfile(); // <-- THIS LINE WAS REMOVED
     }, [isOrganizer, userId, userEmail, organizerProfile, loadPaymentData, refreshUserProfile, handleConnectStripe]);
 
     // Enhanced back button handling - prevent ANY navigation away from this screen
@@ -756,9 +771,25 @@ const RequiredPaymentScreen: React.FC = () => {
 
     const refreshProfileAfterPaymentSuccess = async () => {
         try {
-            // CRITICAL: Refresh user profile to update the AppNavigator
+            // Enable app tour for premium users and organizers after payment completes
+            // Do this BEFORE refreshing so the refresh picks up the new value
+            console.log('[RequiredPaymentScreen] 🎯 Enabling app tour after payment completion...');
+            try {
+                const table = isOrganizer ? 'organizer_profiles' : 'music_lover_profiles';
+                await supabase
+                    .from(table)
+                    .update({ has_completed_tour: false })
+                    .eq('user_id', userId!);
+                console.log('[RequiredPaymentScreen] ✅ App tour enabled in database');
+            } catch (tourError) {
+                console.error('[RequiredPaymentScreen] ⚠️ Error enabling app tour:', tourError);
+                // Don't block navigation if tour setup fails
+            }
+            
+            // CRITICAL: Refresh user profile to update the AppNavigator and pick up the tour flag
             console.log('[RequiredPaymentScreen] Refreshing user profile to update AppNavigator...');
             await refreshUserProfile();
+            console.log('[RequiredPaymentScreen] ✅ Profile refreshed with tour flag');
             
             console.log('[RequiredPaymentScreen] Payment and setup completed successfully!');
             
@@ -1031,6 +1062,22 @@ const RequiredPaymentScreen: React.FC = () => {
                     await setPaymentMethodAsDefault(paymentMethods[0].id, customerId);
                 } else {
                     throw new Error('No payment methods found after card save.');
+                }
+            }
+            
+            // Enable app tour for organizers after payment method is saved
+            // Do this BEFORE refreshing so the refresh picks up the new value
+            if (isOrganizer && userId) {
+                console.log('[RequiredPaymentScreen] 🎯 Enabling app tour for organizer...');
+                try {
+                    await supabase
+                        .from('organizer_profiles')
+                        .update({ has_completed_tour: false })
+                        .eq('user_id', userId);
+                    console.log('[RequiredPaymentScreen] ✅ App tour enabled in database for organizer');
+                } catch (tourError) {
+                    console.error('[RequiredPaymentScreen] ⚠️ Error enabling app tour:', tourError);
+                    // Don't block flow if tour setup fails
                 }
             }
             
