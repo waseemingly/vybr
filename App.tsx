@@ -1,8 +1,6 @@
 import '@azure/core-asynciterator-polyfill';
 import './src/utils/EventTargetPolyfill';
 import * as Linking from 'expo-linking';
-import * as SplashScreen from 'expo-splash-screen';
-
 
 // Set up EventTarget for Hermes
 if (typeof global.EventTarget === 'undefined') {
@@ -18,24 +16,32 @@ import { NavigationContainer, createNavigationContainerRef } from "@react-naviga
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Text } from 'react-native';
+import { Platform } from 'react-native';
 
-// Keep the native splash screen visible until we decide the app is ready.
-// This prevents a blank/white flash between the iOS launch screen and first React render.
-if (typeof window === 'undefined') {
-  SplashScreen.preventAutoHideAsync().catch(() => {
-    // no-op: it's fine if it's already been called
-  });
+// Conditionally import and use SplashScreen only on native platforms
+type SplashScreenType = {
+  preventAutoHideAsync: () => Promise<void>;
+  hideAsync: () => Promise<void>;
+} | null;
+
+let SplashScreen: SplashScreenType = null;
+if (Platform.OS !== 'web') {
+  try {
+    SplashScreen = require('expo-splash-screen') as SplashScreenType;
+    // Keep the native splash screen visible until we decide the app is ready.
+    // This prevents a blank/white flash between the iOS launch screen and first React render.
+    if (SplashScreen) {
+      SplashScreen.preventAutoHideAsync().catch(() => {
+        // no-op: it's fine if it's already been called
+      });
+    }
+  } catch (e) {
+    console.warn('expo-splash-screen not available:', e);
+  }
 }
 
-// Platform detection that works for both web and mobile
-const getPlatform = () => {
-  if (typeof window !== 'undefined') {
-    return 'web';
-  }
-  return 'mobile';
-};
-
-const platform = getPlatform();
+// Platform detection: React Native defines `window`, so rely on Platform.OS
+const platform = Platform.OS === 'web' ? 'web' : 'mobile';
 
 // IMPORT from custom wrapper based on platform
 import CustomStripeProviderWeb from './src/components/StripeProvider.web';
@@ -106,7 +112,7 @@ export default function App() {
   const [initialState, setInitialState] = React.useState();
 
   React.useEffect(() => {
-    if (platform !== 'web' && isReady) {
+    if (platform !== 'web' && isReady && SplashScreen) {
       SplashScreen.hideAsync().catch(() => {
         // no-op
       });

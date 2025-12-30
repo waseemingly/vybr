@@ -100,9 +100,10 @@
 //   }
 // })
 // supabase/functions/create-checkout-session/index.ts
-import { serve } from "https://deno.land/std@0.177.0/http/server.ts"; // Or your preferred version
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import Stripe from "https://esm.sh/stripe@14.12.0"; // Or a recent Deno-compatible version
+// Use a Deno-targeted Stripe build that does not rely on deprecated Deno.core APIs
+import Stripe from "https://esm.sh/stripe@14.12.0?target=deno";
 import { corsHeaders } from '../_shared/cors.ts'; // Make sure you have this for CORS
 
 const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');

@@ -1,5 +1,6 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import Stripe from "https://esm.sh/stripe@12.0.0?target=deno";
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+// Use a Deno-targeted Stripe build that does not rely on deprecated Deno.core APIs
+import Stripe from "https://esm.sh/stripe@14.12.0?target=deno";
 import { corsHeaders } from "../_shared/cors.ts";
 
 const STRIPE_API_VERSION = "2023-10-16";

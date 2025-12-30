@@ -268,7 +268,7 @@ const ManagePlanScreen: React.FC = () => {
                 // Use appropriate function based on user type
                 const pmFunctionName = isOrganizer ? 'get-organizer-payment-method-details' : 'get-organizer-payment-method-details'; // Using same function for both for now
                 const { data: pmData, error: pmError } = await supabase.functions.invoke(pmFunctionName, {
-                    body: JSON.stringify({ customerId: currentStripeCustomerId })
+                    body: { customerId: currentStripeCustomerId }
                 });
                 console.log(`[ManagePlan] Response from ${pmFunctionName}: pmData=`, JSON.stringify(pmData), 'pmError=', pmError);
                 if (pmError) console.warn("Could not fetch current PM details:", pmError.message);
@@ -289,9 +289,9 @@ const ManagePlanScreen: React.FC = () => {
                     console.log('[ManagePlan] DEBUG - Customer ID being passed:', currentStripeCustomerId);
                     
                     const { data, error } = await supabase.functions.invoke(listPmFunctionName, {
-                        body: JSON.stringify({
+                        body: {
                             customerId: currentStripeCustomerId
-                        })
+                        }
                     });
 
                     console.log(`[ManagePlan] ${listPmFunctionName} RESPONSE:`);
@@ -329,12 +329,12 @@ const ManagePlanScreen: React.FC = () => {
             console.log('[ManagePlan] Fetching/Creating SetupIntent params...');
             // Use the organizer function but pass user type so it can handle both
             const { data: siData, error: siError } = await supabase.functions.invoke('create-organizer-setup-intent', {
-                body: JSON.stringify({
+                body: {
                     userId: userId,
                     email: userEmail,
                     userType: userType, // Pass user type so function can handle both
                     companyName: isOrganizer ? (profileToUse as any)?.companyName || '' : (profileToUse as any)?.displayName || '',
-                }),
+                },
             });
             console.log('[OrgManagePlan] "create-organizer-setup-intent" RAW RESPONSE: data=', JSON.stringify(siData), 'siError=', siError);
 
@@ -446,9 +446,9 @@ const ManagePlanScreen: React.FC = () => {
         try {
             console.log('[OrgManagePlan] Invoking supabase.functions.invoke(\'list-organizer-payment-methods\')...');
             const { data, error } = await supabase.functions.invoke('list-organizer-payment-methods', {
-                body: JSON.stringify({
+                body: {
                     customerId: currentStripeCustomerId
-                })
+                }
             });
 
             console.log('[OrgManagePlan] supabase.functions.invoke RESPONSE:');
@@ -489,10 +489,10 @@ const ManagePlanScreen: React.FC = () => {
         setIsLoadingData(true);
         try {
             const { error } = await supabase.functions.invoke('set-default-payment-method', {
-                body: JSON.stringify({
+                body: {
                     customerId: currentStripeCustomerId,
                     paymentMethodId
-                })
+                }
             });
 
             if (error) throw error;

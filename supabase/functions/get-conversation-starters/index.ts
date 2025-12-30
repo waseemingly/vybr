@@ -1,7 +1,7 @@
-import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { serve } from 'https://deno.land/std@0.224.0/http/server.ts'
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts' // This path should now be correct
-import { Buffer } from "https://deno.land/std@0.177.0/node/buffer.ts";
+import { Buffer } from "https://deno.land/std@0.224.0/node/buffer.ts";
 
 // ... (rest of the Edge Function code as provided before) ...
 async function sha256(message: string): Promise<string> {
