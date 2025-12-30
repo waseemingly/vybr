@@ -1105,7 +1105,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 terms_accepted: termsAccepted,
                 selected_streaming_service: selectedStreamingService === null ? undefined : selectedStreamingService, // Convert null to undefined
                 is_premium: false,
-                has_completed_tour: false,
+                has_completed_tour: true, // Set to true by default, will be set to false after signup flow completes
                 website: website,
                 capacity: capacity,
                 opening_hours: openingHours,
@@ -1210,7 +1210,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 logo: publicLogoUrl ?? undefined,
                 capacity: capacity,
                 opening_hours: openingHours,
-                has_completed_tour: false,
+                has_completed_tour: true, // Set to true by default, will be set to false after signup flow completes
                  // Ensure all REQUIRED DB fields are present or have defaults
             };
             console.log('[AuthProvider] createOrganizerProfile: Preparing to upsert profile data:', { ...profileToInsert, logo: profileToInsert.logo ? 'URL exists' : 'null' });
