@@ -147,10 +147,10 @@ const PremiumSignupScreen = () => {
             }
             
             const { data, error } = await supabase.functions.invoke('set-default-payment-method', {
-                body: JSON.stringify({ 
+                body: { 
                     customerId: customerId,
                     paymentMethodId: paymentMethodId 
-                })
+                }
             });
 
             if (error) {
@@ -210,12 +210,12 @@ const PremiumSignupScreen = () => {
             // Now proceed with subscription creation using the saved payment method
             console.log('[PremiumSignupScreen] Creating and confirming subscription...');
             const { data: billingData, error: billingError } = await supabase.functions.invoke('create-premium-subscription', {
-                body: JSON.stringify({
+                body: {
                     priceId: PREMIUM_PLAN_PRICE_ID,
                     userId,
                     userEmail,
                     paymentMethodId: paymentMethodId, // Pass the saved payment method ID
-                }),
+                },
             });
 
             if (billingError) {
@@ -318,12 +318,12 @@ const PremiumSignupScreen = () => {
         try {
             // Use the same function as RequiredPaymentScreen to create SetupIntent
             const { data, error: invokeError } = await supabase.functions.invoke('create-organizer-setup-intent', {
-                body: JSON.stringify({
+                body: {
                     userId: userId,
                     email: userEmail,
                     userType: 'music_lover', // Premium users are music lovers
                     companyName: '', // Not needed for music lovers
-                }),
+                },
             });
 
             if (invokeError) {

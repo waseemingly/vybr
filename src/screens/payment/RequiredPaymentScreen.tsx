@@ -315,14 +315,58 @@ const NativePaymentHandlerImpl = ({
                 }
             } else {
                 // Success case - payment sheet completed successfully
-                console.log('[RequiredPayment Mobile] Payment method setup completed successfully, processing...');
+                console.log('[RequiredPayment Mobile] Payment method setup completed successfully, fetching payment method ID...');
+                
+                // Fetch the payment method ID that was just saved
+                // Add a small delay to ensure Stripe has processed the payment method
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                let paymentMethodId: string | undefined;
+                const customerId = setupIntentParams.customerId;
+                
+                try {
+                    console.log('[RequiredPayment Mobile] Fetching payment methods for customer:', customerId);
+                    
+                    const { data, error: listError } = await supabase.functions.invoke('list-organizer-payment-methods', {
+                        body: { customerId: customerId }
+                    });
+                    
+                    if (listError) {
+                        console.warn('[RequiredPayment Mobile] Failed to fetch payment methods:', listError);
+                        throw new Error(`Failed to fetch payment methods: ${listError.message}`);
+                    } else {
+                        const paymentMethods = data?.paymentMethods || [];
+                        if (paymentMethods.length > 0) {
+                            // Get the most recently added payment method (usually the last one)
+                            // Payment methods are typically returned in reverse chronological order
+                            paymentMethodId = paymentMethods[paymentMethods.length - 1].id;
+                            console.log('[RequiredPayment Mobile] Found payment method ID:', paymentMethodId);
+                            console.log('[RequiredPayment Mobile] Total payment methods:', paymentMethods.length);
+                        } else {
+                            console.warn('[RequiredPayment Mobile] No payment methods found after setup');
+                            throw new Error('No payment methods found after card setup. Please try again.');
+                        }
+                    }
+                } catch (fetchError: any) {
+                    console.error('[RequiredPayment Mobile] Error fetching payment method ID:', fetchError);
+                    // For premium users, we need the payment method ID, so throw the error
+                    if (isPremiumUser) {
+                        throw new Error(`Failed to retrieve payment method: ${fetchError.message || 'Unknown error'}. Please try again.`);
+                    }
+                    // For organizers, we can continue but log the warning
+                    console.warn('[RequiredPayment Mobile] Proceeding without payment method ID for organizer');
+                }
                 
                 if (isPremiumUser) {
                     // For premium users, this will trigger billing after card save
-                    await handlePremiumSetupSuccess('mobile_setup_success'); // No setup intent ID available on mobile
+                    // We need the payment method ID for billing
+                    if (!paymentMethodId) {
+                        throw new Error('Payment method ID is required for premium subscription. Please try again.');
+                    }
+                    await handlePremiumSetupSuccess('mobile_setup_success', paymentMethodId);
                 } else {
                     // For organizers, just save the card
-                    await handleCardSavedSuccessfully(); // No payment method ID available on mobile
+                    await handleCardSavedSuccessfully(paymentMethodId);
                 }
             }
         } catch (e: any) {
@@ -365,6 +409,9 @@ const PaymentHandler = (props: {
 const RequiredPaymentScreen: React.FC = () => {
     const navigation = useNavigation<RequiredPaymentNavigationProp>();
     const { session, loading: authLoading, refreshUserProfile, musicLoverProfile, organizerProfile, updatePremiumStatus, logout } = useAuth();
+    
+    // Get Stripe hooks at component level (for mobile 3D Secure handling)
+    const { initPaymentSheet: initPaymentSheetHook, presentPaymentSheet: presentPaymentSheetHook } = usePlatformStripe();
 
     const userId = session?.user?.id;
     const userEmail = session?.user?.email;
@@ -411,12 +458,12 @@ const RequiredPaymentScreen: React.FC = () => {
                 console.log('[RequiredPayment] Premium user detected - creating SetupIntent for card saving first...');
                 
                 const { data: siData, error: siError } = await supabase.functions.invoke('create-organizer-setup-intent', {
-                    body: JSON.stringify({
+                    body: {
                         userId: userId,
                         email: userEmail,
                         userType: userType,
                         companyName: (currentProfile as any)?.displayName || '',
-                    }),
+                    },
                 });
 
                 if (siError) throw new Error(siError.message || "Function invocation error for SetupIntent.");
@@ -434,12 +481,12 @@ const RequiredPaymentScreen: React.FC = () => {
                 // For organizers, only create SetupIntent to save payment method
                 console.log('[RequiredPayment] Organizer detected - creating SetupIntent only...');
                 const { data: siData, error: siError } = await supabase.functions.invoke('create-organizer-setup-intent', {
-                    body: JSON.stringify({
+                    body: {
                         userId: userId,
                         email: userEmail,
                         userType: userType,
                         companyName: isOrganizer ? (currentProfile as any)?.companyName || '' : (currentProfile as any)?.displayName || '',
-                    }),
+                    },
                 });
 
                 if (siError) throw new Error(siError.message || "Function invocation error for SetupIntent.");
@@ -558,11 +605,11 @@ const RequiredPaymentScreen: React.FC = () => {
         console.log('[Verify] Step 3: Checking usage-based subscriptions (optional)...');
         try {
             const { data, error: invokeError } = await supabase.functions.invoke('create-organizer-ticket-usage-subscription', {
-                body: JSON.stringify({
+                body: {
                     userId: userId,
                     email: userEmail,
                     companyName: (profile as any)?.companyName || ''
-                })
+                }
             });
     
             if (invokeError) {
@@ -574,11 +621,11 @@ const RequiredPaymentScreen: React.FC = () => {
 
                 // Call the impression subscription function right after the ticket one
                 const { data: impressionData, error: impressionError } = await supabase.functions.invoke('create-organizer-impression-subscription', {
-                    body: JSON.stringify({
+                    body: {
                         userId: userId,
                         email: userEmail,
                         companyName: (profile as any)?.companyName || ''
-                    })
+                    }
                 });
 
                 if (impressionError) {
@@ -665,10 +712,10 @@ const RequiredPaymentScreen: React.FC = () => {
             }
             
             const { data, error } = await supabase.functions.invoke('set-default-payment-method', {
-                body: JSON.stringify({ 
+                body: { 
                     customerId: customerId,
                     paymentMethodId: paymentMethodId 
-                })
+                }
             });
 
             if (error) {
@@ -744,23 +791,117 @@ const RequiredPaymentScreen: React.FC = () => {
             // Now proceed with billing the premium subscription using the saved payment method
             // We'll create a server-side function that handles both creation and confirmation
             console.log('[RequiredPaymentScreen] Creating and confirming subscription for premium billing...');
+            console.log('[RequiredPaymentScreen] Request payload:', {
+                priceId: PREMIUM_PLAN_PRICE_ID,
+                userId,
+                userEmail,
+                paymentMethodId: paymentMethodId,
+            });
+            
             const { data: billingData, error: billingError } = await supabase.functions.invoke('create-premium-subscription', {
-                body: JSON.stringify({
+                body: {
                     priceId: PREMIUM_PLAN_PRICE_ID,
                     userId,
                     userEmail,
                     paymentMethodId: paymentMethodId, // Pass the saved payment method ID
-                }),
+                },
             });
 
+            // Log full response for debugging
+            console.log('[RequiredPaymentScreen] Billing response:', { billingData, billingError });
+
+            // Handle error from Supabase function invocation
             if (billingError) {
                 console.error('[RequiredPaymentScreen] Billing error:', billingError);
-                throw new Error(billingError.message || "Function invocation error for premium billing.");
+                
+                // Try to extract error message from multiple sources
+                let errorMessage = billingError.message || "Function invocation error for premium billing.";
+                let statusCode: number | undefined;
+                
+                // Check if error has context with response body
+                if (billingError.context) {
+                    console.error('[RequiredPaymentScreen] Error context:', billingError.context);
+                    const context = billingError.context as any;
+                    statusCode = context.status;
+                    
+                    // Try to read the response body from the blob
+                    if (context._bodyBlob || context._bodyInit) {
+                        try {
+                            const bodyBlob = context._bodyBlob || context._bodyInit;
+                            // Try to read the blob as text
+                            if (bodyBlob) {
+                                let bodyText: string | null = null;
+                                
+                                // Try different methods to read the blob
+                                if (typeof bodyBlob.text === 'function') {
+                                    bodyText = await bodyBlob.text();
+                                } else if (typeof bodyBlob.json === 'function') {
+                                    const parsed = await bodyBlob.json();
+                                    if (parsed?.error) {
+                                        errorMessage = parsed.error;
+                                        console.log('[RequiredPaymentScreen] Extracted error from blob JSON:', errorMessage);
+                                    }
+                                    bodyText = null; // Already parsed
+                                } else if (bodyBlob._data?.blobId) {
+                                    // For React Native, the blob might be structured differently
+                                    console.log('[RequiredPaymentScreen] Blob structure detected, attempting to read...');
+                                }
+                                
+                                if (bodyText) {
+                                    try {
+                                        const parsedBody = JSON.parse(bodyText);
+                                        if (parsedBody?.error) {
+                                            errorMessage = parsedBody.error;
+                                            console.log('[RequiredPaymentScreen] Extracted error from response body:', errorMessage);
+                                        }
+                                    } catch (parseError) {
+                                        console.warn('[RequiredPaymentScreen] Could not parse body text as JSON:', parseError);
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('[RequiredPaymentScreen] Could not read error body from blob:', e);
+                            // Try alternative method - read as JSON directly if available
+                            try {
+                                if (context.body && typeof context.body === 'string') {
+                                    const parsedBody = JSON.parse(context.body);
+                                    if (parsedBody?.error) {
+                                        errorMessage = parsedBody.error;
+                                        console.log('[RequiredPaymentScreen] Extracted error from context.body:', errorMessage);
+                                    }
+                                }
+                            } catch (e2) {
+                                console.warn('[RequiredPaymentScreen] Could not parse error body from context.body:', e2);
+                            }
+                        }
+                    }
+                }
+                
+                // Check status code for user-friendly messages if we couldn't extract from body
+                if (statusCode === 402) {
+                    errorMessage = errorMessage.includes('declined') || errorMessage.includes('not available') 
+                        ? errorMessage 
+                        : "Payment method was declined or not available. Please try another card or contact your bank.";
+                } else if (statusCode === 400) {
+                    errorMessage = errorMessage || "Invalid payment information. Please check your details and try again.";
+                } else if (statusCode === 500) {
+                    errorMessage = errorMessage || "Server error. Please try again later or contact support.";
+                }
+                
+                // If we have data despite error, check for error message in data
+                if (billingData && typeof billingData === 'object' && 'error' in billingData) {
+                    errorMessage = (billingData as any).error || errorMessage;
+                }
+                
+                console.error('[RequiredPaymentScreen] Final error message:', errorMessage, 'Status:', statusCode);
+                throw new Error(errorMessage);
             }
             
-            if (billingData && billingData.error) {
-                console.error('[RequiredPaymentScreen] Billing data error:', billingData.error);
-                throw new Error(billingData.error || "Backend failed to process premium billing.");
+            // Handle error in response data
+            if (billingData && typeof billingData === 'object' && 'error' in billingData) {
+                const errorData = billingData as { error: string; [key: string]: any };
+                console.error('[RequiredPaymentScreen] Billing data error:', errorData);
+                throw new Error(errorData.error || "Backend failed to process premium billing.");
             }
 
             // Check the billing result
@@ -796,15 +937,14 @@ const RequiredPaymentScreen: React.FC = () => {
                     // For mobile, use PaymentSheet for 3D Secure
                     console.log('[RequiredPaymentScreen] Mobile - using PaymentSheet for authentication...');
                     
-                    // For mobile, we need to use the platform-specific Stripe hooks
+                    // For mobile, use the platform-specific Stripe hooks from component level
                     if (Platform.OS === 'ios' || Platform.OS === 'android') {
-                        const { initPaymentSheet, presentPaymentSheet } = usePlatformStripe();
-                        if (!initPaymentSheet || !presentPaymentSheet) {
+                        if (!initPaymentSheetHook || !presentPaymentSheetHook) {
                             throw new Error('Payment system not available');
                         }
                         
                         setIsStripeActionActive(true);
-                        const { error: initError } = await initPaymentSheet({
+                        const { error: initError } = await initPaymentSheetHook({
                             merchantDisplayName: 'VYBR Premium',
                             customerId: billingData.customerId || paymentParams?.setupIntent?.customerId,
                             customerEphemeralKeySecret: billingData.ephemeralKey,
@@ -817,7 +957,7 @@ const RequiredPaymentScreen: React.FC = () => {
                             throw new Error(`Init Error: ${initError.message} (Code: ${initError.code})`);
                         }
 
-                        const result = await presentPaymentSheet();
+                        const result = await presentPaymentSheetHook();
                         console.log('[RequiredPaymentScreen] Mobile auth presentPaymentSheet Response:', JSON.stringify(result));
 
                         if (result.error) {
@@ -883,7 +1023,7 @@ const RequiredPaymentScreen: React.FC = () => {
             } else {
                 // Fallback for mobile if ID is not returned
                 const { data, error } = await supabase.functions.invoke('list-organizer-payment-methods', {
-                    body: JSON.stringify({ customerId: customerId })
+                    body: { customerId: customerId }
                 });
                 if (error) throw new Error(`Failed to fetch payment methods: ${error.message}`);
                 const paymentMethods = data?.paymentMethods || [];

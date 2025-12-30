@@ -34,7 +34,7 @@ export default {
         foregroundImage: "./assets/icon.png",
         backgroundColor: "#ffffff"
       },
-      package: "com.vybr.music",
+      package: "com.vybr.app",
       intentFilters: [
         {
           action: "VIEW",
