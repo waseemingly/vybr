@@ -63,9 +63,9 @@ import { Toaster } from '@/components/ui/sonner';
 
 // React Navigation
 import type { NavigationContainerRef } from '@react-navigation/native';
+import { navigationRef } from './src/navigation/navigationRef';
 
 const queryClient = new QueryClient();
-export const navigationRef = createNavigationContainerRef<any>(); // Or your RootStackParamList
 
 // --- Stripe Publishable Key ---
 // Prefer build-time configuration; fall back to the existing test key for local/dev.

@@ -19,11 +19,12 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.vybr.music",
-      buildNumber: "21",
+      buildNumber: "22",
       associatedDomains: ["applinks:vybr.app"],
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
         NSPhotoLibraryUsageDescription: "This app needs access to your photo library to let you select and share profile pictures and event images.",
+        NSPhotoLibraryAddUsageDescription: "This app needs access to save photos to your photo library.",
         NSCameraUsageDescription: "This app needs access to your camera to let you take photos for your profile and events.",
         NSMicrophoneUsageDescription: "This app needs access to your microphone for voice features and audio recording.",
         NSLocationWhenInUseUsageDescription: "This app needs access to your location to show nearby events and venues."
@@ -60,6 +61,7 @@ export default {
       "expo-dev-client",
       "expo-secure-store",
       "expo-font",
+      "expo-image-picker",
       [
         "@react-native-google-signin/google-signin",
         {

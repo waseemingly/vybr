@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import NotificationService from '../services/NotificationService';
 import { parseDeepLink } from '../utils/navigationUtils';
-import { navigationRef } from '../../App';
+import { navigationRef } from '../navigation/navigationRef';
 
 export interface NotificationData {
   id: string;

@@ -1,23 +1,12 @@
-// @ts-ignore - Deno types not available in workspace TypeScript config
-import { serve } from "https://deno.land/std@0.200.0/http/server.ts";
-// @ts-ignore - Deno import paths
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-// @ts-ignore - Deno import paths
-import Stripe from "https://esm.sh/stripe@14.12.0?target=deno";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, prefer',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS'
-};
+import Stripe from "https://esm.sh/stripe@12.0.0?target=deno";
+import { corsHeaders } from "../_shared/cors.ts";
 
 const STRIPE_API_VERSION = "2023-10-16";
 
-// @ts-ignore - Deno global available at runtime
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
-// @ts-ignore - Deno global available at runtime
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
-// @ts-ignore - Deno global available at runtime
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
 const missingEnv: string[] = [];
@@ -122,7 +111,7 @@ serve(async (req: Request) => {
     }
 
     // 1) Find or create customer
-    let customerId: string = await tryGetExistingCustomerId(userId, userType) || "";
+    let customerId = await tryGetExistingCustomerId(userId, userType);
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: userEmail,
