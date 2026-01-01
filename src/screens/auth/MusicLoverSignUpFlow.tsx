@@ -985,11 +985,20 @@ const MusicLoverSignUpFlow = () => {
         profileData.state = formData.state || undefined;
         profileData.city = formData.cityName || undefined;
 
-        // Add favorite fields (for "others" users)
-        profileData.favoriteArtists = formData.favoriteArtists.trim() || undefined;
-        profileData.favoriteAlbums = formData.favoriteAlbums.trim() || undefined;
-        profileData.favoriteGenres = formData.favoriteGenres.trim() || undefined;
-        profileData.favoriteSongs = formData.favoriteSongs.trim() || undefined;
+        // Helper function to parse CSV strings into arrays
+        const parseCsvToArray = (csvString: string): string[] | undefined => {
+            if (!csvString || !csvString.trim()) return undefined;
+            const items = csvString.split(',')
+                .map(item => item.trim())
+                .filter(item => item.length > 0);
+            return items.length > 0 ? items : undefined;
+        };
+
+        // Add favorite fields (for "others" users) - convert CSV strings to arrays
+        profileData.favoriteArtists = parseCsvToArray(formData.favoriteArtists);
+        profileData.favoriteAlbums = parseCsvToArray(formData.favoriteAlbums);
+        profileData.favoriteGenres = parseCsvToArray(formData.favoriteGenres);
+        profileData.favoriteSongs = parseCsvToArray(formData.favoriteSongs);
 
         console.log('[MusicLoverSignUpFlow] Prepared profile data:', {
             email: profileData.email,
