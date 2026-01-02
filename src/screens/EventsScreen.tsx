@@ -647,6 +647,8 @@ const EventsScreen: React.FC = () => {
     const [userProfile, setUserProfile] = useState<MusicLoverProfileData | null>(null);
     // State for raw fetched data
     const [rawEvents, setRawEvents] = useState<SupabasePublicEvent[]>([]);
+    const [forYouEventsRaw, setForYouEventsRaw] = useState<any[]>([]); // Raw RPC results for "For You" tab
+    const [allEventsRaw, setAllEventsRaw] = useState<any[]>([]); // Raw RPC results for "All Events" tab
     const [organizerMap, setOrganizerMap] = useState<Map<string, OrganizerInfo>>(new Map());
     
     // State for F&B organizers (restaurants)
@@ -799,34 +801,96 @@ const EventsScreen: React.FC = () => {
         }
     }, []);
 
-    // Fetch ALL upcoming events and organizers (Modified)
+    // Fetch recommended events using Supabase RPC function (For You tab)
+    const fetchRecommendedEvents = useCallback(async () => {
+        const userId = session?.user?.id;
+        if (!userId) {
+            console.log("[EventsScreen] No user logged in, cannot fetch recommended events.");
+            return [];
+        }
+        console.log("[EventsScreen] Fetching recommended events via RPC...");
+        try {
+            const { data, error } = await supabase.rpc('get_recommended_events_for_user', {
+                p_current_user_id: userId
+            });
+
+            if (error) {
+                console.error("[EventsScreen] RPC Error (get_recommended_events_for_user):", error);
+                throw error;
+            }
+
+            console.log(`[EventsScreen] Fetched ${data?.length || 0} recommended events from RPC`);
+            return data || [];
+        } catch (err: any) {
+            console.error("[EventsScreen] Fetch Recommended Events Error:", err);
+            return [];
+        }
+    }, [session]);
+
+    // Fetch events by user country using Supabase RPC function (All Events tab)
+    const fetchEventsByCountry = useCallback(async () => {
+        const userId = session?.user?.id;
+        if (!userId) {
+            console.log("[EventsScreen] No user logged in, cannot fetch events by country.");
+            return [];
+        }
+        console.log("[EventsScreen] Fetching events by country via RPC...");
+        try {
+            const { data, error } = await supabase.rpc('get_events_by_user_country', {
+                p_current_user_id: userId
+            });
+
+            if (error) {
+                console.error("[EventsScreen] RPC Error (get_events_by_user_country):", error);
+                throw error;
+            }
+
+            console.log(`[EventsScreen] Fetched ${data?.length || 0} events by country from RPC`);
+            return data || [];
+        } catch (err: any) {
+            console.error("[EventsScreen] Fetch Events By Country Error:", err);
+            return [];
+        }
+    }, [session]);
+
+    // Fetch events and organizers using Supabase RPC functions
     const fetchEventsAndOrganizers = useCallback(async () => {
-        console.log("[EventsScreen] Fetching ALL events and organizers...");
-        if (!refreshing) setIsLoading(true); // Set loading only if not refreshing
+        console.log("[EventsScreen] Fetching events using Supabase RPC functions...");
+        if (!refreshing) setIsLoading(true);
         setError(null);
 
         try {
-            // 1. Fetch all Events (upcoming and past initially, filtering happens later)
-            const { data: eventData, error: eventsError } = await supabase
-                .from("events")
-                .select(`
-                    id, title, description, event_datetime, location_text, poster_urls,
-                    tags_genres, tags_artists, tags_songs, organizer_id,
-                    event_type, booking_type, ticket_price, pass_fee_to_user,
-                    max_tickets, max_reservations, country, city 
-                `)
-                 // No date filter here - fetch all initially
-                .order("event_datetime", { ascending: true }); // Fetch oldest first
+            // Fetch both recommended events (For You) and country-based events (All Events) in parallel
+            const [recommendedEventsData, countryEventsData] = await Promise.all([
+                fetchRecommendedEvents(),
+                fetchEventsByCountry()
+            ]);
 
-            if (eventsError) throw eventsError;
-            setRawEvents(eventData || []);
+            // Combine and deduplicate events (use Set to avoid duplicates by event ID)
+            const allEventsMap = new Map();
+            
+            // Add recommended events first
+            recommendedEventsData.forEach((event: any) => {
+                allEventsMap.set(event.id, event);
+            });
+            
+            // Add country events (will overwrite if duplicate, but that's fine)
+            countryEventsData.forEach((event: any) => {
+                allEventsMap.set(event.id, event);
+            });
 
-            // 2. Fetch Organizers (only for events fetched)
-            // Fix Set iteration for older targets if needed
-            const organizerIds = Array.from(new Set((eventData || []).map(event => event.organizer_id).filter(id => !!id)));
+            const allEvents = Array.from(allEventsMap.values());
+            console.log(`[EventsScreen] Total unique events: ${allEvents.length} (${recommendedEventsData.length} recommended, ${countryEventsData.length} by country)`);
+            
+            // Store raw events for processing
+            setRawEvents(allEvents);
+
+            // Fetch Organizers for all unique events
+            const organizerIds = Array.from(new Set(allEvents.map((event: any) => event.organizer_id).filter((id: any) => !!id)));
             const newOrganizerMap = new Map<string, OrganizerInfo>();
+            
             if (organizerIds.length > 0) {
-                 const { data: organizerProfiles, error: profilesError } = await supabase
+                const { data: organizerProfiles, error: profilesError } = await supabase
                     .from('organizer_profiles')
                     .select('user_id, company_name, logo')
                     .in('user_id', organizerIds);
@@ -836,23 +900,29 @@ const EventsScreen: React.FC = () => {
                 } else if (organizerProfiles) {
                     organizerProfiles.forEach(profile => {
                         newOrganizerMap.set(profile.user_id, {
-                             userId: profile.user_id,
-                             name: profile.company_name ?? DEFAULT_ORGANIZER_NAME,
-                             image: profile.logo ?? null
+                            userId: profile.user_id,
+                            name: profile.company_name ?? DEFAULT_ORGANIZER_NAME,
+                            image: profile.logo ?? null
                         });
                     });
                 }
             }
             setOrganizerMap(newOrganizerMap);
 
+            // Store separate arrays for each tab
+            setForYouEventsRaw(recommendedEventsData);
+            setAllEventsRaw(countryEventsData);
+
         } catch (err: any) {
             console.error("[EventsScreen] Fetch Events/Organizers Error:", err);
             setError(`Failed to fetch events. Please try again.`);
             setRawEvents([]);
             setOrganizerMap(new Map());
-        } 
+            setForYouEventsRaw([]);
+            setAllEventsRaw([]);
+        }
         // Loading state is handled after processing in useEffect
-    }, [refreshing]);
+    }, [refreshing, fetchRecommendedEvents, fetchEventsByCountry]);
 
     // Initial data fetch
     useFocusEffect(useCallback(() => {
@@ -883,94 +953,97 @@ const EventsScreen: React.FC = () => {
         });
     }, [fetchUserProfile, fetchEventsAndOrganizers, fetchRestaurants, route.params]));
 
+    // Helper function to map RPC event result to MappedEvent
+    const mapRpcEventToMappedEvent = useCallback((rpcEvent: any): MappedEvent | null => {
+        if (!rpcEvent) return null;
+        
+        const { date, time } = formatEventDateTime(rpcEvent.event_datetime);
+        const organizerInfo = organizerMap.get(rpcEvent.organizer_id);
+        const finalOrganizerData: OrganizerInfo = organizerInfo || {
+            userId: rpcEvent.organizer_id,
+            name: DEFAULT_ORGANIZER_NAME,
+            image: null
+        };
+
+        // Parse JSONB arrays to regular arrays
+        const parseJsonbArray = (jsonbArr: any): string[] => {
+            if (!jsonbArr) return [];
+            if (Array.isArray(jsonbArr)) return jsonbArr;
+            try {
+                const parsed = typeof jsonbArr === 'string' ? JSON.parse(jsonbArr) : jsonbArr;
+                return Array.isArray(parsed) ? parsed : [];
+            } catch {
+                return [];
+            }
+        };
+
+        return {
+            id: rpcEvent.id,
+            title: rpcEvent.title,
+            images: parseJsonbArray(rpcEvent.poster_urls)?.length > 0 
+                ? parseJsonbArray(rpcEvent.poster_urls) 
+                : [DEFAULT_EVENT_IMAGE],
+            date: date,
+            time: time,
+            venue: rpcEvent.location_text ?? "N/A",
+            country: rpcEvent.country,
+            city: rpcEvent.city,
+            genres: parseJsonbArray(rpcEvent.tags_genres),
+            artists: parseJsonbArray(rpcEvent.tags_artists),
+            songs: parseJsonbArray(rpcEvent.tags_songs),
+            description: rpcEvent.description ?? "No description.",
+            booking_type: rpcEvent.booking_type,
+            ticket_price: rpcEvent.ticket_price,
+            pass_fee_to_user: rpcEvent.pass_fee_to_user ?? true,
+            max_tickets: rpcEvent.max_tickets,
+            max_reservations: rpcEvent.max_reservations,
+            organizer: finalOrganizerData,
+            score: rpcEvent.recommendation_score ?? 0, // Use score from RPC function
+            event_datetime_iso: rpcEvent.event_datetime
+        };
+    }, [organizerMap]);
+
     // Process events whenever raw data or user profile changes
     useEffect(() => {
         console.log("[EventsScreen] Processing events for tabs...");
-        if (!rawEvents || userProfile === undefined) { 
-             console.log("[EventsScreen] Waiting for raw events or user profile fetch status...");
-             setIsLoading(true); // Keep loading true if critical data is missing
+        if (userProfile === undefined || organizerMap.size === 0) { 
+             console.log("[EventsScreen] Waiting for user profile or organizer map...");
+             setIsLoading(true);
              return; 
         }
         
-        // NEW: Get F&B organizer IDs to filter out their automated reservations from event tabs
+        // Get F&B organizer IDs to filter out their automated reservations from event tabs
         const fandBOrganizerIds = new Set(restaurants.map(r => r.userId));
 
-        const now = new Date();
-        const mappedEventsWithScores: MappedEvent[] = rawEvents
-            .filter(event => {
+        // Process "For You" tab events (from get_recommended_events_for_user RPC)
+        const mappedForYouEvents = forYouEventsRaw
+            .filter((event: any) => {
                 // Exclude events that are reservations from F&B organizers (restaurants)
                 const isAutomatedFandBReservation = fandBOrganizerIds.has(event.organizer_id) && event.booking_type === 'RESERVATION';
                 return !isAutomatedFandBReservation;
             })
-            .map((event: SupabasePublicEvent) => { // Map first, then filter by date
-                const { date, time } = formatEventDateTime(event.event_datetime);
-                const organizerInfo = organizerMap.get(event.organizer_id);
-                const finalOrganizerData: OrganizerInfo = organizerInfo || {
-                    userId: event.organizer_id,
-                    name: DEFAULT_ORGANIZER_NAME,
-                    image: null
-                };
-                const eventForScoring = {
-                    ...event,
-                    organizer: finalOrganizerData, 
-                    images: event.poster_urls ?? [],
-                    date: date, 
-                    time: time,
-                    venue: event.location_text ?? 'N/A',
-                    description: event.description ?? '',
-                    genres: event.tags_genres ?? [], 
-                    artists: event.tags_artists ?? [], 
-                    songs: event.tags_songs ?? [],
-                    pass_fee_to_user: event.pass_fee_to_user ?? true, 
-                    event_datetime_iso: event.event_datetime // Added missing property
-                }
-                const score = calculateEventScore(eventForScoring as MappedEvent, userProfile);
-                
-                return {
-                    id: event.id, title: event.title,
-                    images: event.poster_urls?.length > 0 ? event.poster_urls : [DEFAULT_EVENT_IMAGE],
-                    date: date, time: time,
-                    venue: event.location_text ?? "N/A",
-                    country: event.country,
-                    city: event.city,
-                    genres: event.tags_genres ?? [], artists: event.tags_artists ?? [], songs: event.tags_songs ?? [],
-                    description: event.description ?? "No description.",
-                    booking_type: event.booking_type,
-                    ticket_price: event.ticket_price,
-                    pass_fee_to_user: event.pass_fee_to_user ?? true,
-                    max_tickets: event.max_tickets,
-                    max_reservations: event.max_reservations,
-                    organizer: finalOrganizerData,
-                    score: score,
-                    event_datetime_iso: event.event_datetime 
-                };
+            .map(mapRpcEventToMappedEvent)
+            .filter((event): event is MappedEvent => event !== null)
+            .sort((a, b) => (b.score ?? 0) - (a.score ?? 0)); // Sort by recommendation score descending
+        
+        setForYouEvents(mappedForYouEvents);
+        console.log(`[EventsScreen] Processed ${mappedForYouEvents.length} events for "For You" tab`);
+
+        // Process "All Events" tab events (from get_events_by_user_country RPC)
+        const mappedAllEvents = allEventsRaw
+            .filter((event: any) => {
+                // Exclude events that are reservations from F&B organizers (restaurants)
+                const isAutomatedFandBReservation = fandBOrganizerIds.has(event.organizer_id) && event.booking_type === 'RESERVATION';
+                return !isAutomatedFandBReservation;
             })
-            .filter(event => new Date(event.event_datetime_iso) > now); // Filter for upcoming events AFTER mapping
-
-        // Filter by location
-        let locationFilteredEvents = mappedEventsWithScores;
-        if (userProfile?.country && userProfile.city) {
-            console.log(`[EventsScreen] Filtering for Country: ${userProfile.country}, City: ${userProfile.city}`);
-            locationFilteredEvents = mappedEventsWithScores.filter(event => 
-                event.country === userProfile.country && event.city === userProfile.city
-            );
-            console.log(`[EventsScreen] Found ${locationFilteredEvents.length} events in user's location after scoring.`);
-        } else {
-            console.log("[EventsScreen] User location not available, showing all upcoming events globally (if any).");
-        }
-
-        // Populate "For You" tab data
-        const recommended = locationFilteredEvents
-            .filter(event => event.score && event.score > 0)
-            .sort((a, b) => (b.score ?? 0) - (a.score ?? 0)); 
-        setForYouEvents(recommended);
-
-        // Populate "All Events" tab data (all in location, sorted by date)
-        // If no location, it shows all global upcoming events sorted by date
-        const allInLocationSortedByDate = [...locationFilteredEvents].sort((a, b) => 
-            new Date(a.event_datetime_iso).getTime() - new Date(b.event_datetime_iso).getTime()
-        );
-        setAllEventsTabSource(allInLocationSortedByDate);
+            .map(mapRpcEventToMappedEvent)
+            .filter((event): event is MappedEvent => event !== null)
+            .sort((a, b) => 
+                new Date(a.event_datetime_iso).getTime() - new Date(b.event_datetime_iso).getTime()
+            ); // Sort by date ascending
+        
+        setAllEventsTabSource(mappedAllEvents);
+        console.log(`[EventsScreen] Processed ${mappedAllEvents.length} events for "All Events" tab`);
         
         // Reset pagination for both tabs as source data changed
         setCurrentPageForYou(1);
@@ -980,50 +1053,28 @@ const EventsScreen: React.FC = () => {
 
         // --- Auto-open event modal if openEventId is present ---
         const { openEventId } = route.params || {};
-        if (openEventId && (allInLocationSortedByDate.length > 0 || recommended.length > 0)) {
+        if (openEventId && (mappedAllEvents.length > 0 || mappedForYouEvents.length > 0)) {
             let eventToOpen: MappedEvent | undefined;
             // Prioritize finding it in the initially suggested tab or current active tab
             if (activeTabIndex === 1) { // All Events tab
-                eventToOpen = allInLocationSortedByDate.find(event => event.id === openEventId);
+                eventToOpen = mappedAllEvents.find(event => event.id === openEventId);
             }
             if (!eventToOpen && activeTabIndex === 0) { // For You tab
-                eventToOpen = recommended.find(event => event.id === openEventId);
+                eventToOpen = mappedForYouEvents.find(event => event.id === openEventId);
             }
             // If not found in the active tab, search the other one
             if (!eventToOpen) {
                 if (activeTabIndex === 1) { // Was All Events, check For You
-                     eventToOpen = recommended.find(event => event.id === openEventId);
+                     eventToOpen = mappedForYouEvents.find(event => event.id === openEventId);
                 } else { // Was For You, check All Events
-                     eventToOpen = allInLocationSortedByDate.find(event => event.id === openEventId);
+                     eventToOpen = mappedAllEvents.find(event => event.id === openEventId);
                 }
             }
-            // Fallback: If still not found, search all raw mapped events (before tab-specific sorting/filtering)
+            // Fallback: Search in raw events
             if (!eventToOpen) {
-                 const allMapped = rawEvents.map((event: SupabasePublicEvent) => { 
-                    const { date, time } = formatEventDateTime(event.event_datetime);
-                    const organizerInfo = organizerMap.get(event.organizer_id);
-                    const finalOrganizerData: OrganizerInfo = organizerInfo || {
-                        userId: event.organizer_id,
-                        name: DEFAULT_ORGANIZER_NAME,
-                        image: null
-                    };
-                    return {
-                        id: event.id, title: event.title,
-                        images: event.poster_urls?.length > 0 ? event.poster_urls : [DEFAULT_EVENT_IMAGE],
-                        date: date, time: time,
-                        venue: event.location_text ?? "N/A",
-                        country: event.country, city: event.city,
-                        genres: event.tags_genres ?? [], artists: event.tags_artists ?? [], songs: event.tags_songs ?? [],
-                        description: event.description ?? "No description.",
-                        booking_type: event.booking_type,
-                        ticket_price: event.ticket_price,
-                        pass_fee_to_user: event.pass_fee_to_user ?? true,
-                        max_tickets: event.max_tickets, max_reservations: event.max_reservations,
-                        organizer: finalOrganizerData,
-                        score: 0, // Score might not be relevant here if just opening
-                        event_datetime_iso: event.event_datetime 
-                    };
-                }).filter(event => new Date(event.event_datetime_iso) > now);
+                const allMapped = [...forYouEventsRaw, ...allEventsRaw]
+                    .map(mapRpcEventToMappedEvent)
+                    .filter((event): event is MappedEvent => event !== null);
                 eventToOpen = allMapped.find(e => e.id === openEventId);
             }
 
@@ -1043,9 +1094,9 @@ const EventsScreen: React.FC = () => {
 
         setIsLoading(false); 
         setRefreshing(false); 
-        console.log(`[EventsScreen] Processing complete. For You (source): ${recommended.length}, All Events (source): ${allInLocationSortedByDate.length}`);
+        console.log(`[EventsScreen] Processing complete. For You: ${mappedForYouEvents.length}, All Events: ${mappedAllEvents.length}`);
 
-    }, [rawEvents, organizerMap, userProfile, route.params, navigation, activeTabIndex, restaurants]); // Added route.params, navigation, activeTabIndex, restaurants
+    }, [forYouEventsRaw, allEventsRaw, organizerMap, userProfile, route.params, navigation, activeTabIndex, restaurants, mapRpcEventToMappedEvent]);
 
     // Update displayed events for "For You" tab based on pagination
     useEffect(() => {
