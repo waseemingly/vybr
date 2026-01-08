@@ -538,10 +538,14 @@ const ProfileScreen: React.FC = () => {
     const userName = `${musicLoverProfile.firstName ?? ''} ${musicLoverProfile.lastName ?? ''}`.trim() || "User";
     const userAge = musicLoverProfile.age; const userCity = musicLoverProfile.city; const userCountry = musicLoverProfile.country;
     const allBioDetails = musicLoverProfile.bio ? Object.entries(musicLoverProfile.bio).filter(([_, v]) => v && String(v).trim() !== '').map(([k, v]) => ({ label: bioDetailLabels[k as keyof MusicLoverBio] || k.replace(/([A-Z])/g, ' $1').trim(), value: String(v).trim() })) : [];
-    // Parse favorite music strings (assuming they exist on musicLoverProfile)
-    const parseCsvString = (str: string | null | undefined): string[] => {
-        if (!str) return [];
-        return str.split(',').map(s => s.trim()).filter(Boolean);
+    // Parse favorite music - handle both arrays (new format) and strings (old format)
+    const parseCsvString = (value: string | string[] | null | undefined): string[] => {
+        if (!value) return [];
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') {
+            return value.split(',').map(s => s.trim()).filter(Boolean);
+        }
+        return [];
     };
     const favoriteGenres = (musicLoverProfile.musicData?.genres as string[]) ?? []; // Keep if still used for Genre section
     // Now using the updated MusicLoverProfile type from useAuth

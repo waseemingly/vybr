@@ -1,6 +1,6 @@
 // components/Auth/OrganizerSignUpFlow.tsx (or wherever it resides)
 import React, { useState, useEffect, useRef } from 'react'; // Add useRef
-import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image, Platform, Dimensions, Keyboard, Easing } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image, Platform, Dimensions, Keyboard, Easing, KeyboardAvoidingView } from 'react-native';
 import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -465,7 +465,7 @@ const OrganizerSignUpFlow = () => {
 
   // Render account details step with Google Sign-In only
   const renderProfileDetailsStep = () => (
-    <View style={[authStyles.signupStepContent, !isWeb && { paddingHorizontal: 16 }]}>
+    <View style={[authStyles.signupStepContent, !isWeb && { paddingHorizontal: -16 }]}>
       <Text style={[
         authStyles.signupStepTitle, 
         !isWeb && authStyles.signupMobileContactBrandingTitle
@@ -474,7 +474,7 @@ const OrganizerSignUpFlow = () => {
       {/* --- Logo Section moved to top --- */}
       {isWeb ? (
         <View style={authStyles.signupInputContainer}>
-          <Text style={authStyles.signupInputLabel}>Logo (Optional)</Text>
+          <Text style={authStyles.signupInputLabel}>Logo</Text>
           <View style={styles.logoContainer}>
             {/* Use logoPreview which holds the local URI */}
             {formData.logoPreview ? (
@@ -498,7 +498,7 @@ const OrganizerSignUpFlow = () => {
       ) : (
         <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'center' }}>
           <View style={authStyles.signupProfilePicSectionMobile}>
-            <Text style={[authStyles.signupInputLabel, { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>Logo (Optional)</Text>
+            <Text style={[authStyles.signupInputLabel, { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>Logo</Text>
             <View style={authStyles.signupProfilePicContainer}>
               {formData.logoPreview ? (
                 <Image source={{ uri: formData.logoPreview }} style={authStyles.signupProfilePicPreview} />
@@ -523,7 +523,7 @@ const OrganizerSignUpFlow = () => {
       {/* --- End Logo Section --- */}
 
       <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupMobileFormField]}>
-          <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>Phone Number (Optional)</Text>
+          <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>Phone Number</Text>
           <TextInput
               style={[authStyles.signupInput, !isWeb && authStyles.signupMobileInput]}
               placeholder="Enter your phone number"
@@ -534,7 +534,9 @@ const OrganizerSignUpFlow = () => {
       </View>
 
       <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupMobileFormField]}>
-          <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>Business Type</Text>
+          <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>
+            Business Type <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+          </Text>
           {/* Create a proper 2-column grid for business types */}
           <View style={[
             isWeb ? {
@@ -603,7 +605,9 @@ const OrganizerSignUpFlow = () => {
 
       {formData.businessType === 'F&B' && (
           <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupMobileFormField]}>
-              <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>Venue Capacity</Text>
+              <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>
+                Venue Capacity <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+              </Text>
               <TextInput
                   style={[authStyles.signupInput, !isWeb && authStyles.signupMobileInput]}
                   placeholder="Enter total capacity"
@@ -622,7 +626,7 @@ const OrganizerSignUpFlow = () => {
       )}
 
       <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupMobileFormField]}>
-          <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>Website (Optional)</Text>
+          <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>Website</Text>
           <TextInput
               style={[authStyles.signupInput, !isWeb && authStyles.signupMobileInput]}
               placeholder="Enter your website URL"
@@ -634,7 +638,7 @@ const OrganizerSignUpFlow = () => {
       </View>
 
       <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupMobileFormField]}>
-          <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>Bio (Optional)</Text>
+          <Text style={[authStyles.signupInputLabel, !isWeb && authStyles.signupMobileSectionTitle]}>Bio</Text>
           <TextInput
               style={[
                 authStyles.signupInputBio, 
@@ -776,23 +780,36 @@ const OrganizerSignUpFlow = () => {
             <View style={{ width: 28 }} />
         </View>
 
-        <ScrollView
-          contentContainerStyle={authStyles.signupScrollContentContainer}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled" // Dismiss keyboard on tap outside inputs
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         >
-          <Animated.View
-            style={[
-              authStyles.signupAnimatedContainer,
-              { 
-                transform: [{ translateX: slideAnim }],
-                opacity: fadeAnim
-              }
+          <ScrollView
+            contentContainerStyle={[
+              authStyles.signupScrollContentContainer,
+              !isWeb && { paddingBottom: 100 } // Extra padding for keyboard
             ]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            contentInsetAdjustmentBehavior="automatic"
+            automaticallyAdjustContentInsets={false}
+            scrollEventThrottle={16}
           >
-            {renderCurrentStep()}
-          </Animated.View>
-        </ScrollView>
+            <Animated.View
+              style={[
+                authStyles.signupAnimatedContainer,
+                { 
+                  transform: [{ translateX: slideAnim }],
+                  opacity: fadeAnim
+                }
+              ]}
+            >
+              {renderCurrentStep()}
+            </Animated.View>
+          </ScrollView>
+        </KeyboardAvoidingView>
 
         {/* Terms Modal */}
         <TermsModal

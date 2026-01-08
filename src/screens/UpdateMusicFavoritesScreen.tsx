@@ -69,10 +69,23 @@ const UpdateMusicFavoritesScreen = () => {
         if (error) throw error;
         
         if (data) {
-          setFavoriteArtists(data.favorite_artists || '');
-          setFavoriteAlbums(data.favorite_albums || '');
-          setFavoriteGenres(data.favorite_genres || '');
-          setFavoriteSongs(data.favorite_songs || '');
+          // Convert arrays to comma-separated strings for TextInput
+          const arrayToString = (arr: string[] | null | undefined): string => {
+            if (!arr) return '';
+            if (Array.isArray(arr)) {
+              return arr.join(', ');
+            }
+            // Fallback for old string format (backward compatibility)
+            if (typeof arr === 'string') {
+              return arr;
+            }
+            return '';
+          };
+          
+          setFavoriteArtists(arrayToString(data.favorite_artists));
+          setFavoriteAlbums(arrayToString(data.favorite_albums));
+          setFavoriteGenres(arrayToString(data.favorite_genres));
+          setFavoriteSongs(arrayToString(data.favorite_songs));
         }
       } catch (error) {
         console.error('Error loading music favorites:', error);
@@ -86,10 +99,21 @@ const UpdateMusicFavoritesScreen = () => {
   }, [session?.user?.id]);
   
   // Utility functions
-  const parseCsvString = (str: string): string[] => {
+  const parseCsvString = (str: string | null | undefined): string[] => {
+    if (!str) return [];
+    if (typeof str !== 'string') return [];
     return str.split(',')
       .map(item => item.trim())
       .filter(item => item.length > 0);
+  };
+  
+  // Convert comma-separated string to array for database
+  const stringToArray = (str: string): string[] | undefined => {
+    if (!str || !str.trim()) return undefined;
+    const items = str.split(',')
+      .map(item => item.trim())
+      .filter(item => item.length > 0);
+    return items.length > 0 ? items : undefined;
   };
   
   const formatTrackToArtistSong = (track: TopTrack): string => {
@@ -224,13 +248,14 @@ const UpdateMusicFavoritesScreen = () => {
     try {
       setIsSaving(true);
       
+      // Convert strings to arrays for database
       const { error } = await supabase
         .from('music_lover_profiles')
         .update({
-          favorite_artists: favoriteArtists.trim(),
-          favorite_albums: favoriteAlbums.trim(),
-          favorite_genres: favoriteGenres.trim(),
-          favorite_songs: favoriteSongs.trim(),
+          favorite_artists: stringToArray(favoriteArtists),
+          favorite_albums: stringToArray(favoriteAlbums),
+          favorite_genres: stringToArray(favoriteGenres),
+          favorite_songs: stringToArray(favoriteSongs),
           updated_at: new Date().toISOString()
         })
         .eq('user_id', session.user.id);

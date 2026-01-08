@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
     View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
     ActivityIndicator, Alert, Animated, Image, Platform,
-    Dimensions, Keyboard, Easing
+    Dimensions, Keyboard, Easing, KeyboardAvoidingView
 } from 'react-native';
 import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -643,24 +643,37 @@ const MusicLoverSignUpFlow = () => {
     const validateProfileDetailsStep = (): boolean => {
         console.log('[MusicLoverSignUpFlow] Validating Profile Details Step...');
         
-        // Only validate age if provided (all other fields are optional)
-        if (formData.age && (!/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 1 || parseInt(formData.age, 10) > 120)) {
+        // Profile Picture is required
+        if (!formData.profilePictureUri || !formData.profilePicturePreview) {
             return false;
         }
 
-        // If the user started selecting a location, avoid leaving it in an invalid partial state.
-        // Some countries (e.g., Singapore) may not have cities in the library; those are handled by auto-filling city.
-        if (formData.countryCode) {
-            // If a country has states, require a state selection (Singapore is special-cased elsewhere and won't render this dropdown).
-            if (formData.countryCode !== 'SG' && states.length > 0 && !formData.stateCode) {
-                return false;
-            }
-
-            // If a state is selected and the library provides cities, require a city selection.
-            if (formData.stateCode && cities.length > 0 && !formData.cityName) {
-                return false;
-            }
+        // Age is required
+        if (!formData.age || !/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 1 || parseInt(formData.age, 10) > 120) {
+            return false;
         }
+
+        // Country is required
+        if (!formData.countryCode) {
+            return false;
+        }
+
+        // If a country has states, require a state selection (Singapore is special-cased elsewhere and won't render this dropdown).
+        if (formData.countryCode !== 'SG' && states.length > 0 && !formData.stateCode) {
+            return false;
+        }
+
+        // City is required (either from picker or auto-filled for Singapore)
+        if (!formData.cityName) {
+            return false;
+        }
+
+        // All bio fields are required
+        if (!formData.bio.firstSong?.trim()) return false;
+        if (!formData.bio.goToSong?.trim()) return false;
+        if (!formData.bio.mustListenAlbum?.trim()) return false;
+        if (!formData.bio.dreamConcert?.trim()) return false;
+        if (!formData.bio.musicTaste?.trim()) return false;
         
         console.log('[MusicLoverSignUpFlow] Profile Details Step Validation PASSED.');
         return true;
@@ -668,18 +681,35 @@ const MusicLoverSignUpFlow = () => {
     
     // Get error message without setting state
     const getProfileDetailsError = (): string => {
-        if (formData.age && (!/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 1 || parseInt(formData.age, 10) > 120)) {
-            return 'Please enter a valid age (1-120) or leave blank';
+        if (!formData.profilePictureUri || !formData.profilePicturePreview) {
+            return 'Please upload a profile picture';
         }
 
-        if (formData.countryCode) {
-            if (formData.countryCode !== 'SG' && states.length > 0 && !formData.stateCode) {
-                return 'Please select a state/province (or clear the country)';
-            }
-            if (formData.stateCode && cities.length > 0 && !formData.cityName) {
-                return 'Please select a city (or clear the country)';
-            }
+        if (!formData.age) {
+            return 'Please enter your age';
         }
+        if (!/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 1 || parseInt(formData.age, 10) > 120) {
+            return 'Please enter a valid age (1-120)';
+        }
+
+        if (!formData.countryCode) {
+            return 'Please select a country';
+        }
+
+        if (formData.countryCode !== 'SG' && states.length > 0 && !formData.stateCode) {
+            return 'Please select a state/province';
+        }
+
+        if (!formData.cityName) {
+            return 'Please select a city';
+        }
+
+        if (!formData.bio.firstSong?.trim()) return 'Please fill in your first concert / favorite music memory';
+        if (!formData.bio.goToSong?.trim()) return 'Please fill in your go-to song';
+        if (!formData.bio.mustListenAlbum?.trim()) return 'Please fill in an album everyone should listen to';
+        if (!formData.bio.dreamConcert?.trim()) return 'Please fill in your dream concert lineup';
+        if (!formData.bio.musicTaste?.trim()) return 'Please describe your music taste';
+
         return '';
     };
 
@@ -737,26 +767,35 @@ const MusicLoverSignUpFlow = () => {
                 .filter(item => item.length > 0);
         };
         
-        // Check artists limit
+        // All fields are required - check if they have at least one item
         const artists = parseCsvString(formData.favoriteArtists);
+        if (artists.length === 0) {
+            return false;
+        }
         if (artists.length > maxItems) {
             return false;
         }
         
-        // Check albums limit
         const albums = parseCsvString(formData.favoriteAlbums);
+        if (albums.length === 0) {
+            return false;
+        }
         if (albums.length > maxItems) {
             return false;
         }
         
-        // Check genres limit
         const genres = parseCsvString(formData.favoriteGenres);
+        if (genres.length === 0) {
+            return false;
+        }
         if (genres.length > maxItems) {
             return false;
         }
         
-        // Check songs limit and format
         const songs = parseCsvString(formData.favoriteSongs);
+        if (songs.length === 0) {
+            return false;
+        }
         if (songs.length > maxItems) {
             return false;
         }
@@ -787,21 +826,33 @@ const MusicLoverSignUpFlow = () => {
         };
         
         const artists = parseCsvString(formData.favoriteArtists);
+        if (artists.length === 0) {
+            return 'Please enter at least one favorite artist';
+        }
         if (artists.length > maxItems) {
             return `You can only have ${maxItems} favorite artists as a ${isPremium ? 'premium' : 'free'} user.`;
         }
         
         const albums = parseCsvString(formData.favoriteAlbums);
+        if (albums.length === 0) {
+            return 'Please enter at least one favorite album';
+        }
         if (albums.length > maxItems) {
             return `You can only have ${maxItems} favorite albums as a ${isPremium ? 'premium' : 'free'} user.`;
         }
         
         const genres = parseCsvString(formData.favoriteGenres);
+        if (genres.length === 0) {
+            return 'Please enter at least one favorite genre';
+        }
         if (genres.length > maxItems) {
             return `You can only have ${maxItems} favorite genres as a ${isPremium ? 'premium' : 'free'} user.`;
         }
         
         const songs = parseCsvString(formData.favoriteSongs);
+        if (songs.length === 0) {
+            return 'Please enter at least one favorite song';
+        }
         if (songs.length > maxItems) {
             return `You can only have ${maxItems} favorite songs as a ${isPremium ? 'premium' : 'free'} user.`;
         }
@@ -934,11 +985,20 @@ const MusicLoverSignUpFlow = () => {
         profileData.state = formData.state || undefined;
         profileData.city = formData.cityName || undefined;
 
-        // Add favorite fields (for "others" users)
-        profileData.favoriteArtists = formData.favoriteArtists.trim() || undefined;
-        profileData.favoriteAlbums = formData.favoriteAlbums.trim() || undefined;
-        profileData.favoriteGenres = formData.favoriteGenres.trim() || undefined;
-        profileData.favoriteSongs = formData.favoriteSongs.trim() || undefined;
+        // Helper function to parse CSV strings into arrays
+        const parseCsvToArray = (csvString: string): string[] | undefined => {
+            if (!csvString || !csvString.trim()) return undefined;
+            const items = csvString.split(',')
+                .map(item => item.trim())
+                .filter(item => item.length > 0);
+            return items.length > 0 ? items : undefined;
+        };
+
+        // Add favorite fields (for "others" users) - convert CSV strings to arrays
+        profileData.favoriteArtists = parseCsvToArray(formData.favoriteArtists);
+        profileData.favoriteAlbums = parseCsvToArray(formData.favoriteAlbums);
+        profileData.favoriteGenres = parseCsvToArray(formData.favoriteGenres);
+        profileData.favoriteSongs = parseCsvToArray(formData.favoriteSongs);
 
         console.log('[MusicLoverSignUpFlow] Prepared profile data:', {
             email: profileData.email,
@@ -1377,7 +1437,9 @@ const MusicLoverSignUpFlow = () => {
             {/* Profile Picture */}
             {isWeb ? (
                 <View style={authStyles.signupInputContainer}>
-                    <Text style={[authStyles.signupInputLabel, !isWeb && { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>Profile Picture</Text>
+                    <Text style={[authStyles.signupInputLabel, !isWeb && { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>
+                        Profile Picture <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                    </Text>
                     <View style={authStyles.signupProfilePicContainer}>
                         {formData.profilePicturePreview ? (
                             <Image source={{ uri: formData.profilePicturePreview }} style={authStyles.signupProfilePicPreview} />
@@ -1397,7 +1459,9 @@ const MusicLoverSignUpFlow = () => {
             ) : (
                 <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'center' }}>
                     <View style={authStyles.signupProfilePicSectionMobile}>
-                        <Text style={[authStyles.signupInputLabel, { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>Profile Picture</Text>
+                        <Text style={[authStyles.signupInputLabel, { textAlign: 'center', alignSelf: 'center', width: '100%' }]}>
+                            Profile Picture <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                        </Text>
                         <View style={authStyles.signupProfilePicContainer}>
                             {formData.profilePicturePreview ? (
                                 <Image source={{ uri: formData.profilePicturePreview }} style={authStyles.signupProfilePicPreview} />
@@ -1420,7 +1484,9 @@ const MusicLoverSignUpFlow = () => {
             <View style={!isWeb && { paddingHorizontal: 16 }}>
                 {/* Age */}
                 <View style={authStyles.signupInputContainer}>
-                    <Text style={authStyles.signupInputLabel}>Age</Text>
+                    <Text style={authStyles.signupInputLabel}>
+                        Age <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                    </Text>
                     <TextInput 
                         style={authStyles.signupInput} 
                         placeholder="e.g. 25" 
@@ -1435,7 +1501,9 @@ const MusicLoverSignUpFlow = () => {
                 
                 {/* Location Section - Country Dropdown */}
                 <View style={authStyles.signupInputContainer}>
-                    <Text style={authStyles.signupInputLabel}>Country</Text>
+                    <Text style={authStyles.signupInputLabel}>
+                        Country <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                    </Text>
                     <View style={styles.pickerContainer}>
                         <Picker
                             selectedValue={formData.countryCode}
@@ -1457,7 +1525,9 @@ const MusicLoverSignUpFlow = () => {
                 {/* State/Province Dropdown - Only show if country is selected and not Singapore */}
                 {formData.countryCode && formData.countryCode !== 'SG' && (
                     <View style={authStyles.signupInputContainer}>
-                        <Text style={authStyles.signupInputLabel}>State/Province</Text>
+                        <Text style={authStyles.signupInputLabel}>
+                            State/Province <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                        </Text>
                         <View style={styles.pickerContainer}>
                             <Picker
                                 selectedValue={formData.stateCode}
@@ -1483,7 +1553,9 @@ const MusicLoverSignUpFlow = () => {
                 {/* - If no cities exist (e.g., Singapore): show a read-only field with auto-filled value */}
                 {formData.stateCode && cities.length > 0 && (
                     <View style={authStyles.signupInputContainer}>
-                        <Text style={authStyles.signupInputLabel}>City</Text>
+                        <Text style={authStyles.signupInputLabel}>
+                            City <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                        </Text>
                         <View style={styles.pickerContainer}>
                             <Picker
                                 selectedValue={formData.cityName}
@@ -1506,7 +1578,9 @@ const MusicLoverSignUpFlow = () => {
 
                 {formData.stateCode && cities.length === 0 && (
                     <View style={authStyles.signupInputContainer}>
-                        <Text style={authStyles.signupInputLabel}>City</Text>
+                        <Text style={authStyles.signupInputLabel}>
+                            City <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                        </Text>
                         <TextInput
                             style={[authStyles.signupInput, { opacity: 0.8 }]}
                             value={formData.cityName || (formData.state || formData.country || '')}
@@ -1519,23 +1593,33 @@ const MusicLoverSignUpFlow = () => {
                 {/* Bio Section */}
                 <Text style={[authStyles.signupInputLabel, authStyles.signupBioHeader]}>Music Bio (Share your sound!)</Text>
                 <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Your first concert / favorite music memory?</Text>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>
+                        Your first concert / favorite music memory? <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                    </Text>
                     <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.firstSong} onChangeText={(text) => handleChange('bio.firstSong', text)} placeholder="That unforgettable show..." multiline returnKeyType="next" blurOnSubmit={false} />
                 </View>
                 <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Go-to song right now?</Text>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>
+                        Go-to song right now? <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                    </Text>
                     <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.goToSong} onChangeText={(text) => handleChange('bio.goToSong', text)} placeholder="The track on repeat..." returnKeyType="next" blurOnSubmit={false} />
                 </View>
                 <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>An album everyone should listen to?</Text>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>
+                        An album everyone should listen to? <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                    </Text>
                     <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.mustListenAlbum} onChangeText={(text) => handleChange('bio.mustListenAlbum', text)} placeholder="Your essential pick..." returnKeyType="next" blurOnSubmit={false} />
                 </View>
                 <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Dream concert lineup?</Text>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>
+                        Dream concert lineup? <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                    </Text>
                     <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.dreamConcert} onChangeText={(text) => handleChange('bio.dreamConcert', text)} placeholder="Headliner? Opener?" returnKeyType="next" blurOnSubmit={false} />
                 </View>
                 <View style={[authStyles.signupInputContainer, !isWeb && authStyles.signupBioInputContainerMobile]}>
-                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>Describe your music taste in a few words?</Text>
+                    <Text style={[authStyles.signupInputLabelSmall, !isWeb && authStyles.signupBioLabelMobile]}>
+                        Describe your music taste in a few words? <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                    </Text>
                     <TextInput style={[authStyles.signupInputBio, !isWeb && authStyles.signupBioInputMobile]} value={formData.bio.musicTaste} onChangeText={(text) => handleChange('bio.musicTaste', text)} placeholder="Indie rock, 90s hip hop, electronic..." returnKeyType="done" onSubmitEditing={handleStepSubmit} />
                 </View>
                 {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
@@ -1656,10 +1740,16 @@ const MusicLoverSignUpFlow = () => {
         }
     }, [spotifyError, currentStep, formData.selectedStreamingService]);
 
-    // Load countries on component mount
+    // Load countries on component mount - Singapore first
     useEffect(() => {
         const allCountries = Country.getAllCountries();
-        setCountries(allCountries);
+        // Sort countries: Singapore first, then alphabetically
+        const sortedCountries = [...allCountries].sort((a, b) => {
+            if (a.isoCode === 'SG') return -1;
+            if (b.isoCode === 'SG') return 1;
+            return a.name.localeCompare(b.name);
+        });
+        setCountries(sortedCountries);
     }, []);
 
     // Load states when country changes
@@ -2346,6 +2436,10 @@ const MusicLoverSignUpFlow = () => {
         // Validation functions
         const validateArtists = (value: string): boolean => {
             const artists = parseCsvString(value);
+            if (artists.length === 0) {
+                setArtistsError('Please enter at least one favorite artist');
+                return false;
+            }
             if (artists.length > maxItems) {
                 setArtistsError(`You can only have ${maxItems} favorite artists as a ${isPremium ? 'premium' : 'free'} user.`);
                 return false;
@@ -2356,6 +2450,10 @@ const MusicLoverSignUpFlow = () => {
         
         const validateAlbums = (value: string): boolean => {
             const albums = parseCsvString(value);
+            if (albums.length === 0) {
+                setAlbumsError('Please enter at least one favorite album');
+                return false;
+            }
             if (albums.length > maxItems) {
                 setAlbumsError(`You can only have ${maxItems} favorite albums as a ${isPremium ? 'premium' : 'free'} user.`);
                 return false;
@@ -2366,6 +2464,10 @@ const MusicLoverSignUpFlow = () => {
         
         const validateGenres = (value: string): boolean => {
             const genres = parseCsvString(value);
+            if (genres.length === 0) {
+                setGenresError('Please enter at least one favorite genre');
+                return false;
+            }
             if (genres.length > maxItems) {
                 setGenresError(`You can only have ${maxItems} favorite genres as a ${isPremium ? 'premium' : 'free'} user.`);
                 return false;
@@ -2376,6 +2478,10 @@ const MusicLoverSignUpFlow = () => {
         
         const validateSongs = (value: string): boolean => {
             const songs = parseCsvString(value);
+            if (songs.length === 0) {
+                setSongsError('Please enter at least one favorite song');
+                return false;
+            }
             if (songs.length > maxItems) {
                 setSongsError(`You can only have ${maxItems} favorite songs as a ${isPremium ? 'premium' : 'free'} user.`);
                 return false;
@@ -2410,12 +2516,20 @@ const MusicLoverSignUpFlow = () => {
                     Help us connect you with like-minded music lovers. Separate multiple entries with commas. You can add up to {maxItems} items per category.
                 </Text>
 
-                <ScrollView style={{ maxHeight: isWeb ? 500 : 400 }} showsVerticalScrollIndicator={false}>
+                <ScrollView 
+                    style={{ maxHeight: isWeb ? 500 : 400 }} 
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="interactive"
+                    contentInsetAdjustmentBehavior="automatic"
+                >
                     <View style={styles.musicFavoritesFormContainer}>
                         {/* Favorite Artists */}
                         <View style={styles.musicFavoritesInputGroup}>
                             <View style={styles.musicFavoritesLabelContainer}>
-                                <Text style={styles.musicFavoritesLabel}>Favorite Artists</Text>
+                                <Text style={styles.musicFavoritesLabel}>
+                                    Favorite Artists <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                                </Text>
                                 <CharacterCount 
                                     current={parseCsvString(formData.favoriteArtists).length} 
                                     max={maxItems} 
@@ -2439,7 +2553,9 @@ const MusicLoverSignUpFlow = () => {
                         {/* Favorite Albums */}
                         <View style={styles.musicFavoritesInputGroup}>
                             <View style={styles.musicFavoritesLabelContainer}>
-                                <Text style={styles.musicFavoritesLabel}>Favorite Albums</Text>
+                                <Text style={styles.musicFavoritesLabel}>
+                                    Favorite Albums <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                                </Text>
                                 <CharacterCount 
                                     current={parseCsvString(formData.favoriteAlbums).length} 
                                     max={maxItems} 
@@ -2463,7 +2579,9 @@ const MusicLoverSignUpFlow = () => {
                         {/* Favorite Genres */}
                         <View style={styles.musicFavoritesInputGroup}>
                             <View style={styles.musicFavoritesLabelContainer}>
-                                <Text style={styles.musicFavoritesLabel}>Favorite Genres</Text>
+                                <Text style={styles.musicFavoritesLabel}>
+                                    Favorite Genres <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                                </Text>
                                 <CharacterCount 
                                     current={parseCsvString(formData.favoriteGenres).length} 
                                     max={maxItems} 
@@ -2487,7 +2605,9 @@ const MusicLoverSignUpFlow = () => {
                         {/* Favorite Songs */}
                         <View style={styles.musicFavoritesInputGroup}>
                             <View style={styles.musicFavoritesLabelContainer}>
-                                <Text style={styles.musicFavoritesLabel}>Favorite Songs</Text>
+                                <Text style={styles.musicFavoritesLabel}>
+                                    Favorite Songs <Text style={{ color: APP_CONSTANTS.COLORS.ERROR || '#ef4444' }}>*</Text>
+                                </Text>
                                 <CharacterCount 
                                     current={parseCsvString(formData.favoriteSongs).length} 
                                     max={maxItems} 
@@ -2646,25 +2766,39 @@ const MusicLoverSignUpFlow = () => {
 
                 {/* Web: wide form wrapper; Mobile: as before */}
                 <View style={isWeb ? authStyles.formWrapperWeb : undefined}>
-                    <ScrollView 
-                        contentContainerStyle={authStyles.signupScrollContentContainer} 
-                        style={{ width: '100%' }}
-                        showsVerticalScrollIndicator={false}
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                        style={{ flex: 1, width: '100%' }}
+                        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
                     >
-                        <Animated.View 
-                            style={[
-                                authStyles.signupStepsSlider, 
-                                { 
-                                    transform: [{ translateX: slideAnim }],
-                                    opacity: fadeAnim,
-                                    width: '100%',
-                                    minHeight: '100%'
-                                }
-                            ]}
-                        > 
-                            {renderCurrentStep()}
-                        </Animated.View>
-                    </ScrollView>
+                        <ScrollView 
+                            contentContainerStyle={[
+                                authStyles.signupScrollContentContainer,
+                                !isWeb && { paddingBottom: 100 } // Extra padding for keyboard
+                            ]} 
+                            style={{ width: '100%' }}
+                            showsVerticalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                            keyboardDismissMode="interactive"
+                            contentInsetAdjustmentBehavior="automatic"
+                            automaticallyAdjustContentInsets={false}
+                            scrollEventThrottle={16}
+                        >
+                            <Animated.View 
+                                style={[
+                                    authStyles.signupStepsSlider, 
+                                    { 
+                                        transform: [{ translateX: slideAnim }],
+                                        opacity: fadeAnim,
+                                        width: '100%',
+                                        minHeight: '100%'
+                                    }
+                                ]}
+                            > 
+                                {renderCurrentStep()}
+                            </Animated.View>
+                        </ScrollView>
+                    </KeyboardAvoidingView>
                 </View>
 
                 <TermsModal visible={isTermsModalVisible} onClose={() => setIsTermsModalVisible(false)} termsText={termsAndConditionsText} />

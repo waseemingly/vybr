@@ -932,10 +932,14 @@ const OtherUserProfileScreen: React.FC = () => {
     const allBioDetails = profileData.bio ? Object.entries(profileData.bio).filter(([_, v]) => v && String(v).trim() !== '').map(([k, v]) => ({ label: bioDetailLabels[k as keyof MusicLoverBio] || k, value: String(v).trim() })) : [];
     const favoriteGenres = (profileData.musicData?.genres as string[]) ?? [];
 
-    // Parse favorite music strings
-    const parseCsvString = (str: string | null | undefined): string[] => {
-        if (!str) return [];
-        return str.split(',').map(s => s.trim()).filter(Boolean);
+    // Parse favorite music - handle both arrays (new format) and strings (old format)
+    const parseCsvString = (value: string | string[] | null | undefined): string[] => {
+        if (!value) return [];
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') {
+            return value.split(',').map(s => s.trim()).filter(Boolean);
+        }
+        return [];
     };
     const favArtistsList = parseCsvString(profileData.favorite_artists);
     const favAlbumsList = parseCsvString(profileData.favorite_albums);
