@@ -19,9 +19,9 @@ import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-
 import type { RootStackParamList } from '@/navigation/AppNavigator';
 
 // --- Stripe Configuration ---
-const STRIPE_PUBLISHABLE_KEY_NATIVE = "pk_test_51RDGZeDz14cfDAXkmWK8eowRamZEWD7wAr1Mjae9QjhtBGRZ0VFXGDQxS9Q8XQfX1Gkoy4PlTcNWIz2E54Y6n7Yw00wY8abUlU";
-const STRIPE_PUBLISHABLE_KEY_WEB = "pk_test_51RDGZeDz14cfDAXkmWK8eowRamZEWD7wAr1Mjae9QjhtBGRZ0VFXGDQxS9Q8XQfX1Gkoy4PlTcNWIz2E54Y6n7Yw00wY8abUlU";
-const PREMIUM_PLAN_PRICE_ID = 'price_1SjiYFDz14cfDAXkFrVys2hD'; // Premium subscription price
+const STRIPE_PUBLISHABLE_KEY_NATIVE = "pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN";
+const STRIPE_PUBLISHABLE_KEY_WEB = "pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN";
+const PREMIUM_PLAN_PRODUCT_ID = 'prod_SJWVfLaGA6zw1r'; // Premium subscription product ID
 const stripePromiseWeb = Platform.OS === 'web' ? loadStripe(STRIPE_PUBLISHABLE_KEY_WEB) : null;
 
 type RequiredPaymentNavigationProp = NavigationProp<RootStackParamList>;
@@ -41,6 +41,18 @@ interface PaymentParams {
         ephemeralKey: string;
     };
 }
+
+// Web-compatible container component for PaymentElement
+const PaymentElementContainer = ({ children }: { children: React.ReactNode }) => {
+    if (Platform.OS === 'web') {
+        // Use React.createElement to create a native div element on web
+        return React.createElement('div', {
+            id: 'stripe-payment-element-container',
+            style: { width: '100%', minHeight: '200px', marginBottom: '20px' }
+        }, children) as any;
+    }
+    return <View style={{ width: '100%', minHeight: 200, marginBottom: 20 }}>{children}</View>;
+};
 
 // Web-specific components using Stripe Elements
 const StripeSetupFormWebRequired = ({ clientSecret, onSetupSuccess, onSetupError }: {
@@ -102,15 +114,17 @@ const StripeSetupFormWebRequired = ({ clientSecret, onSetupSuccess, onSetupError
 
     return (
         <View style={styles.webFormContainer}>
-            <PaymentElement 
-                onReady={() => {
-                    console.log('[StripeSetupFormWebRequired] PaymentElement is ready');
-                    setIsPaymentElementReady(true);
-                }}
-                options={{
-                    layout: 'tabs'
-                }}
-            />
+            <PaymentElementContainer>
+                <PaymentElement 
+                    onReady={() => {
+                        console.log('[StripeSetupFormWebRequired] PaymentElement is ready');
+                        setIsPaymentElementReady(true);
+                    }}
+                    options={{
+                        layout: 'tabs'
+                    }}
+                />
+            </PaymentElementContainer>
             {errorMessageWeb && (
                 <Text style={styles.errorText}>{errorMessageWeb}</Text>
             )}
@@ -186,15 +200,17 @@ const StripePaymentFormWebRequired = ({ paymentClientSecret, onPaymentSuccess, o
 
     return (
         <View style={styles.webFormContainer}>
-            <PaymentElement 
-                onReady={() => {
-                    console.log('[StripePaymentFormWebRequired] PaymentElement is ready');
-                    setIsPaymentElementReady(true);
-                }}
-                options={{
-                    layout: 'tabs'
-                }}
-            />
+            <PaymentElementContainer>
+                <PaymentElement 
+                    onReady={() => {
+                        console.log('[StripePaymentFormWebRequired] PaymentElement is ready');
+                        setIsPaymentElementReady(true);
+                    }}
+                    options={{
+                        layout: 'tabs'
+                    }}
+                />
+            </PaymentElementContainer>
             {errorMessageWeb && (
                 <Text style={styles.errorText}>{errorMessageWeb}</Text>
             )}
@@ -592,10 +608,13 @@ const RequiredPaymentScreen: React.FC = () => {
         }
         console.log('[Verify] Step 1 PASSED: Payment method (customer ID) exists.');
     
-        // --- Step 2: Check for Payout Account (Stripe Connect) - NOW OPTIONAL ---
+        // --- Step 2: Check for Payout Account (Stripe Connect) ---
         if (!(profile as any)?.stripe_connect_account_id) {
-            console.log('[Verify] Step 2: Stripe Connect not configured (skipping - can be set up later).');
-            // Skip Connect for now - organizers can set up payouts later
+            console.log('[Verify] Step 2: Stripe Connect not configured - showing setup prompt.');
+            setStatusMessage('Please set up your payout account to receive ticket sales.');
+            setShowConnectOnboarding(true);
+            setIsLoadingData(false);
+            return; // Show the Connect onboarding UI
         } else {
             console.log('[Verify] Step 2 PASSED: Payout account is connected.');
         }
@@ -665,6 +684,51 @@ const RequiredPaymentScreen: React.FC = () => {
         setStatusMessage('Setup complete! Redirecting...');
         setIsLoadingData(false);
     }, [isOrganizer, userId, userEmail, organizerProfile, loadPaymentData, refreshUserProfile, handleConnectStripe]);
+
+    // Handle return from Stripe Connect onboarding
+    useEffect(() => {
+        const checkStripeOnboardingReturn = async () => {
+            if (Platform.OS === 'web') {
+                const url = new URL(typeof window !== 'undefined' && window.location ? window.location.href : 'https://vybr.app');
+                const onboardingComplete = url.searchParams.get('stripe_onboarding_complete');
+                if (onboardingComplete === 'true') {
+                    console.log('[RequiredPayment] Stripe Connect onboarding completed - refreshing profile...');
+                    await refreshUserProfile();
+                    // Re-run verification to check if Connect account is now set up
+                    verifyAndSetupOrganizer();
+                    // Clean URL
+                    if (typeof window !== 'undefined' && window.location) {
+                        const cleanUrl = window.location.pathname + window.location.hash;
+                        window.history.replaceState({}, document.title, cleanUrl);
+                    }
+                }
+            } else {
+                // For mobile, check deep link
+                const checkInitialURL = async () => {
+                    const initialURL = await Linking.getInitialURL();
+                    if (initialURL?.includes('stripe_onboarding_complete=true')) {
+                        console.log('[RequiredPayment] Stripe Connect onboarding completed (mobile) - refreshing profile...');
+                        await refreshUserProfile();
+                        verifyAndSetupOrganizer();
+                    }
+                };
+                checkInitialURL();
+                
+                // Also listen for deep links while app is running
+                const subscription = Linking.addEventListener('url', async (event) => {
+                    if (event.url.includes('stripe_onboarding_complete=true')) {
+                        console.log('[RequiredPayment] Stripe Connect onboarding completed (deep link) - refreshing profile...');
+                        await refreshUserProfile();
+                        verifyAndSetupOrganizer();
+                    }
+                });
+                
+                return () => subscription.remove();
+            }
+        };
+        
+        checkStripeOnboardingReturn();
+    }, [refreshUserProfile, verifyAndSetupOrganizer]);
 
     // Enhanced back button handling - prevent ANY navigation away from this screen
     const handleBackPress = useCallback(() => {
@@ -823,7 +887,7 @@ const RequiredPaymentScreen: React.FC = () => {
             // We'll create a server-side function that handles both creation and confirmation
             console.log('[RequiredPaymentScreen] Creating and confirming subscription for premium billing...');
             console.log('[RequiredPaymentScreen] Request payload:', {
-                priceId: PREMIUM_PLAN_PRICE_ID,
+                productId: PREMIUM_PLAN_PRODUCT_ID,
                 userId,
                 userEmail,
                 paymentMethodId: paymentMethodId,
@@ -831,7 +895,7 @@ const RequiredPaymentScreen: React.FC = () => {
             
             const { data: billingData, error: billingError } = await supabase.functions.invoke('create-premium-subscription', {
                 body: {
-                    priceId: PREMIUM_PLAN_PRICE_ID,
+                    productId: PREMIUM_PLAN_PRODUCT_ID,
                     userId,
                     userEmail,
                     paymentMethodId: paymentMethodId, // Pass the saved payment method ID
