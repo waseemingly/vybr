@@ -21,9 +21,9 @@ type PremiumSignupScreenRouteProp = RouteProp<MainStackParamList, 'PremiumSignup
 type PremiumSignupNavigationProp = NavigationProp<RootStackParamList>;
 
 // Replace with your actual Stripe Price ID for the premium plan
-const PREMIUM_PLAN_PRICE_ID = 'price_1SjiYFDz14cfDAXkFrVys2hD'; // Premium subscription price
+const PREMIUM_PLAN_PRODUCT_ID = 'prod_SJWVfLaGA6zw1r'; // Premium subscription product ID
 // Replace with your actual Stripe Publishable Key for WEB
-const STRIPE_PUBLISHABLE_KEY_WEB = 'pk_test_51RDGZeDz14cfDAXkmWK8eowRamZEWD7wAr1Mjae9QjhtBGRZ0VFXGDQxS9Q8XQfX1Gkoy4PlTcNWIz2E54Y6n7Yw00wY8abUlU'; // Matching key for new account
+const STRIPE_PUBLISHABLE_KEY_WEB = 'pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN'; // Matching key for new account
 
 const stripePromise = Platform.OS === 'web' ? loadStripe(STRIPE_PUBLISHABLE_KEY_WEB) : null;
 
@@ -211,7 +211,7 @@ const PremiumSignupScreen = () => {
             console.log('[PremiumSignupScreen] Creating and confirming subscription...');
             const { data: billingData, error: billingError } = await supabase.functions.invoke('create-premium-subscription', {
                 body: {
-                    priceId: PREMIUM_PLAN_PRICE_ID,
+                    productId: PREMIUM_PLAN_PRODUCT_ID,
                     userId,
                     userEmail,
                     paymentMethodId: paymentMethodId, // Pass the saved payment method ID

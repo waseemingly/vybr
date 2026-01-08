@@ -995,6 +995,11 @@ const usePaymentRequirementCheck = () => {
   const currentStripeCustomerId = isOrganizer 
     ? (organizerProfile as any)?.stripe_customer_id 
     : (musicLoverProfile as any)?.stripe_customer_id;
+  
+  // For organizers, also check for Stripe Connect account (needed for payouts)
+  const hasStripeConnectAccount = isOrganizer 
+    ? Boolean((organizerProfile as any)?.stripe_connect_account_id)
+    : true; // Music lovers don't need Connect accounts
     
   // ENHANCED: Check for actual payment methods when customer ID exists
   useEffect(() => {
@@ -1045,8 +1050,14 @@ const usePaymentRequirementCheck = () => {
     hasActualPaymentMethods === true
   );
   
-  // CRITICAL: Payment is required if user needs it AND doesn't have ACTUAL payment methods
-  const requiresPaymentScreen = isPaymentMethodRequired && isProfileComplete && !hasValidPaymentMethod;
+  // For organizers: also need Stripe Connect account for receiving payouts
+  const hasCompletePaymentSetup = isOrganizer 
+    ? (hasValidPaymentMethod && hasStripeConnectAccount)
+    : hasValidPaymentMethod;
+  
+  // CRITICAL: Payment is required if user needs it AND doesn't have complete payment setup
+  // For organizers: need both payment method AND Stripe Connect account
+  const requiresPaymentScreen = isPaymentMethodRequired && isProfileComplete && !hasCompletePaymentSetup;
   
   // CRITICAL: Include setup loading state to prevent navigation bouncing
   const overallLoading = loading || isSetupInProgress || (isPaymentMethodRequired && isProfileComplete && paymentCheckLoading);
@@ -1061,9 +1072,13 @@ const usePaymentRequirementCheck = () => {
   console.log("[AppNavigator] Is Premium User:", isPremiumUser);
   console.log("[AppNavigator] Payment Required:", isPaymentMethodRequired);
   console.log("[AppNavigator] Stripe Customer ID:", currentStripeCustomerId ? `${currentStripeCustomerId.substring(0, 10)}...` : 'None');
+  if (isOrganizer) {
+    console.log("[AppNavigator] Stripe Connect Account:", hasStripeConnectAccount ? 'Present' : 'Missing');
+  }
   console.log("[AppNavigator] Payment Check Loading:", paymentCheckLoading);
   console.log("[AppNavigator] Has Actual Payment Methods:", hasActualPaymentMethods);
   console.log("[AppNavigator] Has Valid Payment Method:", hasValidPaymentMethod);
+  console.log("[AppNavigator] Has Complete Payment Setup:", hasCompletePaymentSetup);
   console.log("[AppNavigator] REQUIRES PAYMENT SCREEN:", requiresPaymentScreen);
   console.log("[AppNavigator] 🔄 OVERALL LOADING:", overallLoading);
   console.log("[AppNavigator] =========================");
@@ -1256,7 +1271,7 @@ const AppNavigator = () => {
         </RootStack.Navigator>
 
         {/* Global overlay tour (only shows for new users / replay) */}
-        <UserGuideTour suppressAuto={requiresPaymentScreen} />
+        <UserGuideTour suppressAuto={requiresPaymentScreen ?? false} />
       </>
   );
   };

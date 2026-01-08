@@ -32,7 +32,8 @@ function json(data: unknown, status = 200) {
 }
 
 type ReqBody = {
-  priceId: string;
+  priceId?: string;
+  productId?: string;
   userId: string;
   userEmail: string;
   paymentMethodId?: string;
@@ -100,14 +101,71 @@ serve(async (req: Request) => {
     }
 
     const body = (await req.json()) as Partial<ReqBody>;
-    const priceId = (body.priceId ?? "").trim();
+    let priceId = (body.priceId ?? "").trim();
+    const productId = (body.productId ?? "").trim();
     const userId = (body.userId ?? "").trim();
     const userEmail = (body.userEmail ?? "").trim();
     const paymentMethodId = (body.paymentMethodId ?? "").trim();
     const userType = body.userType ?? "music_lover";
 
-    if (!priceId || !userId || !userEmail) {
-      return json({ error: "Missing required parameters: priceId, userId, userEmail" }, 400);
+    if (!userId || !userEmail) {
+      return json({ error: "Missing required parameters: userId, userEmail" }, 400);
+    }
+
+    // If productId is provided but priceId is not, fetch the first active price for the product
+    if (!priceId && productId) {
+      try {
+        console.log(`[create-premium-subscription] Fetching prices for product ${productId}`);
+        
+        // First, verify the product exists
+        try {
+          const product = await stripe.products.retrieve(productId);
+          console.log(`[create-premium-subscription] Product ${productId} exists: ${product.name}`);
+        } catch (productError: unknown) {
+          console.error(`[create-premium-subscription] Product ${productId} does not exist or error:`, productError);
+          return json({ 
+            error: `Product ${productId} not found in Stripe account. Please verify the product ID is correct.`,
+            stripeErrorCode: (productError as { code?: string })?.code || 'product_not_found',
+            details: 'Make sure you are using the correct Stripe account and the product ID is valid.'
+          }, 400);
+        }
+        
+        const prices = await stripe.prices.list({
+          product: productId,
+          active: true,
+          limit: 10, // Get more prices to see what's available
+        });
+        console.log(`[create-premium-subscription] Found ${prices.data.length} active prices for product ${productId}`);
+        
+        if (prices.data.length === 0) {
+          console.error(`[create-premium-subscription] No active prices found for product ${productId}`);
+          return json({ 
+            error: `No active prices found for product ${productId}. Please create a price for this product in Stripe Dashboard.`,
+            productId: productId,
+            details: 'Go to Stripe Dashboard → Products → Select the product → Add a price'
+          }, 400);
+        }
+        
+        // Use the first active price (you might want to add logic to select a specific price)
+        priceId = prices.data[0].id;
+        console.log(`[create-premium-subscription] Using price ${priceId} (${prices.data[0].unit_amount ? `${prices.data[0].unit_amount / 100} ${prices.data[0].currency}` : 'recurring'}) for product ${productId}`);
+      } catch (e: unknown) {
+        console.error(`[create-premium-subscription] Error fetching prices for product ${productId}:`, e);
+        const error = e as { message?: string; code?: string; toString?: () => string };
+        const errorMessage = error?.message || error?.toString?.() || 'Unknown error';
+        const errorCode = error?.code || 'unknown';
+        console.error(`[create-premium-subscription] Stripe error code: ${errorCode}, message: ${errorMessage}`);
+        return json({ 
+          error: `Failed to fetch prices for product ${productId}: ${errorMessage}`,
+          stripeErrorCode: errorCode,
+          productId: productId,
+          details: 'Make sure the product ID is correct and exists in your Stripe account.'
+        }, 400);
+      }
+    }
+
+    if (!priceId) {
+      return json({ error: "Missing required parameter: priceId or productId" }, 400);
     }
 
     // 1) Find or create customer
@@ -140,6 +198,7 @@ serve(async (req: Request) => {
     );
 
     // 3) Create subscription
+    console.log(`[create-premium-subscription] Creating subscription with priceId: ${priceId}, customerId: ${customerId}`);
     const subscription = await stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: priceId }],
