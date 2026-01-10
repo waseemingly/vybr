@@ -290,11 +290,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
     // Handle app state changes for better session management
     useEffect(() => {
-        const handleAppStateChange = (nextAppState: string) => {
+        const handleAppStateChange = async (nextAppState: string) => {
             if (nextAppState === 'active' && session) {
                 console.log('[AuthProvider] App became active, checking session validity...');
-                // Refresh session when app becomes active
-                // We'll call checkSession after it's defined
+                
+                // Re-register push notifications when app comes to foreground
+                // This ensures tokens are always up to date
+                if (session.user?.id && (session.musicLoverProfile || session.organizerProfile)) {
+                    console.log('[AuthProvider] Re-registering push notifications on app active...');
+                    try {
+                        const token = await NotificationService.registerForPushNotifications(session.user.id);
+                        if (token) {
+                            console.log('[AuthProvider] Push notification re-registration successful');
+                        } else {
+                            console.warn('[AuthProvider] Push notification re-registration failed');
+                        }
+                    } catch (error) {
+                        console.error('[AuthProvider] Error re-registering push notifications:', error);
+                    }
+                }
             }
         };
 
@@ -783,11 +797,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         try {
                             if (currentSession && (currentSession.musicLoverProfile || currentSession.organizerProfile)) {
                                 console.log("[AuthProvider] Registering for push notifications...");
-                                const token = await NotificationService.registerForPushNotifications(userId);
+                                // Use ensurePushTokenRegistered which checks if token exists first
+                                const token = await NotificationService.ensurePushTokenRegistered(userId);
                                 if (token) {
-                                    console.log("[AuthProvider] Push notification registration successful");
+                                    console.log("[AuthProvider] ✅ Push notification registration successful. Token:", token.substring(0, 20) + "...");
                                 } else {
-                                    console.log("[AuthProvider] Push notification registration failed or not supported");
+                                    console.warn("[AuthProvider] ⚠️ Push notification registration failed or not supported");
+                                    console.warn("[AuthProvider] This may be due to:");
+                                    console.warn("[AuthProvider] - Running on emulator (expected)");
+                                    console.warn("[AuthProvider] - Firebase not configured (check google-services.json)");
+                                    console.warn("[AuthProvider] - Permissions not granted");
+                                    // Retry after a delay (in case Firebase needs time to initialize)
+                                    setTimeout(async () => {
+                                        console.log("[AuthProvider] Retrying push notification registration...");
+                                        const retryToken = await NotificationService.ensurePushTokenRegistered(userId);
+                                        if (retryToken) {
+                                            console.log("[AuthProvider] ✅ Push notification registration successful on retry");
+                                        } else {
+                                            console.warn("[AuthProvider] ⚠️ Push notification registration still failed after retry");
+                                        }
+                                    }, 3000);
                                 }
                                 
                                 // Setup notification listeners

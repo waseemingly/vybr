@@ -382,12 +382,18 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                         console.error('[RealtimeContext] ❌ Error tracking initial presence:', error);
                     }
                 } else if (status === 'CHANNEL_ERROR') {
-                    console.error('[RealtimeContext] ❌ Main channel error');
-                    // Only handle error if network is available
-                    if (networkStateRef.current) {
-                        handleChannelError('user_presence', mainChannel);
+                    // Check if app is in background - this is expected behavior
+                    const isBackground = appState.current.match(/inactive|background/);
+                    if (isBackground) {
+                        console.log('[RealtimeContext] Main channel error in background (expected - will reconnect on foreground)');
                     } else {
-                        console.log('[RealtimeContext] Network is down, skipping error handling for main channel');
+                        console.error('[RealtimeContext] ❌ Main channel error');
+                        // Only handle error if network is available
+                        if (networkStateRef.current) {
+                            handleChannelError('user_presence', mainChannel);
+                        } else {
+                            console.log('[RealtimeContext] Network is down, skipping error handling for main channel');
+                        }
                     }
                 }
             }),
@@ -398,12 +404,18 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     // Reset reconnection attempts on successful connection
                     reconnectAttemptsRef.current.delete(`notifications_for_${userId}`);
                 } else if (status === 'CHANNEL_ERROR') {
-                    console.error('[RealtimeContext] ❌ Notification channel error');
-                    // Only handle error if network is available
-                    if (networkStateRef.current) {
-                        handleChannelError(`notifications_for_${userId}`, notificationChannel);
+                    // Check if app is in background - this is expected behavior
+                    const isBackground = appState.current.match(/inactive|background/);
+                    if (isBackground) {
+                        console.log('[RealtimeContext] Notification channel error in background (expected - will reconnect on foreground)');
                     } else {
-                        console.log('[RealtimeContext] Network is down, skipping error handling for notification channel');
+                        console.error('[RealtimeContext] ❌ Notification channel error');
+                        // Only handle error if network is available
+                        if (networkStateRef.current) {
+                            handleChannelError(`notifications_for_${userId}`, notificationChannel);
+                        } else {
+                            console.log('[RealtimeContext] Network is down, skipping error handling for notification channel');
+                        }
                     }
                 }
             })

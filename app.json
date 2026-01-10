@@ -73,7 +73,7 @@
       "SPOTIFY_REDIRECT_URI": "http://127.0.0.1:8081/callback",
       "POWERSYNC_URL": "https://68961d41fd729385fadb5576.powersync.journeyapps.com",
       "eas": {
-        "projectId": "your-eas-project-id"
+        "projectId": "2e4e657f-20f5-468b-87ee-ebf78ca2a0cc"
       }
     }
   }

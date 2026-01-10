@@ -542,6 +542,22 @@ const OtherUserProfileScreen: React.FC = () => {
             console.log("[OtherUserProfileScreen] Successfully sent friend request.");
             setFriendshipStatus('pending_sent'); // Update UI to reflect sent request
 
+            // Send notification to the receiver
+            try {
+                const UnifiedNotificationService = (await import('@/services/UnifiedNotificationService')).default;
+                const senderName = musicLoverProfile?.firstName 
+                    ? `${musicLoverProfile.firstName} ${musicLoverProfile.lastName || ''}`.trim()
+                    : 'Someone';
+                await UnifiedNotificationService.notifyFriendRequest({
+                    receiver_id: profileUserId,
+                    sender_id: currentUserId,
+                    sender_name: senderName,
+                    sender_image: musicLoverProfile?.profilePicture || undefined,
+                });
+            } catch (notificationError) {
+                console.error("Failed to send friend request notification:", notificationError);
+            }
+
         } catch (err: any) {
             console.error("[OtherUserProfileScreen] Error caught during 'Send Friend Request' action:", err);
             Alert.alert("Error", `Could not send friend request: ${err.message || 'An unknown error occurred.'}`);
@@ -671,6 +687,22 @@ const OtherUserProfileScreen: React.FC = () => {
             console.log("[OtherUserProfileScreen] Friend request accepted.");
             setFriendshipStatus('friends');
             fetchFriendsCount(); // Update friend count
+
+            // Send notification to the requester that their request was accepted
+            try {
+                const UnifiedNotificationService = (await import('@/services/UnifiedNotificationService')).default;
+                const accepterName = musicLoverProfile?.firstName 
+                    ? `${musicLoverProfile.firstName} ${musicLoverProfile.lastName || ''}`.trim()
+                    : 'Someone';
+                await UnifiedNotificationService.notifyFriendAccept({
+                    user_id: profileUserId, // The person who sent the request
+                    friend_id: currentUserId, // The person who accepted
+                    friend_name: accepterName,
+                    friend_image: musicLoverProfile?.profilePicture || undefined,
+                });
+            } catch (notificationError) {
+                console.error("Failed to send friend accept notification:", notificationError);
+            }
         } catch (err: any) {
             console.error("[OtherUserProfileScreen] Error accepting friend request:", err);
             Alert.alert("Error", "Could not accept friend request.");
