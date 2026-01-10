@@ -69,6 +69,17 @@ bucket_definitions:
         FROM public.group_message_status
         WHERE user_id = bucket.current_user_id
 
+  # Profile information for group chat message senders (for chat list sender names)
+  # Note: This syncs profiles for all senders in groups the user belongs to
+  # The sender_ids are obtained from group_chat_messages already synced in user_group_chats
+  group_member_profiles:
+    parameters: SELECT sender_id as member_user_id
+                FROM public.group_chat_messages
+    data:
+      - SELECT user_id as id, user_id, first_name, last_name, username, profile_picture, email, age, bio, country, city, is_premium, music_data, favorite_artists, favorite_songs, favorite_albums, created_at
+        FROM public.music_lover_profiles
+        WHERE user_id = bucket.member_user_id
+
   # Block and mute relationships for the current user
   user_blocks_mutes:
     parameters: SELECT request.user_id() as current_user_id

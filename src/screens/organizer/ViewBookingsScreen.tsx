@@ -242,7 +242,7 @@ const ViewBookingsScreen = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
       <View style={styles.searchContainer}>
         <Feather name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
         <TextInput

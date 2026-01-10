@@ -1021,12 +1021,22 @@ const OtherUserProfileScreen: React.FC = () => {
 
         if (!primaryButtonConfig) return null;
 
+        const hasSecondaryButton = !!secondaryButtonConfig && !isLoadingInteraction;
+        const singleButtonStyle = Platform.OS === 'ios' && !hasSecondaryButton 
+            ? { flex: 0, alignSelf: 'center', minWidth: 200 } 
+            : {};
+
         return (
             <View style={styles.friendActionsContainer}>
                 <TouchableOpacity
-                    style={[...primaryButtonConfig.style, (isLoadingInteraction || primaryButtonConfig.disabled) && styles.disabledButton]}
+                    style={[
+                        ...primaryButtonConfig.style, 
+                        (isLoadingInteraction || primaryButtonConfig.disabled) && styles.disabledButton,
+                        singleButtonStyle
+                    ]}
                     onPress={primaryButtonConfig.onPress}
                     disabled={isLoadingInteraction || primaryButtonConfig.disabled}
+                    activeOpacity={0.7}
                 >
                     {isLoadingInteraction && primaryButtonConfig.icon === 'loader' ? (
                          <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.WHITE} style={{ marginRight: 8 }}/>
@@ -1037,11 +1047,12 @@ const OtherUserProfileScreen: React.FC = () => {
                          {primaryButtonConfig.text}
                      </Text>
                 </TouchableOpacity>
-                {secondaryButtonConfig && !isLoadingInteraction && (
+                {hasSecondaryButton && secondaryButtonConfig && (
                     <TouchableOpacity
                         style={[...secondaryButtonConfig.style, isLoadingInteraction && styles.disabledButton]}
                         onPress={secondaryButtonConfig.onPress}
                         disabled={isLoadingInteraction}
+                        activeOpacity={0.7}
                     >
                         <Text style={styles.actionButtonText}>
                              {secondaryButtonConfig.text}
@@ -1060,7 +1071,11 @@ const OtherUserProfileScreen: React.FC = () => {
          const text = isMuted ? 'Unmute User' : 'Mute User';
          const buttonStyle = [styles.actionButton, styles.secondaryButton, isMuted && styles.mutedButton];
          return (
-             <TouchableOpacity style={buttonStyle} onPress={handleToggleMute}>
+             <TouchableOpacity 
+                 style={buttonStyle} 
+                 onPress={handleToggleMute}
+                 activeOpacity={0.7}
+             >
                  <Feather name={iconName} size={16} color={isMuted ? APP_CONSTANTS.COLORS.WARNING_DARK : APP_CONSTANTS.COLORS.TEXT_SECONDARY} />
                  <Text style={[styles.actionButtonText, styles.secondaryButtonText, isMuted && styles.mutedButtonText]}>{text}</Text>
              </TouchableOpacity>
@@ -1070,14 +1085,22 @@ const OtherUserProfileScreen: React.FC = () => {
      const renderBlockButton = () => {
         if (isBlocked) {
             return (
-                <TouchableOpacity style={[styles.actionButton, styles.unblockButton]} onPress={handleUnblock}>
+                <TouchableOpacity 
+                    style={[styles.actionButton, styles.unblockButton]} 
+                    onPress={handleUnblock}
+                    activeOpacity={0.7}
+                >
                     <Feather name="unlock" size={16} color={APP_CONSTANTS.COLORS.SUCCESS_DARK} />
                     <Text style={[styles.actionButtonText, styles.unblockButtonText]}>Unblock User</Text>
                 </TouchableOpacity>
             );
         } else {
             return (
-                <TouchableOpacity style={[styles.actionButton, styles.reportButton]} onPress={() => setReportModalVisible(true)}>
+                <TouchableOpacity 
+                    style={[styles.actionButton, styles.reportButton]} 
+                    onPress={() => setReportModalVisible(true)}
+                    activeOpacity={0.7}
+                >
                     <Feather name="alert-octagon" size={16} color={APP_CONSTANTS.COLORS.ERROR} />
                     <Text style={[styles.actionButtonText, styles.reportButtonText]}>Report / Block</Text>
                 </TouchableOpacity>
@@ -1542,28 +1565,116 @@ const styles = StyleSheet.create({
     actionsRow: { flexDirection: 'column', alignItems: 'stretch', paddingHorizontal: 16, marginBottom: 24, marginTop: -10, gap: 10, },
     friendActionsContainer: {
         flexDirection: 'row',
-        justifyContent: 'center', // Center if one button, space-around/between if two
+        justifyContent: 'center', // Center if one button, space-between if two
         gap: 10,
         width: '100%',
+        ...(Platform.OS === 'ios' && { 
+            paddingHorizontal: 0,
+        }),
     },
-    actionButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 15, borderRadius: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 3, elevation: 2, minHeight: 40, borderWidth: 1, borderColor: 'transparent', },
+    actionButton: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        paddingVertical: Platform.OS === 'ios' ? 12 : 10, 
+        paddingHorizontal: Platform.OS === 'ios' ? 20 : 15, 
+        borderRadius: Platform.OS === 'ios' ? 12 : 20, 
+        shadowColor: "#000", 
+        shadowOffset: { width: 0, height: Platform.OS === 'ios' ? 2 : 1 }, 
+        shadowOpacity: Platform.OS === 'ios' ? 0.2 : 0.15, 
+        shadowRadius: Platform.OS === 'ios' ? 4 : 3, 
+        elevation: 2, 
+        minHeight: Platform.OS === 'ios' ? 44 : 40, 
+        borderWidth: 1, 
+        borderColor: 'transparent',
+        ...(Platform.OS === 'ios' && { 
+            flex: 1,
+            maxWidth: '48%',
+        }),
+    },
     actionButtonText: { marginLeft: 8, fontSize: 14, fontWeight: '600', color: 'white', },
     actionButtonTextDark: { color: APP_CONSTANTS.COLORS.SUCCESS_DARK },
-    friendButton: { backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, borderColor: APP_CONSTANTS.COLORS.PRIMARY_DARK, },
-    friendsButton: { backgroundColor: APP_CONSTANTS.COLORS.SUCCESS_LIGHT, borderColor: APP_CONSTANTS.COLORS.SUCCESS, },
-    acceptButton: { backgroundColor: APP_CONSTANTS.COLORS.SUCCESS, borderColor: APP_CONSTANTS.COLORS.SUCCESS_DARK },
-    secondaryFriendAction: { backgroundColor: '#E5E7EB' /* Placeholder for BACKGROUND_LIGHT_GRAY */, borderColor: '#9CA3AF' /* Placeholder for DISABLED_DARK */, },
-    destructiveFriendAction: { backgroundColor: '#FEE2E2' /* Placeholder for ERROR_LIGHT */, borderColor: APP_CONSTANTS.COLORS.ERROR, },
+    friendButton: { 
+        backgroundColor: APP_CONSTANTS.COLORS.PRIMARY, 
+        borderColor: APP_CONSTANTS.COLORS.PRIMARY_DARK,
+    },
+    friendsButton: { 
+        backgroundColor: APP_CONSTANTS.COLORS.SUCCESS_LIGHT, 
+        borderColor: APP_CONSTANTS.COLORS.SUCCESS,
+    },
+    acceptButton: { 
+        backgroundColor: APP_CONSTANTS.COLORS.SUCCESS, 
+        borderColor: APP_CONSTANTS.COLORS.SUCCESS_DARK,
+    },
+    secondaryFriendAction: { 
+        backgroundColor: '#E5E7EB' /* Placeholder for BACKGROUND_LIGHT_GRAY */, 
+        borderColor: '#9CA3AF' /* Placeholder for DISABLED_DARK */,
+    },
+    destructiveFriendAction: { 
+        backgroundColor: '#FEE2E2' /* Placeholder for ERROR_LIGHT */, 
+        borderColor: APP_CONSTANTS.COLORS.ERROR,
+    },
     disabledButton: { backgroundColor: '#D1D5DB', shadowOpacity: 0, elevation: 0, borderColor: '#B0B0B0', opacity: 0.7 },
     moreOptionsSection: { marginTop: 16, marginBottom: 32, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 20, },
     moreOptionsTitle: { fontSize: 16, fontWeight: '600', color: '#4B5563', marginBottom: 15, textAlign: 'center', },
-    secondaryButton: { backgroundColor: '#F3F4F6', marginBottom: 12, shadowOpacity: 0.05, elevation: 1, borderColor: '#E5E7EB', borderWidth: 1, justifyContent: 'flex-start', paddingHorizontal: 16, width: '100%', borderRadius: 8, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, },
+    secondaryButton: { 
+        backgroundColor: '#F3F4F6', 
+        marginBottom: 12, 
+        shadowOpacity: Platform.OS === 'ios' ? 0.1 : 0.05, 
+        shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 1 } : undefined,
+        shadowRadius: Platform.OS === 'ios' ? 2 : undefined,
+        elevation: 1, 
+        borderColor: '#E5E7EB', 
+        borderWidth: 1, 
+        justifyContent: 'flex-start', 
+        paddingHorizontal: 16, 
+        width: '100%', 
+        borderRadius: Platform.OS === 'ios' ? 10 : 8, 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        paddingVertical: Platform.OS === 'ios' ? 14 : 12,
+        minHeight: Platform.OS === 'ios' ? 44 : undefined,
+    },
     secondaryButtonText: { color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, fontWeight: '500', marginLeft: 8, fontSize: 14, },
     mutedButton: { backgroundColor: APP_CONSTANTS.COLORS.WARNING_LIGHT, borderColor: APP_CONSTANTS.COLORS.WARNING, },
     mutedButtonText: { color: APP_CONSTANTS.COLORS.WARNING_DARK, },
-    reportButton: { backgroundColor: `${APP_CONSTANTS.COLORS.ERROR}1A`, borderColor: APP_CONSTANTS.COLORS.ERROR, borderWidth: 1, justifyContent: 'flex-start', paddingHorizontal: 16, width: '100%', marginBottom: 12, shadowOpacity: 0.05, elevation: 1, borderRadius: 8, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, },
+    reportButton: { 
+        backgroundColor: `${APP_CONSTANTS.COLORS.ERROR}1A`, 
+        borderColor: APP_CONSTANTS.COLORS.ERROR, 
+        borderWidth: 1, 
+        justifyContent: 'flex-start', 
+        paddingHorizontal: 16, 
+        width: '100%', 
+        marginBottom: 12, 
+        shadowOpacity: Platform.OS === 'ios' ? 0.1 : 0.05,
+        shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 1 } : undefined,
+        shadowRadius: Platform.OS === 'ios' ? 2 : undefined,
+        elevation: 1, 
+        borderRadius: Platform.OS === 'ios' ? 10 : 8, 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        paddingVertical: Platform.OS === 'ios' ? 14 : 12,
+        minHeight: Platform.OS === 'ios' ? 44 : undefined,
+    },
     reportButtonText: { color: APP_CONSTANTS.COLORS.ERROR, fontWeight: '500', marginLeft: 8, fontSize: 14, },
-    unblockButton: { backgroundColor: `${APP_CONSTANTS.COLORS.SUCCESS_LIGHT}CC`, borderColor: APP_CONSTANTS.COLORS.SUCCESS, borderWidth: 1, justifyContent: 'flex-start', paddingHorizontal: 16, width: '100%', marginBottom: 12, shadowOpacity: 0.05, elevation: 1, borderRadius: 8, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, },
+    unblockButton: { 
+        backgroundColor: `${APP_CONSTANTS.COLORS.SUCCESS_LIGHT}CC`, 
+        borderColor: APP_CONSTANTS.COLORS.SUCCESS, 
+        borderWidth: 1, 
+        justifyContent: 'flex-start', 
+        paddingHorizontal: 16, 
+        width: '100%', 
+        marginBottom: 12, 
+        shadowOpacity: Platform.OS === 'ios' ? 0.1 : 0.05,
+        shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 1 } : undefined,
+        shadowRadius: Platform.OS === 'ios' ? 2 : undefined,
+        elevation: 1, 
+        borderRadius: Platform.OS === 'ios' ? 10 : 8, 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        paddingVertical: Platform.OS === 'ios' ? 14 : 12,
+        minHeight: Platform.OS === 'ios' ? 44 : undefined,
+    },
     unblockButtonText: { color: APP_CONSTANTS.COLORS.SUCCESS_DARK, fontWeight: '500', marginLeft: 8, fontSize: 14, },
     modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.6)', },
     modalContent: { width: '90%', maxWidth: 400, backgroundColor: 'white', borderRadius: 12, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5, },

@@ -228,7 +228,16 @@ export const PowerSyncProvider: React.FC<PowerSyncProviderProps> = ({ children }
 
   // Determine if PowerSync is available for use (both platforms now)
   // Modified to allow offline access to local database
-  const isPowerSyncAvailable = isSupported && db !== null && (isConnected || isOffline) && !connectionError;
+  // Allow PowerSync if database exists and we're offline, even with connection errors
+  // Only block if it's a critical initialization error (database creation failed)
+  const isCriticalError = connectionError && 
+    !connectionError.includes('Offline mode') && // Offline mode is not critical
+    (
+      connectionError.includes('Failed to create database') || 
+      connectionError.includes('PowerSync URL not configured') ||
+      connectionError.includes('Initialization failed')
+    );
+  const isPowerSyncAvailable = isSupported && db !== null && (isConnected || isOffline) && !isCriticalError;
 
   const value: PowerSyncContextType = {
     db,

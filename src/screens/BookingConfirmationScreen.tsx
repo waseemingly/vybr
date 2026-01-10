@@ -610,7 +610,7 @@ const BookingConfirmationScreen: React.FC = () => {
 
 
     return (
-        <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
             <ScrollView contentContainerStyle={styles.container}>
                 <View style={styles.header}>
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>

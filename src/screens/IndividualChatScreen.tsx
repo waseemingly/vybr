@@ -646,6 +646,10 @@ const IndividualChatScreen: React.FC = () => {
     const [hasScrolledToUnread, setHasScrolledToUnread] = useState(false);
     const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    // Track initial fetch completion to prevent race conditions with real-time subscriptions
+    const initialFetchCompleteRef = useRef<boolean>(false);
+    const initialFetchTimestampRef = useRef<Date | null>(null);
+    const initialFetchStartTimeRef = useRef<Date | null>(null);
     // --- End State for scroll management ---
 
     const flatListRef = useRef<SectionList<any>>(null);
@@ -657,6 +661,18 @@ const IndividualChatScreen: React.FC = () => {
     // NEW: Feature flag to control which implementation to use
     // Use new services if explicitly enabled OR if on mobile with PowerSync available
     const useNewServices = process.env.REACT_APP_USE_NEW_CHAT_SERVICES === 'true' || (isMobile && isPowerSyncAvailable);
+    
+    // DEBUG: Log why PowerSync is/isn't being used
+    useEffect(() => {
+        console.log('🔍 PowerSync Debug:', {
+            useNewServices,
+            isMobile,
+            isPowerSyncAvailable,
+            isOffline,
+            envFlag: process.env.REACT_APP_USE_NEW_CHAT_SERVICES,
+            platform: Platform.OS
+        });
+    }, [useNewServices, isMobile, isPowerSyncAvailable, isOffline]);
 
 
 
@@ -1058,6 +1074,13 @@ const IndividualChatScreen: React.FC = () => {
         return mutuallyInitiated;
     }, [currentUserId, matchUserId]);
 
+    // Re-check mutual initiation whenever messages array changes
+    useEffect(() => {
+        if (messages.length > 0 && currentUserId && matchUserId) {
+            checkMutualInitiation(messages);
+        }
+    }, [messages, currentUserId, matchUserId, checkMutualInitiation]);
+
     const fetchMessages = useCallback(async () => {
         if (!currentUserId || !matchUserId || isBlocked) {
             if (!isBlocked && currentUserId) setLoading(true);
@@ -1066,6 +1089,8 @@ const IndividualChatScreen: React.FC = () => {
         console.log(`[ChatScreen] Fetching messages for ${matchUserId}`);
         setLoading(true);
         setError(null);
+        // Record when we start fetching to filter out old real-time messages
+        initialFetchStartTimeRef.current = new Date();
         try {
             const { data, error: fetchError } = await supabase
                 .from('messages')
@@ -1111,11 +1136,17 @@ const IndividualChatScreen: React.FC = () => {
                 if (enhancedMessages.length > 0) {
                     setError(null);
                 }
-                console.log(`[ChatScreen] Fetched ${enhancedMessages.length} messages.`);
+                
+                // Mark initial fetch as complete
+                // This helps prevent race conditions where real-time subscriptions receive old messages
+                initialFetchCompleteRef.current = true;
+                console.log(`[ChatScreen] Fetched ${enhancedMessages.length} messages. Initial fetch complete.`);
             } else {
                 setMessages([]);
                 setIsChatMutuallyInitiated(false);
-                console.log(`[ChatScreen] No messages found.`);
+                // Mark initial fetch as complete even if no messages
+                initialFetchCompleteRef.current = true;
+                console.log(`[ChatScreen] No messages found. Initial fetch complete.`);
             }
         } catch (err: any) {
             console.error("[ChatScreen] Error fetching messages:", err);
@@ -1133,10 +1164,14 @@ const IndividualChatScreen: React.FC = () => {
                 // Don't set error in offline mode for network issues
                 setMessages([]);
                 setIsChatMutuallyInitiated(false);
+                // Still mark as complete to allow real-time messages
+                initialFetchCompleteRef.current = true;
             } else {
                 setError("Could not load messages.");
                 setMessages([]);
                 setIsChatMutuallyInitiated(false);
+                // Mark as complete even on error to prevent blocking real-time messages
+                initialFetchCompleteRef.current = true;
             }
         } finally {
             setLoading(false);
@@ -1500,6 +1535,10 @@ const IndividualChatScreen: React.FC = () => {
 
     // Fetch initial messages AFTER checking block status
     useEffect(() => {
+        // Reset initial fetch tracking when chat changes
+        initialFetchCompleteRef.current = false;
+        initialFetchStartTimeRef.current = null;
+        
         if (!isBlocked && currentUserId && matchUserId) {
             if (useNewServices) {
                 // NEW: Use new message fetching service
@@ -1513,6 +1552,8 @@ const IndividualChatScreen: React.FC = () => {
             }
         } else if (isBlocked) {
             setMessages([]); // Ensure messages are cleared if blocked
+            // Mark as complete even when blocked to prevent blocking
+            initialFetchCompleteRef.current = true;
         }
     }, [fetchMessages, isBlocked, currentUserId, matchUserId, useNewServices]); // Removed newMessages dependencies
 
@@ -1520,8 +1561,13 @@ const IndividualChatScreen: React.FC = () => {
     useEffect(() => {
         if (useNewServices) {
             setMessages(newMessages);
+            // Mark initial fetch as complete when new messages are loaded
+            if (!initialFetchCompleteRef.current && !newLoading) {
+                initialFetchCompleteRef.current = true;
+                console.log('[ChatScreen] Initial fetch complete (new services).');
+            }
         }
-    }, [newMessages, useNewServices]);
+    }, [newMessages, useNewServices, newLoading]);
 
     // Sync new loading state to old loading state
     useEffect(() => {
@@ -1644,6 +1690,19 @@ const IndividualChatScreen: React.FC = () => {
                     // Skip if it's our own message (we already have it optimistically)
                     if (newMessageDb.sender_id === currentUserId) {
                         return;
+                    }
+                    
+                    // FIX: Prevent race condition - ignore messages created before we started fetching
+                    // This fixes the iOS issue where messages appear/disappear due to race conditions
+                    // Messages created before fetch started should already be in the loaded messages
+                    if (initialFetchCompleteRef.current && initialFetchStartTimeRef.current) {
+                        const messageCreatedAt = new Date(newMessageDb.created_at);
+                        // Add a small buffer (1 second) to account for timing differences
+                        const fetchStartTime = new Date(initialFetchStartTimeRef.current.getTime() - 1000);
+                        if (messageCreatedAt < fetchStartTime) {
+                            console.log('[IndividualChatScreen] Ignoring old message from real-time subscription (created before fetch started):', newMessageDb.id);
+                            return;
+                        }
                     }
                     
                     // Check if message is hidden for current user
@@ -1842,6 +1901,19 @@ const IndividualChatScreen: React.FC = () => {
                 
                 console.log('[IndividualChatScreen] New message received via RealtimeContext:', payload.new);
                 const newMessageDb = payload.new as DbMessage;
+
+                // FIX: Prevent race condition - ignore messages created before we started fetching
+                // This fixes the iOS issue where messages appear/disappear due to race conditions
+                // Messages created before fetch started should already be in the loaded messages
+                if (initialFetchCompleteRef.current && initialFetchStartTimeRef.current) {
+                    const messageCreatedAt = new Date(newMessageDb.created_at);
+                    // Add a small buffer (1 second) to account for timing differences
+                    const fetchStartTime = new Date(initialFetchStartTimeRef.current.getTime() - 1000);
+                    if (messageCreatedAt < fetchStartTime) {
+                        console.log('[IndividualChatScreen] Ignoring old message from RealtimeContext (created before fetch started):', newMessageDb.id);
+                        return;
+                    }
+                }
 
                 // If the message is from the other user, mark it as seen immediately.
                 if (newMessageDb.sender_id === matchUserId) {
@@ -3436,7 +3508,7 @@ const IndividualChatScreen: React.FC = () => {
             <KeyboardAvoidingView
                 style={styles.keyboardAvoidingContainer}
                 behavior={Platform.OS === "ios" ? "padding" : undefined}
-                keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+                keyboardVerticalOffset={0}
             >
                 {/* Non-blocking send error banner */}
                 {error && error !== "Could not load messages." && error !== "You cannot chat with this user." && (
