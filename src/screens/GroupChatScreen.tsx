@@ -738,6 +738,10 @@ const GroupChatScreen: React.FC = () => {
     // NEW: Debounced messages state to prevent chaotic scrolling from PowerSync updates
     const [debouncedMessages, setDebouncedMessages] = useState<ChatMessage[]>([]);
     const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    // Track initial fetch completion to prevent race conditions with real-time subscriptions
+    // This fixes the iOS issue where messages appear/disappear due to race conditions
+    const initialFetchCompleteRef = useRef<boolean>(false);
+    const initialFetchStartTimeRef = useRef<Date | null>(null);
     // --- End State for scroll management ---
 
     // PowerSync context for platform detection
@@ -1121,6 +1125,8 @@ const GroupChatScreen: React.FC = () => {
         setIsCurrentUserAdmin(false);
         setCanMembersAddOthers(false);
         setCanMembersEditInfo(false);
+        // Record when we start fetching to filter out old real-time messages
+        initialFetchStartTimeRef.current = new Date();
         try {
             const { data: groupInfoData, error: groupInfoError } = await supabase.rpc('get_group_info', { group_id_input: groupId });
             if (groupInfoError) throw groupInfoError;
@@ -1177,6 +1183,9 @@ const GroupChatScreen: React.FC = () => {
 
             if (!messagesData || messagesData.length === 0) {
                 setMessages([]);
+                // Mark initial fetch as complete even if no messages
+                initialFetchCompleteRef.current = true;
+                console.log(`[GroupChatScreen] No messages found. Initial fetch complete.`);
             } else {
                 console.log('[GroupChatScreen] Supabase messages before filtering:', messagesData.length);
                 const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id);
@@ -1237,6 +1246,10 @@ const GroupChatScreen: React.FC = () => {
                 if (isInitialLoad) {
                     setIsInitialLoad(false);
                 }
+                // Mark initial fetch as complete
+                // This helps prevent race conditions where real-time subscriptions receive old messages
+                initialFetchCompleteRef.current = true;
+                console.log(`[GroupChatScreen] Fetched ${mappedMessages.length} messages. Initial fetch complete.`);
             }
         } catch (err: any) {
             console.error("Error fetching initial data:", err);
@@ -1250,12 +1263,18 @@ const GroupChatScreen: React.FC = () => {
             setIsCurrentUserAdmin(false);
             setCanMembersAddOthers(false);
             setCanMembersEditInfo(false);
+            // Mark as complete even on error to prevent blocking real-time messages
+            initialFetchCompleteRef.current = true;
         } finally {
             setLoading(false);
             isLoadingRef.current = false; // Reset loading ref
             // Mark initial load as complete in finally block to ensure it's set
             if (isInitialLoad) {
                 setIsInitialLoad(false);
+            }
+            // Ensure fetch is marked as complete in finally block
+            if (!initialFetchCompleteRef.current) {
+                initialFetchCompleteRef.current = true;
             }
         }
     }, [currentUserId, groupId]); // Simplified dependencies - removed navigation, mapDbMessageToChatMessage, isInitialLoad
@@ -2200,6 +2219,19 @@ const GroupChatScreen: React.FC = () => {
                         return;
                     }
                     
+                    // FIX: Prevent race condition - ignore messages created before we started fetching
+                    // This fixes the iOS issue where messages appear/disappear due to race conditions
+                    // Messages created before fetch started should already be in the loaded messages
+                    if (initialFetchCompleteRef.current && initialFetchStartTimeRef.current) {
+                        const messageCreatedAt = new Date(newMessageDb.created_at);
+                        // Add a small buffer (1 second) to account for timing differences
+                        const fetchStartTime = new Date(initialFetchStartTimeRef.current.getTime() - 1000);
+                        if (messageCreatedAt < fetchStartTime) {
+                            console.log('[GroupChatScreen] Ignoring old message from direct DB subscription (created before fetch started):', newMessageDb.id);
+                            return;
+                        }
+                    }
+                    
                     if (newMessageDb.sender_id !== currentUserId) {
                         try {
                             console.log('[GroupChatScreen] Marking new message as delivered and seen');
@@ -2438,6 +2470,20 @@ const GroupChatScreen: React.FC = () => {
             onMessage: async (payload: any) => {
                 const newMessageDb = payload.new as DbGroupMessage;
                 console.log('[GroupChatScreen] New message received via realtime:', newMessageDb.id, 'from:', newMessageDb.sender_id);
+                
+                // FIX: Prevent race condition - ignore messages created before we started fetching
+                // This fixes the iOS issue where messages appear/disappear due to race conditions
+                // Messages created before fetch started should already be in the loaded messages
+                if (initialFetchCompleteRef.current && initialFetchStartTimeRef.current) {
+                    const messageCreatedAt = new Date(newMessageDb.created_at);
+                    // Add a small buffer (1 second) to account for timing differences
+                    const fetchStartTime = new Date(initialFetchStartTimeRef.current.getTime() - 1000);
+                    if (messageCreatedAt < fetchStartTime) {
+                        console.log('[GroupChatScreen] Ignoring old message from RealtimeContext (created before fetch started):', newMessageDb.id);
+                        return;
+                    }
+                }
+                
                 if (newMessageDb.sender_id !== currentUserId) {
                     try {
                         console.log('[GroupChatScreen] Marking new message as delivered and seen');
@@ -3146,6 +3192,10 @@ const GroupChatScreen: React.FC = () => {
     // Effects
     useFocusEffect(useCallback(() => { 
         console.log('[GroupChatScreen] Focus effect running for group:', groupId, 'useNewServices:', useNewServices, 'isMobile:', isMobile, 'isPowerSyncAvailable:', isPowerSyncAvailable);
+        // Reset initial fetch tracking when group changes
+        initialFetchCompleteRef.current = false;
+        initialFetchStartTimeRef.current = null;
+        
         if (useNewServices) {
             // NEW: Use new message fetching service
             console.log('[NEW] Using new group message fetching service');
@@ -3157,7 +3207,7 @@ const GroupChatScreen: React.FC = () => {
             fetchInitialData();
         }
         return () => { }; 
-    }, [groupId, useNewServices, isMobile, isPowerSyncAvailable])); // Added debugging dependencies
+    }, [groupId, useNewServices, isMobile, isPowerSyncAvailable, fetchInitialData])); // Added debugging dependencies
 
     // Sync new messages to old state when newMessages changes
     useEffect(() => {
@@ -3172,6 +3222,11 @@ const GroupChatScreen: React.FC = () => {
             if (isInitialLoad && !newLoading) {
                 console.log('[GroupChatScreen] Marking initial load as complete');
                 setIsInitialLoad(false);
+            }
+            // Mark initial fetch as complete when new messages are loaded
+            if (!initialFetchCompleteRef.current && !newLoading) {
+                initialFetchCompleteRef.current = true;
+                console.log('[GroupChatScreen] Initial fetch complete (new services).');
             }
         }
     }, [newMessages, useNewServices, newLoading, isInitialLoad]); // Restored isInitialLoad dependency
@@ -4160,7 +4215,7 @@ const GroupChatScreen: React.FC = () => {
                     <Feather name="info" size={22} color={APP_CONSTANTS.COLORS.PRIMARY} />
                 </TouchableOpacity>
             </View>
-            <KeyboardAvoidingView style={styles.keyboardAvoidingContainer} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0} >
+            <KeyboardAvoidingView style={styles.keyboardAvoidingContainer} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={0} >
                 {sendError && (<View style={styles.errorBanner}><Text style={styles.errorBannerText}>{sendError}</Text><TouchableOpacity onPress={() => setSendError(null)} style={styles.errorBannerClose}><Feather name="x" size={16} color="#B91C1C" /></TouchableOpacity></View>)}
 
                 {/* Typing Indicators */}
