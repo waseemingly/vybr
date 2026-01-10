@@ -3,7 +3,7 @@ import NotificationService from './NotificationService';
 
 export interface CreateNotificationParams {
   user_id: string;
-  type: 'new_message' | 'new_group_message' | 'new_match' | 'event_alert' | 'booking_confirmation' | 'system_alert' | 'organizer_new_booking';
+  type: 'new_message' | 'new_group_message' | 'new_match' | 'event_alert' | 'booking_confirmation' | 'system_alert' | 'organizer_new_booking' | 'friend_request' | 'friend_accept';
   title: string;
   body: string;
   data?: any;
@@ -44,7 +44,7 @@ export class UnifiedNotificationService {
 
   /**
    * Create a notification in the database
-   * This will automatically trigger database triggers for push notifications
+   * This will automatically trigger push notifications
    */
   async createNotification(params: CreateNotificationParams): Promise<string | null> {
     try {
@@ -66,8 +66,36 @@ export class UnifiedNotificationService {
         return null;
       }
 
-      console.log('Notification created successfully:', data);
-      return data as string;
+      const notificationId = data as string;
+      console.log('Notification created successfully:', notificationId);
+
+      // Automatically send push notification after creating the notification
+      // This ensures push notifications are sent even when createNotification is called directly
+      try {
+        const pushResponse = await supabase.functions.invoke('send-push-notifications', {
+          body: {
+            notification_id: notificationId,
+            user_id: params.user_id,
+            type: params.type,
+            title: params.title,
+            body: params.body,
+            data: params.data,
+            image_url: params.image_url,
+            deep_link: params.deep_link,
+          },
+        });
+
+        if (pushResponse.error) {
+          console.error('Error sending push notification:', pushResponse.error);
+        } else {
+          console.log('Push notification sent successfully for notification:', notificationId);
+        }
+      } catch (pushError) {
+        console.error('Exception sending push notification:', pushError);
+        // Don't fail the notification creation if push fails
+      }
+
+      return notificationId;
     } catch (error) {
       console.error('Exception creating notification:', error);
       return null;
@@ -134,8 +162,9 @@ export class UnifiedNotificationService {
       // Send web notification if not skipped
       if (!params.skip_web) {
         try {
+          const userChannel = `user:${params.user_id}`;
           await supabase
-            .channel('web-notifications')
+            .channel(userChannel)
             .send({
               type: 'broadcast',
               event: 'new_notification',
@@ -307,6 +336,58 @@ export class UnifiedNotificationService {
       },
       deep_link: params.action_url,
       related_type: 'system',
+    });
+  }
+
+  /**
+   * Send a friend request notification
+   */
+  async notifyFriendRequest(params: {
+    receiver_id: string;
+    sender_id: string;
+    sender_name: string;
+    sender_image?: string;
+  }): Promise<boolean> {
+    return this.sendImmediateNotification({
+      user_id: params.receiver_id,
+      type: 'friend_request',
+      title: 'New Friend Request',
+      body: `${params.sender_name} sent you a friend request`,
+      data: {
+        sender_id: params.sender_id,
+        sender_name: params.sender_name,
+      },
+      image_url: params.sender_image,
+      deep_link: `/profile/${params.sender_id}`,
+      sender_id: params.sender_id,
+      related_id: params.sender_id,
+      related_type: 'friend_request',
+    });
+  }
+
+  /**
+   * Send a friend accept notification
+   */
+  async notifyFriendAccept(params: {
+    user_id: string;
+    friend_id: string;
+    friend_name: string;
+    friend_image?: string;
+  }): Promise<boolean> {
+    return this.sendImmediateNotification({
+      user_id: params.user_id,
+      type: 'friend_accept',
+      title: 'Friend Request Accepted',
+      body: `${params.friend_name} accepted your friend request`,
+      data: {
+        friend_id: params.friend_id,
+        friend_name: params.friend_name,
+      },
+      image_url: params.friend_image,
+      deep_link: `/profile/${params.friend_id}`,
+      sender_id: params.friend_id,
+      related_id: params.friend_id,
+      related_type: 'friend_accept',
     });
   }
 

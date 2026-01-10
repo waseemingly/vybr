@@ -63,6 +63,15 @@ export default {
       "expo-font",
       "expo-image-picker",
       [
+        "expo-notifications",
+        {
+          icon: "./assets/icon.png",
+          color: "#ffffff",
+          sounds: [],
+          mode: "production"
+        }
+      ],
+      [
         "@react-native-google-signin/google-signin",
         {
           iosUrlScheme: "com.googleusercontent.apps.830574548321-h59962oi42k7sjuhkefud8tbooo18j",

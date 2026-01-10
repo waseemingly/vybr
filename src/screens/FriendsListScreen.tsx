@@ -145,6 +145,29 @@ const FriendsListScreen: React.FC = () => {
                 setFriends(prevFriends => [...prevFriends, { ...acceptedRequest, status: 'accepted' }]);
             }
             console.log('[FriendsListScreen] Friend request accepted successfully');
+
+            // Send notification to the requester that their request was accepted
+            try {
+                const UnifiedNotificationService = (await import('@/services/UnifiedNotificationService')).default;
+                const { data: currentUserProfile } = await supabase
+                    .from('music_lover_profiles')
+                    .select('first_name, last_name, profile_picture')
+                    .eq('id', currentUserId)
+                    .single();
+                
+                const accepterName = currentUserProfile?.first_name 
+                    ? `${currentUserProfile.first_name} ${currentUserProfile.last_name || ''}`.trim()
+                    : 'Someone';
+                
+                await UnifiedNotificationService.notifyFriendAccept({
+                    user_id: requesterId, // The person who sent the request
+                    friend_id: currentUserId, // The person who accepted
+                    friend_name: accepterName,
+                    friend_image: currentUserProfile?.profile_picture || undefined,
+                });
+            } catch (notificationError) {
+                console.error("Failed to send friend accept notification:", notificationError);
+            }
         } catch (error: any) {
             console.error('Error accepting friend request:', error);
             Alert.alert('Error', 'Failed to accept friend request. Please try again.');

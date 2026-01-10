@@ -9,7 +9,7 @@ import { navigationRef } from '../navigation/navigationRef';
 export interface NotificationData {
   id: string;
   user_id: string;
-  type: 'new_message' | 'new_group_message' | 'new_match' | 'event_alert' | 'booking_confirmation' | 'system_alert';
+  type: 'new_message' | 'new_group_message' | 'new_match' | 'event_alert' | 'booking_confirmation' | 'system_alert' | 'friend_request' | 'friend_accept';
   title: string;
   body: string;
   data?: any;
@@ -163,6 +163,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           break;
         case 'system_alert':
           shouldShowWeb = preferences?.web_system_alerts !== false;
+          break;
+        case 'friend_request':
+        case 'friend_accept':
+          shouldShowWeb = preferences?.web_new_matches !== false; // Use same preference as matches for now
           break;
       }
 
@@ -388,18 +392,39 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   useEffect(() => {
     if (!session?.user?.id) return;
 
-    // Subscribe to notification broadcasts
+    // Subscribe to user-specific notification channel
+    const userChannel = `user:${session.user.id}`;
     const channel = supabase
-      .channel('web-notifications')
+      .channel(userChannel)
       .on('broadcast', { event: 'new_notification' }, ({ payload }) => {
+        console.log('[NotificationProvider] Received notification on user channel:', payload);
         if (payload.user_id === session.user?.id) {
           handleNewNotification(payload);
         }
       })
       .subscribe();
 
+    // Also subscribe to postgres changes for notifications table
+    const notificationsChannel = supabase
+      .channel(`notifications_${session.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${session.user.id}`,
+        },
+        (payload) => {
+          console.log('[NotificationProvider] New notification inserted:', payload);
+          handleNewNotification(payload);
+        }
+      )
+      .subscribe();
+
     return () => {
       channel.unsubscribe();
+      notificationsChannel.unsubscribe();
     };
   }, [session?.user?.id, handleNewNotification]);
 
