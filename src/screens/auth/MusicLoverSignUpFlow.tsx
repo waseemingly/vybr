@@ -985,7 +985,7 @@ const MusicLoverSignUpFlow = () => {
         profileData.state = formData.state || undefined;
         profileData.city = formData.cityName || undefined;
 
-        // Helper function to parse CSV strings into arrays
+        // Helper function to parse CSV strings into arrays (only for genres which is text[] in DB)
         const parseCsvToArray = (csvString: string): string[] | undefined => {
             if (!csvString || !csvString.trim()) return undefined;
             const items = csvString.split(',')
@@ -994,15 +994,22 @@ const MusicLoverSignUpFlow = () => {
             return items.length > 0 ? items : undefined;
         };
 
-        // Add favorite fields (for "others" users) - convert CSV strings to arrays
-        profileData.favoriteArtists = parseCsvToArray(formData.favoriteArtists);
-        profileData.favoriteAlbums = parseCsvToArray(formData.favoriteAlbums);
-        profileData.favoriteGenres = parseCsvToArray(formData.favoriteGenres);
-        profileData.favoriteSongs = parseCsvToArray(formData.favoriteSongs);
+        // Add favorite fields (for "others" users)
+        // NOTE: Only favorite_genres is text[] in DB, others are text (comma-separated strings)
+        profileData.favoriteArtists = formData.favoriteArtists?.trim() || undefined;
+        profileData.favoriteAlbums = formData.favoriteAlbums?.trim() || undefined;
+        profileData.favoriteGenres = parseCsvToArray(formData.favoriteGenres); // Convert to array for text[] column
+        profileData.favoriteSongs = formData.favoriteSongs?.trim() || undefined;
 
         console.log('[MusicLoverSignUpFlow] Prepared profile data:', {
             email: profileData.email,
             username: profileData.username,
+            favoriteArtists: profileData.favoriteArtists,
+            favoriteAlbums: profileData.favoriteAlbums,
+            favoriteGenres: profileData.favoriteGenres,
+            favoriteSongs: profileData.favoriteSongs,
+            favoriteGenresIsArray: Array.isArray(profileData.favoriteGenres),
+            favoriteArtistsType: typeof profileData.favoriteArtists,
         });
 
         return profileData as CreateMusicLoverProfileData;

@@ -91,15 +91,16 @@ export interface CreateMusicLoverProfileData {
     profilePictureMimeType?: string | null;
     bio?: MusicLoverBio | null;
     country?: string | null;
+    state?: string | null;
     city?: string | null;
     age?: number | null;
     website?: string;
     capacity?: number; // <-- ADDED
     openingHours?: OpeningHours; // <-- ADDED
-    favoriteArtists?: string | null;
-    favoriteAlbums?: string | null;
-    favoriteGenres?: string | null;
-    favoriteSongs?: string | null;
+    favoriteArtists?: string | null;  // TEXT column, store as comma-separated string
+    favoriteAlbums?: string | null;   // TEXT column, store as comma-separated string
+    favoriteGenres?: string[] | null; // TEXT[] column, store as array
+    favoriteSongs?: string | null;    // TEXT column, store as comma-separated string
 }
 
 export interface CreateOrganizerProfileData {
@@ -1119,7 +1120,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             }
 
             // --- Prepare DB Data (Match DB Columns) ---
-            const { userId, profilePictureUri, profilePictureMimeType, termsAccepted, bio, country, city, age, selectedStreamingService, website, capacity, openingHours, favoriteArtists, favoriteAlbums, favoriteGenres, favoriteSongs, ...basicProfileData } = profileData;
+            const { userId, profilePictureUri, profilePictureMimeType, termsAccepted, bio, country, state, city, age, selectedStreamingService, website, capacity, openingHours, favoriteArtists, favoriteAlbums, favoriteGenres, favoriteSongs, ...basicProfileData } = profileData;
             const profileToInsert = {
                 user_id: userId,
                 first_name: basicProfileData.firstName,
@@ -1130,6 +1131,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 profile_picture: publicImageUrl ?? undefined, // Use DB name (snake_case), handle null
                 bio: bio,
                 country: country === null ? undefined : country, // Convert null to undefined
+                state: state === null ? undefined : state, // Convert null to undefined
                 city: city === null ? undefined : city, // Convert null to undefined
                 terms_accepted: termsAccepted,
                 selected_streaming_service: selectedStreamingService === null ? undefined : selectedStreamingService, // Convert null to undefined
@@ -1145,7 +1147,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                  // Ensure all REQUIRED DB fields are present or have defaults
                 // music_data: {} // Example default if required and not nullable
             };
-            console.log('[AuthProvider] createMusicLoverProfile: Preparing to upsert profile data:', { ...profileToInsert, profile_picture: profileToInsert.profile_picture ? 'URL exists' : 'null' });
+            console.log('[AuthProvider] createMusicLoverProfile: Preparing to upsert profile data:', { 
+                ...profileToInsert, 
+                profile_picture: profileToInsert.profile_picture ? 'URL exists' : 'null',
+                favorite_artists_type: typeof profileToInsert.favorite_artists,
+                favorite_albums_type: typeof profileToInsert.favorite_albums,
+                favorite_genres_type: typeof profileToInsert.favorite_genres,
+                favorite_songs_type: typeof profileToInsert.favorite_songs,
+                favorite_genres_isArray: Array.isArray(profileToInsert.favorite_genres),
+                favorite_artists_isArray: Array.isArray(profileToInsert.favorite_artists),
+            });
 
             // --- Upsert Profile in DB ---
             const client = supabaseAdmin || supabase; // Use admin client if available to bypass RLS
