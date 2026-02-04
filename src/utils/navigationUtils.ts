@@ -30,23 +30,354 @@ export const parseDeepLink = (url: string): { routeName: keyof RootStackParamLis
     }
 
     switch (route) {
-      case 'chat':
-      case 'individual-chat':
-        if (rest[0]) {
-          // On web, navigate to Chats tab and set the selected chat
-          if (Platform.OS === 'web') {
+      // Auth & Landing
+      case '':
+      case 'home':
+        // Root path - handled by auth state
+        return null;
+      
+      case 'login':
+        if (rest[0] === 'organizer') {
+          return {
+            routeName: 'Auth',
+            params: { screen: 'OrganizerLogin' },
+          };
+        }
+        return {
+          routeName: 'Auth',
+          params: { screen: 'MusicLoverLogin' },
+        };
+      
+      case 'signup':
+        if (rest[0] === 'organizer') {
+          return {
+            routeName: 'OrganizerSignUpFlow',
+            params: {},
+          };
+        }
+        return {
+          routeName: 'MusicLoverSignUpFlow',
+          params: {},
+        };
+      
+      case 'premium':
+        return {
+          routeName: 'MainApp',
+          params: { screen: 'PremiumSignupScreen' },
+        };
+      
+      // Payment
+      case 'payment':
+        if (rest[0] === 'success') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'PaymentSuccessScreen' },
+          };
+        } else if (rest[0] === 'confirm') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'PaymentConfirmationScreen' },
+          };
+        } else if (rest[0] === 'required') {
+          return {
+            routeName: 'PaymentRequired',
+            params: { screen: 'RequiredPaymentScreen' },
+          };
+        }
+        break;
+      
+      // Main User Tabs
+      case 'discover':
+      case 'matches':
+        return {
+          routeName: 'MainApp',
+          params: { screen: 'UserTabs', params: { screen: 'Matches' } },
+        };
+      
+      case 'chats':
+        return {
+          routeName: 'MainApp',
+          params: { screen: 'UserTabs', params: { screen: 'Chats' } },
+        };
+      
+      case 'search':
+        return {
+          routeName: 'MainApp',
+          params: { screen: 'UserTabs', params: { screen: 'Search' } },
+        };
+      
+      case 'events':
+        if (rest[0] === 'create') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'CreateEventScreen' },
+          };
+        } else if (rest[0] === 'attended') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'AttendedEventsScreen' },
+          };
+        } else if (rest[0] === 'upcoming') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'UpcomingEventsListScreen' },
+          };
+        } else if (rest[0] === 'past') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'PastEventsListScreen' },
+          };
+        } else if (rest[0]) {
+          // Event detail or sub-routes
+          if (rest[1] === 'edit') {
             return {
               routeName: 'MainApp',
-              params: { 
-                screen: 'UserTabs', 
-                params: { 
-                  screen: 'Chats',
-                  params: { selectedChatId: rest[0], chatType: 'individual' }
-                } 
+              params: {
+                screen: 'EditEvent',
+                params: { eventId: rest[0] },
+              },
+            };
+          } else if (rest[1] === 'bookings') {
+            return {
+              routeName: 'MainApp',
+              params: {
+                screen: 'ViewBookings',
+                params: { eventId: rest[0] },
+              },
+            };
+          } else if (rest[1] === 'share') {
+            return {
+              routeName: 'MainApp',
+              params: {
+                screen: 'ShareEventScreen',
+                params: { eventId: rest[0] },
               },
             };
           } else {
-            // On mobile, navigate directly to the chat screen
+            // Event detail
+            return {
+              routeName: 'MainApp',
+              params: {
+                screen: 'EventDetail',
+                params: { eventId: rest[0] },
+              },
+            };
+          }
+        } else {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'UserTabs', params: { screen: 'Events' } },
+          };
+        }
+      
+      case 'profile':
+        if (rest[0] === 'edit') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'EditUserProfileScreen' },
+          };
+        } else if (rest[0] === 'music') {
+          if (rest[1] === 'link') {
+            return {
+              routeName: 'MainApp',
+              params: { screen: 'LinkMusicServicesScreen' },
+            };
+          }
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'UpdateMusicFavoritesScreen' },
+          };
+        } else {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'UserTabs', params: { screen: 'Profile' } },
+          };
+        }
+      
+      // Settings
+      case 'settings':
+        if (rest[0] === 'subscription') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'UserManageSubscriptionScreen' },
+          };
+        } else if (rest[0] === 'plan') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'ManagePlan' },
+          };
+        } else if (rest[0] === 'muted') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'UserMutedListScreen' },
+          };
+        } else if (rest[0] === 'blocked') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'UserBlockedListScreen' },
+          };
+        } else if (rest[0] === 'billing') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'UserBillingHistoryScreen' },
+          };
+        } else {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'UserSettingsScreen' },
+          };
+        }
+      
+      // Friends & Organizers
+      case 'friends':
+        return {
+          routeName: 'MainApp',
+          params: { screen: 'FriendsListScreen' },
+        };
+      
+      case 'organizers':
+        return {
+          routeName: 'MainApp',
+          params: { screen: 'OrganizerListScreen' },
+        };
+      
+      // Upgrade
+      case 'upgrade':
+        return {
+          routeName: 'MainApp',
+          params: { screen: 'UpgradeScreen' },
+        };
+      
+      // Bookings
+      case 'bookings':
+        if (rest[0] && rest[1] === 'confirm') {
+          return {
+            routeName: 'MainApp',
+            params: {
+              screen: 'BookingConfirmation',
+              params: { bookingId: rest[0] },
+            },
+          };
+        } else {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'MyBookingsScreen' },
+          };
+        }
+      
+      // Organizer Routes
+      case 'organizer':
+        if (rest[0] === 'create') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'OrganizerTabs', params: { screen: 'Create' } },
+          };
+        } else if (rest[0] === 'profile') {
+          if (rest[1] === 'edit') {
+            return {
+              routeName: 'MainApp',
+              params: { screen: 'EditOrganizerProfileScreen' },
+            };
+          } else {
+            return {
+              routeName: 'MainApp',
+              params: { screen: 'OrganizerTabs', params: { screen: 'OrganizerProfile' } },
+            };
+          }
+        } else if (rest[0] === 'settings') {
+          if (rest[1] === 'plan') {
+            return {
+              routeName: 'MainApp',
+              params: { screen: 'ManagePlanScreen' },
+            };
+          } else if (rest[1] === 'billing') {
+            return {
+              routeName: 'MainApp',
+              params: { screen: 'OrgBillingHistoryScreen' },
+            };
+          } else {
+            return {
+              routeName: 'MainApp',
+              params: { screen: 'OrganizerSettingsScreen' },
+            };
+          }
+        } else if (rest[0] === 'availability') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'SetAvailabilityScreen' },
+          };
+        } else if (rest[0] === 'analytics') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'OverallAnalyticsScreen' },
+          };
+        } else if (rest[0] === 'followers' || rest[0] === 'attendees') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'UserListScreen' },
+          };
+        } else if (rest[0] === 'reservations') {
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'OrganizerReservationsScreen' },
+          };
+        } else if (rest[0] && !rest[1]) {
+          // View organizer profile by ID (only if no sub-route)
+          return {
+            routeName: 'MainApp',
+            params: {
+              screen: 'ViewOrganizerProfileScreen',
+              params: { organizerUserId: rest[0] },
+            },
+          };
+        } else {
+          // Default organizer dashboard
+          return {
+            routeName: 'MainApp',
+            params: { screen: 'OrganizerTabs', params: { screen: 'Posts' } },
+          };
+        }
+      
+      // Chat Routes
+      case 'chat':
+        if (rest[0] === 'group') {
+          if (rest[1] === 'create') {
+            return {
+              routeName: 'CreateGroupChatScreen',
+              params: {},
+            };
+          } else if (rest[1]) {
+            if (rest[2] === 'info') {
+              return {
+                routeName: 'GroupInfoScreen',
+                params: { groupId: rest[1] },
+              };
+            } else if (rest[2] === 'add') {
+              return {
+                routeName: 'AddGroupMembersScreen',
+                params: { groupId: rest[1] },
+              };
+            } else {
+              return {
+                routeName: 'GroupChatScreen',
+                params: { groupId: rest[1] },
+              };
+            }
+          }
+        } else if (rest[0]) {
+          // Individual chat
+          if (Platform.OS === 'web') {
+            return {
+              routeName: 'MainApp',
+              params: {
+                screen: 'UserTabs',
+                params: {
+                  screen: 'Chats',
+                  params: { selectedChatId: rest[0], chatType: 'individual' },
+                },
+              },
+            };
+          } else {
             return {
               routeName: 'IndividualChatScreen',
               params: { matchUserId: rest[0] },
@@ -55,63 +386,17 @@ export const parseDeepLink = (url: string): { routeName: keyof RootStackParamLis
         }
         break;
       
-      case 'group-chat':
-        if (rest[0]) {
-          // On web, navigate to Chats tab and set the selected chat
-          if (Platform.OS === 'web') {
-            return {
-              routeName: 'MainApp',
-              params: { 
-                screen: 'UserTabs', 
-                params: { 
-                  screen: 'Chats',
-                  params: { selectedChatId: rest[0], chatType: 'group' }
-                } 
-              },
-            };
-          } else {
-            // On mobile, navigate directly to the chat screen
-            return {
-              routeName: 'GroupChatScreen',
-              params: { groupId: rest[0] },
-            };
-          }
-        }
-        break;
-
-      case 'bookings':
+      // User Profile by ID
+      case 'user':
         if (rest[0]) {
           return {
-            routeName: 'MainApp',
-            params: {
-              screen: 'ViewBookings',
-              params: { eventId: rest[0] },
-            },
+            routeName: 'OtherUserProfileScreen',
+            params: { userId: rest[0] },
           };
         }
         break;
-
-      case 'event':
-      case 'events':
-        if (rest[0]) {
-            // This could navigate to a specific event detail screen
-            // Assuming you have an 'EventDetail' screen that takes an eventId
-            return {
-                routeName: 'MainApp', 
-                params: { 
-                    screen: 'EventDetail', // Navigate to the screen within MainAppStack
-                    params: { eventId: rest[0] } 
-                }
-            };
-        } else {
-            // Navigates to the main Events tab
-            return {
-                routeName: 'MainApp',
-                params: { screen: 'UserTabs', params: { screen: 'Events' } },
-            };
-        }
-        break;
-        
+      
+      // Legacy support for old paths
       case 'match':
       case 'matches':
         return {
@@ -119,28 +404,28 @@ export const parseDeepLink = (url: string): { routeName: keyof RootStackParamLis
           params: { screen: 'UserTabs', params: { screen: 'Matches' } },
         };
       
-      case 'profile':
+      case 'event':
         if (rest[0]) {
-            // Navigates to another user's profile
-            return {
-                routeName: 'OtherUserProfileScreen',
-                params: { userId: rest[0] },
-            };
-        } else {
-            // Navigates to the current user's profile
-            return {
-                routeName: 'MainApp',
-                params: { screen: 'UserTabs', params: { screen: 'Profile' } },
-            };
+          return {
+            routeName: 'MainApp',
+            params: {
+              screen: 'EventDetail',
+              params: { eventId: rest[0] },
+            },
+          };
         }
         break;
       
-      // Add more cases for your other routes here...
-      // e.g., 'settings', 'search', etc.
-
+      // 404
+      case '404':
+        return {
+          routeName: 'MainApp',
+          params: { screen: 'NotFoundMain' },
+        };
+      
       default:
         if (isRouteInParamList(route)) {
-            return { routeName: route as keyof RootStackParamList, params: rest[0] ? { id: rest[0] } : {} };
+          return { routeName: route as keyof RootStackParamList, params: rest[0] ? { id: rest[0] } : {} };
         }
         console.warn(`[parseDeepLink] Unknown route: ${route}`);
         return null;

@@ -88,18 +88,147 @@ const linking = {
   ],
   config: {
     screens: {
-      MainApp: {
+      // Auth Stack
+      Auth: {
         screens: {
-          PaymentConfirmationScreen: 'payment-confirmation',
-          PremiumSignupScreen: 'premium-signup',
-          PaymentSuccessScreen: 'payment-success',
-          OrganizerTabs: {
-            screens: {
-              Posts: 'organizer/dashboard',
-            }
-          }
+          Landing: '/',
+          MusicLoverLogin: 'login',
+          OrganizerLogin: 'login/organizer',
         },
       },
+      // Payment Required Stack
+      PaymentRequired: {
+        screens: {
+          RequiredPaymentScreen: 'payment/required',
+        },
+      },
+      // Main App Stack
+      MainApp: {
+        screens: {
+          // User Tabs
+          UserTabs: {
+            screens: {
+              Matches: 'discover',
+              Chats: 'chats',
+              Search: 'search',
+              Events: 'events',
+              Profile: 'profile',
+            },
+          },
+          // Organizer Tabs
+          OrganizerTabs: {
+            screens: {
+              Posts: 'organizer',
+              Create: 'organizer/create',
+              OrganizerProfile: 'organizer/profile',
+            },
+          },
+          // User Settings & Profile Screens
+          UserSettingsScreen: 'settings',
+          EditUserProfileScreen: 'profile/edit',
+          UserManageSubscriptionScreen: 'settings/subscription',
+          ManagePlan: 'settings/plan',
+          UserMutedListScreen: 'settings/muted',
+          UserBlockedListScreen: 'settings/blocked',
+          FriendsListScreen: 'friends',
+          OrganizerListScreen: 'organizers',
+          UpgradeScreen: 'upgrade',
+          AttendedEventsScreen: 'events/attended',
+          UserBillingHistoryScreen: 'settings/billing',
+          UpdateMusicFavoritesScreen: 'profile/music',
+          LinkMusicServicesScreen: 'profile/music/link',
+          MyBookingsScreen: 'bookings',
+          PremiumSignupScreen: 'premium',
+          PaymentConfirmationScreen: 'payment/confirm',
+          PaymentSuccessScreen: 'payment/success',
+          // Organizer Settings & Profile Screens
+          OrganizerSettingsScreen: 'organizer/settings',
+          EditOrganizerProfileScreen: 'organizer/profile/edit',
+          ManagePlanScreen: 'organizer/settings/plan',
+          OrgBillingHistoryScreen: 'organizer/settings/billing',
+          SetAvailabilityScreen: 'organizer/availability',
+          OverallAnalyticsScreen: 'organizer/analytics',
+          UserListScreen: 'organizer/followers',
+          OrganizerReservationsScreen: 'organizer/reservations',
+          // Event Screens
+          CreateEventScreen: 'events/create',
+          EventDetail: {
+            path: 'events/:eventId',
+            parse: {
+              eventId: (eventId: string) => eventId,
+            },
+          },
+          EditEvent: {
+            path: 'events/:eventId/edit',
+            parse: {
+              eventId: (eventId: string) => eventId,
+            },
+          },
+          ViewBookings: {
+            path: 'events/:eventId/bookings',
+            parse: {
+              eventId: (eventId: string) => eventId,
+            },
+          },
+          ShareEventScreen: {
+            path: 'events/:eventId/share',
+            parse: {
+              eventId: (eventId: string) => eventId,
+            },
+          },
+          UpcomingEventsListScreen: 'events/upcoming',
+          PastEventsListScreen: 'events/past',
+          BookingConfirmation: {
+            path: 'bookings/:bookingId/confirm',
+            parse: {
+              bookingId: (bookingId: string) => bookingId,
+            },
+          },
+          // Profile Screens
+          ViewOrganizerProfileScreen: {
+            path: 'organizer/:organizerUserId',
+            parse: {
+              organizerUserId: (organizerUserId: string) => organizerUserId,
+            },
+          },
+          // Not Found
+          NotFoundMain: '404',
+        },
+      },
+      // Root Stack Screens (outside MainApp)
+      IndividualChatScreen: {
+        path: 'chat/:userId',
+        parse: {
+          matchUserId: (userId: string) => userId,
+        },
+      },
+      OtherUserProfileScreen: {
+        path: 'user/:userId',
+        parse: {
+          userId: (userId: string) => userId,
+        },
+      },
+      CreateGroupChatScreen: 'chat/group/create',
+      GroupChatScreen: {
+        path: 'chat/group/:groupId',
+        parse: {
+          groupId: (groupId: string) => groupId,
+        },
+      },
+      GroupInfoScreen: {
+        path: 'chat/group/:groupId/info',
+        parse: {
+          groupId: (groupId: string) => groupId,
+        },
+      },
+      AddGroupMembersScreen: {
+        path: 'chat/group/:groupId/add',
+        parse: {
+          groupId: (groupId: string) => groupId,
+        },
+      },
+      MusicLoverSignUpFlow: 'signup',
+      OrganizerSignUpFlow: 'signup/organizer',
       // Handle OAuth callbacks
       AuthCallback: 'auth/callback',
       SpotifyCallback: 'spotify-auth-callback',
