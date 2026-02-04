@@ -1260,9 +1260,10 @@ const OtherUserProfileScreen: React.FC = () => {
                          </ProfileSection>
 
                         {/* --- START: TOP STREAMING DATA SECTIONS --- */}
+                        {/* COMMENTED OUT FOR SOFT LAUNCH */}
 
                         {/* Top Artists Section - From Streaming Data */}
-                        <ProfileSection 
+                        {/* <ProfileSection 
                             title="Top Artists" 
                             icon="bar-chart-2"
                             hasData={topArtists.length > 0}
@@ -1292,10 +1293,10 @@ const OtherUserProfileScreen: React.FC = () => {
                             ) : (
                                 <Text style={profileStyles.dataMissingText}>No top artists data available from their streaming service.</Text>
                             )}
-                        </ProfileSection>
+                        </ProfileSection> */}
 
                         {/* Top Tracks Section - From Streaming Data */}
-                        <ProfileSection 
+                        {/* <ProfileSection 
                             title="Top Tracks" 
                             icon="trending-up"
                             hasData={topTracks.length > 0}
@@ -1328,10 +1329,10 @@ const OtherUserProfileScreen: React.FC = () => {
                             ) : (
                                 <Text style={profileStyles.dataMissingText}>No top tracks data available from their streaming service.</Text>
                             )}
-                        </ProfileSection>
+                        </ProfileSection> */}
 
                         {/* Top Genres Section - From Streaming Data */}
-                         <ProfileSection 
+                         {/* <ProfileSection 
                             title="Top Genres" 
                             icon="tag"
                             hasData={topGenres.length > 0}
@@ -1360,10 +1361,10 @@ const OtherUserProfileScreen: React.FC = () => {
                              ) : (
                                 <Text style={profileStyles.dataMissingText}>No top genres data available from their streaming service.</Text>
                              )}
-                         </ProfileSection>
+                         </ProfileSection> */}
 
-                        {/* Top Moods Section - From Streaming Data (Premium Only for viewing on others' profiles too) */}
-                        {isPremium && (
+                        {/* Top Moods Section - From Streaming Data (Premium Only for viewing on others' profiles too) - COMMENTED OUT FOR SOFT LAUNCH */}
+                        {/* {isPremium && (
                             <ProfileSection 
                                 title="Top Moods" 
                                 icon="smile"
@@ -1393,7 +1394,7 @@ const OtherUserProfileScreen: React.FC = () => {
                                     <Text style={profileStyles.dataMissingText}>No top moods data available from their streaming service.</Text>
                                 )}
                             </ProfileSection>
-                        )}
+                        )} */}
 
                         {/* --- END: TOP STREAMING DATA SECTIONS --- */}
 

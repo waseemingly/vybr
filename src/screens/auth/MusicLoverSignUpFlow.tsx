@@ -181,7 +181,8 @@ const MusicLoverSignUpFlow = () => {
         state: '',
         cityName: '',
         bio: { firstSong: '', goToSong: '', mustListenAlbum: '', dreamConcert: '', musicTaste: '' },
-        selectedStreamingService: '',
+        // TODO: SOFT LAUNCH - Defaulting to 'others' since streaming service step is commented out
+        selectedStreamingService: 'others', // Default to 'others' to skip streaming service step
         subscriptionTier: '',
         paymentInfo: { cardNumber: '', expiry: '', cvv: '', name: '' },
         favoriteArtists: '',
@@ -549,17 +550,18 @@ const MusicLoverSignUpFlow = () => {
     const goToPreviousStep = (prevStep: Step) => {
         console.log(`[MusicLoverSignUpFlow] Going to previous step: ${prevStep}`);
         
+        // TODO: SOFT LAUNCH - Streaming service step commented out, so this logic is not needed
         // If going back to streaming-service, reset the selection so user can choose again
-        if (prevStep === 'streaming-service') {
-            console.log('[MusicLoverSignUpFlow] Resetting streaming service selection for fresh choice');
-            setIsManualBackNavigation(true);
-            handleChange('selectedStreamingService', ''); // Reset streaming service selection
-            
-            // Reset flag after a brief delay to allow normal flow later
-            setTimeout(() => {
-                setIsManualBackNavigation(false);
-            }, 500);
-        }
+        // if (prevStep === 'streaming-service') {
+        //     console.log('[MusicLoverSignUpFlow] Resetting streaming service selection for fresh choice');
+        //     setIsManualBackNavigation(true);
+        //     handleChange('selectedStreamingService', ''); // Reset streaming service selection
+        //     
+        //     // Reset flag after a brief delay to allow normal flow later
+        //     setTimeout(() => {
+        //         setIsManualBackNavigation(false);
+        //     }, 500);
+        // }
         
         setCurrentStep(prevStep); // Update state immediately
         
@@ -1178,12 +1180,13 @@ const MusicLoverSignUpFlow = () => {
                     stepErrorMessage = getProfileDetailsError();
                 }
                 break;
-            case 'streaming-service':
-                currentStepIsValid = validateStreamingServiceStep();
-                if (!currentStepIsValid) {
-                    stepErrorMessage = getStreamingServiceError();
-                }
-                break;
+            // TODO: SOFT LAUNCH - Streaming service step validation commented out
+            // case 'streaming-service':
+            //     currentStepIsValid = validateStreamingServiceStep();
+            //     if (!currentStepIsValid) {
+            //         stepErrorMessage = getStreamingServiceError();
+            //     }
+            //     break;
             case 'subscription':
                 currentStepIsValid = validateSubscriptionStep();
                 if (!currentStepIsValid) {
@@ -1216,11 +1219,14 @@ const MusicLoverSignUpFlow = () => {
                 goToNextStep('profile-details');
                 break;
             case 'profile-details':
-                goToNextStep('streaming-service');
-                break;
-            case 'streaming-service':
+                // TODO: SOFT LAUNCH - Skipping streaming-service step, going directly to subscription
+                // goToNextStep('streaming-service');
                 goToNextStep('subscription');
                 break;
+            // TODO: SOFT LAUNCH - Streaming service step commented out
+            // case 'streaming-service':
+            //     goToNextStep('subscription');
+            //     break;
             case 'subscription':
                 // Handle based on streaming service
                 if (formData.selectedStreamingService === 'others') {
@@ -1685,6 +1691,7 @@ const MusicLoverSignUpFlow = () => {
     };
 
     // Effect to navigate after successful Spotify login during signup
+    // TODO: SOFT LAUNCH - This effect won't run since streaming-service step is skipped
     useEffect(() => {
         // Check if we are on the correct step, Spotify is selected, and login just completed
         // Also prevent auto-navigation if user just navigated back manually
@@ -1713,6 +1720,7 @@ const MusicLoverSignUpFlow = () => {
     }, [isSpotifyLoggedIn, currentStep, formData.selectedStreamingService, verifyAuthorizationCompleted, isManualBackNavigation]);
 
     // Effect to handle Spotify login errors during signup
+    // TODO: SOFT LAUNCH - This effect won't run since streaming-service step is skipped
     useEffect(() => {
         if (currentStep === 'streaming-service' && formData.selectedStreamingService === 'spotify' && spotifyError) {
             console.error('[MusicLoverSignUpFlow] Spotify login error detected:', spotifyError);
@@ -1748,15 +1756,27 @@ const MusicLoverSignUpFlow = () => {
     }, [spotifyError, currentStep, formData.selectedStreamingService]);
 
     // Load countries on component mount - Singapore first
+    // TODO: SOFT LAUNCH - Restricting to Singapore only. Uncomment below for full version.
+    // useEffect(() => {
+    //     const allCountries = Country.getAllCountries();
+    //     // Sort countries: Singapore first, then alphabetically
+    //     const sortedCountries = [...allCountries].sort((a, b) => {
+    //         if (a.isoCode === 'SG') return -1;
+    //         if (b.isoCode === 'SG') return 1;
+    //         return a.name.localeCompare(b.name);
+    //     });
+    //     setCountries(sortedCountries);
+    // }, []);
+
+    // SOFT LAUNCH: Only Singapore available for signup
     useEffect(() => {
-        const allCountries = Country.getAllCountries();
-        // Sort countries: Singapore first, then alphabetically
-        const sortedCountries = [...allCountries].sort((a, b) => {
-            if (a.isoCode === 'SG') return -1;
-            if (b.isoCode === 'SG') return 1;
-            return a.name.localeCompare(b.name);
-        });
-        setCountries(sortedCountries);
+        const singaporeCountry = Country.getAllCountries().find(c => c.isoCode === 'SG');
+        if (singaporeCountry) {
+            setCountries([singaporeCountry]);
+            // Auto-select Singapore
+            handleChange('countryCode', 'SG');
+            handleChange('country', singaporeCountry.name);
+        }
     }, []);
 
     // Load states when country changes
@@ -2114,204 +2134,13 @@ const MusicLoverSignUpFlow = () => {
 
     // --- Render Functions for Steps ---
 
-    const renderStreamingServiceStep = () => (
-        <View style={authStyles.signupStepContent}>
-            <Text style={authStyles.signupStepTitle}>Music Services</Text>
-            <Text style={authStyles.signupStepSubtitle}>What streaming service do you use most?</Text>
-            
-            {/* Create a proper 2-column grid with only Spotify and Others */}
-            <View style={{ 
-                width: '100%', 
-                flexDirection: 'row', 
-                flexWrap: 'wrap', 
-                justifyContent: 'space-between',
-                marginBottom: isWeb ? 24 : 20
-            }}> 
-                {/* Spotify Button */}
-                <TouchableOpacity 
-                    style={[
-                        {
-                            width: '48%',
-                            aspectRatio: 1,
-                            borderRadius: isWeb ? 16 : 12,
-                            borderWidth: 1.5,
-                            borderColor: formData.selectedStreamingService === 'spotify' ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.BORDER,
-                            padding: isWeb ? 16 : 12,
-                            marginBottom: isWeb ? 20 : 16,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            position: 'relative',
-                            elevation: 2,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
-                            shadowOpacity: 0.08,
-                            shadowRadius: isWeb ? 8 : 4,
-                            backgroundColor: formData.selectedStreamingService === 'spotify' ? `${APP_CONSTANTS.COLORS.PRIMARY}10` : 'white',
-                        }
-                    ]} 
-                    onPress={() => handleStreamingServiceSelect('spotify')}
-                >
-                    <View style={[{
-                        width: isWeb ? 72 : 60,
-                        height: isWeb ? 72 : 60,
-                        borderRadius: isWeb ? 36 : 30,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        marginBottom: isWeb ? 16 : 12,
-                        elevation: 3,
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
-                        shadowOpacity: 0.1,
-                        shadowRadius: isWeb ? 8 : 4,
-                        backgroundColor: SPOTIFY_SERVICE.color
-                    }]}>
-                        <FontAwesome name={SPOTIFY_SERVICE.icon as any} size={28} color="#FFF" />
-                    </View>
-                    <Text style={{
-                        fontSize: isWeb ? 14 : 13,
-                        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-                        fontWeight: '500',
-                        textAlign: 'center',
-                        fontFamily: 'Inter, sans-serif',
-                    }}>{SPOTIFY_SERVICE.name}</Text>
-                    {formData.selectedStreamingService === 'spotify' && (
-                        <View style={{
-                            position: 'absolute',
-                            top: isWeb ? 12 : 8,
-                            right: isWeb ? 12 : 8,
-                            backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-                            borderRadius: isWeb ? 16 : 12,
-                            width: isWeb ? 32 : 24,
-                            height: isWeb ? 32 : 24,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            elevation: 4,
-                            shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
-                            shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
-                            shadowOpacity: 0.3,
-                            shadowRadius: isWeb ? 8 : 4,
-                        }}>
-                            <Feather name="check" size={16} color="#FFFFFF" />
-                        </View>
-                    )}
-                </TouchableOpacity>
-
-                {/* Others Button */}
-                <TouchableOpacity 
-                    style={[
-                        {
-                            width: '48%',
-                            aspectRatio: 1,
-                            borderRadius: isWeb ? 16 : 12,
-                            borderWidth: 1.5,
-                            borderColor: formData.selectedStreamingService === 'others' ? APP_CONSTANTS.COLORS.PRIMARY : APP_CONSTANTS.COLORS.BORDER,
-                            padding: isWeb ? 16 : 12,
-                            marginBottom: isWeb ? 20 : 16,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            position: 'relative',
-                            elevation: 2,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
-                            shadowOpacity: 0.08,
-                            shadowRadius: isWeb ? 8 : 4,
-                            backgroundColor: formData.selectedStreamingService === 'others' ? `${APP_CONSTANTS.COLORS.PRIMARY}10` : 'white',
-                        }
-                    ]} 
-                    onPress={() => handleStreamingServiceSelect('others')}
-                >
-                    <View style={[{
-                        width: isWeb ? 72 : 60,
-                        height: isWeb ? 72 : 60,
-                        borderRadius: isWeb ? 36 : 30,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        marginBottom: isWeb ? 16 : 12,
-                        elevation: 3,
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
-                        shadowOpacity: 0.1,
-                        shadowRadius: isWeb ? 8 : 4,
-                        backgroundColor: '#5C5C5C'
-                    }]}>
-                        <Feather name="music" size={28} color="#FFF" />
-                    </View>
-                    <Text style={{
-                        fontSize: isWeb ? 14 : 13,
-                        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
-                        fontWeight: '500',
-                        textAlign: 'center',
-                        fontFamily: 'Inter, sans-serif',
-                    }}>Others</Text>
-                    {formData.selectedStreamingService === 'others' && (
-                        <View style={{
-                            position: 'absolute',
-                            top: isWeb ? 12 : 8,
-                            right: isWeb ? 12 : 8,
-                            backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
-                            borderRadius: isWeb ? 16 : 12,
-                            width: isWeb ? 32 : 24,
-                            height: isWeb ? 32 : 24,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            elevation: 4,
-                            shadowColor: APP_CONSTANTS.COLORS.PRIMARY,
-                            shadowOffset: { width: 0, height: isWeb ? 4 : 2 },
-                            shadowOpacity: 0.3,
-                            shadowRadius: isWeb ? 8 : 4,
-                        }}>
-                            <Feather name="check" size={16} color="#FFFFFF" />
-                        </View>
-                    )}
-                </TouchableOpacity>
-            </View>
-            
-            {/* Spotify specific UI feedback */}
-            {isSpotifyLoading && formData.selectedStreamingService === 'spotify' && (
-                <View style={authStyles.loadingContainer}>
-                    <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY} />
-                    <Text style={authStyles.loadingText}>Connecting to Spotify...</Text>
-                </View>
-            )}
-            {spotifyError && formData.selectedStreamingService === 'spotify' && (
-                 <Text style={[authStyles.signupErrorText, { marginTop: 10 }]}>{spotifyError}</Text>
-            )}
-            {isSpotifyLoggedIn && formData.selectedStreamingService === 'spotify' && (
-                <View style={styles.successMessageContainer}>
-                    <FontAwesome name="check-circle" size={20} color="#1DB954" />
-                    <Text style={styles.successMessageText}>Successfully connected to Spotify!</Text>
-                </View>
-            )}
-
-            {/* General error display */}
-            {error && !spotifyError && <Text style={[authStyles.signupErrorText, { marginTop: 10 }]}>{error}</Text>} 
-
-            {/* Main Back/Continue Buttons */}
-            <View style={authStyles.signupButtonContainer}> 
-                <TouchableOpacity 
-                    style={authStyles.signupSecondaryButton} 
-                    onPress={() => goToPreviousStep('profile-details')}
-                >
-                    <Text style={authStyles.signupSecondaryButtonText}>Back</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={[
-                        authStyles.signupPrimaryButton,
-                        (!formData.selectedStreamingService) && authStyles.signupPrimaryButtonDisabled
-                    ]}
-                    onPress={() => {
-                        if (validateStreamingServiceStep()) {
-                            goToNextStep('subscription');
-                        }
-                    }}
-                    disabled={!formData.selectedStreamingService}
-                >
-                    <Text style={authStyles.signupPrimaryButtonText}>Continue</Text>
-                </TouchableOpacity>
-            </View>
-        </View>
-    );
+    // TODO: SOFT LAUNCH - Streaming service step commented out
+    // Replaced with stub function. Original code can be found in git history.
+    // To restore: uncomment the streaming-service step in navigation, validation, and step indicators,
+    // and restore the original renderStreamingServiceStep function from git.
+    const renderStreamingServiceStep = () => {
+        return null;
+    };
 
     // Improved subscription plan selection UI
     const renderSubscriptionStep = () => (
@@ -2399,7 +2228,8 @@ const MusicLoverSignUpFlow = () => {
             <View style={authStyles.signupButtonContainer}>
                 <TouchableOpacity 
                     style={authStyles.signupSecondaryButton} 
-                    onPress={() => goToPreviousStep('streaming-service')}
+                    // TODO: SOFT LAUNCH - Going back to profile-details instead of streaming-service
+                    onPress={() => goToPreviousStep('profile-details')}
                 >
                     <Text style={authStyles.signupSecondaryButtonText}>Back</Text>
                 </TouchableOpacity>
@@ -2676,7 +2506,8 @@ const MusicLoverSignUpFlow = () => {
             <View style={authStyles.signupStepContainer}>
                 {currentStep === 'username' && renderUsernameStep()}
                 {currentStep === 'profile-details' && renderProfileDetailsStep()}
-                {currentStep === 'streaming-service' && renderStreamingServiceStep()}
+                {/* TODO: SOFT LAUNCH - Streaming service step commented out */}
+                {/* {currentStep === 'streaming-service' && renderStreamingServiceStep()} */}
                 {currentStep === 'subscription' && renderSubscriptionStep()}
                 {currentStep === 'music-favorites' && renderMusicFavoritesStep()}
             </View>
@@ -2726,9 +2557,13 @@ const MusicLoverSignUpFlow = () => {
                                     ]
                                 );
                             } else {
+                                // TODO: SOFT LAUNCH - Streaming service step removed from step arrays
+                                // const steps: Step[] = formData.selectedStreamingService === 'others' 
+                                //     ? ['username', 'profile-details', 'streaming-service', 'subscription', 'music-favorites']
+                                //     : ['username', 'profile-details', 'streaming-service', 'subscription'];
                                 const steps: Step[] = formData.selectedStreamingService === 'others' 
-                                    ? ['username', 'profile-details', 'streaming-service', 'subscription', 'music-favorites']
-                                    : ['username', 'profile-details', 'streaming-service', 'subscription'];
+                                    ? ['username', 'profile-details', 'subscription', 'music-favorites']
+                                    : ['username', 'profile-details', 'subscription'];
                                 const currentIndex = steps.indexOf(currentStep);
                                 if (currentIndex > 0) {
                                     goToPreviousStep(steps[currentIndex - 1]);
@@ -2742,20 +2577,23 @@ const MusicLoverSignUpFlow = () => {
                         <View style={[
                             authStyles.signupStepIndicator, 
                             currentStep === 'username' ? authStyles.signupStepIndicatorCurrent : 
-                            (currentStep === 'profile-details' || currentStep === 'streaming-service' || 
+                            // TODO: SOFT LAUNCH - Removed streaming-service from step indicators
+                            (currentStep === 'profile-details' || 
                             currentStep === 'subscription' || currentStep === 'music-favorites') ? authStyles.signupStepIndicatorActive : {}
                         ]} />
                         <View style={[
                             authStyles.signupStepIndicator, 
                             currentStep === 'profile-details' ? authStyles.signupStepIndicatorCurrent : 
-                            (currentStep === 'streaming-service' || currentStep === 'subscription' || 
+                            // TODO: SOFT LAUNCH - Removed streaming-service from step indicators
+                            (currentStep === 'subscription' || 
                             currentStep === 'music-favorites') ? authStyles.signupStepIndicatorActive : {}
                         ]} />
-                        <View style={[
+                        {/* TODO: SOFT LAUNCH - Streaming service step indicator commented out */}
+                        {/* <View style={[
                             authStyles.signupStepIndicator, 
                             currentStep === 'streaming-service' ? authStyles.signupStepIndicatorCurrent : 
                             (currentStep === 'subscription' || currentStep === 'music-favorites') ? authStyles.signupStepIndicatorActive : {}
-                        ]} />
+                        ]} /> */}
                         <View style={[
                             authStyles.signupStepIndicator, 
                             currentStep === 'subscription' ? authStyles.signupStepIndicatorCurrent : 

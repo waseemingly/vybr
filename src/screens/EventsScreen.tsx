@@ -1006,8 +1006,8 @@ const EventsScreen: React.FC = () => {
     // Process events whenever raw data or user profile changes
     useEffect(() => {
         console.log("[EventsScreen] Processing events for tabs...");
-        if (userProfile === undefined || organizerMap.size === 0) { 
-             console.log("[EventsScreen] Waiting for user profile or organizer map...");
+        if (userProfile === undefined) { 
+             console.log("[EventsScreen] Waiting for user profile...");
              setIsLoading(true);
              return; 
         }

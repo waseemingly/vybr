@@ -450,12 +450,14 @@ const UserSettingsScreen: React.FC = () => {
             <ScrollView style={styles.scrollView} contentContainerStyle={styles.contentContainer}>
                 <SettingsSection title="Profile Settings">
                     <SettingsItem label="Edit Profile" icon="edit-3" onPress={navigateToEditProfile} />
-                    <SettingsItem label="Change Profile Theme" icon="sun" onPress={() => Alert.alert("Theme", "TODO: Implement Theme Selection")} />
+                    {/* COMMENTED OUT FOR SOFT LAUNCH */}
+                    {/* <SettingsItem label="Change Profile Theme" icon="sun" onPress={() => Alert.alert("Theme", "TODO: Implement Theme Selection")} /> */}
                 </SettingsSection>
 
                 <SettingsSection title="Music Preferences">
                     <SettingsItem label="Update Favorites" icon="sliders" onPress={navigateToUpdateMusicFavorites} />
-                    <SettingsItem
+                    {/* COMMENTED OUT FOR SOFT LAUNCH */}
+                    {/* <SettingsItem
                         label="Link Music Services"
                         icon="link"
                         value="Not available"
@@ -466,23 +468,25 @@ const UserSettingsScreen: React.FC = () => {
                         icon="share-2"
                         value="(Coming Soon)"
                         disabled={true}
-                    />
+                    /> */}
                 </SettingsSection>
 
                  <SettingsSection title="Privacy & Security">
                      {/* Temporarily remove value prop until counts are available */}
                      <SettingsItem label="Muted Users" icon="volume-x" onPress={navigateToMutedList} /* value={musicLoverProfile?.mutedUsersCount ? `${musicLoverProfile.mutedUsersCount} users` : "N/A"} */ />
                      <SettingsItem label="Blocked Users" icon="slash" onPress={navigateToBlockedList} /* value={musicLoverProfile?.blockedUsersCount ? `${musicLoverProfile.blockedUsersCount} users` : "N/A"} */ />
-                     <SettingsItem label="Active Sessions" icon="smartphone" onPress={() => Alert.alert("Not Implemented", "Listing sessions requires specific backend setup.")} value="Not available" disabled />
+                     {/* COMMENTED OUT FOR SOFT LAUNCH */}
+                     {/* <SettingsItem label="Active Sessions" icon="smartphone" onPress={() => Alert.alert("Not Implemented", "Listing sessions requires specific backend setup.")} value="Not available" disabled /> */}
                      {/* <SettingsItem label="Log Out Everywhere Else" icon="log-out" onPress={handleLogoutAllDevices} /> */}
                  </SettingsSection>
 
-                <SettingsSection title="Notifications">
+                {/* COMMENTED OUT FOR SOFT LAUNCH */}
+                {/* <SettingsSection title="Notifications">
                     <SettingsItem label="New Matches" icon="heart" toggleValue={notifications.notify_new_matches ?? true} onToggleChange={(v) => handleToggle('notify_new_matches', v)} isUpdating={updatingSetting === 'notify_new_matches'} disabled={notifications.notify_new_matches === null}/>
                     <SettingsItem label="Event Updates & Invites" icon="calendar" toggleValue={notifications.notify_event_updates ?? true} onToggleChange={(v) => handleToggle('notify_event_updates', v)} isUpdating={updatingSetting === 'notify_event_updates'} disabled={notifications.notify_event_updates === null}/>
                     <SettingsItem label="Friend Requests / Followers" icon="user-plus" toggleValue={notifications.notify_friend_requests ?? true} onToggleChange={(v) => handleToggle('notify_friend_requests', v)} isUpdating={updatingSetting === 'notify_friend_requests'} disabled={notifications.notify_friend_requests === null}/>
                     <SettingsItem label="New Messages" icon="message-square" toggleValue={notifications.notify_new_messages ?? true} onToggleChange={(v) => handleToggle('notify_new_messages', v)} isUpdating={updatingSetting === 'notify_new_messages'} disabled={notifications.notify_new_messages === null}/>
-                </SettingsSection>
+                </SettingsSection> */}
 
                 <SettingsSection title="Payment & Billing">
                     <SettingsItem 
@@ -491,23 +495,25 @@ const UserSettingsScreen: React.FC = () => {
                         onPress={navigateToManagePlan} 
                         value={isPremiumUser ? "Premium account" : "Optional for free users"}
                     />
-                    <SettingsItem 
+                    {/* COMMENTED OUT FOR SOFT LAUNCH */}
+                    {/* <SettingsItem 
                         label="Billing History" 
                         icon="file-text" 
                         onPress={navigateToBillingHistory} 
                         value={isPremiumUser ? "View history" : "Not available"}
                         disabled={!isPremiumUser}
-                    />
+                    /> */}
                 </SettingsSection>
 
                 {isPremiumUser ? (
                      <SettingsSection title="Premium Subscription" isPremiumFeature isPremiumUser={isPremiumUser}>
-                        <SettingsItem
+                        {/* COMMENTED OUT FOR SOFT LAUNCH */}
+                        {/* <SettingsItem
                             label="AI Radio"
                             icon="radio"
                             value="Coming soon"
                             disabled
-                        />
+                        /> */}
                         <SettingsItem label="Cancel Subscription" icon="x-circle" onPress={navigateToManageSubscription} />
                      </SettingsSection>
                  ) : (
@@ -535,7 +541,8 @@ const UserSettingsScreen: React.FC = () => {
                 </SettingsSection>
 
                 <SettingsSection title="Account Management">
-                    <SettingsItem label="Download My Data" icon="download" onPress={handleDownloadData} disabled={isDeleting} />
+                    {/* COMMENTED OUT FOR SOFT LAUNCH */}
+                    {/* <SettingsItem label="Download My Data" icon="download" onPress={handleDownloadData} disabled={isDeleting} /> */}
                     <SettingsItem 
                         label="Delete Account" 
                         icon="trash-2" 

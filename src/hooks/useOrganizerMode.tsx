@@ -1,7 +1,12 @@
-import React, { createContext, useState, useContext, ReactNode } from "react";
+import React, { createContext, useState, useContext, ReactNode, useEffect, useCallback } from "react";
+import { Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const ORGANIZER_MODE_KEY = '@vybr_organizer_mode';
 
 interface OrganizerModeContextType {
   isOrganizerMode: boolean;
+  isOrganizerModeLoaded: boolean; // New: track if mode has been loaded from storage
   toggleOrganizerMode: () => void;
   setIsOrganizerMode: (value: boolean) => void;
 }
@@ -17,15 +22,62 @@ interface OrganizerModeProviderProps {
 export const OrganizerModeProvider = ({
   children,
 }: OrganizerModeProviderProps) => {
-  const [isOrganizerMode, setIsOrganizerMode] = useState(false);
+  const [isOrganizerMode, setIsOrganizerModeState] = useState(false);
+  const [isOrganizerModeLoaded, setIsOrganizerModeLoaded] = useState(false);
 
-  const toggleOrganizerMode = () => {
-    setIsOrganizerMode((prevMode) => !prevMode);
-  };
+  // Load organizer mode from storage on mount
+  useEffect(() => {
+    const loadOrganizerMode = async () => {
+      try {
+        let storedMode: string | null = null;
+        
+        if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+          storedMode = localStorage.getItem(ORGANIZER_MODE_KEY);
+        } else {
+          storedMode = await AsyncStorage.getItem(ORGANIZER_MODE_KEY);
+        }
+        
+        if (storedMode !== null) {
+          const parsedMode = storedMode === 'true';
+          console.log('[OrganizerModeProvider] Loaded organizer mode from storage:', parsedMode);
+          setIsOrganizerModeState(parsedMode);
+        }
+      } catch (error) {
+        console.error('[OrganizerModeProvider] Error loading organizer mode:', error);
+      } finally {
+        setIsOrganizerModeLoaded(true);
+      }
+    };
+    
+    loadOrganizerMode();
+  }, []);
+
+  // Persist organizer mode to storage whenever it changes
+  const setIsOrganizerMode = useCallback((value: boolean) => {
+    setIsOrganizerModeState(value);
+    
+    // Persist to storage
+    try {
+      if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+        localStorage.setItem(ORGANIZER_MODE_KEY, String(value));
+        console.log('[OrganizerModeProvider] Saved organizer mode to localStorage:', value);
+      } else {
+        AsyncStorage.setItem(ORGANIZER_MODE_KEY, String(value)).then(() => {
+          console.log('[OrganizerModeProvider] Saved organizer mode to AsyncStorage:', value);
+        });
+      }
+    } catch (error) {
+      console.error('[OrganizerModeProvider] Error saving organizer mode:', error);
+    }
+  }, []);
+
+  const toggleOrganizerMode = useCallback(() => {
+    setIsOrganizerMode(!isOrganizerMode);
+  }, [isOrganizerMode, setIsOrganizerMode]);
 
   return (
     <OrganizerModeContext.Provider
-      value={{ isOrganizerMode, toggleOrganizerMode, setIsOrganizerMode }}
+      value={{ isOrganizerMode, isOrganizerModeLoaded, toggleOrganizerMode, setIsOrganizerMode }}
     >
       {children}
     </OrganizerModeContext.Provider>

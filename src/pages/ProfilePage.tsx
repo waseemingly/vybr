@@ -360,7 +360,8 @@ const ProfilePage = () => {
               </ProfileSection>
             )}
             
-            <ProfileSection title="Favourite Genres" icon={Music}>
+            {/* Favourite Genres Section - COMMENTED OUT FOR SOFT LAUNCH */}
+            {/* <ProfileSection title="Favourite Genres" icon={Music}>
               <div className="flex flex-wrap gap-2">
                 {USER_DATA.genres.map((genre, index) => (
                   <Badge 
@@ -371,9 +372,10 @@ const ProfilePage = () => {
                   </Badge>
                 ))}
               </div>
-            </ProfileSection>
+            </ProfileSection> */}
             
-            <ProfileSection 
+            {/* Favourite Artists Section - COMMENTED OUT FOR SOFT LAUNCH */}
+            {/* <ProfileSection 
               title="Favourite Artists" 
               icon={HeadphonesIcon} 
               isPremiumFeature={USER_DATA.isPremium && USER_DATA.artists.length > 10}
@@ -394,9 +396,10 @@ const ProfilePage = () => {
                   </Badge>
                 ))}
               </div>
-            </ProfileSection>
+            </ProfileSection> */}
             
-            <ProfileSection 
+            {/* Favourite Songs Section - COMMENTED OUT FOR SOFT LAUNCH */}
+            {/* <ProfileSection 
               title="Favourite Songs" 
               icon={Disc}
               isPremiumFeature={USER_DATA.isPremium && USER_DATA.songs.length > 10}
@@ -436,7 +439,7 @@ const ProfilePage = () => {
                   </Button>
                 </div>
               )}
-            </ProfileSection>
+            </ProfileSection> */}
             
             <ProfileSection title="Favourite Albums" icon={Album}>
               <div className="grid grid-cols-1 gap-3">
@@ -460,8 +463,8 @@ const ProfilePage = () => {
               </div>
             </ProfileSection>
             
-            {/* Match Radio Feature for Premium Users */}
-            {USER_DATA.isPremium && (
+            {/* Match Radio Feature for Premium Users - COMMENTED OUT FOR SOFT LAUNCH */}
+            {/* {USER_DATA.isPremium && (
               <ProfileSection title="Match Radio" icon={Radio} isPremiumFeature={true}>
                 <Card className="bg-gradient-to-r from-vybr-blue/10 to-vybr-midBlue/10 border-0 p-4">
                   <div className="flex items-center justify-between">
@@ -476,7 +479,7 @@ const ProfilePage = () => {
                   </Button>
                 </Card>
               </ProfileSection>
-            )}
+            )} */}
             
             {/* Organizer Mode Toggle */}
             <div className="mt-8 mb-10">
