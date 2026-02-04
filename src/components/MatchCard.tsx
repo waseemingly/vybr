@@ -236,41 +236,41 @@ const MatchCard: React.FC<MatchCardProps> = ({
                         )}
                     </View>
 
-                    {/* Top Artists Section */}
-                    {hasTopArtists && (
+                    {/* Top Artists Section - COMMENTED OUT FOR SOFT LAUNCH */}
+                    {/* {hasTopArtists && (
                         <View style={styles.matchedMusicSection}>
                             <Feather name="mic" size={14} color="#4F46E5" style={styles.matchedMusicIcon}/>
                             <Text style={styles.matchedMusicTitle}>Similar Artists:</Text>
                             {renderMusicList(topArtists, showAllArtists, setShowAllArtists, 'artist')}
                         </View>
-                    )}
+                    )} */}
 
-                    {/* Top Tracks Section */}
-                    {hasTopTracks && (
+                    {/* Top Tracks Section - COMMENTED OUT FOR SOFT LAUNCH */}
+                    {/* {hasTopTracks && (
                         <View style={styles.matchedMusicSection}>
                             <Feather name="disc" size={14} color="#8B5CF6" style={styles.matchedMusicIcon}/>
                             <Text style={styles.matchedMusicTitle}>Similar Tracks:</Text>
                             {renderMusicList(topTracks, showAllTracks, setShowAllTracks, 'track')}
                         </View>
-                    )}
+                    )} */}
 
-                    {/* Top Genres Section */}
-                    {hasTopGenres && (
+                    {/* Top Genres Section - COMMENTED OUT FOR SOFT LAUNCH */}
+                    {/* {hasTopGenres && (
                         <View style={styles.matchedMusicSection}>
                             <Feather name="headphones" size={14} color="#EC4899" style={styles.matchedMusicIcon}/>
                             <Text style={styles.matchedMusicTitle}>Similar Genres:</Text>
                             {renderMusicList(topGenres, showAllGenres, setShowAllGenres, 'genre')}
                         </View>
-                    )}
+                    )} */}
 
-                    {/* Top Moods Section - Only for Premium Viewers, data already filtered by SQL for match premium status */}
-                    {hasTopMoods && (
+                    {/* Top Moods Section - Only for Premium Viewers, data already filtered by SQL for match premium status - COMMENTED OUT FOR SOFT LAUNCH */}
+                    {/* {hasTopMoods && (
                         <View style={styles.matchedMusicSection}>
                             <Feather name="smile" size={14} color="#F59E0B" style={styles.matchedMusicIcon}/>
                             <Text style={styles.matchedMusicTitle}>Similar Moods:</Text>
                             {renderMusicList(topMoods, showAllMoods, setShowAllMoods, 'mood', true)}
                         </View>
-                    )}
+                    )} */}
 
                     {/* "About [Name]" Section */}
                     {hasBioDetails ? (

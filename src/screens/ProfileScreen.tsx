@@ -613,9 +613,9 @@ const ProfileScreen: React.FC = () => {
                     <View style={styles.bioDetailsListContainer}>{allBioDetails.map((d, i) => (<View key={i} style={styles.bioDetailItem}><Text style={styles.bioDetailLabel}>{d.label}:</Text><Text style={styles.bioDetailValue}>{d.value}</Text></View>))}</View>
                 </ProfileSection>
                 
-                {/* Top Artists Section - From Spotify */}
-                <ProfileSection title="Top Artists" icon="users" expanded={expandedSections.artists} onToggle={() => toggleSection("artists")} hasData={topArtists.length > 0}>
-                    {/* Spotify Reconnection Notice - Show if we have data but no current auth */}
+                {/* Top Artists Section - From Spotify - COMMENTED OUT FOR SOFT LAUNCH */}
+                {/* <ProfileSection title="Top Artists" icon="users" expanded={expandedSections.artists} onToggle={() => toggleSection("artists")} hasData={topArtists.length > 0}>
+                    Spotify Reconnection Notice - Show if we have data but no current auth
                     {serviceId === 'spotify' && topArtists.length > 0 && !isSpotifyLoggedIn && !spotifyAccessToken && !spotifyAuthLoading && (
                         <View style={styles.reconnectionNotice}>
                             <View style={styles.reconnectionHeader}>
@@ -635,7 +635,7 @@ const ProfileScreen: React.FC = () => {
                         </View>
                     )}
                     
-                    {/* Spotify Refresh Button - Show if Spotify is connected OR user has authenticated with Spotify */}
+                    Spotify Refresh Button - Show if Spotify is connected OR user has authenticated with Spotify
                     {(serviceId === 'spotify' || isSpotifyLoggedIn) && (
                         <TouchableOpacity 
                             style={styles.refreshSpotifyButton}
@@ -708,11 +708,11 @@ const ProfileScreen: React.FC = () => {
                                   </View>
                         )
                     )}
-                </ProfileSection>
+                </ProfileSection> */}
                 
-                {/* Top Tracks Section - From Spotify */}
-                <ProfileSection title="Top Tracks" icon="music" expanded={expandedSections.tracks} onToggle={() => toggleSection("tracks")} hasData={topTracks.length > 0}>
-                    {/* Spotify Reconnection Notice - Show if we have data but no current auth */}
+                {/* Top Tracks Section - From Spotify - COMMENTED OUT FOR SOFT LAUNCH */}
+                {/* <ProfileSection title="Top Tracks" icon="music" expanded={expandedSections.tracks} onToggle={() => toggleSection("tracks")} hasData={topTracks.length > 0}>
+                    Spotify Reconnection Notice - Show if we have data but no current auth
                     {serviceId === 'spotify' && topTracks.length > 0 && !isSpotifyLoggedIn && !spotifyAccessToken && !spotifyAuthLoading && (
                         <View style={styles.reconnectionNotice}>
                             <View style={styles.reconnectionHeader}>
@@ -732,7 +732,7 @@ const ProfileScreen: React.FC = () => {
                         </View>
                     )}
                     
-                    {/* Spotify Refresh Button - Show if Spotify is connected OR user has authenticated with Spotify */}
+                    Spotify Refresh Button - Show if Spotify is connected OR user has authenticated with Spotify
                     {(serviceId === 'spotify' || isSpotifyLoggedIn) && (
                         <TouchableOpacity 
                             style={styles.refreshSpotifyButton}
@@ -801,11 +801,11 @@ const ProfileScreen: React.FC = () => {
                             )}
                            </View>
                        )}
-                </ProfileSection>
+                </ProfileSection> */}
                 
-                {/* Top Genres Section - From Spotify */}
-                <ProfileSection title="Top Genres" icon="tag" expanded={expandedSections.genres} onToggle={() => toggleSection("genres")} hasData={topGenres.length > 0}>
-                    {/* Spotify Reconnection Notice - Show if we have data but no current auth */}
+                {/* Top Genres Section - From Spotify - COMMENTED OUT FOR SOFT LAUNCH */}
+                {/* <ProfileSection title="Top Genres" icon="tag" expanded={expandedSections.genres} onToggle={() => toggleSection("genres")} hasData={topGenres.length > 0}>
+                    Spotify Reconnection Notice - Show if we have data but no current auth
                     {serviceId === 'spotify' && topGenres.length > 0 && !isSpotifyLoggedIn && !spotifyAccessToken && !spotifyAuthLoading && (
                         <View style={styles.reconnectionNotice}>
                             <View style={styles.reconnectionHeader}>
@@ -825,7 +825,7 @@ const ProfileScreen: React.FC = () => {
                         </View>
                     )}
                     
-                    {/* Spotify Refresh Button */}
+                    Spotify Refresh Button
                     {(serviceId === 'spotify' || isSpotifyLoggedIn) && (
                         <TouchableOpacity 
                             style={styles.refreshSpotifyButton}
@@ -899,10 +899,10 @@ const ProfileScreen: React.FC = () => {
                             </View>
                         )
                     )}
-                </ProfileSection>
+                </ProfileSection> */}
                 
-                {/* Top Moods Section - From Spotify (Premium Only) */} 
-                <ProfileSection 
+                {/* Top Moods Section - From Spotify (Premium Only) - COMMENTED OUT FOR SOFT LAUNCH */} 
+                {/* <ProfileSection
                     title="Top Moods" 
                     icon="smile" 
                     expanded={expandedSections.moods} 
@@ -911,7 +911,7 @@ const ProfileScreen: React.FC = () => {
                     isPremiumFeature 
                     isPremiumUser={isPremium}
                 >
-                    {/* Spotify Reconnection Notice - Show if we have data but no current auth */}
+                    Spotify Reconnection Notice - Show if we have data but no current auth
                     {serviceId === 'spotify' && topMoods.length > 0 && !isSpotifyLoggedIn && !spotifyAccessToken && !spotifyAuthLoading && (
                         <View style={styles.reconnectionNotice}>
                             <View style={styles.reconnectionHeader}>
@@ -931,7 +931,7 @@ const ProfileScreen: React.FC = () => {
                         </View>
                     )}
                     
-                    {/* Spotify Refresh Button */}
+                    Spotify Refresh Button
                     {(serviceId === 'spotify' || isSpotifyLoggedIn) && isPremium && (
                         <TouchableOpacity 
                             style={styles.refreshSpotifyButton}
@@ -1001,8 +1001,8 @@ const ProfileScreen: React.FC = () => {
                                 </TouchableOpacity>
                             )}
                         </View>
-                    ) : null /* Don't show empty state if not premium and feature is locked */}
-                </ProfileSection>
+                    ) : null
+                </ProfileSection> */}
                 
                 <ProfileSection title="Favorite Artists" icon="star" isPremiumUser={isPremium} expanded={expandedSections.favArtists} onToggle={() => toggleSection("favArtists")} hasData={favArtistsList.length > 0}>
                     <View style={styles.listContainer}>
@@ -1049,9 +1049,10 @@ const ProfileScreen: React.FC = () => {
                          </View>
                  </ProfileSection>
 
-                 <ProfileSection title="Match Radio" icon="radio" isPremiumFeature isPremiumUser={isPremium} hasData={true}>
+                 {/* Match Radio Feature - COMMENTED OUT FOR SOFT LAUNCH */}
+                 {/* <ProfileSection title="Match Radio" icon="radio" isPremiumFeature isPremiumUser={isPremium} hasData={true}>
                      {isPremium ? ( <View style={styles.premiumFeatureCard}><View style={styles.premiumFeatureHeader}><View><Text style={styles.premiumFeatureTitle}>AI Playlists</Text><Text style={styles.premiumFeatureSubtitle}>Blend taste w/ matches</Text></View><View style={styles.featureIconContainer}><Feather name="radio" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} /></View></View><TouchableOpacity style={styles.createButton} onPress={() => Alert.alert("Coming Soon!")}><Text style={styles.createButtonText}>Create Match Radio</Text></TouchableOpacity></View> ) : null }
-                 </ProfileSection>
+                 </ProfileSection> */}
                  <ProfileSection title="My Attended Events" icon="check-square" isPremiumUser={isPremium}>
                       <TouchableOpacity 
                           style={styles.linkButton} 

@@ -660,25 +660,9 @@ const RequiredPaymentScreen: React.FC = () => {
             // Don't block organizer signup - they can set up billing later
         }
 
-        // Enable app tour for organizers after setup completes
-        // Note: This ensures tour is enabled even if handleCardSavedSuccessfully didn't run
-        if (userId) {
-            console.log('[RequiredPayment] 🎯 Enabling app tour for organizer after setup completion...');
-            try {
-                await supabase
-                    .from('organizer_profiles')
-                    .update({ has_completed_tour: false })
-                    .eq('user_id', userId);
-                console.log('[RequiredPayment] ✅ App tour enabled in database for organizer');
-                
-                // Refresh profile so the updated flag is available in memory
-                await refreshUserProfile();
-                console.log('[RequiredPayment] ✅ Profile refreshed with tour flag');
-            } catch (tourError) {
-                console.error('[RequiredPayment] ⚠️ Error enabling app tour:', tourError);
-                // Don't block flow if tour setup fails
-            }
-        }
+        // NOTE: Tour is enabled in handleCardSavedSuccessfully when the organizer first adds their payment method
+        // We do NOT enable it here because verifyAndSetupOrganizer runs on every visit to RequiredPaymentScreen
+        // and would reset the tour flag even after the organizer has already completed the tour
         
         console.log('[RequiredPayment] All verifications passed. Setup is complete.');
         setStatusMessage('Setup complete! Redirecting...');

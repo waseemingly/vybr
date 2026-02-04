@@ -379,16 +379,18 @@ const OrganizerSettingsScreen: React.FC = () => {
                         onPress={navigateToManagePlan}
                         disabled={authLoading}
                     />
-                     <SettingsItem
+                     {/* COMMENTED OUT FOR SOFT LAUNCH */}
+                     {/* <SettingsItem
                         label="Billing History"
                         icon="clock"
                         onPress={navigateToBillingHistory}
                         disabled={authLoading}
-                    />
+                    /> */}
                 </SettingsSection>
 
+                {/* COMMENTED OUT FOR SOFT LAUNCH */}
                 {/* Notifications Section */}
-                <SettingsSection title="Notifications">
+                {/* <SettingsSection title="Notifications">
                     {loadingSettings ? (
                         <ActivityIndicator style={{ marginVertical: 20 }} color={APP_CONSTANTS.COLORS.PRIMARY}/>
                     ) : (
@@ -419,10 +421,11 @@ const OrganizerSettingsScreen: React.FC = () => {
                             />
                         </>
                     )}
-                </SettingsSection>
+                </SettingsSection> */}
 
+                {/* COMMENTED OUT FOR SOFT LAUNCH */}
                 {/* Privacy & Security Section */}
-                <SettingsSection title="Privacy & Security">
+                {/* <SettingsSection title="Privacy & Security">
                     <SettingsItem
                         label="Download Your Data"
                         icon="download-cloud"
@@ -435,7 +438,7 @@ const OrganizerSettingsScreen: React.FC = () => {
                         onPress={handleLogoutAllDevices}
                         disabled // Not implemented
                     />
-                </SettingsSection>
+                </SettingsSection> */}
 
                 <SettingsSection title="Help">
                     <SettingsItem

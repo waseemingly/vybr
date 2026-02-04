@@ -107,9 +107,12 @@ const linking = {
   },
 };
 
+// Navigation state persistence keys
+const NAVIGATION_STATE_KEY = 'NAVIGATION_STATE_V2'; // Bumped version to avoid stale state issues
+const NAVIGATION_USER_ID_KEY = 'NAVIGATION_USER_ID';
+
 export default function App() {
   const [isReady, setIsReady] = React.useState(false);
-  const [initialState, setInitialState] = React.useState();
 
   React.useEffect(() => {
     if (platform !== 'web' && isReady && SplashScreen) {
@@ -157,13 +160,20 @@ export default function App() {
   React.useEffect(() => {
     const restoreState = async () => {
       try {
-        // Only restore state on web platform
+        // For web platform, navigation state restoration is handled in AppNavigator
+        // after auth loads to ensure we have the correct user context.
+        // We only set isReady here to allow the app to render.
+        // 
+        // Note: We don't use initialState on NavigationContainer for web because
+        // the auth state needs to load first to validate the user before restoring.
+        // AppNavigator handles the actual state restoration after auth loads.
+        
         if (platform === 'web' && typeof localStorage !== 'undefined') {
-          const savedStateString = localStorage.getItem('NAVIGATION_STATE_V1');
-          const state = savedStateString ? JSON.parse(savedStateString) : undefined;
-
-          if (state !== undefined) {
-            setInitialState(state);
+          // Clean up old V1 navigation state if it exists
+          const oldState = localStorage.getItem('NAVIGATION_STATE_V1');
+          if (oldState) {
+            console.log('[App] Cleaning up old NAVIGATION_STATE_V1');
+            localStorage.removeItem('NAVIGATION_STATE_V1');
           }
         }
       } finally {
@@ -220,11 +230,30 @@ export default function App() {
                       <NavigationContainer 
                         ref={navigationRef}
                         linking={linking}
-                        initialState={initialState}
                         onStateChange={(state) => {
-                          // Save navigation state to localStorage on web
-                          if (platform === 'web' && typeof localStorage !== 'undefined') {
-                            localStorage.setItem('NAVIGATION_STATE_V1', JSON.stringify(state));
+                          // Save navigation state to storage
+                          if (state) {
+                            try {
+                              // Get current user ID
+                              const currentUserId = (window as any)?.__VYBR_CURRENT_USER_ID__;
+                              
+                              if (platform === 'web' && typeof localStorage !== 'undefined') {
+                                localStorage.setItem(NAVIGATION_STATE_KEY, JSON.stringify(state));
+                                if (currentUserId) {
+                                  localStorage.setItem(NAVIGATION_USER_ID_KEY, currentUserId);
+                                }
+                              } else {
+                                // For mobile, use AsyncStorage
+                                import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) => {
+                                  AsyncStorage.setItem('@vybr_navigation_state', JSON.stringify(state));
+                                  if (currentUserId) {
+                                    AsyncStorage.setItem('@vybr_navigation_user_id', currentUserId);
+                                  }
+                                });
+                              }
+                            } catch (error) {
+                              console.warn('[App] Failed to save navigation state:', error);
+                            }
                           }
                         }}
                       >

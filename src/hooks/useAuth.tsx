@@ -235,6 +235,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         previousSessionRef.current = session;
     }, [session]);
 
+    // Set global user ID for navigation state persistence on web
+    useEffect(() => {
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+            (window as any).__VYBR_CURRENT_USER_ID__ = session?.user?.id || null;
+            console.log('[AuthProvider] Set global user ID for navigation:', session?.user?.id || 'null');
+        }
+    }, [session?.user?.id]);
+
     // Enhanced session persistence for mobile
     const saveSessionToStorage = useCallback(async (sessionData: UserSession | null) => {
         try {
@@ -1625,6 +1633,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             setLoading(false);
             // Clear storage on logout
             await saveSessionToStorage(null);
+            
+            // Clear navigation state on logout to prevent restoring old user's navigation
+            if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+                localStorage.removeItem('NAVIGATION_STATE_V2');
+                localStorage.removeItem('NAVIGATION_USER_ID');
+                console.log('[AuthProvider] logout: Cleared navigation state from localStorage');
+            } else {
+                // Clear navigation state from AsyncStorage on mobile
+                try {
+                    await AsyncStorage.removeItem('@vybr_navigation_state');
+                    await AsyncStorage.removeItem('@vybr_navigation_user_id');
+                    console.log('[AuthProvider] logout: Cleared navigation state from AsyncStorage');
+                } catch (navClearError) {
+                    console.error('[AuthProvider] logout: Error clearing navigation state:', navClearError);
+                }
+            }
         }
     };
 

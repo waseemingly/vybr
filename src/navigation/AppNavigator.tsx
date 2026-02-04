@@ -1174,6 +1174,21 @@ const MainAppStack = () => {
   );
 }
 
+// Helper function to check if saved navigation state is for organizer mode
+const isOrganizerModeFromState = (state: any): boolean => {
+  try {
+    // Navigate through the state to find if OrganizerTabs is in the routes
+    const mainAppRoute = state?.routes?.find((r: any) => r.name === 'MainApp');
+    const mainAppState = mainAppRoute?.state;
+    if (mainAppState?.routes) {
+      return mainAppState.routes.some((r: any) => r.name === 'OrganizerTabs');
+    }
+    return false;
+  } catch {
+    return false;
+  }
+};
+
 // --- Root Navigator Logic with Enhanced Payment Protection ---
 const AppNavigator = () => {
   const {
@@ -1184,6 +1199,9 @@ const AppNavigator = () => {
     userType,
     currentStripeCustomerId,
   } = usePaymentRequirementCheck();
+  const { isOrganizerModeLoaded, isOrganizerMode, setIsOrganizerMode } = useOrganizerMode();
+  const hasRestoredNavState = useRef(false);
+  const pendingRestoreState = useRef<any>(null);
 
   // --- Tour suppression ---
   // We want to prevent the user guide from auto-starting while the PaymentRequired gate
@@ -1196,7 +1214,128 @@ const AppNavigator = () => {
     // This effect will trigger re-renders when payment method changes
   }, [currentStripeCustomerId]);
 
-  if (loading) { 
+  // Execute pending navigation restore after organizer mode is synced
+  useEffect(() => {
+    if (pendingRestoreState.current && isOrganizerModeLoaded) {
+      const savedState = pendingRestoreState.current;
+      const stateIsOrganizerMode = isOrganizerModeFromState(savedState);
+      
+      // Only restore when organizer mode matches the saved state
+      if (stateIsOrganizerMode === isOrganizerMode) {
+        console.log('[AppNavigator] Organizer mode synced, executing pending navigation restore');
+        pendingRestoreState.current = null;
+        
+        // Use requestAnimationFrame to ensure React has re-rendered with correct screens
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            try {
+              const { navigationRef } = require('./navigationRef');
+              if (navigationRef.current?.isReady()) {
+                navigationRef.current.reset(savedState);
+                console.log('[AppNavigator] Navigation state restored successfully');
+              } else {
+                console.warn('[AppNavigator] Navigation ref not ready for state restore');
+              }
+            } catch (resetError) {
+              console.warn('[AppNavigator] Failed to restore navigation state:', resetError);
+            }
+          }, 100);
+        });
+      }
+    }
+  }, [isOrganizerMode, isOrganizerModeLoaded]);
+
+  // Restore navigation state after auth loads
+  // This runs as a side effect and uses the global navigationRef from App.tsx
+  useEffect(() => {
+    const restoreNavigationState = async () => {
+      // Only run once after loading completes and we have a valid session with MainApp access
+      if (
+        !loading && 
+        isOrganizerModeLoaded &&
+        session && 
+        isProfileComplete && 
+        !requiresPaymentScreen && 
+        !hasRestoredNavState.current
+      ) {
+        hasRestoredNavState.current = true;
+        
+        let savedStateString: string | null = null;
+        let savedUserId: string | null = null;
+        
+        try {
+          if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+            savedStateString = localStorage.getItem('NAVIGATION_STATE_V2');
+            savedUserId = localStorage.getItem('NAVIGATION_USER_ID');
+          } else {
+            // For mobile, use AsyncStorage
+            const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+            savedStateString = await AsyncStorage.getItem('@vybr_navigation_state');
+            savedUserId = await AsyncStorage.getItem('@vybr_navigation_user_id');
+          }
+          
+          if (savedStateString && savedUserId === session.user?.id) {
+            const savedState = JSON.parse(savedStateString);
+            
+            // Validate that the saved state is for MainApp (authenticated routes)
+            if (savedState?.routes?.[0]?.name === 'MainApp') {
+              console.log('[AppNavigator] Restoring saved navigation state for user:', savedUserId);
+              
+              // Check if the saved state is for organizer mode
+              const stateIsOrganizerMode = isOrganizerModeFromState(savedState);
+              console.log('[AppNavigator] Saved state is organizer mode:', stateIsOrganizerMode, ', current isOrganizerMode:', isOrganizerMode);
+              
+              // If the saved state's organizer mode doesn't match current, sync it first
+              if (stateIsOrganizerMode !== isOrganizerMode) {
+                console.log('[AppNavigator] Syncing organizer mode to match saved state:', stateIsOrganizerMode);
+                pendingRestoreState.current = savedState;
+                setIsOrganizerMode(stateIsOrganizerMode);
+                // The restore will happen in the useEffect above after mode syncs
+                return;
+              }
+              
+              // Organizer mode already matches, restore immediately
+              // Use requestAnimationFrame + setTimeout to ensure the navigator is fully mounted
+              requestAnimationFrame(() => {
+                setTimeout(() => {
+                  try {
+                    // Use the global navigationRef that's set up in App.tsx
+                    const { navigationRef } = require('./navigationRef');
+                    if (navigationRef.current?.isReady()) {
+                      navigationRef.current.reset(savedState);
+                      console.log('[AppNavigator] Navigation state restored successfully');
+                    } else {
+                      console.warn('[AppNavigator] Navigation ref not ready for state restore');
+                    }
+                  } catch (resetError) {
+                    console.warn('[AppNavigator] Failed to restore navigation state:', resetError);
+                  }
+                }, 100);
+              });
+            } else {
+              console.log('[AppNavigator] Saved state is not for MainApp, skipping restore');
+            }
+          } else if (savedStateString && savedUserId !== session.user?.id) {
+            console.log('[AppNavigator] Saved navigation state is for different user, clearing');
+            if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+              localStorage.removeItem('NAVIGATION_STATE_V2');
+              localStorage.removeItem('NAVIGATION_USER_ID');
+            } else {
+              const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+              await AsyncStorage.removeItem('@vybr_navigation_state');
+              await AsyncStorage.removeItem('@vybr_navigation_user_id');
+            }
+          }
+        } catch (error) {
+          console.warn('[AppNavigator] Failed to restore navigation state:', error);
+        }
+      }
+    };
+    
+    restoreNavigationState();
+  }, [loading, isOrganizerModeLoaded, session, isProfileComplete, requiresPaymentScreen, isOrganizerMode, setIsOrganizerMode]);
+
+  if (loading || !isOrganizerModeLoaded) { 
     console.log("[AppNavigator] Showing loading screen...");
     return <LoadingScreen />; 
   }
