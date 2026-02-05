@@ -11,6 +11,8 @@
 
   <body>
     <div id="root"></div>
+    <!-- Polyfill for Node/RN globals (e.g. global) so deps work in browser -->
+    <script>var global = window.globalThis || window;</script>
     <!-- IMPORTANT: DO NOT REMOVE THIS SCRIPT TAG OR THIS VERY COMMENT! -->
     <script src="https://cdn.gpteng.co/gptengineer.js" type="module"></script>
     <script type="module" src="/src/main.tsx"></script>
