@@ -67,6 +67,10 @@ function jsxInJsPlugin() {
 export default defineConfig({
   server: { host: "::", port: 8080 },
   plugins: [reactNativeStubsPlugin(), jsxInJsPlugin(), react()],
+  define: {
+    // React Native / Metro global; false in production, true in dev
+    __DEV__: process.env.NODE_ENV !== "production",
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
