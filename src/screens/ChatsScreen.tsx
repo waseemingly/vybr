@@ -18,6 +18,7 @@ import type { RootStackParamList } from "@/navigation/AppNavigator"; // Adjust p
 import { APP_CONSTANTS } from '@/config/constants'; // Adjust path
 import ChatsTabs, { ChatItem, IndividualChatListItem } from '@/components/ChatsTabs'; // Import updated ChatsTabs and ChatItem type (adjust path)
 import ChatPanelWrapper from '@/components/ChatPanelWrapper'; // Import the new ChatPanelWrapper component
+import { useIsMobileBrowser } from '@/hooks/use-mobile'; // Import mobile browser detection hook
 // --- End Adjustments ---
 
 type ChatsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'ChatsScreen'>;
@@ -28,6 +29,7 @@ export type IndividualSubTab = 'chats' | 'pending';
 const ChatsScreen = () => {
     const navigation = useNavigation<ChatsScreenNavigationProp>();
     const route = useRoute();
+    const isMobileBrowser = useIsMobileBrowser(); // Detect if we're on a mobile browser
 
     // State managed by this screen: Search Query and Active Tab
     const [searchQuery, setSearchQuery] = useState('');
@@ -35,7 +37,7 @@ const ChatsScreen = () => {
     // New state for individual sub-tab
     const [individualSubTab, setIndividualSubTab] = useState<IndividualSubTab>('chats');
     
-    // New state for web chat panel
+    // New state for web chat panel (desktop only)
     const [selectedChat, setSelectedChat] = useState<ChatItem | null>(null);
 
     // Handle route parameters for notification navigation (web only)
@@ -43,11 +45,12 @@ const ChatsScreen = () => {
     const [notificationChatType, setNotificationChatType] = useState<'individual' | 'group' | undefined>();
 
     useEffect(() => {
-        if (Platform.OS === 'web' && route.params) {
+        // Handle notification navigation for desktop web only (mobile browsers use direct navigation)
+        if (Platform.OS === 'web' && !isMobileBrowser && route.params) {
             const { selectedChatId, chatType } = route.params as any;
             
             if (selectedChatId && chatType) {
-                console.log('[ChatsScreen] Notification navigation detected:', { selectedChatId, chatType });
+                console.log('[ChatsScreen] Notification navigation detected (desktop web):', { selectedChatId, chatType });
                 
                 // Set the notification chat info for ChatsTabs to handle
                 setNotificationChatId(selectedChatId);
@@ -57,7 +60,7 @@ const ChatsScreen = () => {
                 (navigation as any).setParams({ selectedChatId: undefined, chatType: undefined });
             }
         }
-    }, [route.params, navigation]);
+    }, [route.params, navigation, isMobileBrowser]);
 
     // --- Handlers ---
 
@@ -68,12 +71,16 @@ const ChatsScreen = () => {
         console.log('🔍 ChatsScreen: handleChatOpen called with:', {
             type: selectedChatItem.type,
             data: selectedChatItem.data,
-            platform: Platform.OS
+            platform: Platform.OS,
+            isMobileBrowser: isMobileBrowser
         });
         
-        if (Platform.OS === 'web') {
-            // On web, use the chat panel instead of navigation
-            console.log('🔍 ChatsScreen: Using web chat panel');
+        // Use side-by-side panel only for desktop web, use navigation for mobile browsers and native mobile
+        const useChatPanel = Platform.OS === 'web' && !isMobileBrowser;
+        
+        if (useChatPanel) {
+            // On desktop web, use the chat panel instead of navigation
+            console.log('🔍 ChatsScreen: Using desktop web chat panel');
             setSelectedChat(selectedChatItem);
             
             // Clear notification state if this was triggered by a notification
@@ -82,8 +89,8 @@ const ChatsScreen = () => {
                 setNotificationChatType(undefined);
             }
         } else {
-            // On mobile, use normal navigation
-            console.log('🔍 ChatsScreen: Using mobile navigation');
+            // On mobile browsers and native mobile, use normal navigation (full screen)
+            console.log('🔍 ChatsScreen: Using mobile navigation (full screen)');
             if (selectedChatItem.type === 'individual') {
                 const itemData = selectedChatItem.data as IndividualChatListItem; // Cast to ensure type safety with new fields
                 const partnerName = `${itemData.partner_first_name || ''} ${itemData.partner_last_name || ''}`.trim() || 'Chat';
@@ -125,7 +132,7 @@ const ChatsScreen = () => {
                 }
             }
         }
-    }, [navigation, notificationChatId, notificationChatType]);
+    }, [navigation, notificationChatId, notificationChatType, isMobileBrowser]);
 
     // Handle closing chat panel (web only)
     const handleCloseChat = useCallback(() => {
@@ -178,8 +185,11 @@ const ChatsScreen = () => {
 
     // --- Render Logic ---
     
-    // On web, render 3-panel layout
-    if (Platform.OS === 'web') {
+    // On desktop web, render 3-panel layout (side-by-side)
+    // On mobile browsers, use single-panel layout with navigation (same as mobile app)
+    const useWebLayout = Platform.OS === 'web' && !isMobileBrowser;
+    
+    if (useWebLayout) {
         return (
             <SafeAreaView style={styles.webContainer} edges={['top']}>
                 {/* Left Panel: Chat List */}
