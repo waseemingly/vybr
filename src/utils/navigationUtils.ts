@@ -1,6 +1,33 @@
 import { Platform } from 'react-native';
 import { RootStackParamList } from '../navigation/AppNavigator'; // Adjust path if needed
 
+// Helper function to detect if device is a mobile phone (not tablet/desktop)
+const isMobilePhone = (): boolean => {
+  if (typeof window === 'undefined' || Platform.OS !== 'web') {
+    return false;
+  }
+
+  const userAgent = window.navigator.userAgent.toLowerCase();
+  
+  // Check for tablets - these should use desktop layout
+  const isTablet = /ipad|android(?!.*mobile)|tablet/i.test(userAgent) ||
+    (window.navigator.maxTouchPoints && window.navigator.maxTouchPoints > 2 && /MacIntel/.test(window.navigator.platform));
+  
+  // If it's a tablet, return false (use desktop layout)
+  if (isTablet) {
+    return false;
+  }
+
+  // Check for actual mobile phones
+  const isPhone = /android|webos|iphone|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+  
+  // Also check screen size for phones (smaller than typical tablet)
+  // Phones are typically < 768px, tablets are usually >= 768px
+  const isSmallScreen = window.innerWidth < 768;
+  
+  return isPhone && isSmallScreen;
+};
+
 /**
  * Parses a deep link URL string and returns a route name and params object
  * for React Navigation.
@@ -366,7 +393,12 @@ export const parseDeepLink = (url: string): { routeName: keyof RootStackParamLis
           }
         } else if (rest[0]) {
           // Individual chat
-          if (Platform.OS === 'web') {
+          // Check if we're on desktop web (not mobile phone browser)
+          // Tablets (iPad Pro, etc.) and desktops use desktop layout
+          const isDesktopWeb = Platform.OS === 'web' && typeof window !== 'undefined' && !isMobilePhone();
+          
+          if (isDesktopWeb) {
+            // Desktop web: navigate to Chats screen with selected chat (side-by-side)
             return {
               routeName: 'MainApp',
               params: {
@@ -378,6 +410,7 @@ export const parseDeepLink = (url: string): { routeName: keyof RootStackParamLis
               },
             };
           } else {
+            // Mobile browsers and native mobile: navigate directly to chat screen (full screen)
             return {
               routeName: 'IndividualChatScreen',
               params: { matchUserId: rest[0] },

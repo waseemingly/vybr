@@ -14,6 +14,7 @@ import { useNavigation, NavigationProp, useNavigationState, useFocusEffect } fro
 import { supabase } from '@/lib/supabase';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
 import UserGuideTour from '@/components/UserGuideTour';
+import { useIsMobileBrowser } from '@/hooks/use-mobile';
 
 // --- Import ALL your screens ---
 import MatchesScreen from "@/screens/MatchesScreen";
@@ -929,14 +930,18 @@ const WebLayoutWrapper = ({ children, isOrganizerMode = false }: { children: Rea
 
 // Platform-aware tab components
 const UserTabs = () => {
-  if (Platform.OS === 'web') {
+  const isMobileBrowser = useIsMobileBrowser();
+  // Use mobile layout for mobile browsers (web with small screen) or native mobile
+  if (Platform.OS === 'web' && !isMobileBrowser) {
     return <WebVerticalTabsUser />;
   }
   return <MobileUserTabs />;
 };
 
 const OrganizerTabs = () => {
-  if (Platform.OS === 'web') {
+  const isMobileBrowser = useIsMobileBrowser();
+  // Use mobile layout for mobile browsers (web with small screen) or native mobile
+  if (Platform.OS === 'web' && !isMobileBrowser) {
     return <WebVerticalTabsOrganizer />;
   }
   return <MobileOrganizerTabs />;
@@ -1098,10 +1103,12 @@ const usePaymentRequirementCheck = () => {
   };
 };
 
-// Helper function to wrap screen components with sidebar on web
+// Helper function to wrap screen components with sidebar on web (desktop only)
 const wrapScreenForWeb = (ScreenComponent: React.ComponentType<any>, isOrganizerMode: boolean) => {
   return (props: any) => {
-    if (Platform.OS === 'web') {
+    const isMobileBrowser = useIsMobileBrowser();
+    // Only wrap with sidebar on desktop web, not mobile browsers
+    if (Platform.OS === 'web' && !isMobileBrowser) {
       return (
         <WebLayoutWrapper isOrganizerMode={isOrganizerMode}>
           <ScreenComponent {...props} />
@@ -1418,9 +1425,27 @@ const AppNavigator = () => {
 // --- Styles ---
 const styles = StyleSheet.create({
    loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: '#FFFFFF', },
-   tabBarStyle: { height: Platform.OS === 'ios' ? 85 : 65, // Adjust height for iOS notch area
-       paddingBottom: Platform.OS === 'ios' ? 30 : 8, // More padding for iOS bottom
-       paddingTop: 5, backgroundColor: 'white', borderTopWidth: 1, borderTopColor: APP_CONSTANTS?.COLORS?.BORDER || '#E5E7EB',
+   tabBarStyle: { 
+      height: Platform.OS === 'ios' ? 85 : 65, // Adjust height for iOS notch area
+      paddingBottom: Platform.OS === 'ios' ? 30 : 8, // More padding for iOS bottom
+      paddingTop: 5, 
+      backgroundColor: 'white', 
+      borderTopWidth: 1, 
+      borderTopColor: APP_CONSTANTS?.COLORS?.BORDER || '#E5E7EB',
+      position: 'absolute', // Use absolute for React Native
+      bottom: 0,
+      left: 0,
+      right: 0,
+      zIndex: 1000, // Ensure it's always on top
+      // Web-specific: width will be handled by CSS for mobile browsers
+      ...(Platform.OS === 'web' ? {
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        alignItems: 'stretch',
+        paddingHorizontal: 0,
+      } : {}),
     },
     cardStyle: {
         backgroundColor: '#FFFFFF',
