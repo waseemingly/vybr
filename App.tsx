@@ -17,6 +17,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Text } from 'react-native';
 import { Platform } from 'react-native';
+import { safeLocalStorage } from './src/utils/safeStorage';
 
 // Conditionally import and use SplashScreen only on native platforms
 type SplashScreenType = {
@@ -289,6 +290,7 @@ export default function App() {
   React.useEffect(() => {
     const restoreState = async () => {
       try {
+        console.log('[App] Starting initialization...');
         // For web platform, navigation state restoration is handled in AppNavigator
         // after auth loads to ensure we have the correct user context.
         // We only set isReady here to allow the app to render.
@@ -297,14 +299,18 @@ export default function App() {
         // the auth state needs to load first to validate the user before restoring.
         // AppNavigator handles the actual state restoration after auth loads.
         
-        if (platform === 'web' && typeof localStorage !== 'undefined') {
+        if (platform === 'web') {
           // Clean up old V1 navigation state if it exists
-          const oldState = localStorage.getItem('NAVIGATION_STATE_V1');
+          // Use safe localStorage wrapper to handle iOS Safari private mode
+          const oldState = safeLocalStorage.getItem('NAVIGATION_STATE_V1');
           if (oldState) {
             console.log('[App] Cleaning up old NAVIGATION_STATE_V1');
-            localStorage.removeItem('NAVIGATION_STATE_V1');
+            safeLocalStorage.removeItem('NAVIGATION_STATE_V1');
           }
         }
+        console.log('[App] Initialization complete, setting isReady to true');
+      } catch (error) {
+        console.error('[App] Error during initialization:', error);
       } finally {
         setIsReady(true);
       }
@@ -340,6 +346,40 @@ export default function App() {
   }, []);
 
   if (!isReady) {
+    // Show a loading indicator instead of blank screen
+    if (platform === 'web') {
+      return (
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '100vh',
+          width: '100vw',
+          backgroundColor: '#000',
+          color: '#fff',
+          fontFamily: 'system-ui, -apple-system, sans-serif'
+        }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ 
+              width: '40px', 
+              height: '40px', 
+              border: '4px solid rgba(255,255,255,0.3)',
+              borderTop: '4px solid #fff',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite',
+              margin: '0 auto 20px'
+            }}></div>
+            <p>Loading Vybr...</p>
+          </div>
+          <style>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
+        </div>
+      );
+    }
     return null;
   }
 
@@ -366,10 +406,11 @@ export default function App() {
                               // Get current user ID
                               const currentUserId = (window as any)?.__VYBR_CURRENT_USER_ID__;
                               
-                              if (platform === 'web' && typeof localStorage !== 'undefined') {
-                                localStorage.setItem(NAVIGATION_STATE_KEY, JSON.stringify(state));
+                              if (platform === 'web') {
+                                // Use safe localStorage wrapper to handle iOS Safari private mode
+                                safeLocalStorage.setItem(NAVIGATION_STATE_KEY, JSON.stringify(state));
                                 if (currentUserId) {
-                                  localStorage.setItem(NAVIGATION_USER_ID_KEY, currentUserId);
+                                  safeLocalStorage.setItem(NAVIGATION_USER_ID_KEY, currentUserId);
                                 }
                               } else {
                                 // For mobile, use AsyncStorage

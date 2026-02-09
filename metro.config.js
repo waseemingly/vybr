@@ -3,6 +3,31 @@ const { getDefaultConfig } = require('expo/metro-config');
 const config = getDefaultConfig(__dirname);
 /** @type {import('expo/metro-config').MetroConfig} */
 
+// Configure web server port
+config.server = {
+  ...config.server,
+  port: process.env.EXPO_WEB_PORT ? parseInt(process.env.EXPO_WEB_PORT) : (process.env.PORT ? parseInt(process.env.PORT) : 19006),
+};
+
+// Disable Hermes for web platform (causes iOS Safari stack overflow)
+config.transformer = {
+  ...config.transformer,
+  getTransformOptions: async () => ({
+    transform: {
+      experimentalImportSupport: false,
+      inlineRequires: true,
+    },
+  }),
+};
+
+// Force JSC for web instead of Hermes
+if (process.env.EXPO_PLATFORM === 'web' || process.env.PLATFORM === 'web') {
+  config.transformer = {
+    ...config.transformer,
+    unstable_allowRequireContext: true,
+  };
+}
+
 config.resolver.unstable_enablePackageExports = true;
 
 // Add Node.js polyfills

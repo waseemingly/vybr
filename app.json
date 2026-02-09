@@ -53,6 +53,7 @@
       ]
     },
     "web": {
+      "jsEngine": "jsc"
     },
     "scheme": "vybr",
     "plugins": [
