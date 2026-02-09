@@ -54,7 +54,8 @@ export default {
       ]
     },
     web: {
-      bundler: "metro"
+      bundler: "metro",
+      jsEngine: "jsc" // Use JSC instead of Hermes for web (Hermes causes iOS Safari issues)
     },
     scheme: "vybr",
     plugins: [

@@ -54,20 +54,29 @@ const LandingScreen = () => {
         {isWeb && <View style={authStyles.decorativeCircle4} />}
         {isWeb && <View style={authStyles.decorativeCircle5} />}
 
+        {/* Main content container - centered like login screen */}
         <Animated.View 
           style={[
-            authStyles.contentContainer,
             {
+              flex: 1,
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingHorizontal: isWeb ? 40 : 20,
+              paddingVertical: isWeb ? 60 : 16,
               opacity: fadeAnim,
               transform: [{ translateY: slideAnim }]
             }
           ]}
         >
-          {/* Logo Section */}
+          {/* Logo Section - positioned at same location as login screen */}
           <Animated.View 
             style={[
-              authStyles.logoContainer,
-              { transform: [{ scale: scaleAnim }] }
+              {
+                alignItems: 'center',
+                marginBottom: isWeb ? 48 : 28,
+                marginTop: isWeb ? 40 : 0,
+                transform: [{ scale: scaleAnim }]
+              }
             ]}
           >
             <View style={authStyles.logoBackground}>
@@ -75,72 +84,91 @@ const LandingScreen = () => {
             </View>
             <Text style={authStyles.tagline}>Where music meets connection</Text>
           </Animated.View>
-
-          {/* Main Description */}
-          <View style={authStyles.descriptionContainer}>
-            <Text style={authStyles.description}>
+          
+          {/* Content - centered and properly spaced */}
+          <View style={{ 
+            width: '100%', 
+            alignItems: 'center',
+            maxWidth: isWeb ? 600 : '100%',
+          }}>
+            {/* Main Description */}
+            <Text style={[
+              authStyles.description,
+              {
+                marginBottom: isWeb ? 32 : 20,
+              }
+            ]}>
               Discover events, connect with music lovers, and experience unforgettable moments together
             </Text>
-          </View>
 
-          {/* Action Buttons */}
-          <View style={[authStyles.buttonContainer, { width: '100%' }]}>
-          <TouchableOpacity 
-              style={authStyles.button}
-            onPress={() => navigation.navigate('MusicLoverLogin')}
-              activeOpacity={0.8}
-          >
-              <View style={authStyles.buttonContent}>
-                <View style={authStyles.buttonIconContainer}>
-            <Feather 
-              name="music" 
-              size={24} 
-              color={APP_CONSTANTS.COLORS.PRIMARY} 
+            {/* Action Buttons */}
+            <View style={{ width: '100%', alignItems: 'center', paddingHorizontal: isWeb ? 0 : 12 }}>
+              <TouchableOpacity 
+                style={[
+                  authStyles.button,
+                  {
+                    backgroundColor: 'white',
+                    borderWidth: 1,
+                    borderColor: APP_CONSTANTS.COLORS.BORDER_LIGHT,
+                    marginBottom: isWeb ? 20 : 16,
+                  }
+                ]}
+                onPress={() => navigation.navigate('MusicLoverLogin')}
+                activeOpacity={0.8}
+              >
+                <View style={authStyles.buttonContent}>
+                  <View style={authStyles.buttonIconContainer}>
+                    <Feather 
+                      name="music" 
+                      size={24} 
+                      color={APP_CONSTANTS.COLORS.PRIMARY} 
+                    />
+                  </View>
+                  <View style={[authStyles.buttonTextContainer, { flex: 1, minWidth: 0 }]}>
+                    <Text style={authStyles.buttonTitle} numberOfLines={1}>Music Lover</Text>
+                    <Text style={authStyles.buttonSubtitle} numberOfLines={1}>Login / Sign up with Google</Text>
+                  </View>
+                  <Feather 
+                    name="chevron-right" 
+                    size={20} 
+                    color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} 
                   />
                 </View>
-                <View style={authStyles.buttonTextContainer}>
-                  <Text style={authStyles.buttonTitle}>Music Lover</Text>
-                  <Text style={authStyles.buttonSubtitle}>Login / Sign up with Google</Text>
-                </View>
-                <Feather 
-                  name="chevron-right" 
-                  size={20} 
-                  color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} 
-                />
-              </View>
-          </TouchableOpacity>
+              </TouchableOpacity>
 
-          <TouchableOpacity 
-              style={authStyles.button}
-            onPress={() => navigation.navigate('OrganizerLogin')}
-              activeOpacity={0.8}
-          >
-              <View style={authStyles.buttonContent}>
-                <View style={authStyles.buttonIconContainer}>
-            <Feather 
-              name="calendar" 
-              size={24} 
-              color={APP_CONSTANTS.COLORS.PRIMARY} 
+              <TouchableOpacity 
+                style={[
+                  authStyles.button,
+                  {
+                    backgroundColor: 'white',
+                    borderWidth: 1,
+                    borderColor: APP_CONSTANTS.COLORS.BORDER_LIGHT,
+                    marginBottom: isWeb ? 20 : 16,
+                  }
+                ]}
+                onPress={() => navigation.navigate('OrganizerLogin')}
+                activeOpacity={0.8}
+              >
+                <View style={authStyles.buttonContent}>
+                  <View style={authStyles.buttonIconContainer}>
+                    <Feather 
+                      name="calendar" 
+                      size={24} 
+                      color={APP_CONSTANTS.COLORS.PRIMARY} 
+                    />
+                  </View>
+                  <View style={[authStyles.buttonTextContainer, { flex: 1, minWidth: 0 }]}>
+                    <Text style={authStyles.buttonTitle} numberOfLines={1}>Event Organizer</Text>
+                    <Text style={authStyles.buttonSubtitle} numberOfLines={1}>Login / Sign up with Google</Text>
+                  </View>
+                  <Feather 
+                    name="chevron-right" 
+                    size={20} 
+                    color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} 
                   />
                 </View>
-                <View style={authStyles.buttonTextContainer}>
-                  <Text style={authStyles.buttonTitle}>Event Organizer</Text>
-                  <Text style={authStyles.buttonSubtitle}>Login / Sign up with Google</Text>
-                </View>
-                <Feather 
-                  name="chevron-right" 
-                  size={20} 
-                  color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} 
-                />
-              </View>
-          </TouchableOpacity>
-        </View>
-
-          {/* Footer */}
-          <View style={authStyles.footer}>
-            <Text style={authStyles.footerText}>
-              Join thousands of music enthusiasts and event organizers
-            </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </Animated.View>
       </LinearGradient>

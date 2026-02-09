@@ -15,6 +15,7 @@ import { supabase } from '@/lib/supabase';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
 import UserGuideTour from '@/components/UserGuideTour';
 import { useIsMobileBrowser } from '@/hooks/use-mobile';
+import { safeLocalStorage } from '@/utils/safeStorage';
 
 // --- Import ALL your screens ---
 import MatchesScreen from "@/screens/MatchesScreen";
@@ -1271,9 +1272,9 @@ const AppNavigator = () => {
         let savedUserId: string | null = null;
         
         try {
-          if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
-            savedStateString = localStorage.getItem('NAVIGATION_STATE_V2');
-            savedUserId = localStorage.getItem('NAVIGATION_USER_ID');
+          if (Platform.OS === 'web') {
+            savedStateString = safeLocalStorage.getItem('NAVIGATION_STATE_V2');
+            savedUserId = safeLocalStorage.getItem('NAVIGATION_USER_ID');
           } else {
             // For mobile, use AsyncStorage
             const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
