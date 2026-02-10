@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, ReactNode, useEffect, useCallback } from "react";
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { safeLocalStorage } from "@/utils/safeStorage";
 
 const ORGANIZER_MODE_KEY = '@vybr_organizer_mode';
 
@@ -31,8 +32,8 @@ export const OrganizerModeProvider = ({
       try {
         let storedMode: string | null = null;
         
-        if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
-          storedMode = localStorage.getItem(ORGANIZER_MODE_KEY);
+        if (Platform.OS === 'web') {
+          storedMode = safeLocalStorage.getItem(ORGANIZER_MODE_KEY);
         } else {
           storedMode = await AsyncStorage.getItem(ORGANIZER_MODE_KEY);
         }
@@ -58,8 +59,8 @@ export const OrganizerModeProvider = ({
     
     // Persist to storage
     try {
-      if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
-        localStorage.setItem(ORGANIZER_MODE_KEY, String(value));
+      if (Platform.OS === 'web') {
+        safeLocalStorage.setItem(ORGANIZER_MODE_KEY, String(value));
         console.log('[OrganizerModeProvider] Saved organizer mode to localStorage:', value);
       } else {
         AsyncStorage.setItem(ORGANIZER_MODE_KEY, String(value)).then(() => {

@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import { safeLocalStorage } from '@/utils/safeStorage';
 
 // Access environment variables
 const supabaseUrl = process.env.SUPABASE_URL || Constants.expoConfig?.extra?.SUPABASE_URL;
@@ -17,7 +18,7 @@ const customStorage = {
   getItem: async (key: string) => {
     try {
       if (Platform.OS === 'web') {
-        return localStorage.getItem(key);
+        return safeLocalStorage.getItem(key);
       } else {
         return await AsyncStorage.getItem(key);
       }
@@ -29,7 +30,7 @@ const customStorage = {
   setItem: async (key: string, value: string) => {
     try {
       if (Platform.OS === 'web') {
-        localStorage.setItem(key, value);
+        safeLocalStorage.setItem(key, value);
       } else {
         await AsyncStorage.setItem(key, value);
       }
@@ -40,7 +41,7 @@ const customStorage = {
   removeItem: async (key: string) => {
     try {
       if (Platform.OS === 'web') {
-        localStorage.removeItem(key);
+        safeLocalStorage.removeItem(key);
       } else {
         await AsyncStorage.removeItem(key);
       }
