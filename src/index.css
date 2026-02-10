@@ -1,165 +1,198 @@
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-@layer base {
-  :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-
-    --primary: 217 91% 33%;
-    --primary-foreground: 210 40% 98%;
-
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-
-    --accent: 213 93% 68%;
-    --accent-foreground: 222 47% 11%;
-
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 221 83% 53%;
-
-    --radius: 1rem;
-
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5% 26%;
-    --sidebar-primary: 240 6% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 5% 96%;
-    --sidebar-accent-foreground: 240 6% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217 91% 60%;
-  }
-
-  .dark {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
-
-    --card: 222 47% 11%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222 47% 11%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
-
-    --secondary: 217 33% 18%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217 33% 18%;
-    --muted-foreground: 215 20% 65%;
-
-    --accent: 213 93% 68%;
-    --accent-foreground: 222 47% 11%;
-
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217 33% 18%;
-    --input: 217 33% 18%;
-    --ring: 224 76% 48%;
-  }
+/* Global styles for mobile browser support */
+* {
+  box-sizing: border-box;
 }
 
-@layer base {
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden; /* Prevent horizontal scrolling */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: none; /* Prevent pull-to-refresh and overscroll effects */
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden; /* Prevent horizontal scrolling */
+  position: relative;
+  max-width: 100vw; /* Ensure content never exceeds viewport width */
+}
+
+/* Prevent horizontal scrolling on all elements */
+* {
+  max-width: 100%;
+}
+
+/* Ensure images and media don't cause overflow */
+img, video, iframe {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Prevent text from causing horizontal overflow */
+p, div, span, h1, h2, h3, h4, h5, h6 {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Mobile and tablet-specific styles (phones and tablets, including iPad Pro) */
+@media (max-width: 1439px) {
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow-x: hidden; /* Prevent horizontal scrolling */
+  }
+
+  #root {
+    width: 100vw;
+    height: 100vh;
+    overflow-x: hidden; /* Prevent horizontal scrolling */
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Ensure React Navigation tab bar is fixed at bottom on mobile browsers */
+  /* Target the tab bar container from React Navigation Bottom Tabs */
+  /* React Navigation creates a div with inline styles for the tab bar */
+  div[style*="position: absolute"][style*="bottom: 0"],
+  div[style*="position:absolute"][style*="bottom:0"],
+  /* Also target by common React Navigation class patterns */
+  div[class*="tab-bar"],
+  nav[role="tablist"] {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    z-index: 1000 !important;
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-around !important;
+    align-items: stretch !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+
+  /* Ensure tab bar content container uses flexbox for even spacing */
+  /* React Navigation wraps tabs in a container div */
+  div[style*="position: absolute"][style*="bottom: 0"] > *,
+  div[style*="position:absolute"][style*="bottom:0"] > *,
+  div[class*="tab-bar"] > *,
+  nav[role="tablist"] > * {
+    display: flex !important;
+    flex-direction: row !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: hidden !important;
+    justify-content: space-around !important;
+    align-items: stretch !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    flex-wrap: nowrap !important;
+  }
+
+  /* Ensure each tab button/touchable takes equal space and doesn't overlap */
+  /* Target all possible button/touchable elements in the tab bar */
+  div[style*="position: absolute"][style*="bottom: 0"] button,
+  div[style*="position:absolute"][style*="bottom:0"] button,
+  div[style*="position: absolute"][style*="bottom: 0"] > * > button,
+  div[style*="position:absolute"][style*="bottom:0"] > * > button,
+  div[style*="position: absolute"][style*="bottom: 0"] > * > * > button,
+  div[style*="position:absolute"][style*="bottom:0"] > * > * > button,
+  div[style*="position: absolute"][style*="bottom: 0"] > * > * > * > button,
+  div[style*="position:absolute"][style*="bottom:0"] > * > * > * > button,
+  div[class*="tab-bar"] button,
+  div[class*="tab-bar"] > * > button,
+  div[class*="tab-bar"] > * > * > button,
+  nav[role="tablist"] button,
+  nav[role="tablist"] > * > button,
+  nav[role="tablist"] > * > * > button,
+  /* Also target divs that act as buttons in React Native Web */
+  div[style*="position: absolute"][style*="bottom: 0"] > * > div[role="button"],
+  div[style*="position:absolute"][style*="bottom:0"] > * > div[role="button"],
+  div[class*="tab-bar"] > * > div[role="button"],
+  nav[role="tablist"] > * > div[role="button"] {
+    flex: 1 1 0% !important; /* Equal flex basis, can shrink but not grow beyond equal share */
+    min-width: 0 !important; /* Allow flex items to shrink below content size */
+    max-width: 100% !important; /* Never exceed container width */
+    width: auto !important; /* Let flexbox control width */
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 4px 1px 6px 1px !important; /* Minimal horizontal padding for spacing */
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    position: relative !important;
+  }
+
+  /* Ensure tab content (icons and labels) are properly contained */
+  div[style*="position: absolute"][style*="bottom: 0"] button > *,
+  div[style*="position:absolute"][style*="bottom:0"] button > *,
+  div[style*="position: absolute"][style*="bottom: 0"] > * > button > *,
+  div[style*="position:absolute"][style*="bottom:0"] > * > button > *,
+  div[style*="position: absolute"][style*="bottom: 0"] > * > div[role="button"] > *,
+  div[style*="position:absolute"][style*="bottom:0"] > * > div[role="button"] > *,
+  div[class*="tab-bar"] button > *,
+  div[class*="tab-bar"] > * > div[role="button"] > *,
+  nav[role="tablist"] button > *,
+  nav[role="tablist"] > * > div[role="button"] > * {
+    max-width: 100% !important;
+    overflow: visible !important; /* Allow badges to overflow slightly */
+    box-sizing: border-box !important;
+  }
+
+  /* Ensure tab labels don't overflow and are centered */
+  div[style*="position: absolute"][style*="bottom: 0"] span,
+  div[style*="position:absolute"][style*="bottom:0"] span,
+  div[style*="position: absolute"][style*="bottom: 0"] button span,
+  div[style*="position:absolute"][style*="bottom:0"] button span,
+  div[style*="position: absolute"][style*="bottom: 0"] > * > div[role="button"] span,
+  div[style*="position:absolute"][style*="bottom:0"] > * > div[role="button"] span,
+  div[class*="tab-bar"] span,
+  div[class*="tab-bar"] > * > div[role="button"] span,
+  nav[role="tablist"] span,
+  nav[role="tablist"] > * > div[role="button"] span {
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    display: block !important;
+    text-align: center !important;
+    font-size: 11px !important; /* Consistent font size */
+    line-height: 1.2 !important;
+    padding: 0 2px !important; /* Small horizontal padding */
+    box-sizing: border-box !important;
+  }
+
+  /* Prevent any nested elements from causing overflow */
+  div[style*="position: absolute"][style*="bottom: 0"] *,
+  div[style*="position:absolute"][style*="bottom:0"] *,
+  div[class*="tab-bar"] *,
+  nav[role="tablist"] * {
+    box-sizing: border-box !important;
+  }
+
+  /* Prevent any element from causing horizontal scroll */
   * {
-    @apply border-border;
-  }
-
-  body {
-    @apply bg-background text-foreground font-sans antialiased;
-  }
-
-  /* Card hover effects */
-  .card-hover {
-    @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-1;
-  }
-  
-  /* Tag styles */
-  .tag {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-vybr-skyBlue text-vybr-darkBlue transition-all duration-200 hover:bg-vybr-midBlue hover:text-white;
-  }
-
-  /* Custom scrollbar */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  
-  ::-webkit-scrollbar-track {
-    @apply bg-transparent;
-  }
-  
-  ::-webkit-scrollbar-thumb {
-    @apply bg-vybr-midBlue/30 rounded-full;
-  }
-  
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-vybr-midBlue/50;
-  }
-
-  /* Button hover effects */
-  .btn-hover {
-    @apply transition-all duration-200 hover:scale-105 active:scale-95;
+    max-width: 100vw !important;
   }
 }
 
-/* Page transition animations */
-.page-enter {
-  opacity: 0;
-  transform: translateY(10px);
+/* Desktop web styles */
+@media (min-width: 1440px) {
+  html, body {
+    overflow-y: auto; /* Allow vertical scrolling on desktop */
+  }
 }
 
-.page-enter-active {
-  opacity: 1;
-  transform: translateY(0);
-  transition: opacity 300ms, transform 300ms;
-}
-
-.page-exit {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.page-exit-active {
-  opacity: 0;
-  transform: translateY(-10px);
-  transition: opacity 300ms, transform 300ms;
-}
-
-/* Glass morphism effect */
-.glass-morphism {
-  @apply bg-white/80 backdrop-blur-md border border-white/20;
-}
-
-/* Loading shimmer effect */
-.shimmer {
-  background: linear-gradient(90deg, 
-    rgba(255,255,255,0) 0%, 
-    rgba(255,255,255,0.4) 50%, 
-    rgba(255,255,255,0) 100%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-}
-
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}

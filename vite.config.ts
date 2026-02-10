@@ -5,8 +5,17 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// https://vitejs.dev/config/
 export default defineConfig({
-  server: { host: "::", port: 8080 },
+  server: {
+    host: "::",
+    port: 8080,
+    headers: {
+      "Cross-Origin-Embedder-Policy": "require-corp",
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+    },
+  },
   plugins: [react()],
   resolve: {
     alias: {
