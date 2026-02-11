@@ -2353,14 +2353,7 @@ const MusicLoverSignUpFlow = () => {
                     Help us connect you with like-minded music lovers. Separate multiple entries with commas. You can add up to {maxItems} items per category.
                 </Text>
 
-                <ScrollView 
-                    style={{ maxHeight: isWeb ? 500 : 400 }} 
-                    showsVerticalScrollIndicator={false}
-                    keyboardShouldPersistTaps="handled"
-                    keyboardDismissMode="interactive"
-                    contentInsetAdjustmentBehavior="automatic"
-                >
-                    <View style={styles.musicFavoritesFormContainer}>
+                <View style={styles.musicFavoritesFormContainer}>
                         {/* Favorite Artists */}
                         <View style={styles.musicFavoritesInputGroup}>
                             <View style={styles.musicFavoritesLabelContainer}>
@@ -2465,8 +2458,7 @@ const MusicLoverSignUpFlow = () => {
                             {songsError ? <Text style={styles.musicFavoritesErrorText}>{songsError}</Text> : null}
                             <Text style={styles.musicFavoritesHelpText}>Format: "Artist Name - Song Title"</Text>
                         </View>
-                    </View>
-                </ScrollView>
+                </View>
 
                 <View style={authStyles.signupButtonContainer}>
                     <TouchableOpacity 
@@ -2538,24 +2530,10 @@ const MusicLoverSignUpFlow = () => {
                         style={authStyles.signupBackButton}
                         onPress={() => {
                             if (currentStep === 'username') {
-                                // Show confirmation before signing out
-                                Alert.alert(
-                                    "Exit Sign Up?",
-                                    "Are you sure you want to exit? Your progress will be lost.",
-                                    [
-                                        { text: "Cancel", style: "cancel" },
-                                        { 
-                                            text: "Exit", 
-                                            style: "destructive",
-                                            onPress: () => {
-                                                console.log('[MusicLoverSignUpFlow] User confirmed exit - signing out');
-                                                supabase.auth.signOut().then(() => {
-                                                    // After sign out, the auth flow will automatically navigate to Landing
-                                                });
-                                            }
-                                        }
-                                    ]
-                                );
+                                // Clear session and let auth flow handle navigation
+                                supabase.auth.signOut().then(() => {
+                                    // After sign out, the auth flow will automatically navigate to Landing
+                                });
                             } else {
                                 // TODO: SOFT LAUNCH - Streaming service step removed from step arrays
                                 // const steps: Step[] = formData.selectedStreamingService === 'others' 
@@ -2635,8 +2613,7 @@ const MusicLoverSignUpFlow = () => {
                                     { 
                                         transform: [{ translateX: slideAnim }],
                                         opacity: fadeAnim,
-                                        width: '100%',
-                                        minHeight: '100%'
+                                        width: '100%'
                                     }
                                 ]}
                             > 
