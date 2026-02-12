@@ -423,6 +423,10 @@ const MusicLoverSignUpFlow = () => {
     const [states, setStates] = useState<any[]>([]);
     const [cities, setCities] = useState<any[]>([]);
 
+    // Refs to prevent infinite loops in useEffect hooks
+    const isInitializingLocation = useRef(false);
+    const locationInitialized = useRef(false);
+
     // Handle form field changes (robust version)
     const handleChange = (field: keyof MusicLoverFormData | string, value: any) => { // Use keyof or string for nested fields
         const trimmedValue = (typeof value === 'string' && !field.startsWith('paymentInfo.') && field !== 'password' && field !== 'confirmPassword' && field !== 'selectedStreamingService' && field !== 'profilePictureUri' && field !== 'profilePicturePreview' && field !== 'profilePictureMimeType')
@@ -1292,9 +1296,9 @@ const MusicLoverSignUpFlow = () => {
     // --- Render Functions for Steps ---
 
     const renderUsernameStep = () => (
-        <View style={[authStyles.signupStepContent, !isWeb && { paddingTop: 20 }]}>
+        <View style={[authStyles.signupStepContent, !isWeb && { paddingTop: 20, paddingHorizontal: 0, alignItems: 'center', justifyContent: 'flex-start' }]}>
             {/* Header Section */}
-            <View style={!isWeb && { alignItems: 'center', marginBottom: 32 }}>
+            <View style={[!isWeb && { alignItems: 'center', marginBottom: 32 }, isWeb && { alignItems: 'center', marginBottom: 24, width: '100%' }]}>
                 <Text style={[authStyles.signupStepTitle, !isWeb && { marginBottom: 16, textAlign: 'center' }]}>Create Your Account</Text>
                 <Text style={[authStyles.signupStepDescription, !isWeb && { marginBottom: 0, textAlign: 'center' }]}>Let's start with your basic information</Text>
             </View>
@@ -1307,7 +1311,8 @@ const MusicLoverSignUpFlow = () => {
                 borderRadius: isWeb ? 12 : 10,
                 padding: isWeb ? 16 : 12,
                 marginBottom: isWeb ? 24 : 20,
-                alignItems: 'center'
+                alignItems: 'center',
+                width: isWeb ? '100%' : '90%'
             }}>
                 <Feather name="info" size={20} color={APP_CONSTANTS.COLORS.PRIMARY} style={{ marginBottom: 8 }} />
                 <Text style={{
@@ -1332,7 +1337,7 @@ const MusicLoverSignUpFlow = () => {
             </View>
             
             {/* Form Section */}
-            <View style={!isWeb && { width: '100%' }}>
+            <View style={[!isWeb && { width: '100%' }, isWeb && { width: '100%', alignItems: 'stretch' }]}>
                 {/* First/Last Name Row */}
                 <View style={[authStyles.signupRowContainer, !isWeb && { marginBottom: 24 }]}>
                     <View style={[authStyles.signupInputContainer, { 
@@ -1445,7 +1450,7 @@ const MusicLoverSignUpFlow = () => {
     );
 
     const renderProfileDetailsStep = () => (
-        <View style={[authStyles.signupStepContent, !isWeb && { alignItems: 'stretch' }]}>
+        <View style={[authStyles.signupStepContent, !isWeb && { alignItems: 'stretch' }, isWeb && { width: '100%', alignItems: 'stretch' }]}>
             <Text style={authStyles.signupStepTitle}>Tell Us About You</Text>
             {/* Profile Picture */}
             {isWeb ? (
@@ -1494,7 +1499,7 @@ const MusicLoverSignUpFlow = () => {
                 </View>
             )}
             
-            <View style={!isWeb && { paddingHorizontal: 16 }}>
+            <View style={[!isWeb && { paddingHorizontal: 16 }, isWeb && { width: '100%' }]}>
                 {/* Age */}
                 <View style={authStyles.signupInputContainer}>
                     <Text style={authStyles.signupInputLabel}>
@@ -1770,27 +1775,46 @@ const MusicLoverSignUpFlow = () => {
 
     // SOFT LAUNCH: Only Singapore available for signup
     useEffect(() => {
+        // Prevent re-initialization
+        if (locationInitialized.current) return;
+        
         const singaporeCountry = Country.getAllCountries().find(c => c.isoCode === 'SG');
-        if (singaporeCountry) {
+        if (singaporeCountry && formData.countryCode !== 'SG') {
+            isInitializingLocation.current = true;
+            locationInitialized.current = true;
             setCountries([singaporeCountry]);
-            // Auto-select Singapore
-            handleChange('countryCode', 'SG');
-            handleChange('country', singaporeCountry.name);
+            // Auto-select Singapore - use setFormData directly to avoid triggering other effects
+            setFormData(prev => ({
+                ...prev,
+                countryCode: 'SG',
+                country: singaporeCountry.name
+            }));
+            // Reset flag after state update
+            setTimeout(() => {
+                isInitializingLocation.current = false;
+            }, 0);
         }
     }, []);
 
     // Load states when country changes
     useEffect(() => {
+        // Skip if we're in the middle of initialization to prevent loops
+        if (isInitializingLocation.current) return;
+        
         if (formData.countryCode) {
             // Special handling for Singapore (no states/provinces)
             if (formData.countryCode === 'SG') {
                 setStates([]);
                 setCities([]);
-                // For Singapore, set stateCode to a placeholder value
-                handleChange('stateCode', 'SG-01');
-                handleChange('state', 'Singapore'); // Use country name as state
-                // Singapore often has no city list in the library; auto-fill so signup isn't blocked.
-                handleChange('cityName', 'Singapore');
+                // For Singapore, set stateCode to a placeholder value - only update if different
+                if (formData.stateCode !== 'SG-01' || formData.state !== 'Singapore' || formData.cityName !== 'Singapore') {
+                    setFormData(prev => ({
+                        ...prev,
+                        stateCode: 'SG-01',
+                        state: 'Singapore',
+                        cityName: 'Singapore'
+                    }));
+                }
                 return;
             }
             
@@ -1800,32 +1824,49 @@ const MusicLoverSignUpFlow = () => {
             // If the library returns no states for a country, don't block signup — treat country as the location.
             if (countryStates.length === 0) {
                 setCities([]);
-                handleChange('stateCode', `${formData.countryCode}-NA`);
-                handleChange('state', formData.country || '');
-                if (!formData.cityName) {
-                    handleChange('cityName', formData.country || '');
+                const newStateCode = `${formData.countryCode}-NA`;
+                const newState = formData.country || '';
+                const newCity = formData.cityName || formData.country || '';
+                if (formData.stateCode !== newStateCode || formData.state !== newState || (!formData.cityName && newCity)) {
+                    setFormData(prev => ({
+                        ...prev,
+                        stateCode: newStateCode,
+                        state: newState,
+                        cityName: prev.cityName || newCity
+                    }));
                 }
                 return;
             }
             
             // If previously selected state is not in new country, reset state and city
             const stateExists = countryStates.some(s => s.isoCode === formData.stateCode);
-            if (!stateExists) {
-                handleChange('stateCode', '');
-                handleChange('state', '');
-                handleChange('cityName', '');
+            if (!stateExists && (formData.stateCode || formData.state || formData.cityName)) {
+                setFormData(prev => ({
+                    ...prev,
+                    stateCode: '',
+                    state: '',
+                    cityName: ''
+                }));
             }
         } else {
             setStates([]);
             setCities([]);
-            handleChange('stateCode', '');
-            handleChange('state', '');
-            handleChange('cityName', '');
+            if (formData.stateCode || formData.state || formData.cityName) {
+                setFormData(prev => ({
+                    ...prev,
+                    stateCode: '',
+                    state: '',
+                    cityName: ''
+                }));
+            }
         }
-    }, [formData.countryCode]);
+    }, [formData.countryCode, formData.country]);
 
     // Load cities when state changes
     useEffect(() => {
+        // Skip if we're in the middle of initialization to prevent loops
+        if (isInitializingLocation.current) return;
+        
         if (formData.countryCode && formData.stateCode) {
             const stateCities = City.getCitiesOfState(formData.countryCode, formData.stateCode);
             setCities(stateCities);
@@ -1834,21 +1875,35 @@ const MusicLoverSignUpFlow = () => {
             // (state name if present, otherwise country). This keeps signup unblocked.
             if (stateCities.length === 0) {
                 if (!formData.cityName) {
-                    handleChange('cityName', formData.state || formData.country || '');
+                    const defaultCity = formData.state || formData.country || '';
+                    if (defaultCity) {
+                        setFormData(prev => ({
+                            ...prev,
+                            cityName: defaultCity
+                        }));
+                    }
                 }
                 return;
             }
             
             // If previously selected city is not in new state, reset city
             const cityExists = stateCities.some(c => c.name === formData.cityName);
-            if (!cityExists) {
-                handleChange('cityName', '');
+            if (!cityExists && formData.cityName) {
+                setFormData(prev => ({
+                    ...prev,
+                    cityName: ''
+                }));
             }
         } else {
             setCities([]);
-            handleChange('cityName', '');
+            if (formData.cityName) {
+                setFormData(prev => ({
+                    ...prev,
+                    cityName: ''
+                }));
+            }
         }
-    }, [formData.countryCode, formData.stateCode]);
+    }, [formData.countryCode, formData.stateCode, formData.state]);
 
     // --- Username and Email Blur Handlers ---
     const handleUsernameBlur = async () => {
@@ -2145,10 +2200,11 @@ const MusicLoverSignUpFlow = () => {
     // Improved subscription plan selection UI
     const renderSubscriptionStep = () => (
         <View style={authStyles.signupStepContainer}>
-            <Text style={authStyles.signupStepTitle}>Choose Your Plan</Text>
-            <Text style={authStyles.signupStepSubtitle}>Select a subscription plan that works for you</Text>
+            <View style={[authStyles.signupStepContent, isWeb && { width: '100%', alignItems: 'stretch' }]}>
+                <Text style={authStyles.signupStepTitle}>Choose Your Plan</Text>
+                <Text style={authStyles.signupStepSubtitle}>Select a subscription plan that works for you</Text>
 
-            <View style={authStyles.signupSubscriptionOptionsContainer}>
+                <View style={authStyles.signupSubscriptionOptionsContainer}>
                 {/* Free Tier */}
                 <TouchableOpacity
                     style={[
@@ -2255,7 +2311,8 @@ const MusicLoverSignUpFlow = () => {
                 </TouchableOpacity>
             </View>
 
-            {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
+                {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
+            </View>
         </View>
     );
 
@@ -2348,12 +2405,13 @@ const MusicLoverSignUpFlow = () => {
         
         return (
             <View style={authStyles.signupStepContainer}>
-                <Text style={authStyles.signupStepTitle}>Your Music Favorites</Text>
-                <Text style={authStyles.signupStepSubtitle}>
-                    Help us connect you with like-minded music lovers. Separate multiple entries with commas. You can add up to {maxItems} items per category.
-                </Text>
+                <View style={[authStyles.signupStepContent, isWeb && { width: '100%', alignItems: 'stretch' }]}>
+                    <Text style={authStyles.signupStepTitle}>Your Music Favorites</Text>
+                    <Text style={authStyles.signupStepSubtitle}>
+                        Help us connect you with like-minded music lovers. Separate multiple entries with commas. You can add up to {maxItems} items per category.
+                    </Text>
 
-                <View style={styles.musicFavoritesFormContainer}>
+                    <View style={styles.musicFavoritesFormContainer}>
                         {/* Favorite Artists */}
                         <View style={styles.musicFavoritesInputGroup}>
                             <View style={styles.musicFavoritesLabelContainer}>
@@ -2486,7 +2544,8 @@ const MusicLoverSignUpFlow = () => {
                     </TouchableOpacity>
                 </View>
 
-                {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
+                    {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
+                </View>
             </View>
         );
     };
@@ -2599,7 +2658,7 @@ const MusicLoverSignUpFlow = () => {
                                 authStyles.signupScrollContentContainer,
                                 !isWeb && { paddingBottom: 100 } // Extra padding for keyboard
                             ]} 
-                            style={{ width: '100%' }}
+                            style={{ flex: 1, width: '100%' }}
                             showsVerticalScrollIndicator={false}
                             keyboardShouldPersistTaps="handled"
                             keyboardDismissMode="interactive"
@@ -2609,7 +2668,7 @@ const MusicLoverSignUpFlow = () => {
                         >
                             <Animated.View 
                                 style={[
-                                    authStyles.signupStepsSlider, 
+                                    authStyles.signupAnimatedContainer,
                                     { 
                                         transform: [{ translateX: slideAnim }],
                                         opacity: fadeAnim,
