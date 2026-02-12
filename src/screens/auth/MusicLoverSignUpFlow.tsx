@@ -2201,10 +2201,10 @@ const MusicLoverSignUpFlow = () => {
     const renderSubscriptionStep = () => (
         <View style={authStyles.signupStepContainer}>
             <View style={[authStyles.signupStepContent, isWeb && { width: '100%', alignItems: 'stretch' }]}>
-                <Text style={authStyles.signupStepTitle}>Choose Your Plan</Text>
-                <Text style={authStyles.signupStepSubtitle}>Select a subscription plan that works for you</Text>
+            <Text style={authStyles.signupStepTitle}>Choose Your Plan</Text>
+            <Text style={authStyles.signupStepSubtitle}>Select a subscription plan that works for you</Text>
 
-                <View style={authStyles.signupSubscriptionOptionsContainer}>
+            <View style={authStyles.signupSubscriptionOptionsContainer}>
                 {/* Free Tier */}
                 <TouchableOpacity
                     style={[
@@ -2311,7 +2311,7 @@ const MusicLoverSignUpFlow = () => {
                 </TouchableOpacity>
             </View>
 
-                {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
+            {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
             </View>
         </View>
     );
@@ -2406,12 +2406,12 @@ const MusicLoverSignUpFlow = () => {
         return (
             <View style={authStyles.signupStepContainer}>
                 <View style={[authStyles.signupStepContent, isWeb && { width: '100%', alignItems: 'stretch' }]}>
-                    <Text style={authStyles.signupStepTitle}>Your Music Favorites</Text>
-                    <Text style={authStyles.signupStepSubtitle}>
-                        Help us connect you with like-minded music lovers. Separate multiple entries with commas. You can add up to {maxItems} items per category.
-                    </Text>
+                <Text style={authStyles.signupStepTitle}>Your Music Favorites</Text>
+                <Text style={authStyles.signupStepSubtitle}>
+                    Help us connect you with like-minded music lovers. Separate multiple entries with commas. You can add up to {maxItems} items per category.
+                </Text>
 
-                    <View style={styles.musicFavoritesFormContainer}>
+                <View style={styles.musicFavoritesFormContainer}>
                         {/* Favorite Artists */}
                         <View style={styles.musicFavoritesInputGroup}>
                             <View style={styles.musicFavoritesLabelContainer}>
@@ -2544,7 +2544,7 @@ const MusicLoverSignUpFlow = () => {
                     </TouchableOpacity>
                 </View>
 
-                    {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
+                {error ? <Text style={authStyles.signupErrorText}>{error}</Text> : null}
                 </View>
             </View>
         );
@@ -2646,41 +2646,36 @@ const MusicLoverSignUpFlow = () => {
                     <View style={{ width: 24 }} />
                 </View>
 
-                {/* Web: wide form wrapper; Mobile: as before */}
-                <View style={isWeb ? authStyles.formWrapperWeb : undefined}>
-                    <KeyboardAvoidingView
-                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                        style={{ flex: 1, width: '100%' }}
-                        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+                >
+                    <ScrollView
+                        contentContainerStyle={[
+                            authStyles.signupScrollContentContainer,
+                            !isWeb && { paddingBottom: 100 } // Extra padding for keyboard
+                        ]}
+                        showsVerticalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
+                        keyboardDismissMode="interactive"
+                        contentInsetAdjustmentBehavior="automatic"
+                        automaticallyAdjustContentInsets={false}
+                        scrollEventThrottle={16}
                     >
-                        <ScrollView 
-                            contentContainerStyle={[
-                                authStyles.signupScrollContentContainer,
-                                !isWeb && { paddingBottom: 100 } // Extra padding for keyboard
-                            ]} 
-                            style={{ flex: 1, width: '100%' }}
-                            showsVerticalScrollIndicator={false}
-                            keyboardShouldPersistTaps="handled"
-                            keyboardDismissMode="interactive"
-                            contentInsetAdjustmentBehavior="automatic"
-                            automaticallyAdjustContentInsets={false}
-                            scrollEventThrottle={16}
-                        >
-                            <Animated.View 
-                                style={[
-                                    authStyles.signupAnimatedContainer,
-                                    { 
-                                        transform: [{ translateX: slideAnim }],
-                                        opacity: fadeAnim,
-                                        width: '100%'
-                                    }
-                                ]}
-                            > 
-                                {renderCurrentStep()}
-                            </Animated.View>
-                        </ScrollView>
-                    </KeyboardAvoidingView>
-                </View>
+                        <Animated.View 
+                            style={[
+                                authStyles.signupAnimatedContainer,
+                                { 
+                                    transform: [{ translateX: slideAnim }],
+                                    opacity: fadeAnim
+                                }
+                            ]}
+                        > 
+                            {renderCurrentStep()}
+                        </Animated.View>
+                    </ScrollView>
+                </KeyboardAvoidingView>
 
                 <TermsModal visible={isTermsModalVisible} onClose={() => setIsTermsModalVisible(false)} termsText={termsAndConditionsText} />
                 {/* Web Image Cropper */}
