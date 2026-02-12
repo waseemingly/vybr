@@ -1783,19 +1783,16 @@ const MusicLoverSignUpFlow = () => {
             isInitializingLocation.current = true;
             locationInitialized.current = true;
             setCountries([singaporeCountry]);
-            // Auto-select Singapore - set all location fields at once to prevent multiple effect triggers
+            // Auto-select Singapore - use setFormData directly to avoid triggering other effects
             setFormData(prev => ({
                 ...prev,
                 countryCode: 'SG',
-                country: singaporeCountry.name,
-                stateCode: 'SG-01',
-                state: 'Singapore',
-                cityName: 'Singapore'
+                country: singaporeCountry.name
             }));
-            // Reset flag after state updates have been processed
+            // Reset flag after state update
             setTimeout(() => {
                 isInitializingLocation.current = false;
-            }, 100);
+            }, 0);
         }
     }, []);
 
@@ -1810,8 +1807,7 @@ const MusicLoverSignUpFlow = () => {
                 setStates([]);
                 setCities([]);
                 // For Singapore, set stateCode to a placeholder value - only update if different
-                // Skip if we're initializing to prevent loops
-                if (!isInitializingLocation.current && (formData.stateCode !== 'SG-01' || formData.state !== 'Singapore' || formData.cityName !== 'Singapore')) {
+                if (formData.stateCode !== 'SG-01' || formData.state !== 'Singapore' || formData.cityName !== 'Singapore') {
                     setFormData(prev => ({
                         ...prev,
                         stateCode: 'SG-01',
@@ -1864,7 +1860,7 @@ const MusicLoverSignUpFlow = () => {
                 }));
             }
         }
-    }, [formData.countryCode]); // Removed formData.country from dependencies to prevent infinite loop
+    }, [formData.countryCode]); // Only depend on countryCode, not country (which is derived from it)
 
     // Load cities when state changes
     useEffect(() => {
@@ -1907,7 +1903,7 @@ const MusicLoverSignUpFlow = () => {
                 }));
             }
         }
-    }, [formData.countryCode, formData.stateCode]); // Removed formData.state from dependencies to prevent infinite loop
+    }, [formData.countryCode, formData.stateCode]); // Only depend on countryCode and stateCode, not state (which is derived)
 
     // --- Username and Email Blur Handlers ---
     const handleUsernameBlur = async () => {
@@ -2650,36 +2646,36 @@ const MusicLoverSignUpFlow = () => {
                     <View style={{ width: 24 }} />
                 </View>
 
-                    <KeyboardAvoidingView
-                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                     style={{ flex: 1 }}
-                        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+                >
+                    <ScrollView
+                        contentContainerStyle={[
+                            authStyles.signupScrollContentContainer,
+                            !isWeb && { paddingBottom: 100 } // Extra padding for keyboard
+                        ]}
+                        showsVerticalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
+                        keyboardDismissMode="interactive"
+                        contentInsetAdjustmentBehavior="automatic"
+                        automaticallyAdjustContentInsets={false}
+                        scrollEventThrottle={16}
                     >
-                        <ScrollView 
-                            contentContainerStyle={[
-                                authStyles.signupScrollContentContainer,
-                                !isWeb && { paddingBottom: 100 } // Extra padding for keyboard
-                            ]} 
-                            showsVerticalScrollIndicator={false}
-                            keyboardShouldPersistTaps="handled"
-                            keyboardDismissMode="interactive"
-                            contentInsetAdjustmentBehavior="automatic"
-                            automaticallyAdjustContentInsets={false}
-                            scrollEventThrottle={16}
-                        >
-                            <Animated.View 
-                                style={[
-                                    authStyles.signupAnimatedContainer,
-                                    { 
-                                        transform: [{ translateX: slideAnim }],
+                        <Animated.View
+                            style={[
+                                authStyles.signupAnimatedContainer,
+                                { 
+                                    transform: [{ translateX: slideAnim }],
                                     opacity: fadeAnim
-                                    }
-                                ]}
-                            > 
-                                {renderCurrentStep()}
-                            </Animated.View>
-                        </ScrollView>
-                    </KeyboardAvoidingView>
+                                }
+                            ]}
+                        > 
+                            {renderCurrentStep()}
+                        </Animated.View>
+                    </ScrollView>
+                </KeyboardAvoidingView>
 
                 <TermsModal visible={isTermsModalVisible} onClose={() => setIsTermsModalVisible(false)} termsText={termsAndConditionsText} />
                 {/* Web Image Cropper */}
