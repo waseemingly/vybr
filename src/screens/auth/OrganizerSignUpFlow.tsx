@@ -745,7 +745,7 @@ const OrganizerSignUpFlow = () => {
   };
 
   return (
-    <SafeAreaView style={authStyles.signupContainer}>
+    <SafeAreaView style={authStyles.signupContainer} edges={['top', 'bottom']}>
       <LinearGradient
         colors={[`${APP_CONSTANTS.COLORS.PRIMARY}05`, 'white']}
         style={authStyles.signupGradient}
