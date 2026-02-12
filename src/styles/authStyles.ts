@@ -358,7 +358,6 @@ export const authStyles = StyleSheet.create({
   signupContainer: {
     flex: 1,
     backgroundColor: 'white',
-    minHeight: isWeb ? height : '100%',
   },
   signupGradient: {
     flex: 1,
@@ -367,7 +366,6 @@ export const authStyles = StyleSheet.create({
     paddingHorizontal: isWeb ? 40 : 24,
     paddingVertical: isWeb ? 20 : 10,
     position: 'relative',
-    minHeight: isWeb ? height : '100%',
   },
   signupHeader: {
     flexDirection: 'row',
@@ -429,11 +427,10 @@ export const authStyles = StyleSheet.create({
     maxWidth: isWeb ? 800 : '100%',
   },
   signupStepContainer: {
-    flex: 1,
     alignItems: 'center',
     marginTop: isWeb ? 20 : 15,
     width: '100%',
-    minHeight: isWeb ? height * 0.7 : '100%',
+    minHeight: isWeb ? height * 0.7 : undefined,
   },
   signupAnimatedContainer: {
     width: '100%',
@@ -989,7 +986,7 @@ export const authStyles = StyleSheet.create({
   },
   signupStepsSlider: {
     width: '100%',
-    minHeight: '100%',
+    flex: 1,
   },
   signupScrollContentContainer: {
     flexGrow: 1,
@@ -997,7 +994,6 @@ export const authStyles = StyleSheet.create({
     paddingBottom: isWeb ? 100 : 80,
     width: '100%',
     maxWidth: isWeb ? 800 : '100%',
-    minHeight: isWeb ? height * 0.8 : '100%',
     alignItems: 'stretch',
   },
 
