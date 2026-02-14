@@ -19,7 +19,30 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser'; // Add WebBrowser for opening URLs in new tabs
 // Import location selectors
 import { Picker } from '@react-native-picker/picker';
-import { Country, State, City } from 'country-state-city';
+// IMPORTANT: country-state-city is ~17MB and causes stack overflow if loaded eagerly.
+// Use lazy dynamic import instead. For Singapore soft launch, use hardcoded data.
+// import { Country, State, City } from 'country-state-city'; // DO NOT USE - causes stack overflow
+
+// Hardcoded Singapore data for soft launch (avoids loading 17MB country-state-city at startup)
+const SINGAPORE_COUNTRY = {
+    isoCode: 'SG',
+    name: 'Singapore',
+    phonecode: '65',
+    flag: '🇸🇬',
+    currency: 'SGD',
+    latitude: '1.36666666',
+    longitude: '103.80000000',
+    timezones: [{ zoneName: 'Asia/Singapore', gmtOffset: 28800, gmtOffsetName: 'UTC+08:00', abbreviation: 'SGT', tzName: 'Singapore Standard Time' }],
+};
+
+// Lazy loader for country-state-city (only loaded when actually needed, e.g. full country list)
+let _countryStateCityModule: any = null;
+const getCountryStateCity = async () => {
+    if (!_countryStateCityModule) {
+        _countryStateCityModule = await import('country-state-city');
+    }
+    return _countryStateCityModule;
+};
 // Import the specific types expected by createMusicLoverProfile and for the form state
 import { MusicLoverBio, CreateMusicLoverProfileData } from '@/hooks/useAuth'; // Assuming types are exported from useAuth
 import TermsModal from '@/components/TermsModal'; // Import the new modal
@@ -342,12 +365,6 @@ const MusicLoverSignUpFlow = () => {
     // Username and Email validation state
     const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'error'>('idle');
 
-    // Debug effect to monitor authentication state
-    useEffect(() => {
-        console.log('[MusicLoverSignUpFlow] 🔄 Component mounted, checking auth state...');
-        debugAuthState();
-    }, []);
-
     // Debug effect to monitor Google user ID changes
     useEffect(() => {
         if (googleUserId) {
@@ -434,8 +451,11 @@ const MusicLoverSignUpFlow = () => {
             : value;
 
         if (field === 'username') {
-            setUsernameStatus('idle');
-            setUsernameFeedback('');
+            // Only update status if it's not already 'idle' to prevent unnecessary re-renders
+            if (usernameStatus !== 'idle') {
+                setUsernameStatus('idle');
+                setUsernameFeedback('');
+            }
         }
 
         if (field.startsWith('bio.')) {
@@ -1295,13 +1315,14 @@ const MusicLoverSignUpFlow = () => {
 
     // --- Render Functions for Steps ---
 
-    const renderUsernameStep = () => (
-        <View style={[authStyles.signupStepContent, !isWeb && { paddingTop: 20, paddingHorizontal: 0, alignItems: 'center', justifyContent: 'flex-start' }]}>
-            {/* Header Section */}
-            <View style={[!isWeb && { alignItems: 'center', marginBottom: 32 }, isWeb && { alignItems: 'center', marginBottom: 24, width: '100%' }]}>
-                <Text style={[authStyles.signupStepTitle, !isWeb && { marginBottom: 16, textAlign: 'center' }]}>Create Your Account</Text>
-                <Text style={[authStyles.signupStepDescription, !isWeb && { marginBottom: 0, textAlign: 'center' }]}>Let's start with your basic information</Text>
-            </View>
+    const renderUsernameStep = () => {
+            return (
+                <View style={[authStyles.signupStepContent, !isWeb && { paddingTop: 20, paddingHorizontal: 0, alignItems: 'center', justifyContent: 'flex-start' }]}>
+                    {/* Header Section */}
+                    <View style={[!isWeb && { alignItems: 'center', marginBottom: 32 }, isWeb && { alignItems: 'center', marginBottom: 24, width: '100%' }]}>
+                        <Text style={[authStyles.signupStepTitle, !isWeb && { marginBottom: 16, textAlign: 'center' }]}>Create Your Account</Text>
+                        <Text style={[authStyles.signupStepDescription, !isWeb && { marginBottom: 0, textAlign: 'center' }]}>Let's start with your basic information</Text>
+                    </View>
             
             {/* Unregistered Email Notice */}
             <View style={{
@@ -1447,7 +1468,8 @@ const MusicLoverSignUpFlow = () => {
                 )}
             </TouchableOpacity>
         </View>
-    );
+            );
+    };
 
     const renderProfileDetailsStep = () => (
         <View style={[authStyles.signupStepContent, !isWeb && { alignItems: 'stretch' }, isWeb && { width: '100%', alignItems: 'stretch' }]}>
@@ -1762,147 +1784,259 @@ const MusicLoverSignUpFlow = () => {
 
     // Load countries on component mount - Singapore first
     // TODO: SOFT LAUNCH - Restricting to Singapore only. Uncomment below for full version.
+    // NOTE: When uncommenting, use the lazy loader to avoid stack overflow:
     // useEffect(() => {
-    //     const allCountries = Country.getAllCountries();
-    //     // Sort countries: Singapore first, then alphabetically
-    //     const sortedCountries = [...allCountries].sort((a, b) => {
-    //         if (a.isoCode === 'SG') return -1;
-    //         if (b.isoCode === 'SG') return 1;
-    //         return a.name.localeCompare(b.name);
-    //     });
-    //     setCountries(sortedCountries);
+    //     const loadCountries = async () => {
+    //         const { Country } = await getCountryStateCity();
+    //         const allCountries = Country.getAllCountries();
+    //         const sortedCountries = [...allCountries].sort((a, b) => {
+    //             if (a.isoCode === 'SG') return -1;
+    //             if (b.isoCode === 'SG') return 1;
+    //             return a.name.localeCompare(b.name);
+    //         });
+    //         setCountries(sortedCountries);
+    //     };
+    //     loadCountries();
     // }, []);
 
-    // SOFT LAUNCH: Only Singapore available for signup
+    // SOFT LAUNCH: Only Singapore available for signup - initialize once on mount
+    // Uses hardcoded SINGAPORE_COUNTRY instead of Country.getAllCountries() to avoid
+    // loading the massive country-state-city library (17MB) which causes stack overflow
     useEffect(() => {
         // Prevent re-initialization
         if (locationInitialized.current) return;
         
-        const singaporeCountry = Country.getAllCountries().find(c => c.isoCode === 'SG');
-        if (singaporeCountry && formData.countryCode !== 'SG') {
+        const singaporeCountry = SINGAPORE_COUNTRY;
+        if (singaporeCountry) {
             isInitializingLocation.current = true;
             locationInitialized.current = true;
             setCountries([singaporeCountry]);
-            // Auto-select Singapore - use setFormData directly to avoid triggering other effects
-            setFormData(prev => ({
-                ...prev,
-                countryCode: 'SG',
-                country: singaporeCountry.name
-            }));
-            // Reset flag after state update
+            
+            // Set all Singapore location data in ONE batch update to prevent cascading effects
+            setFormData(prev => {
+                // Only update if not already set to prevent unnecessary re-renders
+                if (prev.countryCode === 'SG' && 
+                    prev.stateCode === 'SG-01' && 
+                    prev.state === 'Singapore' && 
+                    prev.cityName === 'Singapore') {
+                    return prev;
+                }
+                return {
+                    ...prev,
+                    countryCode: 'SG',
+                    country: singaporeCountry.name,
+                    stateCode: 'SG-01',
+                    state: 'Singapore',
+                    cityName: 'Singapore'
+                };
+            });
+            
+            // Set states and cities immediately to prevent effects from running
+            setStates([]);
+            setCities([]);
+            
+            // Reset flag after a delay to ensure all state updates are processed
             setTimeout(() => {
                 isInitializingLocation.current = false;
-            }, 0);
+                prevCountryCodeRef.current = 'SG';
+                prevStateCodeRef.current = 'SG-01';
+            }, 100);
         }
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Empty deps - only run once on mount
 
-    // Load states when country changes
+    // Load states when country changes - use ref to track previous value and prevent loops
+    const prevCountryCodeRef = useRef<string>('');
     useEffect(() => {
         // Skip if we're in the middle of initialization to prevent loops
-        if (isInitializingLocation.current) return;
+        if (isInitializingLocation.current || !locationInitialized.current) return;
         
+        // Only run if countryCode actually changed
+        if (formData.countryCode === prevCountryCodeRef.current) return;
+        
+        // Don't process if countryCode is empty
+        if (!formData.countryCode) {
+            prevCountryCodeRef.current = '';
+            return;
+        }
+        
+        prevCountryCodeRef.current = formData.countryCode;
+        
+        // Use a flag to check if component is mounted
+        let isMounted = true;
+
         if (formData.countryCode) {
             // Special handling for Singapore (no states/provinces)
             if (formData.countryCode === 'SG') {
-                setStates([]);
-                setCities([]);
+                if (isMounted) {
+                    setStates([]);
+                    setCities([]);
+                }
                 // For Singapore, set stateCode to a placeholder value - only update if different
                 if (formData.stateCode !== 'SG-01' || formData.state !== 'Singapore' || formData.cityName !== 'Singapore') {
-                    setFormData(prev => ({
-                        ...prev,
-                        stateCode: 'SG-01',
-                        state: 'Singapore',
-                        cityName: 'Singapore'
-                    }));
+                    // Use setTimeout to batch state updates and prevent cascading effects
+                    setTimeout(() => {
+                        if (!isMounted) return;
+                        setFormData(prev => {
+                            // Double-check to prevent unnecessary updates
+                            if (prev.stateCode === 'SG-01' && prev.state === 'Singapore' && prev.cityName === 'Singapore') {
+                                return prev;
+                            }
+                            return {
+                                ...prev,
+                                stateCode: 'SG-01',
+                                state: 'Singapore',
+                                cityName: 'Singapore'
+                            };
+                        });
+                    }, 0);
                 }
-                return;
+                return () => { isMounted = false; };
             }
             
-            const countryStates = State.getStatesOfCountry(formData.countryCode);
-            setStates(countryStates);
+            // Lazy-load country-state-city only when needed (non-Singapore countries)
+            const loadStates = async () => {
+                try {
+                    const { State } = await getCountryStateCity();
+                    const countryStates = State.getStatesOfCountry(formData.countryCode);
+                    if (!isMounted) return;
+                    setStates(countryStates);
 
-            // If the library returns no states for a country, don't block signup — treat country as the location.
-            if (countryStates.length === 0) {
+                    // If the library returns no states for a country, don't block signup — treat country as the location.
+                    if (countryStates.length === 0) {
+                        setCities([]);
+                        const newStateCode = `${formData.countryCode}-NA`;
+                        const newState = formData.country || '';
+                        const newCity = formData.cityName || formData.country || '';
+                        if (formData.stateCode !== newStateCode || formData.state !== newState || (!formData.cityName && newCity)) {
+                            setTimeout(() => {
+                                if (!isMounted) return;
+                                setFormData(prev => ({
+                                    ...prev,
+                                    stateCode: newStateCode,
+                                    state: newState,
+                                    cityName: prev.cityName || newCity
+                                }));
+                            }, 0);
+                        }
+                        return;
+                    }
+                    
+                    // If previously selected state is not in new country, reset state and city
+                    const stateExists = countryStates.some((s: any) => s.isoCode === formData.stateCode);
+                    if (!stateExists && (formData.stateCode || formData.state || formData.cityName)) {
+                        setTimeout(() => {
+                            if (!isMounted) return;
+                            setFormData(prev => ({
+                                ...prev,
+                                stateCode: '',
+                                state: '',
+                                cityName: ''
+                            }));
+                        }, 0);
+                    }
+                } catch (err) {
+                    console.error('[MusicLoverSignUpFlow] Error loading states:', err);
+                }
+            };
+            loadStates();
+        } else {
+            if (isMounted) {
+                setStates([]);
                 setCities([]);
-                const newStateCode = `${formData.countryCode}-NA`;
-                const newState = formData.country || '';
-                const newCity = formData.cityName || formData.country || '';
-                if (formData.stateCode !== newStateCode || formData.state !== newState || (!formData.cityName && newCity)) {
+            }
+            if (formData.stateCode || formData.state || formData.cityName) {
+                setTimeout(() => {
+                    if (!isMounted) return;
                     setFormData(prev => ({
                         ...prev,
-                        stateCode: newStateCode,
-                        state: newState,
-                        cityName: prev.cityName || newCity
+                        stateCode: '',
+                        state: '',
+                        cityName: ''
                     }));
-                }
-                return;
-            }
-            
-            // If previously selected state is not in new country, reset state and city
-            const stateExists = countryStates.some(s => s.isoCode === formData.stateCode);
-            if (!stateExists && (formData.stateCode || formData.state || formData.cityName)) {
-                setFormData(prev => ({
-                    ...prev,
-                    stateCode: '',
-                    state: '',
-                    cityName: ''
-                }));
-            }
-        } else {
-            setStates([]);
-            setCities([]);
-            if (formData.stateCode || formData.state || formData.cityName) {
-                setFormData(prev => ({
-                    ...prev,
-                    stateCode: '',
-                    state: '',
-                    cityName: ''
-                }));
+                }, 0);
             }
         }
+        return () => { isMounted = false; };
     }, [formData.countryCode]); // Only depend on countryCode, not country (which is derived from it)
 
-    // Load cities when state changes
+    // Load cities when state changes - use ref to track previous values and prevent loops
+    const prevStateCodeRef = useRef<string>('');
     useEffect(() => {
         // Skip if we're in the middle of initialization to prevent loops
-        if (isInitializingLocation.current) return;
+        if (isInitializingLocation.current || !locationInitialized.current) return;
         
-        if (formData.countryCode && formData.stateCode) {
-            const stateCities = City.getCitiesOfState(formData.countryCode, formData.stateCode);
-            setCities(stateCities);
+        // Only run if stateCode actually changed
+        if (formData.stateCode === prevStateCodeRef.current) return;
+        
+        // Don't process if countryCode or stateCode is empty
+        if (!formData.countryCode || !formData.stateCode) {
+            prevStateCodeRef.current = '';
+            return;
+        }
+        
+        prevStateCodeRef.current = formData.stateCode;
+        
+        // Use a flag to check if component is mounted
+        let isMounted = true;
 
-            // If there are no cities available for this state/country, auto-fill to a sensible default
-            // (state name if present, otherwise country). This keeps signup unblocked.
-            if (stateCities.length === 0) {
-                if (!formData.cityName) {
-                    const defaultCity = formData.state || formData.country || '';
-                    if (defaultCity) {
-                        setFormData(prev => ({
-                            ...prev,
-                            cityName: defaultCity
-                        }));
+        if (formData.countryCode && formData.stateCode) {
+            // Lazy-load country-state-city only when needed (non-Singapore)
+            const loadCities = async () => {
+                try {
+                    const { City } = await getCountryStateCity();
+                    const stateCities = City.getCitiesOfState(formData.countryCode, formData.stateCode);
+                    if (!isMounted) return;
+                    setCities(stateCities);
+
+                    // If there are no cities available for this state/country, auto-fill to a sensible default
+                    if (stateCities.length === 0) {
+                        if (!formData.cityName) {
+                            const defaultCity = formData.state || formData.country || '';
+                            if (defaultCity) {
+                                setTimeout(() => {
+                                    if (!isMounted) return;
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        cityName: defaultCity
+                                    }));
+                                }, 0);
+                            }
+                        }
+                        return;
                     }
+                    
+                    // If previously selected city is not in new state, reset city
+                    const cityExists = stateCities.some((c: any) => c.name === formData.cityName);
+                    if (!cityExists && formData.cityName) {
+                        setTimeout(() => {
+                            if (!isMounted) return;
+                            setFormData(prev => ({
+                                ...prev,
+                                cityName: ''
+                            }));
+                        }, 0);
+                    }
+                } catch (err) {
+                    console.error('[MusicLoverSignUpFlow] Error loading cities:', err);
                 }
-                return;
-            }
-            
-            // If previously selected city is not in new state, reset city
-            const cityExists = stateCities.some(c => c.name === formData.cityName);
-            if (!cityExists && formData.cityName) {
-                setFormData(prev => ({
-                    ...prev,
-                    cityName: ''
-                }));
-            }
+            };
+            loadCities();
         } else {
-            setCities([]);
+            if (isMounted) {
+                setCities([]);
+            }
             if (formData.cityName) {
-                setFormData(prev => ({
-                    ...prev,
-                    cityName: ''
-                }));
+                setTimeout(() => {
+                    if (!isMounted) return;
+                    setFormData(prev => ({
+                        ...prev,
+                        cityName: ''
+                    }));
+                }, 0);
             }
         }
+        return () => { isMounted = false; };
     }, [formData.countryCode, formData.stateCode]); // Only depend on countryCode and stateCode, not state (which is derived)
 
     // --- Username and Email Blur Handlers ---
@@ -2643,7 +2777,6 @@ const MusicLoverSignUpFlow = () => {
                             ]} />
                         )}
                     </View>
-                    <View style={{ width: 24 }} />
                 </View>
 
                 <KeyboardAvoidingView

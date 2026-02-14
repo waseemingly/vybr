@@ -7,6 +7,7 @@ import type { RootStackParamList, UserTabParamList, OrganizerTabParamList } from
 import { TourOverlay, type SpotlightRect } from '@/components/TourOverlay';
 import { TourTooltip } from '@/components/TourTooltip';
 import { useUserGuide } from '@/hooks/useUserGuide';
+import { useIsMobileBrowser } from '@/hooks/use-mobile';
 import type { TourTarget } from '@/config/tourConfig';
 
 type Props = {
@@ -16,12 +17,13 @@ type Props = {
   suppressAuto?: boolean;
 };
 
-function getUserTabIndexForPlatform(tab: keyof UserTabParamList): number {
+function getUserTabIndexForPlatform(tab: keyof UserTabParamList, isMobileBrowser: boolean): number {
   // Mobile order from AppNavigator: Matches, Chats, Search, Events, Profile
   const mobileOrder: (keyof UserTabParamList)[] = ['Matches', 'Chats', 'Search', 'Events', 'Profile'];
   // Web order from AppNavigator: Matches, Events, Chats, Search, Profile
   const webOrder: (keyof UserTabParamList)[] = ['Matches', 'Events', 'Chats', 'Search', 'Profile'];
-  const order = Platform.OS === 'web' ? webOrder : mobileOrder;
+  // Use mobile order for native mobile or phone web browsers, web order for desktop web
+  const order = (Platform.OS !== 'web' || isMobileBrowser) ? mobileOrder : webOrder;
   return Math.max(0, order.indexOf(tab));
 }
 
@@ -32,17 +34,19 @@ function getOrganizerTabIndex(tab: keyof OrganizerTabParamList): number {
 
 function computeSpotlightRect(
   target: TourTarget,
-  dims: { width: number; height: number }
+  dims: { width: number; height: number },
+  isMobileBrowser: boolean
 ): SpotlightRect | null {
   const { width: W, height: H } = dims;
 
   if (target.kind === 'none') return null;
   if (target.kind === 'mainScreen') return null;
 
-  if (Platform.OS !== 'web') {
+  // Use mobile bottom tab spotlight for native mobile or phone web browsers
+  if (Platform.OS !== 'web' || isMobileBrowser) {
     // Mobile bottom tab spotlight (approximate).
     if (target.kind === 'userTab') {
-      const idx = getUserTabIndexForPlatform(target.tab);
+      const idx = getUserTabIndexForPlatform(target.tab, isMobileBrowser);
       const tabBarH = 92;
       const w = W / 5;
       return { x: idx * w + 6, y: H - tabBarH + 10, width: w - 12, height: tabBarH - 20, radius: 16 };
@@ -56,7 +60,7 @@ function computeSpotlightRect(
     return null;
   }
 
-  // Web sidebar spotlight (approximate, based on AppNavigator styles).
+  // Web sidebar spotlight (approximate, based on AppNavigator styles) - only for desktop web
   const sidebarW = 300;
   const x = 14;
   const w = sidebarW - 28;
@@ -65,7 +69,7 @@ function computeSpotlightRect(
   const gap = 6;
 
   if (target.kind === 'userTab') {
-    const idx = getUserTabIndexForPlatform(target.tab);
+    const idx = getUserTabIndexForPlatform(target.tab, isMobileBrowser);
     const y = headerApproxH + idx * (tabButtonApproxH + gap);
     return { x, y, width: w, height: tabButtonApproxH, radius: 14 };
   }
@@ -80,12 +84,13 @@ function computeSpotlightRect(
 export default function UserGuideTour({ suppressAuto }: Props) {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { width, height } = useWindowDimensions();
+  const isMobileBrowser = useIsMobileBrowser();
   const { active, steps, step, stepIndex, userType, next, prev, skip } = useUserGuide({ suppressAuto });
 
   const spotlight = useMemo(() => {
     if (!step) return null;
-    return computeSpotlightRect(step.target, { width, height });
-  }, [step, width, height]);
+    return computeSpotlightRect(step.target, { width, height }, isMobileBrowser);
+  }, [step, width, height, isMobileBrowser]);
 
   // When a step targets a tab, navigate to it so the UI matches the tooltip.
   useEffect(() => {
@@ -101,9 +106,9 @@ export default function UserGuideTour({ suppressAuto }: Props) {
 
   if (!active || !step) return null;
 
-  // On mobile, if we're spotlighting bottom tabs, lift the tooltip so it doesn't cover the highlighted area.
+  // On mobile (native or phone web), if we're spotlighting bottom tabs, lift the tooltip so it doesn't cover the highlighted area.
   const tooltipContainerStyle =
-    Platform.OS !== 'web'
+    Platform.OS !== 'web' || isMobileBrowser
       ? spotlight
         ? spotlight.y > height * 0.6
           ? { paddingBottom: 24 + Math.min(200, spotlight.height + 80) }
