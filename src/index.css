@@ -187,6 +187,24 @@ p, div, span, h1, h2, h3, h4, h5, h6 {
   * {
     max-width: 100vw !important;
   }
+
+  /* Add 20px bottom padding to scrollable content containers on mobile web */
+  /* This ensures content can scroll completely past the fixed bottom navigation bar */
+  /* Target ScrollView contentContainerStyle containers - React Native Web renders these as divs */
+  /* These divs have flexGrow or flex-grow in their inline styles from contentContainerStyle */
+  /* Exclude the bottom tab bar and any fixed/absolute positioned elements at bottom */
+  div[style*="flexGrow"]:not([style*="position: absolute"][style*="bottom: 0"]):not([style*="position:absolute"][style*="bottom:0"]):not([class*="tab-bar"]):not([style*="position: fixed"]):not([style*="position:fixed"]),
+  div[style*="flex-grow"]:not([style*="position: absolute"][style*="bottom: 0"]):not([style*="position:absolute"][style*="bottom:0"]):not([class*="tab-bar"]):not([style*="position: fixed"]):not([style*="position:fixed"]) {
+    padding-bottom: 20px !important;
+  }
+
+  /* Target main screen containers that wrap scrollable content */
+  /* React Navigation creates screen containers - these are the main content wrappers */
+  /* Only apply to containers that are likely screen content (have flex: 1 and are not the tab bar) */
+  /* Exclude ScrollView content containers to avoid double padding */
+  div[style*="flex: 1"]:not([style*="flexGrow"]):not([style*="flex-grow"]):not([style*="position: absolute"][style*="bottom: 0"]):not([style*="position:absolute"][style*="bottom:0"]):not([class*="tab-bar"]):not([style*="position: fixed"]):not([style*="position:fixed"]) {
+    padding-bottom: 20px !important;
+  }
 }
 
 /* Desktop web styles */
@@ -195,4 +213,3 @@ p, div, span, h1, h2, h3, h4, h5, h6 {
     overflow-y: auto; /* Allow vertical scrolling on desktop */
   }
 }
-

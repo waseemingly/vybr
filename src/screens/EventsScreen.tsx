@@ -1293,9 +1293,7 @@ const EventsScreen: React.FC = () => {
                         }}
                         contentContainerStyle={[
                             styles.eventsList,
-                            // For web, if using justifyContent: 'center', the centering is handled by eventsList directly.
-                            // If there are fewer than CARDS_PER_ROW_WEB items, they will be centered together.
-                            // Platform.OS === 'web' && loadedForYouEvents.length > 0 && { justifyContent: 'space-between'} // This was changed to center
+                            Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth < 768 && { paddingBottom: 120 }
                         ]}
                         style={styles.flatListContainerOnly}
                         onEndReached={handleLoadMoreForYou}
@@ -1320,7 +1318,7 @@ const EventsScreen: React.FC = () => {
                         }}
                         contentContainerStyle={[
                             styles.eventsList,
-                            // Platform.OS === 'web' && loadedAllEvents.length > 0 && { justifyContent: 'space-between'} // This was changed to center
+                            Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth < 768 && { paddingBottom: 120 }
                         ]}
                         style={styles.flatListContainerOnly}
                         onEndReached={handleLoadMoreAllEvents}
@@ -1356,7 +1354,10 @@ const EventsScreen: React.FC = () => {
                                     onPress={() => handleOpenReservationModal(item)}
                                 />
                             )}
-                            contentContainerStyle={styles.eventsList}
+                            contentContainerStyle={[
+                            styles.eventsList,
+                            Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth < 768 && { paddingBottom: 120 }
+                        ]}
                             ListEmptyComponent={() => {
                             if (loadingRestaurants) return null;
                             return (

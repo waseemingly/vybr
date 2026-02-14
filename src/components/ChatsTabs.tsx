@@ -1076,7 +1076,10 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                     />
                 )}
                 showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.listContent}
+                contentContainerStyle={[
+                    styles.listContent,
+                    Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth < 768 && { paddingBottom: (styles.listContent.paddingBottom || 0) + 20 }
+                ]}
                 ListEmptyComponent={
                     <View style={styles.centered}>
                         <Text style={styles.emptyText}>
@@ -1152,7 +1155,10 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                     />
                 )}
                 showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.listContent}
+                contentContainerStyle={[
+                    styles.listContent,
+                    Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth < 768 && { paddingBottom: (styles.listContent.paddingBottom || 0) + 20 }
+                ]}
                 ListEmptyComponent={
                     <View style={styles.centered}>
                         <Text style={styles.emptyText}>

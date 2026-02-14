@@ -1206,7 +1206,10 @@ const OtherUserProfileScreen: React.FC = () => {
 
 
             {/* Profile Content */}
-            <ScrollView style={profileStyles.scrollViewContainer} contentContainerStyle={profileStyles.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView style={profileStyles.scrollViewContainer} contentContainerStyle={[
+                profileStyles.scrollContent,
+                Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth < 768 && { paddingBottom: (profileStyles.scrollContent.paddingBottom || 0) + 20 }
+            ]} showsVerticalScrollIndicator={false}>
                 {/* Profile Card */}
                 <View style={profileStyles.profileCard}>
                     <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={[profileStyles.coverPhoto, { height: 90 }]} />

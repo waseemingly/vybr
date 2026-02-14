@@ -115,7 +115,10 @@ const OrganizerProfileScreen: React.FC = () => {
         </View>
       </View>
 
-      <ScrollView style={styles.scrollViewContainer} contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} />}>
+      <ScrollView style={styles.scrollViewContainer} contentContainerStyle={[
+        styles.scrollContent,
+        Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth < 768 && { paddingBottom: (styles.scrollContent.paddingBottom || 0) + 20 }
+      ]} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} />}>
         <View style={styles.profileCard}>
             <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={styles.coverPhoto} />
             <View style={styles.avatarContainer}><Image source={{ uri: logoUrl }} style={styles.avatar} /></View>

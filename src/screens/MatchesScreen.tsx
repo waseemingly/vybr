@@ -358,7 +358,10 @@ const MatchesScreen: React.FC = () => {
                 <Text style={styles.headerTitle}>Discover Vybs</Text>
                 </View>
                 <ScrollView
-                contentContainerStyle={styles.scrollContentContainer}
+                contentContainerStyle={[
+                    styles.scrollContentContainer,
+                    Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth < 768 && { paddingBottom: 100 }
+                ]}
                     refreshControl={
                         <RefreshControl
                             refreshing={isRefreshing}

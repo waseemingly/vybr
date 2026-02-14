@@ -371,6 +371,7 @@ const SearchScreen = () => {
     const renderInitialView = () => (
         <ScrollView
             style={styles.contentInitial}
+            contentContainerStyle={Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth < 768 ? { paddingBottom: 20 } : undefined}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
         >
@@ -446,7 +447,10 @@ const SearchScreen = () => {
                 data={searchResults}
                 renderItem={renderEventResult} // Renders items that now open the modal
                 keyExtractor={(item) => item.id}
-                contentContainerStyle={styles.resultsListContent}
+                contentContainerStyle={[
+                    styles.resultsListContent,
+                    Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth < 768 && { paddingBottom: (styles.resultsListContent.paddingBottom || 0) + 20 }
+                ]}
                 ListEmptyComponent={() => ( // Show empty state only when not loading
                     !isLoading ? (
                         <View style={styles.emptyStateContainer}>

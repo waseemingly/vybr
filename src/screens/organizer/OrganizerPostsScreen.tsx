@@ -446,7 +446,10 @@ const OrganizerPostsScreen = () => {
           extraData={activeTabIndex}
           keyExtractor={(item) => `post-${item.id}`}
           renderItem={renderPostItem}
-          contentContainerStyle={styles.postsList}
+          contentContainerStyle={[
+            styles.postsList,
+            Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth < 768 && { paddingBottom: 120 }
+          ]}
           style={styles.flatListContainerOnly}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
