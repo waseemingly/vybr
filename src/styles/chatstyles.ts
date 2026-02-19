@@ -1247,26 +1247,31 @@ export const individualChatScreenStyles = StyleSheet.create({
     startersOuterContainer: {
         marginTop: 16,
         width: '100%',
+        paddingHorizontal: Platform.OS === 'web' ? 4 : 0,
     },
     startersTitle: {
         fontSize: 16,
         fontWeight: '600',
         color: '#374151',
         marginBottom: 12,
+        paddingHorizontal: Platform.OS === 'web' ? 12 : 0,
     },
     startersNavigationContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: 8,
+        width: '100%',
+        paddingHorizontal: Platform.OS === 'web' ? 8 : 0,
     },
     starterNavButton: {
-        paddingHorizontal: 12,
+        paddingHorizontal: Platform.OS === 'web' ? 10 : 12,
         paddingVertical: 6,
         borderRadius: 16,
         backgroundColor: 'rgba(59, 130, 246, 0.1)',
         borderWidth: 1,
         borderColor: 'rgba(59, 130, 246, 0.2)',
+        flexShrink: 0,
     },
     starterNavButtonDisabled: {
         backgroundColor: 'rgba(156, 163, 175, 0.1)',
@@ -1275,14 +1280,20 @@ export const individualChatScreenStyles = StyleSheet.create({
     starterButton: {
         backgroundColor: 'rgba(59, 130, 246, 0.1)',
         borderRadius: 8,
-        padding: 12,
+        padding: Platform.OS === 'web' ? 10 : 12,
         marginBottom: 8,
         borderWidth: 1,
         borderColor: 'rgba(59, 130, 246, 0.2)',
+        flex: 1,
+        flexShrink: 1,
+        minWidth: 0,
+        marginHorizontal: Platform.OS === 'web' ? 6 : 4,
     },
     starterText: {
         fontSize: 14,
         color: '#1E3A8A',
+        flexShrink: 1,
+        textAlign: 'center',
     },
     // Additional missing styles for IndividualChatScreen
     starterCounterText: {
