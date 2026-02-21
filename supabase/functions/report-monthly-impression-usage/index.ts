@@ -1,6 +1,6 @@
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-// Use Stripe 14.x with Deno target to avoid Deno.core.runMicrotasks() errors in Supabase Edge runtime
+// Stripe SDK only for subscriptions.retrieve(); meter events sent via fetch to avoid Deno.core.runMicrotasks()
 import Stripe from 'https://esm.sh/stripe@14.12.0?target=deno';
 
 const corsHeaders = {
@@ -13,7 +13,7 @@ const corsHeaders = {
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-const METER_EVENT_NAME = Deno.env.get('STRIPE_TICKET_METER_EVENT_NAME') || 'tickets_and_reservations';
+const IMPRESSION_METER_EVENT_NAME = Deno.env.get('STRIPE_IMPRESSION_METER_EVENT_NAME') || 'impression_usage';
 
 if (!STRIPE_SECRET_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   const missing = [
@@ -21,8 +21,8 @@ if (!STRIPE_SECRET_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     "SUPABASE_URL",
     "SUPABASE_SERVICE_ROLE_KEY"
   ].filter((k) => !Deno.env.get(k)).join(", ");
-  console.error(`[ConfigError-RBU] CRITICAL: Missing env vars: ${missing}.`);
-  throw new Error(`Server config error (RBU): ${missing}`);
+  console.error(`[ConfigError-RMI] CRITICAL: Missing env vars: ${missing}.`);
+  throw new Error(`Server config error (RMI): ${missing}`);
 }
 
 const stripe = new Stripe(STRIPE_SECRET_KEY, {
@@ -32,7 +32,7 @@ const stripe = new Stripe(STRIPE_SECRET_KEY, {
 
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-console.log(`[FunctionInit] report-booking-usage initialized. Meter Event Name: ${METER_EVENT_NAME}`);
+console.log(`[FunctionInit] report-monthly-impression-usage initialized. Meter Event Name: ${IMPRESSION_METER_EVENT_NAME}`);
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -42,13 +42,13 @@ serve(async (req) => {
   }
 
   try {
-    let payload;
+    let payload: { eventId?: string; impressionTimestamp?: string };
     const contentType = req.headers.get("content-type");
     if (contentType && contentType.includes("application/json")) {
       try {
         payload = await req.json();
       } catch (e) {
-        console.error("[RequestError-RBU] Failed to parse JSON body:", e.message);
+        console.error("[RequestError-RMI] Failed to parse JSON body:", (e as Error).message);
         return new Response(JSON.stringify({
           error: "Invalid JSON payload"
         }), {
@@ -60,7 +60,7 @@ serve(async (req) => {
         });
       }
     } else {
-      console.warn("[RequestError-RBU] Invalid content type, expected application/json. Received:", contentType);
+      console.warn("[RequestError-RMI] Invalid content type, expected application/json. Received:", contentType);
       return new Response(JSON.stringify({
         error: "Invalid content type, expected application/json"
       }), {
@@ -72,12 +72,12 @@ serve(async (req) => {
       });
     }
 
-    const { eventId, quantity } = payload;
+    const { eventId, impressionTimestamp } = payload;
 
-    if (!eventId || !quantity) {
-      console.warn("[InputValidation-RBU] Missing eventId or quantity in payload:", payload);
+    if (!eventId) {
+      console.warn("[InputValidation-RMI] Missing eventId in payload:", payload);
       return new Response(JSON.stringify({
-        error: 'Missing required parameter: eventId or quantity'
+        error: 'Missing required parameter: eventId'
       }), {
         status: 400,
         headers: {
@@ -87,7 +87,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`[RecordBookingUsage] Processing booking usage for event_id: ${eventId}, quantity: ${quantity}`);
+    console.log(`[RecordImpressionEvent] Processing impression for event_id: ${eventId}`);
 
     // 1. Get the organizer_id (Supabase Auth User ID) from the 'events' table
     const { data: eventData, error: eventError } = await supabaseAdmin
@@ -97,7 +97,7 @@ serve(async (req) => {
       .single();
 
     if (eventError || !eventData?.organizer_id) {
-      console.error(`[DBError-RBU] Event ${eventId} not found or no organizer_id. Error:`, eventError?.message);
+      console.error(`[DBError-RMI] Event ${eventId} not found or no organizer_id. Error:`, eventError?.message);
       return new Response(JSON.stringify({
         success: false,
         message: `Event ${eventId} not found or not linked to an organizer.`
@@ -107,35 +107,33 @@ serve(async (req) => {
           'Content-Type': 'application/json'
         },
         status: 200
-      }); // 200 so trigger doesn't retry for missing event
+      });
     }
 
     const organizerAuthUserId = eventData.organizer_id;
 
-    // 2. Get the organizer's active TICKET_USAGE subscription details,
-    //    including their stripe_customer_id, stripe_subscription_id and stripe_subscription_item_id.
-    //    Use limit(1) + first row to avoid "multiple rows" error when org has duplicate active subs.
-    console.log(`[DBQuery-RBU] Fetching active 'TICKET_USAGE' sub for organizer_auth_user_id: ${organizerAuthUserId}`);
+    // 2. Get the organizer's active IMPRESSION_USAGE subscription (limit(1) to avoid multiple-rows error)
+    console.log(`[DBQuery-RMI] Fetching active 'IMPRESSION_USAGE' sub for organizer_auth_user_id: ${organizerAuthUserId}`);
     const { data: activeSubRows, error: activeSubError } = await supabaseAdmin
       .from('organizer_billing_subscriptions')
       .select('stripe_customer_id, stripe_subscription_id, stripe_subscription_item_id')
-      .eq('organizer_id', organizerAuthUserId) // This is the Supabase Auth User ID
-      .eq('subscription_type', 'TICKET_USAGE')
+      .eq('organizer_id', organizerAuthUserId)
+      .eq('subscription_type', 'IMPRESSION_USAGE')
       .in('status', ['active', 'trialing', 'past_due'])
       .order('created_at', { ascending: false })
       .limit(1);
 
     if (activeSubError) {
-      console.error(`[DBError-RBU] Error fetching active ticket usage subscription for organizer_id ${organizerAuthUserId}:`, activeSubError.message);
-      throw new Error(`DB error fetching active ticket usage subscription for org ${organizerAuthUserId}.`);
+      console.error(`[DBError-RMI] Error fetching active impression subscription for organizer_id ${organizerAuthUserId}:`, activeSubError.message);
+      throw new Error(`DB error fetching active impression subscription for org ${organizerAuthUserId}.`);
     }
 
     const activeSubData = activeSubRows?.[0] ?? null;
     if (!activeSubData) {
-      console.warn(`[SubscriptionCheck-RBU] Org ${organizerAuthUserId} has no active 'TICKET_USAGE' subscription.`);
+      console.warn(`[SubscriptionCheck-RMI] Org ${organizerAuthUserId} has no active 'IMPRESSION_USAGE' subscription.`);
       return new Response(JSON.stringify({
         success: true,
-        message: 'Organizer not actively subscribed to ticket usage billing. Usage not reported to Stripe.'
+        message: 'Organizer not actively subscribed to impression billing. Impression not reported to Stripe.'
       }), {
         headers: {
           ...corsHeaders,
@@ -148,10 +146,10 @@ serve(async (req) => {
     const stripeCustomerId = activeSubData.stripe_customer_id;
 
     if (!stripeCustomerId) {
-      console.warn(`[StripeInfo-RBU] Org ${organizerAuthUserId} has active sub but subscription record missing Stripe Customer ID. Sub data:`, activeSubData);
+      console.warn(`[StripeInfo-RMI] Org ${organizerAuthUserId} has active sub but subscription record missing Stripe Customer ID. Sub data:`, activeSubData);
       return new Response(JSON.stringify({
         success: true,
-        message: 'Organizer subscribed but Stripe Customer ID missing in subscription record. Usage not reported to Stripe.'
+        message: 'Organizer subscribed but Stripe Customer ID missing in subscription record. Impression not reported to Stripe.'
       }), {
         headers: {
           ...corsHeaders,
@@ -161,66 +159,45 @@ serve(async (req) => {
       });
     }
 
-    // 3. Get the subscription item ID (required for subscription-based meters)
-    let subscriptionItemId: string | null = activeSubData.stripe_subscription_item_id || null;
-    
-    if (!subscriptionItemId) {
-      console.log(`[StripeInfo-RBU] Subscription item ID not in database, fetching from Stripe...`);
+    // 3. Resolve subscription item ID if meter is subscription-based (optional; some meters use customer only)
+    let subscriptionItemId: string | null = activeSubData.stripe_subscription_item_id ?? null;
+    if (!subscriptionItemId && activeSubData.stripe_subscription_id) {
       try {
         const subscription = await stripe.subscriptions.retrieve(activeSubData.stripe_subscription_id, {
           expand: ['items.data.price.product']
         });
-        
-        // Get the first subscription item (should be the ticket usage item)
         if (subscription.items.data.length > 0) {
           subscriptionItemId = subscription.items.data[0].id;
-          console.log(`[StripeInfo-RBU] Found subscription item ID from Stripe: ${subscriptionItemId}`);
-          
-          // Update database with subscription item ID for future use
           await supabaseAdmin
             .from('organizer_billing_subscriptions')
             .update({ stripe_subscription_item_id: subscriptionItemId })
             .eq('stripe_subscription_id', activeSubData.stripe_subscription_id);
-        } else {
-          throw new Error('No subscription items found');
         }
-      } catch (stripeError: any) {
-        console.error(`[StripeInfo-RBU] Error retrieving subscription: ${stripeError.message}`);
-        throw new Error(`Failed to retrieve subscription details: ${stripeError.message}`);
+      } catch (stripeErr: unknown) {
+        console.warn("[StripeInfo-RMI] Could not resolve subscription item (meter may be customer-based):", (stripeErr as Error).message);
       }
     }
 
-    if (!subscriptionItemId) {
-      console.warn(`[StripeInfo-RBU] Org ${organizerAuthUserId} has active sub but could not get subscription item ID. Sub data:`, activeSubData);
-      return new Response(JSON.stringify({
-        success: true,
-        message: 'Organizer subscribed but subscription item ID missing. Usage not reported to Stripe.'
-      }), {
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json'
-        },
-        status: 200
-      });
-    }
+    console.log(`[DataCheck-RMI] Found active sub for org ${organizerAuthUserId}, Stripe Customer ID: ${stripeCustomerId}`);
 
-    console.log(`[DataCheck-RBU] Found active sub for org ${organizerAuthUserId}, Stripe Customer ID: ${stripeCustomerId}, Subscription Item ID: ${subscriptionItemId}`);
+    // 4. Report usage to Stripe Meter Events API via fetch (avoids stripe.billing + Deno.core.runMicrotasks())
+    const reportTimestamp = impressionTimestamp
+      ? Math.floor(new Date(impressionTimestamp).getTime() / 1000)
+      : Math.floor(Date.now() / 1000);
 
-    // 4. Report usage to Stripe using Meter Events API
-    const reportTimestamp = Math.floor(Date.now() / 1000);
-    const usageValue = quantity.toString(); // Convert to string like impression function
-
-    console.log(`[StripeCall-RBU] Reporting to meter '${METER_EVENT_NAME}' for customer ${stripeCustomerId}, subscription item ${subscriptionItemId}, value: ${usageValue}, eventId: ${eventId}`);
-
-    // Call Stripe Billing Meter Events API via fetch (stripe.billing is undefined in Deno SDK build)
     const meterEventBody = new URLSearchParams({
-      event_name: METER_EVENT_NAME,
+      event_name: IMPRESSION_METER_EVENT_NAME,
       'payload[stripe_customer_id]': stripeCustomerId,
-      'payload[identifier]': subscriptionItemId,
-      'payload[value]': usageValue,
+      'payload[value]': '1',
       'payload[supabase_event_id]': eventId,
       timestamp: reportTimestamp.toString()
     });
+    if (subscriptionItemId) {
+      meterEventBody.set('payload[identifier]', subscriptionItemId);
+    }
+
+    console.log(`[StripeCall-RMI] Reporting to meter '${IMPRESSION_METER_EVENT_NAME}' for customer ${stripeCustomerId}, value: 1, eventId: ${eventId}`);
+
     const meterRes = await fetch('https://api.stripe.com/v1/billing/meter_events', {
       method: 'POST',
       headers: {
@@ -231,15 +208,15 @@ serve(async (req) => {
     });
     if (!meterRes.ok) {
       const errText = await meterRes.text();
-      console.error(`[StripeCall-RBU] Meter event failed ${meterRes.status}:`, errText);
+      console.error(`[StripeCall-RMI] Meter event failed ${meterRes.status}:`, errText);
       throw new Error(`Stripe meter event failed: ${meterRes.status} ${errText}`);
     }
 
-    console.log(`[Success-RBU] Stripe Meter Event sent for event ${eventId}, org ${organizerAuthUserId}, cust ${stripeCustomerId}, subscription item ${subscriptionItemId}.`);
+    console.log(`[Success-RMI] Stripe Meter Event sent for event ${eventId}, org ${organizerAuthUserId}, cust ${stripeCustomerId}.`);
 
     return new Response(JSON.stringify({
       success: true,
-      message: 'Booking usage reported to Stripe Meter.'
+      message: 'Impression reported to Stripe Meter.'
     }), {
       headers: {
         ...corsHeaders,
@@ -247,11 +224,10 @@ serve(async (req) => {
       },
       status: 200
     });
-
   } catch (error) {
-    console.error('[UnhandledError-RBU] Unexpected error in report-booking-usage:', error.message, error.stack);
+    console.error('[UnhandledError-RMI] Unexpected error in report-monthly-impression-usage:', (error as Error).message, (error as Error).stack);
     return new Response(JSON.stringify({
-      error: `Server error: ${error.message}`
+      error: `Server error: ${(error as Error).message}`
     }), {
       status: 500,
       headers: {
@@ -261,4 +237,3 @@ serve(async (req) => {
     });
   }
 });
-

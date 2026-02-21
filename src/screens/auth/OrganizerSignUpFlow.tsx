@@ -337,14 +337,9 @@ const OrganizerSignUpFlow = () => {
        console.log('Organizer profile created/updated successfully.');
 
       // Step 3: Signup and Profile creation successful!
-      // Redirect to RequiredPaymentScreen - the AppNavigator will handle the detection
-      console.log('Organizer sign up flow complete. Redirecting to payment setup.');
-      
-      // Navigate to PaymentRequired stack for payment setup
-      (navigation as any).reset({
-        index: 0,
-        routes: [{ name: 'PaymentRequired' }],
-      });
+      // Do NOT navigate — createOrganizerProfile (useAuth) refreshes session state;
+      // AppNavigator will re-render and show PaymentRequired automatically.
+      console.log('[OrganizerSignUpFlow] Organizer sign up complete; state update will show RequiredPaymentScreen.');
 
     } catch (err: any) {
       console.error('Error completing signup process:', err);

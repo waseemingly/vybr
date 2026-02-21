@@ -211,38 +211,58 @@ const ViewBookingsScreen = () => {
     )
   };
 
+  const renderHeaderWithBack = () => (
+    <View style={styles.headerRow}>
+      <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <Feather name="chevron-left" size={24} color="#111827" />
+      </TouchableOpacity>
+      <Text style={styles.headerTitle} numberOfLines={1}>{eventTitle}</Text>
+      <View style={styles.headerSpacer} />
+    </View>
+  );
+
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.centeredContainer}>
-        <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY || "#3B82F6"} />
-        <Text style={styles.loadingText}>Loading attendees...</Text>
+      <SafeAreaView style={styles.centeredContainer} edges={['top', 'bottom', 'left', 'right']}>
+        {renderHeaderWithBack()}
+        <View style={styles.centeredContent}>
+          <ActivityIndicator size="large" color={APP_CONSTANTS.COLORS.PRIMARY || "#3B82F6"} />
+          <Text style={styles.loadingText}>Loading attendees...</Text>
+        </View>
       </SafeAreaView>
     );
   }
 
   if (error) {
     return (
-      <SafeAreaView style={styles.centeredContainer}>
-        <Feather name="alert-circle" size={40} color="#F87171" />
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity onPress={fetchBookings} style={styles.retryButton}>
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
+      <SafeAreaView style={styles.centeredContainer} edges={['top', 'bottom', 'left', 'right']}>
+        {renderHeaderWithBack()}
+        <View style={styles.centeredContent}>
+          <Feather name="alert-circle" size={40} color="#F87171" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity onPress={fetchBookings} style={styles.retryButton}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
       </SafeAreaView>
     );
   }
 
   if (bookings.length === 0) {
     return (
-      <SafeAreaView style={styles.centeredContainer}>
-        <Feather name="users" size={40} color="#6B7280" />
-        <Text style={styles.emptyText}>No confirmed bookings for this event yet.</Text>
+      <SafeAreaView style={styles.centeredContainer} edges={['top', 'bottom', 'left', 'right']}>
+        {renderHeaderWithBack()}
+        <View style={styles.centeredContent}>
+          <Feather name="users" size={40} color="#6B7280" />
+          <Text style={styles.emptyText}>No confirmed bookings for this event yet.</Text>
+        </View>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
+      {renderHeaderWithBack()}
       <View style={styles.searchContainer}>
         <Feather name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
         <TextInput
@@ -271,12 +291,39 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFF',
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#FFF',
+  },
+  backButton: {
+    padding: 4,
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#111827',
+    textAlign: 'center',
+    marginHorizontal: 8,
+  },
+  headerSpacer: {
+    width: 80,
+  },
   centeredContainer: {
+    flex: 1,
+    backgroundColor: '#FFF',
+  },
+  centeredContent: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
-    backgroundColor: '#FFF',
   },
   loadingText: {
     marginTop: 10,

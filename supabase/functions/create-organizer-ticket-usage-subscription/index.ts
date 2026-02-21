@@ -130,10 +130,17 @@ serve(async (req) => {
 
     // Create the usage-based subscription
     // @ts-ignore - Deno global available at runtime
-    const TICKET_USAGE_PRICE_ID = Deno.env.get('STRIPE_TICKET_USAGE_PRICE_ID');
+    const TICKET_USAGE_PRICE_ID = (Deno.env.get('STRIPE_TICKET_USAGE_PRICE_ID') ?? '').trim();
 
     if (!TICKET_USAGE_PRICE_ID) {
       throw new Error('STRIPE_TICKET_USAGE_PRICE_ID environment variable not set');
+    }
+    // Stripe expects a Price ID (price_xxx), not a Subscription ID (sub_xxx)
+    if (TICKET_USAGE_PRICE_ID.startsWith('sub_')) {
+      throw new Error(
+        'STRIPE_TICKET_USAGE_PRICE_ID must be a Price ID (starts with price_), not a Subscription ID (sub_). ' +
+        'Create a metered Price in Stripe Dashboard → Billing → Products, then set the env to that Price ID.'
+      );
     }
 
     const subscription = await stripe.subscriptions.create({

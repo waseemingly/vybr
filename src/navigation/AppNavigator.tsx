@@ -979,10 +979,15 @@ const usePaymentRequirementCheck = () => {
     }
   }
   
-  // Fallback 3: Default to music_lover if still undefined (most common case)
+  // Fallback 3: Default from profile presence so sign-up flows never cross (organizer must never see MusicLoverSignUpFlow and vice versa)
   if (!userType && session) {
-    userType = 'music_lover';
-    console.log("[AppNavigator] ⚠️ UserType was undefined, defaulting to music_lover");
+    if (organizerProfile && !musicLoverProfile) {
+      userType = 'organizer';
+      console.log("[AppNavigator] ⚠️ UserType was undefined; defaulting to organizer (organizer profile only)");
+    } else {
+      userType = 'music_lover';
+      console.log("[AppNavigator] ⚠️ UserType was undefined, defaulting to music_lover");
+    }
   }
   
   const isOrganizer = userType === 'organizer';

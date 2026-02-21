@@ -588,30 +588,32 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 console.log(`[AuthProvider] User type from metadata: ${userType}`);
                 
                 // Fallback 1: Check if we have existing profiles in the database (most reliable)
+                // When BOTH profiles exist, do NOT pick music_lover by default — use users table or metadata to avoid organizer flow redirecting to MusicLoverSignUpFlow.
                 if (!userType) {
                     console.log("[AuthProvider] User type still unknown, checking database profiles...");
                     try {
-                        // Check for music lover profile
-                        const { data: musicLoverData, error: musicLoverError } = await supabase
-                            .from('music_lover_profiles')
-                            .select('id')
-                            .eq('user_id', userId)
-                            .maybeSingle();
-                        
-                        if (!musicLoverError && musicLoverData) {
+                        const [musicLoverResult, organizerResult] = await Promise.all([
+                            supabase.from('music_lover_profiles').select('id').eq('user_id', userId).maybeSingle(),
+                            supabase.from('organizer_profiles').select('id').eq('user_id', userId).maybeSingle()
+                        ]);
+                        const hasMusicLover = !musicLoverResult.error && musicLoverResult.data;
+                        const hasOrganizer = !organizerResult.error && organizerResult.data;
+
+                        if (hasMusicLover && !hasOrganizer) {
                             userType = 'music_lover';
-                            console.log(`[AuthProvider] User type determined from existing music lover profile: ${userType}`);
-                        } else {
-                            // Check for organizer profile
-                            const { data: organizerData, error: organizerError } = await supabase
-                                .from('organizer_profiles')
-                                .select('id')
-                                .eq('user_id', userId)
-                                .maybeSingle();
-                            
-                            if (!organizerError && organizerData) {
-                                userType = 'organizer';
-                                console.log(`[AuthProvider] User type determined from existing organizer profile: ${userType}`);
+                            console.log(`[AuthProvider] User type determined from existing music lover profile only: ${userType}`);
+                        } else if (hasOrganizer && !hasMusicLover) {
+                            userType = 'organizer';
+                            console.log(`[AuthProvider] User type determined from existing organizer profile only: ${userType}`);
+                        } else if (hasMusicLover && hasOrganizer) {
+                            // Both exist: use users table or metadata so we don't force music_lover and break organizer flow
+                            const { data: userData } = await supabase.from('users').select('user_type').eq('id', userId).maybeSingle();
+                            if (userData?.user_type === 'organizer' || userData?.user_type === 'music_lover') {
+                                userType = userData.user_type as UserTypes;
+                                console.log(`[AuthProvider] User type from users table (both profiles exist): ${userType}`);
+                            } else {
+                                userType = (supabaseSession.user.user_metadata?.user_type as UserTypes) || 'music_lover';
+                                console.log(`[AuthProvider] User type when both profiles exist (metadata or default): ${userType}`);
                             }
                         }
                     } catch (profileCheckError) {
@@ -895,46 +897,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             await saveSessionToStorage(currentSession);
 
             // IMPROVED: Add a small delay to ensure auth state is properly synchronized
-            // This helps prevent race conditions between auth state changes and navigation
-            if (options?.navigateToProfile && currentSession) {
-                console.log("[AuthProvider] Adding delay to ensure auth state synchronization...");
-                await new Promise(resolve => setTimeout(resolve, 500));
-            }
-
-            // --- Navigation logic --- 
-            // Check if navigator is ready before attempting reset
-            if (navigationRef.current?.isReady()) {
-                if (options?.navigateToProfile && currentSession) {
-                    // IMPROVED: More reliable profile completion check
-                    const profileComplete = userType === 'music_lover'
-                        ? !!currentSession.musicLoverProfile
-                        : userType === 'organizer'
-                            ? !!currentSession.organizerProfile
-                            : false;
-                    
-                    console.log(`[AuthProvider] Profile completion check - userType: ${userType}, profileComplete: ${profileComplete}`);
-                    console.log(`[AuthProvider] Music lover profile: ${!!currentSession.musicLoverProfile}, Organizer profile: ${!!currentSession.organizerProfile}`);
-                    
-                    if (profileComplete) {
-                        console.log("[AuthProvider] Navigating to MainApp (profile complete).");
-                        navigationRef.current?.reset({ index: 0, routes: [{ name: 'MainApp' }] });
-                    } else if (userType) {
-                        console.log("[AuthProvider] Navigating to SignUpFlow (profile incomplete).");
-                        // Use navigate instead of reset to preserve navigation history
-                        navigationRef.current?.navigate(userType === 'music_lover' ? 'MusicLoverSignUpFlow' : 'OrganizerSignUpFlow' as never);
-                    } else {
-                        console.log("[AuthProvider] Navigating to Auth (session exists, but no valid user type).");
-                        navigationRef.current?.reset({ index: 0, routes: [{ name: 'Auth' }] });
-                    }
-                } else if (!currentSession) {
-                    console.log("[AuthProvider] No session, navigating to Auth.");
-                    navigationRef.current?.reset({ index: 0, routes: [{ name: 'Auth' }] });
-                }
-            } else {
-                // Log if nav isn't ready, maybe retry later or handle differently
-                console.warn("[AuthProvider] Navigation Ref not ready, navigation skipped.");
-            }
-            // --- End Navigation Logic ---
+            // Do NOT navigate here — root navigator chooses screen from state (session, isProfileComplete, requiresPaymentScreen, userType).
+            // Navigating here caused organizer flow to redirect to MusicLoverSignUpFlow when userType or profile state was wrong.
+            console.log(`[AuthProvider] Session updated; root navigator will show correct screen (userType: ${userType}, profileComplete: ${userType === 'music_lover' ? !!currentSession?.musicLoverProfile : userType === 'organizer' ? !!currentSession?.organizerProfile : false}).`);
         }
         } catch (e) {
             console.error("[AuthProvider] Error in checkSession process:", e);
@@ -1282,9 +1247,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             }
             console.log('[AuthProvider] createOrganizerProfile: Upsert SUCCESS.', upsertData);
 
-            // --- Refresh Session & Trigger Navigation ---
-            console.log('[AuthProvider] createOrganizerProfile: Calling checkSession with navigate=true...');
-            await checkSession({ navigateToProfile: true });
+            // CRITICAL: Set user_type to organizer in metadata so checkSession (and root navigator)
+            // never treats this user as music_lover — prevents redirect to MusicLoverSignUpFlow.
+            try {
+                await supabase.auth.updateUser({ data: { user_type: 'organizer' } });
+                console.log('[AuthProvider] createOrganizerProfile: Set user_type=organizer in metadata.');
+            } catch (metaErr) {
+                console.warn('[AuthProvider] createOrganizerProfile: Could not set user_type in metadata:', metaErr);
+            }
+
+            // Refresh session state; do NOT navigate — root navigator will show PaymentRequired.
+            await checkSession({ navigateToProfile: false });
 
             return { success: true, logoUrl: publicLogoUrl };
 
