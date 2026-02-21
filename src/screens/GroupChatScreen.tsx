@@ -1138,7 +1138,8 @@ const GroupChatScreen: React.FC = () => {
             setCanMembersAddOthers(groupDetails.can_members_add_others ?? false);
             setCanMembersEditInfo(groupDetails.can_members_edit_info ?? false);
             setCurrentGroupName(groupDetails.group_name);
-            setCurrentGroupImage(groupDetails.group_image ?? null);
+            const details = groupDetails as { group_image?: string | null; groupImage?: string | null };
+            setCurrentGroupImage(details.group_image ?? details.groupImage ?? null);
 
             // Fetch group member profiles for realtime features
             const memberIds = participantsRaw.map(p => p.user_id);
@@ -1278,6 +1279,24 @@ const GroupChatScreen: React.FC = () => {
             }
         }
     }, [currentUserId, groupId]); // Simplified dependencies - removed navigation, mapDbMessageToChatMessage, isInitialLoad
+
+    // Lightweight refresh of group header (name, image, permissions) — e.g. when returning from Group Info after updating photo
+    const refreshGroupHeader = useCallback(async () => {
+        if (!groupId || !currentUserId) return;
+        try {
+            const { data, error } = await supabase.rpc('get_group_info', { group_id_input: groupId });
+            if (error || !data?.group_details) return;
+            const g = data.group_details as Record<string, unknown> & { group_name?: string; group_image?: string | null; groupImage?: string | null };
+            const participantsRaw: { user_id: string; is_admin: boolean }[] = data.participants || [];
+            const currentUserParticipant = participantsRaw.find((p: { user_id: string }) => p.user_id === currentUserId);
+            if (g.group_name != null) setCurrentGroupName(g.group_name);
+            const imageUrl = g.group_image ?? g.groupImage ?? null;
+            setCurrentGroupImage(imageUrl != null ? imageUrl : null);
+            if (currentUserParticipant) setIsCurrentUserAdmin(!!currentUserParticipant.is_admin);
+            if (g.can_members_add_others !== undefined) setCanMembersAddOthers(!!g.can_members_add_others);
+            if (g.can_members_edit_info !== undefined) setCanMembersEditInfo(!!g.can_members_edit_info);
+        } catch (_) { /* no-op */ }
+    }, [groupId, currentUserId]);
 
     // Send Text Message
     const sendTextMessage = useCallback(async (text: string) => {
@@ -2212,7 +2231,12 @@ const GroupChatScreen: React.FC = () => {
                     },
                 async (payload) => {
                     const newMessageDb = payload.new as DbGroupMessage;
-                    console.log('[GroupChatScreen] New message received via direct DB subscription:', newMessageDb.id, 'from:', newMessageDb.sender_id);
+                    const isSystemMessage = !!newMessageDb.is_system_message;
+                    if (isSystemMessage) {
+                        console.log('[GroupChatScreen] System message received (e.g. group photo updated):', newMessageDb.id);
+                    } else {
+                        console.log('[GroupChatScreen] New message received via direct DB subscription:', newMessageDb.id, 'from:', newMessageDb.sender_id);
+                    }
                     
                     // Skip if it's our own message (we already have it optimistically)
                     if (newMessageDb.sender_id === currentUserId) {
@@ -2232,7 +2256,8 @@ const GroupChatScreen: React.FC = () => {
                         }
                     }
                     
-                    if (newMessageDb.sender_id !== currentUserId) {
+                    // For system messages (e.g. "Group photo updated"), add to list but do not mark as delivered/seen
+                    if (newMessageDb.sender_id !== currentUserId && !isSystemMessage) {
                         try {
                             console.log('[GroupChatScreen] Marking new message as delivered and seen');
                             await supabase.rpc('mark_group_message_delivered', { message_id_input: newMessageDb.id, user_id_input: currentUserId });
@@ -2469,7 +2494,12 @@ const GroupChatScreen: React.FC = () => {
         const unsubscribe = subscribeToGroupChat(groupId, {
             onMessage: async (payload: any) => {
                 const newMessageDb = payload.new as DbGroupMessage;
-                console.log('[GroupChatScreen] New message received via realtime:', newMessageDb.id, 'from:', newMessageDb.sender_id);
+                const isSystemMessage = !!newMessageDb.is_system_message;
+                if (isSystemMessage) {
+                    console.log('[GroupChatScreen] System message received via realtime (e.g. group photo updated):', newMessageDb.id);
+                } else {
+                    console.log('[GroupChatScreen] New message received via realtime:', newMessageDb.id, 'from:', newMessageDb.sender_id);
+                }
                 
                 // FIX: Prevent race condition - ignore messages created before we started fetching
                 // This fixes the iOS issue where messages appear/disappear due to race conditions
@@ -2484,7 +2514,8 @@ const GroupChatScreen: React.FC = () => {
                     }
                 }
                 
-                if (newMessageDb.sender_id !== currentUserId) {
+                // For system messages (e.g. "Group photo updated"), do not mark as delivered/seen
+                if (newMessageDb.sender_id !== currentUserId && !isSystemMessage) {
                     try {
                         console.log('[GroupChatScreen] Marking new message as delivered and seen');
                         await supabase.rpc('mark_group_message_delivered', { message_id_input: newMessageDb.id, user_id_input: currentUserId });
@@ -3118,7 +3149,17 @@ const GroupChatScreen: React.FC = () => {
             headerTitle: () => (
                 <TouchableOpacity style={styles.headerTitleContainer} onPress={navigateToGroupInfo} activeOpacity={0.8}>
                     <View style={styles.headerImageContainer}>
-                        <Image source={{ uri: currentGroupImage ?? route.params.groupImage ?? DEFAULT_GROUP_PIC }} style={styles.headerGroupImage} />
+                        <Image
+                        key={currentGroupImage ?? route.params.groupImage ?? 'default'}
+                        source={{
+                            uri: (() => {
+                                const u = currentGroupImage ?? route.params.groupImage ?? DEFAULT_GROUP_PIC;
+                                if (u === DEFAULT_GROUP_PIC || !u) return u;
+                                return `${u}${u.includes('?') ? '&' : '?'}v=${encodeURIComponent((u.split('/').pop() || '').slice(0, 50))}`;
+                            })(),
+                        }}
+                        style={styles.headerGroupImage}
+                    />
                         {onlineCount > 0 && (
                             <View style={styles.onlineIndicator}>
                                 <Text style={styles.onlineIndicatorText}>{onlineCount}</Text>
@@ -3200,14 +3241,17 @@ const GroupChatScreen: React.FC = () => {
             // NEW: Use new message fetching service
             console.log('[NEW] Using new group message fetching service');
             // Don't manually call newFetchMessages here - let the hook handle auto-fetch
-            // The hook will automatically fetch messages when initialized
+            // Refresh header (name, image) so e.g. group photo updated in Group Info is shown
+            refreshGroupHeader();
         } else {
             // OLD: Use existing message fetching
             console.log('[OLD] Using existing group message fetching service');
             fetchInitialData();
         }
+        // Refresh header on every focus so returning from Group Info shows updated group image
+        refreshGroupHeader();
         return () => { }; 
-    }, [groupId, useNewServices, isMobile, isPowerSyncAvailable, fetchInitialData])); // Added debugging dependencies
+    }, [groupId, useNewServices, isMobile, isPowerSyncAvailable, fetchInitialData, refreshGroupHeader])); // Added debugging dependencies
 
     // Sync new messages to old state when newMessages changes
     useEffect(() => {
@@ -4200,7 +4244,14 @@ const GroupChatScreen: React.FC = () => {
                 >
                     <View>
                         <Image
-                            source={{ uri: currentGroupImage ?? DEFAULT_GROUP_PIC }}
+                            key={currentGroupImage ?? 'default'}
+                            source={{
+                                uri: (() => {
+                                    const u = currentGroupImage ?? DEFAULT_GROUP_PIC;
+                                    if (u === DEFAULT_GROUP_PIC || !u) return u;
+                                    return `${u}${u.includes('?') ? '&' : '?'}v=${encodeURIComponent((u.split('/').pop() || '').slice(0, 50))}`;
+                                })(),
+                            }}
                             style={styles.headerGroupImage}
                         />
                         <View style={styles.onlineIndicator}>

@@ -121,10 +121,11 @@ const ChatsScreen = () => {
                 });
                 
                 try {
+                    const groupImage = itemData.group_image ?? (itemData as unknown as { groupImage?: string | null }).groupImage ?? null;
                     navigation.navigate('GroupChatScreen', {
                         groupId: itemData.group_id,
                         groupName: itemData.group_name,
-                        groupImage: itemData.group_image
+                        groupImage: groupImage ?? undefined,
                     });
                     console.log('🔍 ChatsScreen: Navigation to GroupChatScreen completed');
                 } catch (error) {

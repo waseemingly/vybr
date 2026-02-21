@@ -403,8 +403,8 @@ const ChatCard: React.FC<ChatCardProps> = ({
                     disabled={type === 'group' || !onProfileOpen}
                     activeOpacity={0.8}
                 >
-                    {/* Use Image component - consider adding placeholder/error handling later */}
-                    <Image source={{ uri: imageSourceUri }} style={styles.avatar} />
+                    {/* Use Image component - key forces remount when URL changes so new group avatar shows */}
+                    <Image key={imageSourceUri} source={{ uri: imageSourceUri }} style={styles.avatar} />
                     {/* Online indicator or other status indicators can be added here */}
                     {unread > 0 && (
                         <View style={styles.onlineIndicator} />

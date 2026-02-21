@@ -16,8 +16,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker'; // Import image picker
-import { decode } from 'base64-arraybuffer'; // Import decoder for upload
+import * as ImagePicker from 'expo-image-picker';
+import { decode } from 'base64-arraybuffer';
+import ImageCropper from '@/components/ImageCropper';
 
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -47,7 +48,10 @@ const CreateGroupChatScreen = () => {
     const [potentialMembers, setPotentialMembers] = useState<SelectableUser[]>([]);
     const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
     const [groupName, setGroupName] = useState('');
-    const [groupImageUri, setGroupImageUri] = useState<string | null>(null); // State for selected image URI
+    const [groupImageUri, setGroupImageUri] = useState<string | null>(null);
+    const [groupImageBase64, setGroupImageBase64] = useState<string | null>(null); // From web cropper for upload
+    const [showCropper, setShowCropper] = useState(false);
+    const [tempImageUri, setTempImageUri] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isCreating, setIsCreating] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -77,41 +81,49 @@ const CreateGroupChatScreen = () => {
         });
     }, [navigation]);
 
-    // Function to pick image
+    // Pick image — on web show crop/zoom (ImageCropper), on mobile use native crop
     const pickAndUpdateImage = async () => {
-        if (isCreating) return; // Don't allow picking while creating
-
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true,
-            aspect: [1, 1],
-            quality: 0.6,
-            // request base64 on web so we can build our own blob
-            base64: Platform.OS === 'web',
-        });
-
-        if (result.canceled) return;
-        const asset = result.assets[0];
-        const extension = asset.uri.split('.').pop()?.toLowerCase() || 'jpg';
-        let blob: Blob;
-
-        if (Platform.OS === 'web') {
-            // expo on web returns base64 if you asked for it
-            if (!asset.base64) {
-                throw new Error('Need base64 data on web');
+        if (isCreating) return;
+        try {
+            const permResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (Platform.OS !== 'web' && !permResult.granted) {
+                Alert.alert('Permission Denied', 'Camera roll permission is required.');
+                return;
             }
-            const buffer = decode(asset.base64);
-            blob = new Blob([buffer], { type: `image/${extension}` });
-        } else {
-            // native: fetch local URI to get a Blob
-            const response = await fetch(asset.uri);
-            blob = await response.blob();
+            const mediaTypes = (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions?.Images;
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes,
+                allowsEditing: Platform.OS !== 'web',
+                aspect: Platform.OS !== 'web' ? [1, 1] : undefined,
+                quality: 0.8,
+                base64: Platform.OS === 'web',
+            });
+            if (result.canceled || !result.assets?.[0]?.uri) return;
+            const asset = result.assets[0];
+            if (Platform.OS === 'web') {
+                setTempImageUri(asset.uri);
+                setShowCropper(true);
+                return;
+            }
+            setGroupImageBase64(null);
+            setGroupImageUri(asset.uri);
+        } catch (err: any) {
+            console.error('CreateGroupChat picker error:', err);
+            Alert.alert('Error', `Could not open image picker: ${err?.message || 'Unknown error'}`);
         }
-
-        // now you can call supabase.storage.from('group-avatars').upload(path, blob) safely
-        // We'll handle the base64 upload later in handleCreateGroup
-        setGroupImageUri(asset.uri); // Set the local URI for preview
     };
+
+    const handleCroppedImage = useCallback((croppedImageUri: string, croppedBase64: string) => {
+        setShowCropper(false);
+        setTempImageUri(null);
+        setGroupImageUri(croppedImageUri);
+        setGroupImageBase64(croppedBase64);
+    }, []);
+
+    const handleCropperCancel = useCallback(() => {
+        setShowCropper(false);
+        setTempImageUri(null);
+    }, []);
 
     // Function to fetch *accepted friends*
     const fetchSelectableUsers = useCallback(async () => {
@@ -202,35 +214,38 @@ const CreateGroupChatScreen = () => {
         return name.includes(query) || username.includes(query);
     });
 
-    // Upload Image Function
-    const uploadGroupImage = async (groupId: string, imageUri: string): Promise<string | null> => {
+    // Upload Image Function (ArrayBuffer upload so Supabase stores correct MIME)
+    const uploadGroupImage = async (groupId: string, imageUri: string, base64?: string | null): Promise<string | null> => {
         try {
-            // Prepare blob differently on web vs native
-            let blob: Blob;
-            if (Platform.OS === 'web' && imageUri.startsWith('data:')) {
-                // Data URI with base64
+            let arrayBuffer: ArrayBuffer; let safeMime: string;
+            if (base64) {
+                const decoded = decode(base64);
+                arrayBuffer = decoded as ArrayBuffer;
+                safeMime = 'image/jpeg';
+            } else if (Platform.OS === 'web' && imageUri.startsWith('data:')) {
                 const [meta, b64] = imageUri.split(',');
-                const arrayBuffer = decode(b64);
-                // Extract mime type
+                const decoded = decode(b64);
+                arrayBuffer = decoded as ArrayBuffer;
                 const mime = meta.match(/data:(.*?);base64/)?.[1] || 'image/jpeg';
-                blob = new Blob([arrayBuffer], { type: mime });
+                safeMime = mime.startsWith('image/') ? mime : 'image/jpeg';
             } else {
                 const response = await fetch(imageUri);
                 if (!response.ok) throw new Error(`Failed to fetch image URI: ${response.statusText}`);
-                blob = await response.blob();
+                const blob = await response.blob();
+                arrayBuffer = await blob.arrayBuffer();
+                safeMime = (blob.type && blob.type.startsWith('image/')) ? blob.type : 'image/jpeg';
             }
-
-            // Extract file extension from blob type or URI
-            let fileExt = blob.type.split('/')?.[1] || imageUri.split('.').pop()?.toLowerCase() || 'jpg';
+            if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Image data is empty.');
+            let fileExt = safeMime.split('/')[1] || 'jpg';
             if (fileExt === 'jpeg') fileExt = 'jpg';
             const path = `${groupId}/avatar.${Date.now()}.${fileExt}`;
             const { data: uploadData, error: uploadError } = await supabase
                 .storage
                 .from('group-avatars')
-                .upload(path, blob, {
-                    cacheControl: '3600', // Cache for 1 hour
+                .upload(path, arrayBuffer, {
+                    cacheControl: '3600',
                     upsert: true,
-                    contentType: blob.type,
+                    contentType: safeMime,
                 });
 
             if (uploadError) {
@@ -252,7 +267,6 @@ const CreateGroupChatScreen = () => {
         }
     };
 
-    // Handle group creation (modified for image upload)
     const handleCreateGroup = async () => {
         if (!groupName.trim()) {
             Alert.alert("Group Name Required", "Please enter a name for the group.");
@@ -300,23 +314,30 @@ const CreateGroupChatScreen = () => {
 
              console.log("Group record created successfully via RPC, Group ID:", newGroupId);
 
-             // Step 2: Upload image if selected
+             // Step 2: Upload image if selected (pass base64 when from web cropper)
              if (groupImageUri) {
                  console.log("[CreateGroupChat] Attempting to upload image for new group...");
-                 uploadedImageUrl = await uploadGroupImage(newGroupId, groupImageUri);
+                 uploadedImageUrl = await uploadGroupImage(newGroupId, groupImageUri, groupImageBase64 ?? undefined);
 
-                 // Step 3: If upload successful, update the group record with the image URL
+                 // Step 3: If upload successful, persist image URL same way as GroupInfoScreen (RPC + direct update)
                  if (uploadedImageUrl) {
-                      console.log("[CreateGroupChat] Updating group record with image URL:", uploadedImageUrl);
+                     console.log("[CreateGroupChat] Updating group record with image URL:", uploadedImageUrl);
                      try {
+                         const { error: rpcErr } = await supabase.rpc('update_group_image', {
+                             group_id_input: newGroupId,
+                             new_image_url: uploadedImageUrl,
+                         });
+                         if (rpcErr) {
+                             console.warn("[CreateGroupChat] RPC update_group_image failed:", rpcErr.message, "- using direct table update");
+                         }
                          const { error: updateError } = await supabase
                              .from('group_chats')
-                             .update({ 
-                                 group_image: uploadedImageUrl, 
-                                 updated_at: new Date().toISOString() 
+                             .update({
+                                 group_image: uploadedImageUrl,
+                                 updated_at: new Date().toISOString(),
                              })
                              .eq('id', newGroupId);
-    
+
                          if (updateError) {
                              console.warn("[CreateGroupChat] Failed to update group with image URL:", updateError.message);
                              Alert.alert("Warning", "Group created, but failed to save the group image. You can try adding it later.");
@@ -324,7 +345,6 @@ const CreateGroupChatScreen = () => {
                              console.log("[CreateGroupChat] Group record updated with image URL.");
                          }
                      } catch (updateErr) {
-                         // Handle any exception during the update
                          console.error("[CreateGroupChat] Exception during group image update:", updateErr);
                          Alert.alert("Warning", "Group created, but an error occurred saving the group image.");
                      }
@@ -338,7 +358,7 @@ const CreateGroupChatScreen = () => {
              navigation.replace('GroupChatScreen', {
                  groupId: newGroupId,
                  groupName: finalGroupName,
-                 groupImage: uploadedImageUrl || null, // Explicitly set null if no upload
+                 groupImage: uploadedImageUrl || null,
              });
 
         } catch (err: any) {
@@ -386,10 +406,11 @@ const CreateGroupChatScreen = () => {
             {/* Group Info Header (Image + Name Input) */}
             <View style={styles.groupInfoContainer}>
                  <TouchableOpacity onPress={pickAndUpdateImage} style={styles.imagePicker} disabled={isCreating}>
-                     <Image
-                         source={{ uri: groupImageUri ?? GROUP_AVATAR_PLACEHOLDER }}
-                         style={styles.groupAvatar}
-                     />
+                    <Image
+                        key={groupImageUri ?? 'default'}
+                        source={{ uri: groupImageUri ?? GROUP_AVATAR_PLACEHOLDER }}
+                        style={styles.groupAvatar}
+                    />
                      <View style={styles.cameraIconOverlay}>
                          <Feather name="camera" size={16} color="white" />
                      </View>
@@ -460,6 +481,15 @@ const CreateGroupChatScreen = () => {
                       : ( <Text style={styles.createButtonText}> Create Group ({selectedUsers.size + 1}) </Text> )}
                  </TouchableOpacity>
             </View>
+            {Platform.OS === 'web' && showCropper && tempImageUri && (
+                <ImageCropper
+                    visible={showCropper}
+                    imageUri={tempImageUri}
+                    aspectRatio={[1, 1]}
+                    onCrop={handleCroppedImage}
+                    onCancel={handleCropperCancel}
+                />
+            )}
         </SafeAreaView>
     );
 };

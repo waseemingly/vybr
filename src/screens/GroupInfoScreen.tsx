@@ -10,6 +10,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import ImageViewer from 'react-native-image-zoom-viewer';
+import ImageCropper from '@/components/ImageCropper';
 
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
@@ -59,7 +60,11 @@ const GroupInfoScreen = () => {
     const [imageViewerVisible, setImageViewerVisible] = useState(false);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+    const [showCropper, setShowCropper] = useState(false);
+    const [tempImageUri, setTempImageUri] = useState<string | null>(null);
     const processingActionRef = useRef<string | null>(null);
+    /** Holds the last uploaded image URL so realtime/merge cannot overwrite what we show */
+    const lastUploadedGroupImageRef = useRef<string | null>(null);
 
     // --- Fetch Group Details & Members ---
     const fetchGroupInfo = useCallback(async () => {
@@ -70,6 +75,7 @@ const GroupInfoScreen = () => {
              if (rpcError) throw rpcError;
              if (!groupData?.group_details || !groupData?.participants) throw new Error("Incomplete data.");
              const details: GroupDetails = groupData.group_details; const participantsRaw: ParticipantInfo[] = groupData.participants;
+             lastUploadedGroupImageRef.current = null; // Prefer server state after fetch
              setGroupDetails(details);
              const currentUserParticipant = participantsRaw.find(p => p.user_id === currentUserId); setIsCurrentUserAdmin(currentUserParticipant?.is_admin ?? false);
              const participantUserIds = participantsRaw.map(p => p.user_id);
@@ -124,29 +130,126 @@ const GroupInfoScreen = () => {
         });
     }, [navigation, route.params.onCloseChat]);
 
-    // --- Image Update Logic ---
+    // --- Image Update Logic (upload helper: used after picker and after web cropper) ---
+    const uploadGroupImageFromUri = useCallback(async (imageUri: string, base64?: string | null): Promise<void> => {
+         if (!groupId) return;
+         setProcessingAction('update_image');
+         try {
+             let arrayBuffer: ArrayBuffer; let contentType: string;
+             if (Platform.OS === 'web' && base64) {
+                 const bs = atob(base64);
+                 const ab = new ArrayBuffer(bs.length);
+                 const ia = new Uint8Array(ab);
+                 for (let i = 0; i < bs.length; i++) ia[i] = bs.charCodeAt(i);
+                 arrayBuffer = ab;
+                 contentType = imageUri.match(/data:(.*?);base64/)?.[1] || 'image/jpeg';
+             } else {
+                 const r = await fetch(imageUri);
+                 if (!r.ok) throw new Error(`Fetch failed: ${r.statusText}`);
+                 const blob = await r.blob();
+                 contentType = blob.type || 'image/jpeg';
+                 arrayBuffer = await blob.arrayBuffer();
+             }
+             if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+                 console.error('[GroupInfo] Image data is empty');
+                 throw new Error('Image data is empty. Please try another image.');
+             }
+             const safeMime = (contentType && contentType.startsWith('image/')) ? contentType : 'image/jpeg';
+             const fileExt = safeMime.split('/')[1] === 'png' ? 'png' : 'jpg';
+             const path = `${groupId}/avatar.${Date.now()}.${fileExt}`;
+             console.log('[GroupInfo] Uploading ArrayBuffer to "group-avatars", path:', path, 'bytes:', arrayBuffer.byteLength, 'contentType:', safeMime);
+
+             // Upload as ArrayBuffer (same as profile-pictures / useAuth) so Supabase stores correct MIME, not application/json
+             const { data: uData, error: uError } = await supabase.storage.from('group-avatars').upload(path, arrayBuffer, { upsert: true, contentType: safeMime });
+             if (uError) {
+                 console.error('[GroupInfo] Storage upload failed:', uError);
+                 throw new Error(`Storage Upload Error: ${uError.message}`);
+             }
+             if (!uData?.path) throw new Error("Upload failed path.");
+             console.log('[GroupInfo] Upload response:', { path: uData.path, fullPath: uData.fullPath, id: (uData as any).id });
+
+             const { data: urlD } = supabase.storage.from('group-avatars').getPublicUrl(uData.path);
+             const uploadedImageUrl = urlD.publicUrl;
+             if (!uploadedImageUrl) throw new Error("Failed URL.");
+             console.log('[GroupInfo] Public URL:', uploadedImageUrl);
+
+             // Verify file is actually accessible (bucket may not persist on some setups)
+             try {
+                 const check = await fetch(uploadedImageUrl, { method: 'HEAD' });
+                 if (!check.ok) {
+                     console.error('[GroupInfo] File not accessible after upload:', check.status, uploadedImageUrl);
+                     throw new Error(`Upload may have failed: file returned ${check.status}. Check Storage bucket "group-avatars" and RLS.`);
+                 }
+             } catch (verifyErr: any) {
+                 if (verifyErr.message?.includes('Upload may have failed')) throw verifyErr;
+                 console.warn('[GroupInfo] Could not verify upload (CORS/network):', verifyErr.message);
+             }
+
+             // 2) Persist URL in DB: RPC update_group_image(group_id_input, new_image_url), then always direct update as fallback
+             const { error: rpcErr } = await supabase.rpc('update_group_image', { group_id_input: groupId, new_image_url: uploadedImageUrl });
+             if (rpcErr) {
+                 console.warn('[GroupInfo] RPC update_group_image failed:', rpcErr.message, '- using direct table update');
+             }
+             const { error: updateError } = await supabase.from('group_chats').update({ group_image: uploadedImageUrl, updated_at: new Date().toISOString() }).eq('id', groupId);
+             if (updateError) {
+                 console.error('[GroupInfo] Direct group_chats update failed:', updateError);
+                 throw new Error(updateError.message);
+             }
+             console.log('[GroupInfo] DB updated. New group_image:', uploadedImageUrl);
+
+             const newUpdatedAt = new Date().toISOString();
+             lastUploadedGroupImageRef.current = uploadedImageUrl; // So nothing can overwrite what we show
+             setGroupDetails(prev => prev ? { ...prev, group_image: uploadedImageUrl, updated_at: newUpdatedAt } : null);
+             Alert.alert("Success", "Group image updated.");
+             // Clear loading state after a short delay so realtime UPDATE doesn't overwrite our new group_image
+             setTimeout(() => setProcessingAction(null), 500);
+         } catch (err: any) {
+             console.error("[GroupInfo] Error updating group image:", err);
+             Alert.alert("Error", `Update fail: ${err.message}`);
+             setProcessingAction(null);
+         }
+    }, [groupId]);
+
     const pickAndUpdateImage = async () => {
          if (!(isCurrentUserAdmin || groupDetails?.can_members_edit_info) || processingAction) return;
          try {
-             const permResult = await ImagePicker.requestMediaLibraryPermissionsAsync(); if (!permResult.granted) { Alert.alert("Permission Denied"); return; }
-             let result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.6, base64: Platform.OS === 'web' });
+             const permResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+             if (!permResult.granted) { Alert.alert("Permission Denied"); return; }
+             const mediaTypes = (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions?.Images;
+             const result = await ImagePicker.launchImageLibraryAsync({
+                 mediaTypes,
+                 allowsEditing: Platform.OS !== 'web',
+                 aspect: Platform.OS !== 'web' ? [1, 1] : undefined,
+                 quality: 0.8,
+                 base64: Platform.OS === 'web',
+             });
              if (result.canceled || !result.assets || !result.assets[0].uri || !groupId) return;
-             const imageUri = result.assets[0].uri; setProcessingAction('update_image'); let uploadedImageUrl: string | null = null;
-             try {
-                 let blob: Blob; let contentType: string;
-                 if (Platform.OS === 'web' && result.assets[0].base64) { const base64=result.assets[0].base64;const bs=atob(base64);const ab=new ArrayBuffer(bs.length);const ia=new Uint8Array(ab);for(let i=0;i<bs.length;i++){ia[i]=bs.charCodeAt(i);} const mime=imageUri.match(/data:(.*?);base64/)?.[1]||'image/jpeg';blob=new Blob([ab],{type:mime});contentType=mime;}
-                 else { const r=await fetch(imageUri); if(!r.ok)throw new Error(`Fetch failed: ${r.statusText}`);blob=await r.blob();contentType=blob.type;}
-                 if (!blob) throw new Error('Blob creation failed.');
-                 const fileExt = contentType.split('/')?.[1]||'jpg'; const path=`${groupId}/avatar.${Date.now()}.${fileExt}`;
-                 const { data: uData, error: uError } = await supabase.storage.from('group-avatars').upload(path, blob, { upsert: true, contentType: contentType });
-                 if (uError) throw new Error(`Storage Upload Error: ${uError.message}`); if (!uData?.path) throw new Error("Upload failed path.");
-                 const { data: urlD } = supabase.storage.from('group-avatars').getPublicUrl(uData.path); uploadedImageUrl=urlD.publicUrl; if(!uploadedImageUrl) throw new Error("Failed URL.");
-                 const { data: rpcRes, error: rpcErr } = await supabase.rpc('update_group_image', { group_id_input: groupId, image_url: uploadedImageUrl }); if (rpcErr) throw rpcErr; if (rpcRes === false) throw new Error("Update failed permission?");
-                 setGroupDetails(prev => prev ? { ...prev, group_image: uploadedImageUrl } : null); Alert.alert("Success", "Group image updated.");
-             } catch (err: any) { console.error("Error updating group image:", err); Alert.alert("Error", `Update fail: ${err.message}`); }
-             finally { setProcessingAction(null); }
-         } catch (pickerErr: any) { console.error("Picker error:", pickerErr); Alert.alert("Error", `Picker fail: ${pickerErr.message}`); }
+             const asset = result.assets[0];
+             const imageUri = asset.uri;
+
+             if (Platform.OS === 'web') {
+                 setTempImageUri(imageUri);
+                 setShowCropper(true);
+                 return;
+             }
+
+             await uploadGroupImageFromUri(imageUri, null);
+         } catch (pickerErr: any) {
+             console.error("Picker error:", pickerErr);
+             Alert.alert("Error", `Picker fail: ${(pickerErr as Error).message}`);
+         }
      };
+
+    const handleCroppedImage = useCallback((croppedImageUri: string, croppedBase64: string) => {
+         setShowCropper(false);
+         setTempImageUri(null);
+         uploadGroupImageFromUri(croppedImageUri, croppedBase64);
+    }, [uploadGroupImageFromUri]);
+
+    const handleCropperCancel = useCallback(() => {
+         setShowCropper(false);
+         setTempImageUri(null);
+    }, []);
 
     // Keep ref in sync so realtime handler can avoid overwriting during toggle
     useEffect(() => { processingActionRef.current = processingAction; }, [processingAction]);
@@ -158,10 +261,19 @@ const GroupInfoScreen = () => {
             .on<GroupDetails>('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` }, (p) => {
                 setGroupDetails((pr) => {
                     if (!pr) return null;
-                    const merged = { ...pr, ...(p.new as Record<string, unknown>) } as GroupDetails;
+                    const incoming = p.new as Record<string, unknown>;
+                    const merged = { ...pr, ...incoming } as GroupDetails;
                     // Don't let realtime overwrite edit permission while we're toggling it (avoids stale payload reverting the toggle)
                     if (processingActionRef.current === 'toggle_edit_permission') {
                         merged.can_members_edit_info = pr.can_members_edit_info;
+                    }
+                    // Don't let realtime overwrite group_image while we're uploading (our setState wins)
+                    if (processingActionRef.current === 'update_image' || lastUploadedGroupImageRef.current) {
+                        merged.group_image = lastUploadedGroupImageRef.current ?? pr.group_image;
+                    } else if (typeof incoming.group_image === 'string' && incoming.group_image.length > 0) {
+                        merged.group_image = incoming.group_image;
+                    } else if (pr.group_image != null) {
+                        merged.group_image = pr.group_image;
                     }
                     return merged;
                 });
@@ -272,7 +384,15 @@ const GroupInfoScreen = () => {
                 {/* Group Header */}
                 <View style={styles.headerContainer}>
                     <TouchableOpacity onPress={pickAndUpdateImage} disabled={!(isCurrentUserAdmin || groupDetails.can_members_edit_info) || !!processingAction}>
-                        <RNImage source={{ uri: groupDetails.group_image ?? DEFAULT_GROUP_PIC }} style={styles.groupAvatar} />
+                        {(() => {
+                            const displayUri = lastUploadedGroupImageRef.current ?? groupDetails.group_image ?? null;
+                            const uri = displayUri
+                                ? `${displayUri}${displayUri.includes('?') ? '&' : '?'}v=${(groupDetails.updated_at || Date.now()).toString().replace(/[^0-9]/g, '')}`
+                                : DEFAULT_GROUP_PIC;
+                            return (
+                                <RNImage key={uri} source={{ uri }} style={styles.groupAvatar} />
+                            );
+                        })()}
                          {(isCurrentUserAdmin || groupDetails.can_members_edit_info) && ( <View style={styles.cameraIconOverlay}><Feather name="camera" size={18} color="white" /></View> )}
                           {processingAction === 'update_image' && <ActivityIndicator style={styles.imageLoadingIndicator} color="#FFF"/>}
                     </TouchableOpacity>
@@ -415,6 +535,15 @@ const GroupInfoScreen = () => {
                     />
                 )}
 
+                {Platform.OS === 'web' && (
+                    <ImageCropper
+                        visible={showCropper}
+                        imageUri={tempImageUri || ''}
+                        aspectRatio={[1, 1]}
+                        onCrop={handleCroppedImage}
+                        onCancel={handleCropperCancel}
+                    />
+                )}
             </ScrollView>
         </SafeAreaView>
     );
