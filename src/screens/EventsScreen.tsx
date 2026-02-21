@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, Image, FlatList, ScrollView, Modal,
-  Dimensions, ActivityIndicator, RefreshControl, Alert, GestureResponderEvent,
+  Dimensions, useWindowDimensions, ActivityIndicator, RefreshControl, Alert, GestureResponderEvent,
   Platform, 
   Share, // Added Share API
   // SectionList // No longer used
@@ -510,54 +510,10 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress 
     const navigation = useNavigation<NavigationProp>();
     const [hasLoggedImpression, setHasLoggedImpression] = useState(false);
     
-    // --- Booking Logic (Check type before navigating) ---
-     let canBook = false;
-     if (event.booking_type === 'TICKETED') {
-         canBook = event.ticket_price !== null;
-     } else if (event.booking_type === 'RESERVATION') {
-         canBook = true; // Allow direct reservation from card if type is RESERVATION
-     }
-     const basePrice = event.ticket_price;
-     const priceText = event.booking_type === 'TICKETED'
-                      ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user, event.country ? getCurrencyForCountry(event.country) : 'USD')
-                      : event.booking_type === 'RESERVATION' ? "Reservation" : "";
-     let buttonText = "View";
-     let buttonIcon: React.ComponentProps<typeof Feather>['name'] = "info";
-     if (event.booking_type === 'TICKETED') { buttonText = "Get Tickets"; buttonIcon = "tag"; }
-     else if (event.booking_type === 'RESERVATION') { buttonText = "Reserve"; buttonIcon = "bookmark"; }
-    // --- End Booking Logic ---
-
-    const handleBookPressOnCard = (e: GestureResponderEvent) => {
-        e.stopPropagation();
-        if (event && (event.booking_type === 'TICKETED' || event.booking_type === 'RESERVATION')) {
-             const pricePerItemDisplayCard = event.booking_type === 'TICKETED' ? formatDisplayPricePerItem(basePrice, event.pass_fee_to_user, event.country ? getCurrencyForCountry(event.country) : 'USD') : "Free";
-             const totalPriceDisplayCard = event.booking_type === 'TICKETED' ? formatDisplayTotalPrice(basePrice, event.pass_fee_to_user, 1, event.country ? getCurrencyForCountry(event.country) : 'USD') : formatPriceWithCurrency(0, event.country ? getCurrencyForCountry(event.country) : 'USD');
-             let rawPricePerItemValueCard: number | null = null;
-             let rawTotalPriceValueCard: number | null = null;
-             let rawFeePaidValueCard: number | null = null;
-             if (event.booking_type === 'TICKETED' && event.ticket_price !== null && event.ticket_price >= 0) {
-                 rawPricePerItemValueCard = event.ticket_price;
-                 rawTotalPriceValueCard = calculateFinalPricePerItem(event.ticket_price, event.pass_fee_to_user) * 1;
-                 rawFeePaidValueCard = event.pass_fee_to_user ? TRANSACTION_FEE * 1 : 0;
-             }
-            navigation.navigate('BookingConfirmation' as any, {
-                eventId: event.id, eventTitle: event.title, quantity: 1,
-                pricePerItemDisplay: pricePerItemDisplayCard, totalPriceDisplay: totalPriceDisplayCard,
-                bookingType: event.booking_type, // Pass validated type
-                rawPricePerItem: rawPricePerItemValueCard, rawTotalPrice: rawTotalPriceValueCard,
-                rawFeePaid: rawFeePaidValueCard, maxTickets: event.max_tickets,
-                maxReservations: event.max_reservations,
-                eventCurrency: event.country ? getCurrencyForCountry(event.country) : 'USD', // Pass event currency
-                eventCountry: event.country, // Pass event country
-            } as any); // Use type assertion
-        } else {
-            onPress(); // Open modal if not directly bookable
-        }
-    };
-
     // Log impression when card comes into view - only once per event per session
     const logImpressionOnceRef = useRef(false);
-    
+    const { width: windowWidth } = useWindowDimensions();
+
     const handleViewableChange = useCallback((isViewable: boolean) => {
         if (isViewable && !logImpressionOnceRef.current && !hasLoggedImpression) {
             logImpressionOnceRef.current = true;
@@ -566,14 +522,26 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress 
         }
     }, [event.id, hasLoggedImpression]);
 
-    const cardWidth = Platform.OS === 'web' 
-        ? (Dimensions.get('window').width - (styles.eventsList.paddingHorizontal as number) * 2 - CARD_MARGIN_WEB * (CARDS_PER_ROW_WEB - 1)) / CARDS_PER_ROW_WEB
-        : Dimensions.get('window').width - (styles.eventsList.paddingHorizontal as number) * 2;
-    
+    // Responsive columns on web: 2 on narrow, 3 on medium, 4 on wide so cards stay readable
+    const listPadding = (styles.eventsList.paddingHorizontal as number) || 16;
+    const cardsPerRow = Platform.OS === 'web'
+        ? (windowWidth < 480 ? 2 : windowWidth < 768 ? 3 : CARDS_PER_ROW_WEB)
+        : 1;
+    const cardWidth = Platform.OS === 'web'
+        ? (windowWidth - listPadding * 2 - CARD_MARGIN_WEB * (cardsPerRow - 1)) / cardsPerRow
+        : windowWidth - listPadding * 2;
     const imageDimension = cardWidth; // For 1:1 aspect ratio
 
     return (
-        <TouchableOpacity style={[styles.eventCard, Platform.OS === 'web' && styles.eventCardWeb]} activeOpacity={0.9} onPress={onPress}>
+        <TouchableOpacity
+            style={[
+                styles.eventCard,
+                Platform.OS === 'web' && styles.eventCardWeb,
+                Platform.OS === 'web' && { width: cardWidth },
+            ]}
+            activeOpacity={0.9}
+            onPress={onPress}
+        >
              <ImageSwiper
                 images={event.images}
                 defaultImage={DEFAULT_EVENT_IMAGE}
@@ -584,19 +552,11 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onPress 
              />
              <View style={styles.cardContent}>
                  <Text style={styles.eventTitle} numberOfLines={2}>{event.title}</Text>
-                 {/* Optional: Display organizer name on card */}
-                 <Text style={styles.cardOrganizerName} numberOfLines={1}>by {event.organizer.name}</Text>
+                 <Text style={styles.cardOrganizerName} numberOfLines={2}>by {event.organizer.name}</Text>
                  <View style={styles.tagsScrollContainer}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tagsContainerCard}>{ [...event.genres, ...event.artists].filter(t => t).slice(0, 4).map((tag, i) => (<View key={`${tag}-${i}-card`} style={styles.tagBadgeCard}><Text style={styles.tagTextCard}>{tag}</Text></View>)) }{ [...event.genres, ...event.artists].filter(t => t).length > 4 && (<Text style={styles.tagTextCard}>...</Text>) }{ [...event.genres, ...event.artists].filter(t => t).length === 0 && (<Text style={styles.noTagsTextCard}>No tags</Text>) }</ScrollView></View>
-                 <View style={styles.eventInfoRow}><Feather name="calendar" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={1}>{event.date}</Text></View>
+                 <View style={styles.eventInfoRow}><Feather name="calendar" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={2}>{event.date}</Text></View>
                  <View style={styles.eventInfoRow}><Feather name="clock" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={1}>{event.time}</Text></View>
-                 <View style={styles.eventInfoRow}><Feather name="map-pin" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={1}>{event.venue}</Text></View>
-                 <View style={styles.cardFooter}>
-                     <Text style={styles.priceText}>{priceText}</Text>
-                     <TouchableOpacity style={styles.bookButton} onPress={handleBookPressOnCard} disabled={!canBook && event.booking_type !== 'INFO_ONLY'} >
-                         <Feather name={buttonIcon} size={14} color="#fff" />
-                         <Text style={styles.bookButtonText}>{buttonText}</Text>
-                     </TouchableOpacity>
-                 </View>
+                 <View style={styles.eventInfoRow}><Feather name="map-pin" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={2}>{event.venue}</Text></View>
              </View>
         </TouchableOpacity>
     );
@@ -1460,13 +1420,9 @@ const styles = StyleSheet.create({
         ...(Platform.OS === 'web' ? {} : { width: '100%' }) // Ensure full width on mobile if not web
     },
     eventCardWeb: {
-        width: (Dimensions.get('window').width - 16 * 2 - CARD_MARGIN_WEB * (CARDS_PER_ROW_WEB -1) ) / CARDS_PER_ROW_WEB,
-        // marginRight: CARD_MARGIN_WEB, // Remove this
-        marginHorizontal: CARD_MARGIN_WEB / 2, // Add horizontal margin for spacing when centered
-        marginBottom: CARD_MARGIN_WEB, // Keep bottom margin for rows
-        // Remove last item's right margin via nth-child if possible, or handle in FlatList renderItem logic if needed.
-        // For simplicity, all cards have right margin, last one might push container if not careful or if parent has fixed width.
-        // With justifyContent: 'flex-start' on eventsList, this should be okay.
+        marginHorizontal: CARD_MARGIN_WEB / 2,
+        marginBottom: CARD_MARGIN_WEB,
+        // width set dynamically in EventCard for responsive columns
     },
     imageContainer: { position: "relative", },
     eventImage: { width: "100%", backgroundColor: '#F3F4F6', }, // Removed aspectRatio
@@ -1505,17 +1461,17 @@ const styles = StyleSheet.create({
         backgroundColor: '#F3F4F6',
         overflow: 'hidden', // Ensure images inside conform
     },
-    cardContent: { padding: 16, },
-    eventTitle: { fontSize: 18, fontWeight: "700", color: "#1F2937", marginBottom: 4, },
-    cardOrganizerName: { fontSize: 13, color: "#6B7280", marginBottom: 10 },
-    tagsScrollContainer: { marginBottom: 12, },
+    cardContent: { padding: 18, },
+    eventTitle: { fontSize: 17, fontWeight: "700", color: "#1F2937", marginBottom: 6, lineHeight: 22 },
+    cardOrganizerName: { fontSize: 13, color: "#6B7280", marginBottom: 8, lineHeight: 18 },
+    tagsScrollContainer: { marginBottom: 10, },
     tagsContainerCard: { flexDirection: "row", flexWrap: "nowrap", alignItems: 'center' },
     tagBadgeCard: { backgroundColor: "rgba(59, 130, 246, 0.1)", paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8, marginRight: 6, marginBottom: 0, },
     tagTextCard: { fontSize: 12, color: "#1E3A8A", fontWeight: '500', },
     noTagsTextCard: { fontSize: 12, color: '#9CA3AF', fontStyle: 'italic'},
-    eventInfoRow: { flexDirection: "row", alignItems: "center", marginBottom: 8, },
-    eventInfoText: { fontSize: 14, color: "#6B7280", marginLeft: 8, flexShrink: 1, },
-    cardFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 12, },
+    eventInfoRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10, minHeight: 20 },
+    eventInfoText: { fontSize: 14, color: "#6B7280", marginLeft: 8, flexShrink: 1, flex: 1, lineHeight: 20 },
+    cardFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 14, borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 14, },
     priceText: { fontSize: 16, fontWeight: "700", color: "#3B82F6", flexShrink: 1, marginRight: 5 },
     bookButton: { backgroundColor: "#3B82F6", flexDirection: "row", alignItems: "center", paddingVertical: 8, paddingHorizontal: 16, borderRadius: 50, },
     bookButtonText: { color: "white", fontWeight: "600", fontSize: 14, marginLeft: 6, },

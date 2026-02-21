@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Dimensions,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Dimensions, useWindowDimensions,
   ActivityIndicator, RefreshControl, Alert, Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -360,10 +360,15 @@ const OrganizerPostsScreen = () => {
     );
   };
 
+  const { width: windowWidth } = useWindowDimensions();
   const renderPostItem = ({ item }: { item: MappedPost }) => {
+    const listPadding = (styles.postsList.paddingHorizontal as number) || (Platform.OS === 'web' ? 0 : 16);
+    const cardsPerRow = Platform.OS === 'web'
+        ? (windowWidth < 480 ? 2 : windowWidth < 768 ? 3 : CARDS_PER_ROW_WEB)
+        : 1;
     const cardWidth = Platform.OS === 'web'
-        ? (Dimensions.get('window').width - styles.postsList.paddingHorizontal! * 2 - CARD_MARGIN_WEB * (CARDS_PER_ROW_WEB -1) ) / CARDS_PER_ROW_WEB
-        : Dimensions.get('window').width - styles.postsList.paddingHorizontal! * 2;
+        ? (windowWidth - listPadding * 2 - CARD_MARGIN_WEB * (cardsPerRow - 1)) / cardsPerRow
+        : windowWidth - listPadding * 2;
     const imageDimension = cardWidth;
 
     return (
@@ -379,8 +384,8 @@ const OrganizerPostsScreen = () => {
         />
         <View style={styles.cardContent}>
           <Text style={styles.postTitle} numberOfLines={2}>{item.title}</Text>
-          <View style={styles.eventInfoRow}><Feather name="calendar" size={14} color="#6B7280" /><Text style={styles.eventInfoText}>{item.date} • {item.time}</Text></View>
-          {item.venue !== "N/A" && <View style={styles.eventInfoRow}><Feather name="map-pin" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={1}>{item.venue}</Text></View>}
+          <View style={styles.eventInfoRow}><Feather name="calendar" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={2}>{item.date}{'\n'}{item.time}</Text></View>
+          {item.venue !== "N/A" && <View style={styles.eventInfoRow}><Feather name="map-pin" size={14} color="#6B7280" /><Text style={styles.eventInfoText} numberOfLines={2}>{item.venue}</Text></View>}
           <View style={styles.cardActions}>
             <TouchableOpacity style={styles.actionButton} onPress={(e) => { e.stopPropagation(); navigation.navigate("EditEvent", { eventId: item.id }); }}>
                 <Feather name="edit-2" size={14} color={APP_CONSTANTS.COLORS.PRIMARY} />
@@ -530,8 +535,8 @@ const styles = StyleSheet.create({
   activeTabText: { color: APP_CONSTANTS.COLORS.PRIMARY },
   flatListContainerOnly: { flex: 1 },
   postsList: {
-    paddingHorizontal: Platform.OS === 'web' ? 0 : 16, // Web horizontal padding handled by card margin
-    paddingTop: 16,
+    paddingHorizontal: Platform.OS === 'web' ? 0 : 16,
+    paddingTop: 20,
     paddingBottom: 80,
     flexGrow: 1,
     ...(Platform.OS === 'web' ? {
@@ -544,7 +549,7 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     borderRadius: 12,
     overflow: "hidden",
-    marginBottom: 20,
+    marginBottom: 24,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
@@ -553,8 +558,8 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' ? {} : { width: '100%' })
   },
   postCardWeb: {
-    marginHorizontal: CARD_MARGIN_WEB / 2, // For spacing between cards in a row
-    marginBottom: CARD_MARGIN_WEB, // For spacing between rows
+    marginHorizontal: CARD_MARGIN_WEB / 2,
+    marginBottom: CARD_MARGIN_WEB,
   },
   postImageContainer: {
     width: "100%",
@@ -566,12 +571,12 @@ const styles = StyleSheet.create({
   postImageStyle: {
     backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT ||'#F3F4F6',
   },
-  cardContent: { padding: 16 },
-  postTitle: { fontSize: 18, fontWeight: "700", color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, marginBottom: 8 },
-  eventInfoRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
-  eventInfoText: { fontSize: 14, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginLeft: 8, flexShrink: 1 },
-  cardActions: { flexDirection: "row", justifyContent: 'flex-end', borderTopWidth: 1, borderTopColor: APP_CONSTANTS.COLORS.BORDER_LIGHT ||'#F3F4F6', paddingTop: 12, marginTop: 12 },
-  actionButton: { flexDirection: "row", alignItems: "center", paddingVertical: 4, paddingHorizontal: 8, marginLeft:12 },
+  cardContent: { padding: 18 },
+  postTitle: { fontSize: 17, fontWeight: "700", color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, marginBottom: 10, lineHeight: 22 },
+  eventInfoRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10, minHeight: 20 },
+  eventInfoText: { fontSize: 14, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginLeft: 8, flexShrink: 1, flex: 1, lineHeight: 20 },
+  cardActions: { flexDirection: "row", justifyContent: 'flex-end', borderTopWidth: 1, borderTopColor: APP_CONSTANTS.COLORS.BORDER_LIGHT ||'#F3F4F6', paddingTop: 14, marginTop: 14 },
+  actionButton: { flexDirection: "row", alignItems: "center", paddingVertical: 4, paddingHorizontal: 8, marginLeft: 12 },
   actionButtonText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontWeight: "500", fontSize: 14, marginLeft: 6 },
   listFooterContainer: { width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 20 },
 });

@@ -94,6 +94,7 @@ type ExpandedSections = {
     moods: boolean;
     favArtists: boolean;
     favSongs: boolean;
+    favAlbums: boolean;
 };
 
 // --- ProfileScreen Component ---
@@ -127,6 +128,7 @@ const ProfileScreen: React.FC = () => {
         moods: false,
         favArtists: false,
         favSongs: false,
+        favAlbums: false,
     });
     const [friendCount, setFriendCount] = useState<number>(0);
     const [followedOrganizersCount, setFollowedOrganizersCount] = useState<number>(0);
@@ -1041,16 +1043,22 @@ const ProfileScreen: React.FC = () => {
                     )}
                 </ProfileSection>
                 
-                <ProfileSection title="Favorite Albums" icon="star" isPremiumUser={isPremium} hasData={favAlbumsList.length > 0}>
-                         <View style={styles.listContainer}>
-                             {favAlbumsList.map((album, i) => (
-                                 <View key={`album-${i}`} style={styles.listItem}>
-                                     <Text style={styles.listItemText}>{album}</Text>
-                                     <Feather name="disc" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                                 </View>
-                             ))}
-                         </View>
-                 </ProfileSection>
+                <ProfileSection title="Favorite Albums" icon="star" isPremiumUser={isPremium} expanded={expandedSections.favAlbums} onToggle={() => toggleSection("favAlbums")} hasData={favAlbumsList.length > 0}>
+                    <View style={styles.listContainer}>
+                        {favAlbumsList.slice(0, expandedSections.favAlbums ? favAlbumsList.length : 5).map((album, i) => (
+                            <View key={`album-${i}`} style={styles.listItem}>
+                                <Text style={styles.listItemText}>{album}</Text>
+                                <Feather name="disc" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                            </View>
+                        ))}
+                    </View>
+                    {(favAlbumsList.length > 5 && !expandedSections.favAlbums) && (
+                        <TouchableOpacity style={styles.seeAllButton} onPress={() => toggleSection("favAlbums")}>
+                            <Text style={styles.seeAllButtonText}>See all {favAlbumsList.length}</Text>
+                            <Feather name="chevron-down" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                        </TouchableOpacity>
+                    )}
+                </ProfileSection>
 
                  {/* Match Radio Feature - COMMENTED OUT FOR SOFT LAUNCH */}
                  {/* <ProfileSection title="Match Radio" icon="radio" isPremiumFeature isPremiumUser={isPremium} hasData={true}>

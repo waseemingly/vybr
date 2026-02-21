@@ -77,11 +77,11 @@ const OrganizerEventItemView: React.FC<{ item: MappedEvent, navigation: PastEven
                 </View>
                 <View style={organizerCardStyles.eventInfoRow}>
                     <Feather name="calendar" size={14} color="#6B7280" />
-                    <Text style={organizerCardStyles.eventInfoText}>{item.date} • {item.time}</Text>
+                    <Text style={organizerCardStyles.eventInfoText} numberOfLines={2}>{item.date}{'\n'}{item.time}</Text>
                 </View>
                 <View style={organizerCardStyles.eventInfoRow}>
                     <Feather name="map-pin" size={14} color="#6B7280" />
-                    <Text style={organizerCardStyles.eventInfoText} numberOfLines={1}>{item.venue}</Text>
+                    <Text style={organizerCardStyles.eventInfoText} numberOfLines={2}>{item.venue}</Text>
                 </View>
                 <View style={organizerCardStyles.cardActions}>
                     <TouchableOpacity style={[organizerCardStyles.actionButton, { backgroundColor: '#F3F4F6' }]} onPress={(e) => { e.stopPropagation(); handleEditPress(item.id); }} disabled={true}>
@@ -311,8 +311,8 @@ const styles = StyleSheet.create({
 // --- NEW: Updated Organizer Card Styles (Based on OrganizerPostsScreen) ---
 const organizerCardStyles = StyleSheet.create({
      postsList: {
-         paddingHorizontal: Platform.OS === 'web' ? 0 : 16, // Web horizontal padding handled by card margin
-         paddingTop: 16,
+         paddingHorizontal: Platform.OS === 'web' ? 0 : 16,
+         paddingTop: 20,
          paddingBottom: 80,
          flexGrow: 1,
          ...(Platform.OS === 'web' ? {
@@ -325,7 +325,7 @@ const organizerCardStyles = StyleSheet.create({
          backgroundColor: "white",
          borderRadius: 12,
          overflow: "hidden",
-         marginBottom: 20,
+         marginBottom: 24,
          shadowColor: "#000",
          shadowOffset: { width: 0, height: 2 },
          shadowOpacity: 0.08,
@@ -334,8 +334,8 @@ const organizerCardStyles = StyleSheet.create({
          ...(Platform.OS === 'web' ? {} : { width: '100%' })
      },
      postCardWeb: {
-         marginHorizontal: CARD_MARGIN_WEB / 2, // For spacing between cards in a row
-         marginBottom: CARD_MARGIN_WEB, // For spacing between rows
+         marginHorizontal: CARD_MARGIN_WEB / 2,
+         marginBottom: CARD_MARGIN_WEB,
      },
      postImageContainer: {
          width: "100%",
@@ -347,14 +347,14 @@ const organizerCardStyles = StyleSheet.create({
      postImageStyle: {
          backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT ||'#F3F4F6',
      },
-     cardContent: { padding: 16 },
-     eventHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 },
-     postTitle: { fontSize: 18, fontWeight: "700", color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, flexShrink: 1, marginRight: 8 },
-     statusBadge: { paddingVertical: 3, paddingHorizontal: 8, borderRadius: 12, marginLeft: 8, },
+     cardContent: { padding: 18 },
+     eventHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 },
+     postTitle: { fontSize: 17, fontWeight: "700", color: APP_CONSTANTS.COLORS.TEXT_PRIMARY, flexShrink: 1, marginRight: 8, lineHeight: 22 },
+     statusBadge: { paddingVertical: 3, paddingHorizontal: 8, borderRadius: 12, marginLeft: 8 },
      statusText: { fontSize: 11, fontWeight: "600" },
-     eventInfoRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
-     eventInfoText: { fontSize: 14, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginLeft: 8, flexShrink: 1 },
-     cardActions: { flexDirection: "row", justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: APP_CONSTANTS.COLORS.BORDER_LIGHT ||'#F3F4F6', paddingTop: 12, marginTop: 12 },
+     eventInfoRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10, minHeight: 20 },
+     eventInfoText: { fontSize: 14, color: APP_CONSTANTS.COLORS.TEXT_SECONDARY, marginLeft: 8, flexShrink: 1, flex: 1, lineHeight: 20 },
+     cardActions: { flexDirection: "row", justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: APP_CONSTANTS.COLORS.BORDER_LIGHT ||'#F3F4F6', paddingTop: 14, marginTop: 14 },
      actionButton: { flexDirection: "row", alignItems: "center", paddingVertical: 4, paddingHorizontal: 8 },
      actionButtonText: { color: APP_CONSTANTS.COLORS.PRIMARY, fontWeight: "500", fontSize: 14, marginLeft: 6 },
 });
