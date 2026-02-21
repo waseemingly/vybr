@@ -1,5 +1,22 @@
-import { Platform } from 'react-native';
 import { RootStackParamList } from '../navigation/AppNavigator'; // Adjust path if needed
+import { Platform } from 'react-native';
+
+// Root-level route names that parseDeepLink can return. Defined here to avoid
+// importing AppNavigator (which would create a circular dependency: AppNavigator
+// -> useAuth -> navigationUtils -> AppNavigator), which causes "Maximum call stack
+// size exceeded" on mobile web where the call stack is smaller.
+export type DeepLinkRootRouteName =
+  | 'Auth'
+  | 'PaymentRequired'
+  | 'MainApp'
+  | 'OrganizerSignUpFlow'
+  | 'MusicLoverSignUpFlow'
+  | 'CreateGroupChatScreen'
+  | 'GroupInfoScreen'
+  | 'AddGroupMembersScreen'
+  | 'GroupChatScreen'
+  | 'IndividualChatScreen'
+  | 'OtherUserProfileScreen';
 
 // Helper function to detect if device is a mobile phone (not tablet/desktop)
 const isMobilePhone = (): boolean => {
@@ -35,7 +52,7 @@ const isMobilePhone = (): boolean => {
  * @param url The deep link URL to parse.
  * @returns An object with `routeName` and `params` or null if invalid.
  */
-export const parseDeepLink = (url: string): { routeName: keyof RootStackParamList; params: any } | null => {
+export const parseDeepLink = (url: string): { routeName: DeepLinkRootRouteName; params: any } | null => {
   if (!url) return null;
 
   try {
@@ -458,7 +475,7 @@ export const parseDeepLink = (url: string): { routeName: keyof RootStackParamLis
       
       default:
         if (isRouteInParamList(route)) {
-          return { routeName: route as keyof RootStackParamList, params: rest[0] ? { id: rest[0] } : {} };
+          return { routeName: route as DeepLinkRootRouteName, params: rest[0] ? { id: rest[0] } : {} };
         }
         console.warn(`[parseDeepLink] Unknown route: ${route}`);
         return null;
@@ -472,18 +489,20 @@ export const parseDeepLink = (url: string): { routeName: keyof RootStackParamLis
 };
 
 
-// A helper to check if a route name is valid, though not exhaustive for nested navigators
-// This is a placeholder/example. A real implementation might need a flattened list of all valid routes.
-function isRouteInParamList(routeName: string): routeName is keyof RootStackParamList {
-    const validRoutes: Array<keyof RootStackParamList> = [
-        "Auth", 
-        "PaymentRequired", 
+// A helper to check if a route name is valid for the default deep-link case.
+function isRouteInParamList(routeName: string): routeName is DeepLinkRootRouteName {
+    const validRoutes: DeepLinkRootRouteName[] = [
+        "Auth",
+        "PaymentRequired",
         "MainApp",
         "IndividualChatScreen",
         "GroupChatScreen",
         "OtherUserProfileScreen",
-        "EventsScreen",
-        // Add other root-level screens here
+        "CreateGroupChatScreen",
+        "GroupInfoScreen",
+        "AddGroupMembersScreen",
+        "OrganizerSignUpFlow",
+        "MusicLoverSignUpFlow",
     ];
-    return validRoutes.includes(routeName as keyof RootStackParamList);
+    return validRoutes.includes(routeName as DeepLinkRootRouteName);
 } 

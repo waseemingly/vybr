@@ -16,7 +16,6 @@ import { useAuth } from "../hooks/useAuth";   // Adjust path if needed
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Country, State, City } from 'country-state-city'; // Added import
 import { decode } from 'base64-arraybuffer'; // Added import
 import { getCurrencyForCountry, getCurrencySymbol } from '../utils/currencyUtils'; // Add currency utilities
 
@@ -30,6 +29,9 @@ type OrganizerStackParamList = {
 };
 type EditEventScreenRouteProp = RouteProp<OrganizerStackParamList, 'EditEvent'>;
 type EditEventNavigationProp = NativeStackNavigationProp<OrganizerStackParamList, 'EditEvent'>;
+
+// When country is Singapore, city is always Singapore (like MusicLoverSignUpFlow — even after expanding to other countries)
+const SINGAPORE_OPTION = { isoCode: 'SG', name: 'Singapore' };
 
 // Event Type Definitions (Same as CreateEventScreen)
 const eventTypeOptions = [ { label: 'Select Event Type...', value: '', color: '#9CA3AF' }, { label: 'Party', value: 'PARTY' }, { label: 'Live Band (Restaurant)', value: 'LIVE_BAND_RESTAURANT' }, { label: 'DJ Set (Restaurant)', value: 'DJ_SET_RESTAURANT' }, { label: 'DJ Set (Event)', value: 'DJ_SET_EVENT' }, { label: 'Club', value: 'CLUB' }, { label: 'Dance Performance', value: 'DANCE_PERFORMANCE' }, { label: 'Dance Class', value: 'DANCE_CLASS' }, { label: 'Music Performance', value: 'MUSIC_PERFORMANCE' }, { label: 'Orchestra', value: 'ORCHESTRA' }, { label: 'Advertisement Only', value: 'ADVERTISEMENT_ONLY' }, ] as const;
@@ -129,10 +131,10 @@ const EditEventScreen: React.FC = () => {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [imageAssets, setImageAssets] = useState<ImageAsset[]>([]); // Holds existing and new images
 
-  // Location picker states
-  const [countries, setCountriesList] = useState<any[]>([]); // Renamed to avoid conflict
-  const [states, setStatesList] = useState<any[]>([]); // Renamed to avoid conflict
-  const [cities, setCitiesList] = useState<any[]>([]); // Renamed to avoid conflict
+  // Location: when country is SG, city is always Singapore (no city dropdown)
+  const [countries, setCountriesList] = useState<any[]>([SINGAPORE_OPTION]);
+  const [states, setStatesList] = useState<any[]>([]);
+  const [cities, setCitiesList] = useState<any[]>([]);
 
   // Fetch Existing Event Data
   const fetchEvent = useCallback(async () => {
@@ -159,37 +161,19 @@ const EditEventScreen: React.FC = () => {
       }
 
       const eventData = data as ExistingEventData;
-      const allCountries = Country.getAllCountries();
-      setCountriesList(allCountries);
+      setCountriesList([SINGAPORE_OPTION]);
+      setStatesList([]);
+      setCitiesList([]);
 
-      let initialCountryCode = '';
-      let initialCountryName = eventData.country || '';
-      if (eventData.country) {
-          const foundCountry = allCountries.find(c => c.name === eventData.country);
-          if (foundCountry) initialCountryCode = foundCountry.isoCode;
-      }
+      const isSingapore = !eventData.country || eventData.country === 'Singapore';
+      const initialCountryCode = isSingapore ? 'SG' : '';
+      const initialCountryName = isSingapore ? 'Singapore' : (eventData.country || '');
+      const initialStateCode = isSingapore ? 'SG-01' : '';
+      const initialStateName = isSingapore ? 'Singapore' : (eventData.state || '');
+      const initialCityName = isSingapore ? 'Singapore' : (eventData.city || '');
 
-      let initialStates: any[] = [];
-      let initialStateCode = '';
-      let initialStateName = eventData.state || '';
-      if (initialCountryCode && eventData.state) {
-          initialStates = State.getStatesOfCountry(initialCountryCode);
-          setStatesList(initialStates);
-          const foundState = initialStates.find(s => s.name === eventData.state);
-          if (foundState) initialStateCode = foundState.isoCode;
-          else if (initialCountryCode === 'SG') { // Handle SG case for pre-fill
-            initialStateCode = 'SG-01';
-            initialStateName = 'Singapore';
-          }
-      }
-
-      let initialCities: any[] = [];
-      let initialCityName = eventData.city || '';
-      if (initialCountryCode && initialStateCode && eventData.city) {
-          initialCities = City.getCitiesOfState(initialCountryCode, initialStateCode);
-          setCitiesList(initialCities);
-          // City name is directly used, no code lookup needed for pre-fill typically
-      }
+      // When expanding to other countries: load Country, State, City from getCountryStateCity()
+      // and resolve eventData.country/state/city to codes/names via getAllCountries(), getStatesOfCountry(), getCitiesOfState()
 
       setFormState({
         title: eventData.title,
@@ -259,13 +243,14 @@ const EditEventScreen: React.FC = () => {
   const handleCountrySelect = (countryCode: string) => {
     if (countryCode === formState.countryCode) return;
     const selectedCountry = countries.find(c => c.isoCode === countryCode);
+    const isSingapore = countryCode === 'SG';
     setFormState(prev => ({
       ...prev,
       countryCode: countryCode,
       countryName: selectedCountry?.name || '',
-      stateCode: '', 
-      stateName: '',
-      cityName: ''
+      stateCode: isSingapore ? 'SG-01' : '',
+      stateName: isSingapore ? 'Singapore' : '',
+      cityName: isSingapore ? 'Singapore' : '' // When country is Singapore, city is always Singapore (even after expanding)
     }));
   };
 
@@ -285,50 +270,23 @@ const EditEventScreen: React.FC = () => {
     setFormState(prev => ({ ...prev, cityName: cityName }));
   };
 
-  // useEffects for location data - load all countries initially in fetchEvent
-  // useEffect(() => {
-  //   setCountriesList(Country.getAllCountries()); 
-  // }, []);
-
   useEffect(() => {
-    if (formState.countryCode) {
-      if (formState.countryCode === 'SG') {
-        setStatesList([]);
-        // No need to setFormState here if already handled in handleCountrySelect or fetchEvent for initial load
-        if (formState.stateCode !== 'SG-01') { // only update if not already set by fetchEvent
-            setFormState(prev => ({ ...prev, stateCode: 'SG-01', stateName: 'Singapore'}));
-        }
-        return;
-      }
-      const countryStates = State.getStatesOfCountry(formState.countryCode);
-      setStatesList(countryStates);
-      // Don't reset state if it's already populated from fetched data and valid
-      if (!countryStates.some(s => s.isoCode === formState.stateCode)) {
-          setFormState(prev => ({ ...prev, stateCode: '', stateName: '', cityName: '' }));
-      }
-    } else {
+    if (formState.countryCode === 'SG') {
       setStatesList([]);
-      if (formState.stateCode || formState.cityName) { // only update if not already clear
-        setFormState(prev => ({ ...prev, stateCode: '', stateName: '', cityName: '' }));
+      setCitiesList([]);
+      if (formState.stateCode !== 'SG-01' || formState.cityName !== 'Singapore') {
+        setFormState(prev => ({ ...prev, stateCode: 'SG-01', stateName: 'Singapore', cityName: 'Singapore' }));
       }
+      return;
     }
-  }, [formState.countryCode, formState.stateCode]); // Added formState.stateCode to dependencies
+    // When expanding: load states/cities from getCountryStateCity()
+  }, [formState.countryCode, formState.stateCode]);
 
   useEffect(() => {
-    if (formState.countryCode && formState.stateCode) {
-      const stateCities = City.getCitiesOfState(formState.countryCode, formState.stateCode);
-      setCitiesList(stateCities);
-      // Don't reset city if already populated and valid
-      if (!stateCities.some(c => c.name === formState.cityName)) {
-        setFormState(prev => ({ ...prev, cityName: '' }));
-      }
-    } else {
-      setCitiesList([]);
-      if (formState.cityName) { // only update if not already clear
-        setFormState(prev => ({ ...prev, cityName: '' }));
-      }
+    if (formState.countryCode === 'SG' && formState.stateCode === 'SG-01') {
+      setFormState(prev => (prev.cityName === 'Singapore' ? prev : { ...prev, cityName: 'Singapore' }));
     }
-  }, [formState.countryCode, formState.stateCode, formState.cityName]); // Added formState.cityName
+  }, [formState.countryCode, formState.stateCode, formState.cityName]);
 
 
   const onDateChange = (event: DateTimePickerEvent, selectedDate?: Date | undefined) => { 
@@ -356,12 +314,12 @@ const EditEventScreen: React.FC = () => {
 
   const onTimeChange = (event: DateTimePickerEvent, selectedTime?: Date | undefined) => { 
     if (Platform.OS === 'web') {
+      // On web, only update the time when user changes the input; close picker only when they tap "Done"
       if (selectedTime) {
         const newEventDate = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate(), 
           selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
         setEventDate(newEventDate);
       }
-      setShowTimePicker(false);
       return;
     }
 
@@ -416,6 +374,19 @@ const EditEventScreen: React.FC = () => {
            console.warn("Deletion of existing image from storage not implemented in this example. URL:", imageToRemove.existingUrl);
        }
        setImageAssets(p => p.filter((_, i) => i !== index)); // Correct way to remove item
+   };
+   const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
+     try {
+       const binaryString = atob(base64);
+       const bytes = new Uint8Array(binaryString.length);
+       for (let i = 0; i < binaryString.length; i++) {
+         bytes[i] = binaryString.charCodeAt(i);
+       }
+       return bytes.buffer;
+     } catch (e) {
+       console.error("Base64 Err:", e);
+       throw new Error("Failed image process.");
+     }
    };
    const uploadSingleImage = async (userId: string, asset: ImageAsset): Promise<string | null> => {
         if (!asset.isNew || !asset.uri) return asset.existingUrl ?? null;
@@ -772,9 +743,15 @@ const EditEventScreen: React.FC = () => {
                       <View style={styles.webPickerContainer}>
                           <input
                               type="date"
-                              value={eventDate.toISOString().split('T')[0]}
+                              value={`${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`}
                               onChange={(e) => {
-                                  const selectedDate = new Date(e.target.value);
+                                  const dateValue = e.target.value;
+                                  if (!dateValue) return;
+                                  const parts = dateValue.split('-').map(Number);
+                                  const year = parts[0];
+                                  const month = parts[1] - 1;
+                                  const day = parts[2];
+                                  const selectedDate = new Date(year, month, day);
                                   onDateChange({ type: 'set' } as DateTimePickerEvent, selectedDate);
                               }}
                               style={{
@@ -907,8 +884,22 @@ const EditEventScreen: React.FC = () => {
                   </View>
               )}
               
-              {/* City Picker */}
-              {formState.stateCode && cities.length > 0 && (
+              {/* City: when country is Singapore, city is always Singapore (read-only). Otherwise show picker. */}
+              {formState.countryCode === 'SG' && (
+                  <View style={styles.formGroup}>
+                      <Label>City *</Label>
+                      <View style={styles.inputWithIcon}>
+                          <Feather name="map-pin" size={16} color="#9CA3AF" style={styles.inputIcon} />
+                          <TextInput
+                              style={[styles.iconInput, { opacity: 0.9 }]}
+                              value="Singapore"
+                              editable={false}
+                              accessibilityLabel="City (Singapore)"
+                          />
+                      </View>
+                  </View>
+              )}
+              {formState.stateCode && formState.countryCode !== 'SG' && cities.length > 0 && (
                   <View style={styles.formGroup}>
                       <Label>City *</Label>
                       <View style={styles.pickerContainer}>
