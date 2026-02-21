@@ -98,6 +98,7 @@ export const createAppSchema = async () => {
     group_image: column.text,
     created_by: column.text,
     can_members_add_others: column.integer,
+    can_members_edit_info: column.integer,
     created_at: column.text
   });
 

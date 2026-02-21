@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     View, Text, StyleSheet, Image as RNImage, // Use RNImage alias
     FlatList, TouchableOpacity, ActivityIndicator, Alert, ScrollView,
@@ -11,6 +11,7 @@ import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import ImageViewer from 'react-native-image-zoom-viewer';
 import ImageCropper from '@/components/ImageCropper';
+import { shareImage, downloadImage } from '@/utils/sharingUtils';
 
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
@@ -114,12 +115,8 @@ const GroupInfoScreen = () => {
             headerLeft: () => (
                 <TouchableOpacity 
                     onPress={() => {
-                        // Check if we're in web chat panel mode and use appropriate navigation
-                        if (Platform.OS === 'web' && route.params.onCloseChat) {
-                            route.params.onCloseChat();
-                        } else {
-                            navigation.goBack();
-                        }
+                        // Always go back to the group chat we came from (works in main app and web chat panel)
+                        navigation.goBack();
                     }} 
                     style={{ marginLeft: Platform.OS === 'ios' ? 10 : 0, padding: 5 }}
                 >
@@ -128,7 +125,7 @@ const GroupInfoScreen = () => {
             ),
             headerStyle: { backgroundColor: 'white' },
         });
-    }, [navigation, route.params.onCloseChat]);
+    }, [navigation]);
 
     // --- Image Update Logic (upload helper: used after picker and after web cropper) ---
     const uploadGroupImageFromUri = useCallback(async (imageUri: string, base64?: string | null): Promise<void> => {
@@ -357,20 +354,26 @@ const GroupInfoScreen = () => {
         </TouchableOpacity>
     );
 
-    // Update the image press handler
+    // Only messages with a valid image URL (for viewer and index math)
+    const mediaUrls = useMemo(
+        () => mediaMessages.filter((m): m is MediaMessage & { imageUrl: string } => !!m.imageUrl).map(m => ({ url: m.imageUrl })),
+        [mediaMessages]
+    );
+
     const handleImagePress = (imageUrl: string) => {
-        const index = mediaMessages.findIndex(msg => msg.imageUrl === imageUrl);
-        if (index !== -1) {
+        const index = mediaUrls.findIndex(item => item.url === imageUrl);
+        if (index !== -1 && mediaUrls.length > 0) {
             setSelectedImageIndex(index);
             setSelectedImage(imageUrl);
             setImageViewerVisible(true);
         }
     };
 
-    // Add handler for image index change
     const handleImageIndexChange = (index: number) => {
-        setSelectedImageIndex(index);
-        setSelectedImage(mediaMessages[index].imageUrl);
+        if (index >= 0 && index < mediaUrls.length) {
+            setSelectedImageIndex(index);
+            setSelectedImage(mediaUrls[index].url);
+        }
     };
 
     // --- Main Render ---
@@ -519,20 +522,46 @@ const GroupInfoScreen = () => {
                     {/* *** The </View> was here - REMOVED *** */}
                 </Modal>
 
-                {imageViewerVisible && (
-                    <ImageViewer
-                        imageUrls={mediaMessages.map(msg => ({ url: msg.imageUrl! }))}
-                        index={selectedImageIndex}
-                        onClick={() => setImageViewerVisible(false)}
-                        onSwipeDown={() => setImageViewerVisible(false)}
-                        enableSwipeDown={true}
-                        enableImageZoom={true}
-                        onChange={(index) => {
-                            if (typeof index === 'number') {
-                                setSelectedImageIndex(index);
-                            }
-                        }}
-                    />
+                {/* Image Viewer - same as GroupChatScreen */}
+                {imageViewerVisible && selectedImage && (
+                    <Modal visible={true} transparent={true} onRequestClose={() => setImageViewerVisible(false)}>
+                        <ImageViewer
+                            imageUrls={mediaUrls}
+                            index={Math.min(selectedImageIndex, mediaUrls.length - 1)}
+                            onClick={() => setImageViewerVisible(false)}
+                            onSwipeDown={() => setImageViewerVisible(false)}
+                            enableSwipeDown={true}
+                            enableImageZoom={true}
+                            onChange={(index) => {
+                                if (typeof index === 'number') {
+                                    handleImageIndexChange(index);
+                                }
+                            }}
+                            renderHeader={() => {
+                                const url = mediaUrls[selectedImageIndex]?.url;
+                                return (
+                                    <View style={{ position: 'absolute', top: 40, right: 20, left: 0, zIndex: 10, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                        <TouchableOpacity onPress={() => setImageViewerVisible(false)} style={{ backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, padding: 8, marginRight: 8 }}>
+                                            <Feather name="x" size={28} color="#fff" />
+                                        </TouchableOpacity>
+                                        <TouchableOpacity onPress={() => url && downloadImage(url)} style={{ backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, padding: 8, marginRight: 8 }}>
+                                            <Feather name="download" size={24} color="#fff" />
+                                        </TouchableOpacity>
+                                        <TouchableOpacity onPress={() => url && shareImage(url)} style={{ backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, padding: 8 }}>
+                                            <Feather name="share-2" size={24} color="#fff" />
+                                        </TouchableOpacity>
+                                    </View>
+                                );
+                            }}
+                            renderIndicator={(currentIndex, allSize) => (
+                                <View style={{ position: 'absolute', bottom: 40, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 4 }}>
+                                    <Text style={{ color: '#fff', fontSize: 16 }}>{currentIndex} / {allSize}</Text>
+                                </View>
+                            )}
+                            backgroundColor="#000"
+                            saveToLocalByLongPress={false}
+                        />
+                    </Modal>
                 )}
 
                 {Platform.OS === 'web' && (
