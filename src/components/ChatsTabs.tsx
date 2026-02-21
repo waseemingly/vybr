@@ -352,6 +352,10 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     // State for Supabase (web) fallback
     const [individualList, setIndividualList] = useState<IndividualChatListItem[]>([]);
     const [groupList, setGroupList] = useState<GroupChatListItem[]>([]);
+    /** Realtime overrides for group name/image so chat list updates when a group is renamed without refresh */
+    const [groupChatUpdates, setGroupChatUpdates] = useState<Record<string, { group_name?: string | null; group_image?: string | null }>>({});
+    /** Realtime: group IDs deleted so we remove them from the list (works for PowerSync path too) */
+    const [deletedGroupIds, setDeletedGroupIds] = useState<Set<string>>(new Set());
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -450,6 +454,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
 
             if (groupResult.error) throw new Error(`Group chats: ${groupResult.error.message}`);
             setGroupList(groupResult.data || []);
+            setDeletedGroupIds(new Set()); // clear realtime-deleted set; server list is source of truth
 
             console.log(`ChatsTabs: Fetched ${individualResult.data?.length ?? 0} individual, ${groupResult.data?.length ?? 0} group.`);
 
@@ -530,6 +535,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     }, [isMobile, isPowerSyncAvailable, individualChatResult.chats, individualList, isOffline]);
 
     const getGroupList = useMemo(() => {
+        let baseList: GroupChatListItem[];
         if (isMobile && isPowerSyncAvailable) {
             console.log('🔍 PowerSync Debug - Group Chat Result:', {
                 chats: groupChatResult.chats,
@@ -542,23 +548,31 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             // Use PowerSync data if available
             if (groupChatResult.chats.length > 0) {
                 console.log(`🔍 PowerSync: Using ${groupChatResult.chats.length} group chats from PowerSync`);
-                return groupChatResult.chats.map(chat => chat.data as GroupChatListItem);
-            }
-            
-            // If PowerSync is still loading, show loading state
-            if (groupChatResult.loading) {
+                baseList = groupChatResult.chats.map(chat => chat.data as GroupChatListItem);
+            } else if (groupChatResult.loading) {
                 console.log('🔍 PowerSync: Still loading group chats from PowerSync');
-                return groupList; // Keep existing data while loading
+                baseList = groupList;
+            } else {
+                console.log('🔍 PowerSync: No group chats found, using Supabase fallback');
+                baseList = groupList;
             }
-            
-            // If PowerSync has no data and not loading, fallback to Supabase
-            console.log('🔍 PowerSync: No group chats found, using Supabase fallback');
-            return groupList;
+        } else {
+            console.log('🔍 PowerSync: Using Supabase fallback for group chats');
+            baseList = groupList;
         }
-        // Fallback to Supabase data if PowerSync is not available
-        console.log('🔍 PowerSync: Using Supabase fallback for group chats');
-        return groupList;
-    }, [isMobile, isPowerSyncAvailable, groupChatResult.chats, groupList, isOffline]);
+        // Filter out groups deleted in realtime (so list updates without refresh for both Supabase and PowerSync)
+        const withoutDeleted = baseList.filter(item => !deletedGroupIds.has(item.group_id));
+        // Apply realtime overrides so renamed/updated groups (name or image) update in the list without refresh
+        return withoutDeleted.map(item => {
+            const overrides = groupChatUpdates[item.group_id];
+            if (!overrides) return item;
+            return {
+                ...item,
+                group_name: overrides.group_name !== undefined ? overrides.group_name : item.group_name,
+                group_image: overrides.group_image !== undefined ? overrides.group_image : item.group_image,
+            };
+        });
+    }, [isMobile, isPowerSyncAvailable, groupChatResult.chats, groupList, isOffline, groupChatUpdates, deletedGroupIds]);
 
     const getIsLoading = useMemo(() => {
         if (isMobile && isPowerSyncAvailable) {
@@ -778,6 +792,62 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             unsubscribeFromEvent('group_message_status_updated', handleGroupMessageSeen);
         };
     }, [subscribeToEvent, unsubscribeFromEvent, session?.user?.id]);
+
+    // Realtime: update chat list when a group's name/image changes or when a group is deleted
+    useEffect(() => {
+        const channel = supabase
+            .channel('chats_tabs_group_chats_updates')
+            .on(
+                'postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'group_chats' },
+                (payload: { new: Record<string, unknown> }) => {
+                    const id = payload.new?.id as string | undefined;
+                    if (!id) return;
+                    const group_name = payload.new?.group_name as string | null | undefined;
+                    const group_image = payload.new?.group_image as string | null | undefined;
+                    setGroupChatUpdates(prev => ({
+                        ...prev,
+                        [id]: {
+                            group_name: group_name !== undefined ? group_name : prev[id]?.group_name,
+                            group_image: group_image !== undefined ? group_image : prev[id]?.group_image,
+                        },
+                    }));
+                    setGroupList(prev =>
+                        prev.map(item =>
+                            item.group_id === id
+                                ? {
+                                      ...item,
+                                      group_name: group_name !== undefined ? group_name : item.group_name,
+                                      group_image: group_image !== undefined ? group_image : item.group_image,
+                                  }
+                                : item
+                        )
+                    );
+                }
+            )
+            .on(
+                'postgres_changes',
+                { event: 'DELETE', schema: 'public', table: 'group_chats' },
+                (payload: { old: Record<string, unknown> }) => {
+                    const id = payload.old?.id as string | undefined;
+                    if (!id) return;
+                    setGroupChatUpdates(prev => {
+                        const next = { ...prev };
+                        delete next[id];
+                        return next;
+                    });
+                    setDeletedGroupIds(prev => new Set(prev).add(id));
+                    setGroupList(prev => prev.filter(item => item.group_id !== id));
+                }
+            )
+            .subscribe((status, err) => {
+                if (status === 'SUBSCRIBED') console.log('ChatsTabs: Subscribed to group_chats updates and deletes');
+                if (err) console.error('ChatsTabs: group_chats subscription error:', err);
+            });
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, []);
 
     // Fetch data when the screen comes into focus (this is still useful)
     useFocusEffect(

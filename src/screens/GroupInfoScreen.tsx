@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
-    View, Text, StyleSheet, Image as RNImage, // Use RNImage alias
+    View, Text, TextInput, StyleSheet, Image as RNImage, // Use RNImage alias
     FlatList, TouchableOpacity, ActivityIndicator, Alert, ScrollView,
     Switch, Platform, Modal, Pressable
 } from 'react-native';
@@ -63,6 +63,9 @@ const GroupInfoScreen = () => {
     const [selectedImageIndex, setSelectedImageIndex] = useState(0);
     const [showCropper, setShowCropper] = useState(false);
     const [tempImageUri, setTempImageUri] = useState<string | null>(null);
+    const [showEditNameModal, setShowEditNameModal] = useState(false);
+    const [editingName, setEditingName] = useState('');
+    const [isUpdatingName, setIsUpdatingName] = useState(false);
     const processingActionRef = useRef<string | null>(null);
     /** Holds the last uploaded image URL so realtime/merge cannot overwrite what we show */
     const lastUploadedGroupImageRef = useRef<string | null>(null);
@@ -314,6 +317,28 @@ const GroupInfoScreen = () => {
     };
     const confirmTransferAndLeave = async () => { if(!groupId||!transferAdminId)return;setShowTransferModal(false);setProcessingAction('leave');try{const{error:pE}=await supabase.rpc('set_group_admin_status',{group_id_input:groupId,member_id:transferAdminId,is_admin_status:true});if(pE)throw pE;const{error:lE}=await supabase.rpc('leave_group',{group_id_input:groupId});if(lE)throw lE;Alert.alert("Success","Transferred/Left.");navigation.popToTop();}catch(e:any){Alert.alert("Error",`Failed: ${e.message}`);}finally{setProcessingAction(null);setTransferAdminId(null);}};
 
+    // Edit group name (allowed if admin OR can_members_edit_info)
+    const canEditGroupName = !!(isCurrentUserAdmin || groupDetails?.can_members_edit_info);
+    const handleUpdateName = async () => {
+        const n = editingName.trim();
+        if (!n || n === groupDetails?.group_name || isUpdatingName || !groupId || !groupDetails) {
+            setShowEditNameModal(false);
+            return;
+        }
+        setIsUpdatingName(true);
+        try {
+            const { error } = await supabase.rpc('rename_group_chat', { group_id_input: groupId, new_group_name: n });
+            if (error) throw error;
+            setGroupDetails(prev => prev ? { ...prev, group_name: n } : null);
+            setShowEditNameModal(false);
+            Alert.alert("Success", "Group name updated.");
+        } catch (e: any) {
+            Alert.alert("Error", `Update fail: ${e.message}`);
+        } finally {
+            setIsUpdatingName(false);
+        }
+    };
+
     // --- Render Member Item ---
     const renderMemberItem = ({ item }: { item: GroupMember }) => {
         const name = `${item.profile.first_name || ''} ${item.profile.last_name || ''}`.trim() || item.profile.username || `User (${item.user_id.substring(0,4)})`; const isSelf = item.user_id === currentUserId; const handlePressMember = () => { 
@@ -399,7 +424,21 @@ const GroupInfoScreen = () => {
                          {(isCurrentUserAdmin || groupDetails.can_members_edit_info) && ( <View style={styles.cameraIconOverlay}><Feather name="camera" size={18} color="white" /></View> )}
                           {processingAction === 'update_image' && <ActivityIndicator style={styles.imageLoadingIndicator} color="#FFF"/>}
                     </TouchableOpacity>
-                    <Text style={styles.groupName}>{groupDetails.group_name}</Text>
+                    {canEditGroupName ? (
+                        <TouchableOpacity
+                            style={styles.groupNameRow}
+                            onPress={() => {
+                                setEditingName(groupDetails.group_name);
+                                setShowEditNameModal(true);
+                            }}
+                            activeOpacity={0.7}
+                        >
+                            <Text style={styles.groupName}>{groupDetails.group_name}</Text>
+                            <Feather name="edit-2" size={18} color="#6B7280" style={styles.groupNameEditIcon} />
+                        </TouchableOpacity>
+                    ) : (
+                        <Text style={styles.groupName}>{groupDetails.group_name}</Text>
+                    )}
                     <Text style={styles.memberCount}>{members.length} Member{members.length !== 1 ? 's' : ''}</Text>
                 </View>
 
@@ -522,6 +561,38 @@ const GroupInfoScreen = () => {
                     {/* *** The </View> was here - REMOVED *** */}
                 </Modal>
 
+                {/* Edit Group Name Modal */}
+                <Modal visible={showEditNameModal} transparent animationType="fade" onRequestClose={() => setShowEditNameModal(false)}>
+                    <View style={styles.modalOverlay}>
+                        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setShowEditNameModal(false)} />
+                        <View style={styles.editNameModalContent}>
+                        <Text style={styles.modalTitle}>Edit Group Name</Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            value={editingName}
+                            onChangeText={setEditingName}
+                            placeholder="Enter new group name"
+                            maxLength={50}
+                            autoFocus
+                            returnKeyType="done"
+                            onSubmitEditing={handleUpdateName}
+                        />
+                        <View style={styles.modalActions}>
+                            <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setShowEditNameModal(false)} disabled={isUpdatingName}>
+                                <Text style={styles.modalButtonTextCancel}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.modalButton, styles.modalSubmitButton, (isUpdatingName || !editingName.trim() || editingName.trim() === groupDetails?.group_name) && styles.modalDisabled]}
+                                onPress={handleUpdateName}
+                                disabled={isUpdatingName || !editingName.trim() || editingName.trim() === groupDetails?.group_name}
+                            >
+                                {isUpdatingName ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.modalSubmitButtonText}>Save</Text>}
+                            </TouchableOpacity>
+                        </View>
+                        </View>
+                    </View>
+                </Modal>
+
                 {/* Image Viewer - same as GroupChatScreen */}
                 {imageViewerVisible && selectedImage && (
                     <Modal visible={true} transparent={true} onRequestClose={() => setImageViewerVisible(false)}>
@@ -591,6 +662,8 @@ const styles = StyleSheet.create({
      cameraIconOverlay: { position: 'absolute', bottom: 5, right: 5, backgroundColor: 'rgba(0, 0, 0, 0.6)', padding: 6, borderRadius: 15, },
      imageLoadingIndicator: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.3)', borderRadius: 50, justifyContent:'center', alignItems:'center'},
      groupName: { fontSize: 22, fontWeight: '600', color: '#1F2937', marginBottom: 4, },
+     groupNameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 4, paddingVertical: 4, paddingHorizontal: 8 },
+     groupNameEditIcon: { marginLeft: 6 },
      memberCount: { fontSize: 14, color: '#6B7280', },
      actionRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E5E7EB', minHeight: 50, },
      actionIcon: { marginRight: 16, width: 24, alignItems: 'center' },
@@ -665,7 +738,10 @@ const styles = StyleSheet.create({
      actionSpinner: { marginLeft: 'auto', paddingLeft: 10 },
      // --- Modal Styles ---
      modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.5)',},
+     modalBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)' },
      modalContent: { backgroundColor: 'white', padding: 20, borderRadius: 10, width: '85%', maxHeight: '60%',},
+     editNameModalContent: { backgroundColor: 'white', padding: 20, borderRadius: 10, width: '85%' },
+     modalInput: { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16, marginBottom: 16, color: '#1F2937' },
      modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10, textAlign: 'center'},
      modalSubtitle: { fontSize: 14, marginBottom: 20, textAlign: 'center', color: '#6B7280'},
      transferOption: { paddingVertical: 12, paddingHorizontal: 5, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E5E7EB', },
