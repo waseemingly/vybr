@@ -424,7 +424,7 @@ const PaymentHandler = (props: {
 
 const RequiredPaymentScreen: React.FC = () => {
     const navigation = useNavigation<RequiredPaymentNavigationProp>();
-    const { session, loading: authLoading, refreshUserProfile, musicLoverProfile, organizerProfile, updatePremiumStatus, logout } = useAuth();
+    const { session, loading: authLoading, refreshUserProfile, musicLoverProfile, organizerProfile, updatePremiumStatus, logout, setRequestedBackToOrganizerSignUp } = useAuth();
     
     // Get Stripe hooks at component level (for mobile 3D Secure handling)
     const { initPaymentSheet: initPaymentSheetHook, presentPaymentSheet: presentPaymentSheetHook } = usePlatformStripe();
@@ -714,27 +714,35 @@ const RequiredPaymentScreen: React.FC = () => {
         checkStripeOnboardingReturn();
     }, [refreshUserProfile, verifyAndSetupOrganizer]);
 
-    // Enhanced back button handling - prevent ANY navigation away from this screen
+    // Back button handling: organizers have 2 sub-steps (add payment → Connect payouts); back goes to previous sub-step then to signup
     const handleBackPress = useCallback(() => {
-        console.log("[RequiredPayment] Back press detected - preventing navigation");
-        
-        // Re-declare variables needed for this function's scope
         const isPaymentMethodRequired = isOrganizer || (userType === 'music_lover' && isPremiumUser);
         const hasValidPaymentMethod = Boolean(currentStripeCustomerId && currentStripeCustomerId.trim() !== '');
 
-        // Show alert explaining why they can't go back
+        // Organizer: sub-step 2 (Connect payouts) → back to sub-step 1 (add payment); sub-step 1 → back to OrganizerSignUpFlow
+        if (isOrganizer) {
+            if (showConnectOnboarding) {
+                console.log("[RequiredPayment] Back press - organizer returning to add payment method step");
+                setShowConnectOnboarding(false);
+                return true;
+            }
+            console.log("[RequiredPayment] Back press - organizer returning to signup flow");
+            setRequestedBackToOrganizerSignUp(true);
+            return true; // AppNavigator will re-render and show OrganizerSignUpFlow
+        }
+
+        // Premium user without payment method: block and show alert
         if (isPaymentMethodRequired && !hasValidPaymentMethod) {
+            console.log("[RequiredPayment] Back press detected - preventing navigation (premium user)");
             Alert.alert(
                 "Payment Required",
-                isOrganizer 
-                    ? "As an organizer, you must add a payment method to continue using the app. This ensures you can process payments and manage your events properly."
-                    : "As a premium user, you must add a payment method to continue using premium features. Please complete the payment setup to proceed.",
+                "As a premium user, you must add a payment method to continue using premium features. Please complete the payment setup to proceed.",
                 [{ text: "OK" }]
             );
             return true; // Prevent default back action
         }
         return false; // Allow default back action
-    }, [isOrganizer, userType, isPremiumUser, currentStripeCustomerId]);
+    }, [isOrganizer, userType, isPremiumUser, currentStripeCustomerId, showConnectOnboarding, setRequestedBackToOrganizerSignUp]);
 
     // Override hardware back button on Android with enhanced prevention
     useFocusEffect(
@@ -1178,32 +1186,18 @@ const RequiredPaymentScreen: React.FC = () => {
             <View style={styles.header}>
                 <TouchableOpacity 
                     onPress={() => {
+                        // Organizer: handleBackPress sets flag and AppNavigator shows OrganizerSignUpFlow
+                        // Premium without payment: handleBackPress shows alert and blocks
+                        if (handleBackPress()) return;
+                        // Optional dev-only: offer sign out when back is allowed (e.g. future cases)
                         if (__DEV__) {
-                            // In dev mode, offer to sign out
-                            console.log('[RequiredPayment] Dev mode: offering sign out option');
                             Alert.alert(
                                 "Exit Payment Setup?",
-                                "You can sign out and return to the login screen, or stay here to complete the payment setup.",
+                                "Sign out and return to the login screen?",
                                 [
                                     { text: "Cancel", style: "cancel" },
-                                    { 
-                                        text: "Sign Out", 
-                                        style: "destructive",
-                                        onPress: async () => {
-                                            console.log('[RequiredPayment] Dev mode: signing out');
-                                            await logout();
-                                        }
-                                    }
+                                    { text: "Sign Out", style: "destructive", onPress: () => logout() }
                                 ]
-                            );
-                        } else {
-                            // In production, show alert
-                            Alert.alert(
-                                "Payment Required",
-                                isOrganizer 
-                                    ? "As an organizer, you must add a payment method to continue using the app."
-                                    : "As a premium user, you must add a payment method to continue.",
-                                [{ text: "OK" }]
                             );
                         }
                     }} 
@@ -1236,31 +1230,39 @@ const RequiredPaymentScreen: React.FC = () => {
                         <View style={styles.errorContainer}>
                             <Feather name="alert-circle" size={20} color={APP_CONSTANTS.COLORS.ERROR} />
                             <Text style={styles.errorText}>{error}</Text>
-                            <TouchableOpacity style={styles.retryButton} onPress={isOrganizer ? verifyAndSetupOrganizer : loadPaymentData}>
-                                <Text style={styles.retryButtonText}>Try Again</Text>
-                            </TouchableOpacity>
+                            {!(showConnectOnboarding && isOrganizer) && (
+                                <TouchableOpacity style={styles.retryButton} onPress={isOrganizer ? verifyAndSetupOrganizer : loadPaymentData}>
+                                    <Text style={styles.retryButtonText}>Try Again</Text>
+                                </TouchableOpacity>
+                            )}
                         </View>
                     )}
 
                     {/* NEW: Stripe Connect Onboarding Step */}
                     {showConnectOnboarding && !isLoadingData && (
                         <View style={styles.onboardingStepContainer}>
-                            <Feather name="link" size={40} color={APP_CONSTANTS.COLORS.SUCCESS} />
+                            <View style={styles.connectStepBadge}>
+                                <Text style={styles.connectStepBadgeText}>Required step</Text>
+                            </View>
+                            <Feather name="link" size={52} color="#635BFF" />
                             <Text style={styles.onboardingTitle}>Set Up Payouts</Text>
+                            <Text style={styles.onboardingSubtitle}>Connect a Stripe account to receive payments from your ticket sales</Text>
                             <Text style={styles.onboardingDescription}>
-                                Connect a Stripe account to securely receive payments for your ticket sales. You will be redirected to Stripe to complete this step.
+                                You'll be redirected to Stripe to complete setup. This takes about 2 minutes.
                             </Text>
+                            <Text style={styles.connectCtaLabel}>Click the button below to continue</Text>
                             <TouchableOpacity
                                 style={[styles.connectButton, isCreatingConnectLink && styles.buttonDisabled]}
                                 onPress={handleConnectStripe}
                                 disabled={isCreatingConnectLink}
+                                activeOpacity={0.85}
                             >
                                 {isCreatingConnectLink ? (
-                                    <ActivityIndicator color="#FFFFFF" />
+                                    <ActivityIndicator color="#FFFFFF" size="large" />
                                 ) : (
                                     <>
-                                        <Feather name="share" size={16} color="white" style={{marginRight: 8}} />
-                                        <Text style={styles.buttonText}>Connect with Stripe</Text>
+                                        <Feather name="external-link" size={22} color="white" style={{ marginRight: 12 }} />
+                                        <Text style={styles.connectButtonText}>Connect with Stripe</Text>
                                     </>
                                 )}
                             </TouchableOpacity>
@@ -1282,7 +1284,7 @@ const RequiredPaymentScreen: React.FC = () => {
                         </View>
                     )}
 
-                    {!paymentParams && !error && !isLoadingData && (
+                    {!paymentParams && !error && !isLoadingData && !showConnectOnboarding && (
                         <View style={styles.formSection}>
                             <TouchableOpacity style={styles.button} onPress={loadPaymentData}>
                                 <Text style={styles.buttonText}>Try Again</Text>
@@ -1480,34 +1482,81 @@ const styles = StyleSheet.create({
     },
     onboardingStepContainer: {
         alignItems: 'center',
-        paddingVertical: 24,
+        paddingVertical: 28,
+        paddingHorizontal: 20,
         borderTopWidth: 1,
         borderTopColor: APP_CONSTANTS.COLORS.BORDER,
         marginTop: 24,
+        backgroundColor: APP_CONSTANTS.COLORS.BACKGROUND_LIGHT || '#F9FAFB',
+        borderRadius: 16,
+        marginHorizontal: 4,
+    },
+    connectStepBadge: {
+        backgroundColor: '#635BFF',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 20,
+        marginBottom: 16,
+    },
+    connectStepBadgeText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: 'white',
+        letterSpacing: 0.3,
     },
     onboardingTitle: {
-        fontSize: 20,
-        fontWeight: '700',
+        fontSize: 22,
+        fontWeight: '800',
         color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
-        marginTop: 16,
-        marginBottom: 8,
+        marginTop: 4,
+        marginBottom: 4,
+        textAlign: 'center',
+    },
+    onboardingSubtitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        marginBottom: 12,
+        textAlign: 'center',
     },
     onboardingDescription: {
-        fontSize: 14,
+        fontSize: 15,
         color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
         textAlign: 'center',
-        lineHeight: 20,
-        marginBottom: 24,
-        maxWidth: '90%',
+        lineHeight: 22,
+        marginBottom: 16,
+        maxWidth: '100%',
+    },
+    connectCtaLabel: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: APP_CONSTANTS.COLORS.TEXT_PRIMARY,
+        marginBottom: 12,
+        textAlign: 'center',
     },
     connectButton: {
         flexDirection: 'row',
-        backgroundColor: '#635BFF', // Stripe's brand color
-        paddingVertical: 16,
-        paddingHorizontal: 24,
-        borderRadius: 12,
+        backgroundColor: '#635BFF',
+        paddingVertical: 20,
+        paddingHorizontal: 32,
+        borderRadius: 14,
         alignItems: 'center',
         justifyContent: 'center',
+        alignSelf: 'stretch',
+        minHeight: 60,
+        shadowColor: '#635BFF',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 12,
+        elevation: 8,
+        borderWidth: 2,
+        borderColor: 'rgba(255,255,255,0.3)',
+    },
+    connectButtonText: {
+        fontSize: 20,
+        fontWeight: '800',
+        color: 'white',
+        letterSpacing: 0.3,
     },
 });
 

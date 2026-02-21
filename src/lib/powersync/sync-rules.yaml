@@ -48,7 +48,7 @@ bucket_definitions:
                 FROM public.group_chat_participants
                 WHERE user_id = request.user_id()
     data:
-      - SELECT id, group_name, group_image, created_by, can_members_add_others, created_at
+      - SELECT id, group_name, group_image, created_by, can_members_add_others, can_members_edit_info, created_at
         FROM public.group_chats
         WHERE id = bucket.group_id
       - SELECT group_id || '_' || user_id as id, group_id, user_id, is_admin, joined_at

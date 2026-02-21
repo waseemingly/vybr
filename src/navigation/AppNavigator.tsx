@@ -1002,7 +1002,7 @@ const usePaymentRequirementCheck = () => {
     ? (organizerProfile as any)?.stripe_customer_id 
     : (musicLoverProfile as any)?.stripe_customer_id;
   
-  // For organizers, also check for Stripe Connect account (needed for payouts)
+  // For organizers: Stripe Connect onboarding must be complete (payouts). Incomplete = cannot enter app.
   const hasStripeConnectAccount = isOrganizer 
     ? Boolean((organizerProfile as any)?.stripe_connect_account_id)
     : true; // Music lovers don't need Connect accounts
@@ -1056,13 +1056,12 @@ const usePaymentRequirementCheck = () => {
     hasActualPaymentMethods === true
   );
   
-  // For organizers: also need Stripe Connect account for receiving payouts
+  // Organizers: need both payment method AND Stripe Connect (onboarding complete). No bypass.
   const hasCompletePaymentSetup = isOrganizer 
     ? (hasValidPaymentMethod && hasStripeConnectAccount)
     : hasValidPaymentMethod;
   
-  // CRITICAL: Payment is required if user needs it AND doesn't have complete payment setup
-  // For organizers: need both payment method AND Stripe Connect account
+  // CRITICAL: Block app access until payment setup is complete. Organizers need payment method + Connect payouts.
   const requiresPaymentScreen = isPaymentMethodRequired && isProfileComplete && !hasCompletePaymentSetup;
   
   // CRITICAL: Include setup loading state to prevent navigation bouncing
@@ -1207,6 +1206,7 @@ const AppNavigator = () => {
     userType,
     currentStripeCustomerId,
   } = usePaymentRequirementCheck();
+  const { requestedBackToOrganizerSignUp } = useAuth();
   const { isOrganizerModeLoaded, isOrganizerMode, setIsOrganizerMode } = useOrganizerMode();
   const hasRestoredNavState = useRef(false);
   const pendingRestoreState = useRef<any>(null);
@@ -1361,8 +1361,8 @@ const AppNavigator = () => {
               component={userType === 'music_lover' ? MusicLoverSignUpFlow : OrganizerSignUpFlow}
               options={{ gestureEnabled: false }}
             />
-          ) : requiresPaymentScreen ? (
-            // 3. 🚨 CRITICAL: Payment Required - Show PaymentRequiredStack (BULLETPROOF MIDDLEMAN)
+          ) : requiresPaymentScreen && (userType !== 'organizer' || !requestedBackToOrganizerSignUp) ? (
+            // 3. 🚨 CRITICAL: Payment Required - Show PaymentRequiredStack (unless organizer tapped back to signup)
             <RootStack.Screen 
               name="PaymentRequired" 
               component={PaymentRequiredStack}
@@ -1370,6 +1370,13 @@ const AppNavigator = () => {
                 gestureEnabled: false, // Prevent any swipe navigation
                 headerShown: false,
               }}
+            />
+          ) : requiresPaymentScreen && userType === 'organizer' && requestedBackToOrganizerSignUp ? (
+            // 3b. Organizer tapped back on payment screen: show signup flow again so they can edit profile
+            <RootStack.Screen
+              name="OrganizerSignUpFlow"
+              component={OrganizerSignUpFlow}
+              options={{ gestureEnabled: false }}
             />
           ) : (
             // 4. Fully Authenticated and Payment Complete - Show Main App

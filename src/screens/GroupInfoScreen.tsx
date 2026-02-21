@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     View, Text, StyleSheet, Image as RNImage, // Use RNImage alias
     FlatList, TouchableOpacity, ActivityIndicator, Alert, ScrollView,
@@ -59,6 +59,7 @@ const GroupInfoScreen = () => {
     const [imageViewerVisible, setImageViewerVisible] = useState(false);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+    const processingActionRef = useRef<string | null>(null);
 
     // --- Fetch Group Details & Members ---
     const fetchGroupInfo = useCallback(async () => {
@@ -147,8 +148,33 @@ const GroupInfoScreen = () => {
          } catch (pickerErr: any) { console.error("Picker error:", pickerErr); Alert.alert("Error", `Picker fail: ${pickerErr.message}`); }
      };
 
+    // Keep ref in sync so realtime handler can avoid overwriting during toggle
+    useEffect(() => { processingActionRef.current = processingAction; }, [processingAction]);
+
     // --- Real-time Subscriptions ---
-    useEffect(() => { if(!groupId)return; const c=supabase.channel(`group_info_details_${groupId}`).on<GroupDetails>('postgres_changes',{event:'UPDATE',schema:'public',table:'group_chats',filter:`id=eq.${groupId}`},(p)=>{setGroupDetails(pr=>({...pr,...p.new}as GroupDetails));if(p.new.group_name&&p.new.group_name!==groupDetails?.group_name){navigation.setOptions({headerBackVisible:true});}}).on<any>('postgres_changes',{event:'DELETE',schema:'public',table:'group_chats',filter:`id=eq.${groupId}`},(p)=>{Alert.alert("Group Deleted","This group no longer exists.",[{text:"OK",onPress:()=>navigation.popToTop()}]);}).subscribe((s,e)=>{if(s==='SUBSCRIBED')console.log(`Sub GroupDetails ${groupId}`);if(e)console.error(`Sub error GroupDetails ${groupId}:`,e);}); return()=>{supabase.removeChannel(c);}; }, [groupId, navigation, groupDetails?.group_name]);
+    useEffect(() => {
+        if (!groupId) return;
+        const c = supabase.channel(`group_info_details_${groupId}`)
+            .on<GroupDetails>('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` }, (p) => {
+                setGroupDetails((pr) => {
+                    if (!pr) return null;
+                    const merged = { ...pr, ...(p.new as Record<string, unknown>) } as GroupDetails;
+                    // Don't let realtime overwrite edit permission while we're toggling it (avoids stale payload reverting the toggle)
+                    if (processingActionRef.current === 'toggle_edit_permission') {
+                        merged.can_members_edit_info = pr.can_members_edit_info;
+                    }
+                    return merged;
+                });
+                if ((p.new as Record<string, unknown>).group_name && (p.new as Record<string, unknown>).group_name !== groupDetails?.group_name) {
+                    navigation.setOptions({ headerBackVisible: true });
+                }
+            })
+            .on<any>('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_chats', filter: `id=eq.${groupId}` }, (p) => {
+                Alert.alert("Group Deleted", "This group no longer exists.", [{ text: "OK", onPress: () => navigation.popToTop() }]);
+            })
+            .subscribe((s, e) => { if (s === 'SUBSCRIBED') console.log(`Sub GroupDetails ${groupId}`); if (e) console.error(`Sub error GroupDetails ${groupId}:`, e); });
+        return () => { supabase.removeChannel(c); };
+    }, [groupId, navigation, groupDetails?.group_name]);
     useEffect(() => { if(!groupId)return; const pc=supabase.channel(`group_participants_${groupId}`).on('postgres_changes',{event:'*',schema:'public',table:'group_chat_participants',filter:`group_id=eq.${groupId}`},(p)=>{fetchGroupInfo();}).subscribe((s,e)=>{if(s==='SUBSCRIBED')console.log(`Sub Participants ${groupId}`);if(e)console.error(`Sub error Participants ${groupId}:`,e);}); return()=>{supabase.removeChannel(pc);}; }, [groupId, fetchGroupInfo]);
 
     // --- Actions ---
@@ -157,7 +183,26 @@ const GroupInfoScreen = () => {
     const handleRemoveMember = (memberId: string, memberName: string) => { if (!groupId||!isCurrentUserAdmin||processingAction||memberId===currentUserId)return;const pR=async()=>{setProcessingAction(`remove_${memberId}`);try{const{error}=await supabase.rpc('remove_group_member',{group_id_input:groupId,member_to_remove_id:memberId});if(error)throw error;Alert.alert("Success",`${memberName} removed.`);fetchGroupInfo();}catch(e:any){Alert.alert("Error",`Remove fail: ${e.message}`);}finally{setProcessingAction(null);}};if(Platform.OS==='web'){if(window.confirm(`Remove ${memberName}?`))pR();}else{Alert.alert("Remove Member",`Remove ${memberName}?`,[{text:"Cancel",style:"cancel"},{text:"Remove",style:"destructive",onPress:pR}]);} };
     const handleSetAdminStatus = (memberId: string, memberName: string, makeAdmin: boolean) => { if (!groupId||!isCurrentUserAdmin||processingAction||memberId===currentUserId)return;const a=makeAdmin?"promote":"demote";const aT=makeAdmin?"Make Admin":"Remove Admin";const pAC=async()=>{setProcessingAction(`admin_${memberId}`);try{const{error}=await supabase.rpc('set_group_admin_status',{group_id_input:groupId,member_id:memberId,is_admin_status:makeAdmin});if(error)throw error;Alert.alert("Success",`Admin status updated.`);fetchGroupInfo();}catch(e:any){Alert.alert("Error",`Update fail: ${e.message}`);}finally{setProcessingAction(null);}};if(Platform.OS==='web'){if(window.confirm(`Sure ${a} ${memberName}?`))pAC();}else{Alert.alert(aT,`Sure ${a} ${memberName}?`,[{text:"Cancel",style:"cancel"},{text:aT,style:makeAdmin?"default":"destructive",onPress:pAC}]);} };
     const handleToggleAddPermission = async (newValue: boolean) => { if(!groupId||!isCurrentUserAdmin||processingAction)return;setProcessingAction('toggle_permission');try{const{error}=await supabase.rpc('set_group_add_permission',{group_id_input:groupId,allow_members_to_add:newValue});if(error)throw error;setGroupDetails(p=>p?{...p,can_members_add_others:newValue}:null);Alert.alert("Success","Permission updated.");}catch(e:any){Alert.alert("Error",`Update fail: ${e.message}`);setGroupDetails(p=>p?{...p,can_members_add_others:!newValue}:null);}finally{setProcessingAction(null);}};
-    const handleToggleEditPermission = async (newValue: boolean) => { if (!groupId||!isCurrentUserAdmin||processingAction||!groupDetails)return;const oV=groupDetails.can_members_edit_info;setProcessingAction('toggle_edit_permission');setGroupDetails(p=>p?{...p,can_members_edit_info:newValue}:null);try{const{error}=await supabase.rpc('set_group_edit_permission',{group_id_input:groupId,allow_members_to_edit:newValue});if(error)throw error;Alert.alert("Success","Edit permission updated.");}catch(e:any){Alert.alert("Error",`Update fail: ${e.message}`);setGroupDetails(p=>p?{...p,can_members_edit_info:oV}:null);}finally{setProcessingAction(null);}};
+    const handleToggleEditPermission = async (newValue: boolean) => {
+        if (!groupId || !isCurrentUserAdmin || processingAction || !groupDetails) return;
+        const oV = groupDetails.can_members_edit_info;
+        setProcessingAction('toggle_edit_permission');
+        setGroupDetails((p) => (p ? { ...p, can_members_edit_info: newValue } : null));
+        try {
+            const { error: rpcError } = await supabase.rpc('set_group_edit_permission', { group_id_input: groupId, allow_members_to_edit: newValue });
+            if (rpcError) {
+                // Fallback: RPC may not exist on backend; try direct update (RLS must allow admins to update)
+                const { error: updateError } = await supabase.from('group_chats').update({ can_members_edit_info: newValue }).eq('id', groupId);
+                if (updateError) throw rpcError;
+            }
+            Alert.alert("Success", "Edit permission updated.");
+        } catch (e: any) {
+            Alert.alert("Error", `Update fail: ${e.message}`);
+            setGroupDetails((p) => (p ? { ...p, can_members_edit_info: oV } : null));
+        } finally {
+            setProcessingAction(null);
+        }
+    };
     const confirmTransferAndLeave = async () => { if(!groupId||!transferAdminId)return;setShowTransferModal(false);setProcessingAction('leave');try{const{error:pE}=await supabase.rpc('set_group_admin_status',{group_id_input:groupId,member_id:transferAdminId,is_admin_status:true});if(pE)throw pE;const{error:lE}=await supabase.rpc('leave_group',{group_id_input:groupId});if(lE)throw lE;Alert.alert("Success","Transferred/Left.");navigation.popToTop();}catch(e:any){Alert.alert("Error",`Failed: ${e.message}`);}finally{setProcessingAction(null);setTransferAdminId(null);}};
 
     // --- Render Member Item ---

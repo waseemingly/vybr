@@ -166,6 +166,8 @@ const AuthContext = createContext<{
     updateUserMetadata: (userType: UserTypes) => Promise<{ error: any } | { success: boolean }>;
     setSetupInProgress: (inProgress: boolean) => void;
     debugUserState: () => Promise<void>;
+    requestedBackToOrganizerSignUp: boolean;
+    setRequestedBackToOrganizerSignUp: (value: boolean) => void;
 }>({
     session: null,
     loading: true,
@@ -191,6 +193,8 @@ const AuthContext = createContext<{
     updateUserMetadata: async () => ({ error: 'Not implemented' }),
     setSetupInProgress: () => { },
     debugUserState: async () => { },
+    requestedBackToOrganizerSignUp: false,
+    setRequestedBackToOrganizerSignUp: () => { },
 });
 
 // --- Provider Component ---
@@ -205,6 +209,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     const [isSetupInProgress, setIsSetupInProgress] = useState(false);
     const [musicLoverProfile, setMusicLoverProfile] = useState<MusicLoverProfile | null>(null);
     const [organizerProfile, setOrganizerProfile] = useState<OrganizerProfile | null>(null);
+    const [requestedBackToOrganizerSignUp, setRequestedBackToOrganizerSignUp] = useState(false);
     const { isOrganizerMode, setIsOrganizerMode } = useOrganizerMode();
     const previousSessionRef = useRef<UserSession | null>(null);
     
@@ -2459,6 +2464,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             updateUserMetadata,
             setSetupInProgress,
             debugUserState, // Add debug function for troubleshooting
+            requestedBackToOrganizerSignUp,
+            setRequestedBackToOrganizerSignUp,
         }}>
             {children}
         </AuthContext.Provider>

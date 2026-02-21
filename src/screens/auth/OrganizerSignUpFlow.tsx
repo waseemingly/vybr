@@ -1,7 +1,7 @@
 // components/Auth/OrganizerSignUpFlow.tsx (or wherever it resides)
 import React, { useState, useEffect, useRef } from 'react'; // Add useRef
-import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image, Platform, Dimensions, Keyboard, Easing, KeyboardAvoidingView } from 'react-native';
-import { useNavigation, NavigationProp } from '@react-navigation/native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Animated, Image, Platform, Dimensions, Keyboard, Easing, KeyboardAvoidingView, BackHandler } from 'react-native';
+import { useNavigation, NavigationProp, useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -82,7 +82,9 @@ const OrganizerSignUpFlow = () => {
   const { 
     createOrganizerProfile, 
     requestMediaLibraryPermissions, 
-    loading: authLoading, 
+    loading: authLoading,
+    requestedBackToOrganizerSignUp,
+    setRequestedBackToOrganizerSignUp,
     // Remove unused functions: signUp, checkEmailExists, signInWithGoogle, verifyGoogleAuthCompleted, updateUserMetadata
   } = useAuth();
 
@@ -119,6 +121,15 @@ const OrganizerSignUpFlow = () => {
   useEffect(() => {
     requestMediaLibraryPermissions();
   }, [requestMediaLibraryPermissions]);
+
+  // When returning from payment screen (back button), show the step before payment (profile-details)
+  useFocusEffect(
+    React.useCallback(() => {
+      if (requestedBackToOrganizerSignUp) {
+        setCurrentStep('profile-details');
+      }
+    }, [requestedBackToOrganizerSignUp])
+  );
 
   const handleChange = (field: string, value: any) => {
     // Update formData with the new value
@@ -356,6 +367,8 @@ const OrganizerSignUpFlow = () => {
       
       case 'profile-details':
         if (validateProfileDetailsStep()) {
+          // Clear "back to signup" flag so AppNavigator shows payment step again
+          setRequestedBackToOrganizerSignUp(false);
           // Create organizer profile and then navigate to payment
           console.log('[OrganizerSignUpFlow] 🏢 Organizer profile validation passed - creating profile...');
           await handleCompleteSignup();
@@ -744,6 +757,44 @@ const OrganizerSignUpFlow = () => {
     });
   };
 
+  // Handle Android hardware back and navigation back: go to previous step or sign out on first step
+  const handleBackPress = React.useCallback(() => {
+    if (currentStep === 'company-name') {
+      supabase.auth.signOut().then(() => {});
+      return true;
+    }
+    const steps: Step[] = ['company-name', 'profile-details'];
+    const currentIndex = steps.indexOf(currentStep);
+    if (currentIndex > 0) {
+      goToPreviousStep(steps[currentIndex - 1]);
+      return true;
+    }
+    return false;
+  }, [currentStep, isLoading, authLoading]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (Platform.OS === 'android') {
+        const onBackPress = () => handleBackPress();
+        const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+        return () => subscription.remove();
+      }
+    }, [handleBackPress])
+  );
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      const action = e.data.action;
+      if (action.type === 'GO_BACK' || action.type === 'POP') {
+        e.preventDefault();
+        if (handleBackPress()) {
+          // handleBackPress did the step change or sign out
+        }
+      }
+    });
+    return unsubscribe;
+  }, [navigation, currentStep, isLoading, authLoading]);
+
   return (
     <SafeAreaView style={authStyles.signupContainer} edges={['top', 'bottom']}>
       <LinearGradient
@@ -754,21 +805,11 @@ const OrganizerSignUpFlow = () => {
         <View style={authStyles.signupHeader}>
             <TouchableOpacity
                 style={authStyles.signupBackButton}
-                onPress={() => {
-                    if (currentStep === 'company-name') {
-                        // Clear session and let auth flow handle navigation
-                        supabase.auth.signOut().then(() => {
-                            // After sign out, the auth flow will automatically navigate to Landing
-                        });
-                    } else {
-                        const steps: Step[] = ['company-name', 'profile-details'];
-                        const currentIndex = steps.indexOf(currentStep);
-                        if (currentIndex > 0) {
-                            // Go back to previous step with animation
-                            goToPreviousStep(steps[currentIndex - 1]);
-                        }
-                    }
-                }}
+                onPress={handleBackPress}
+                activeOpacity={0.7}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
             >
                 <Feather name="arrow-left" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
             </TouchableOpacity>
