@@ -11,8 +11,8 @@ import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/dat
 import * as FileSystem from "expo-file-system";
 import { Buffer } from "buffer";
 import { Picker } from '@react-native-picker/picker';
-import { supabase } from "../lib/supabase"; // Using common path convention
-import { useAuth } from "../hooks/useAuth";   // Using common path convention
+import { supabase } from "../lib/supabase";
+import { useAuth } from "../hooks/useAuth";
 import { useNavigation } from "@react-navigation/native";
 import { decode } from 'base64-arraybuffer'; // Add import for base64 decoding
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -507,7 +507,6 @@ const CreateEventScreen: React.FC = () => {
          console.log(`[ImageUpload NATIVE] Original MIME type from picker: ${assetMimeTypeFromPicker}`);
          console.log(`[ImageUpload NATIVE] Final MIME type for upload: ${actualMimeTypeForUpload}`);
 
-         // Get signed URL for upload
          const { data: signedUrlData, error: signedUrlError } = await supabase.storage
             .from("event_posters")
             .createSignedUploadUrl(filePath);
@@ -518,12 +517,9 @@ const CreateEventScreen: React.FC = () => {
          }
          if (!signedUrlData?.signedUrl) throw new Error("No signed URL returned (NATIVE).");
 
-         // Upload using signed URL with ArrayBuffer directly (React Native compatible)
          const uploadResponse = await fetch(signedUrlData.signedUrl, {
              method: 'PUT',
-             headers: {
-                 'Content-Type': actualMimeTypeForUpload,
-             },
+             headers: { 'Content-Type': actualMimeTypeForUpload },
              body: arrayBuffer,
          });
 
@@ -603,8 +599,7 @@ const CreateEventScreen: React.FC = () => {
         title: formState.title.trim(),
         description: formState.description.trim() || null,
         event_datetime: eventDate.toISOString(),
-        location_text: formState.location.trim() || null, // Keep this for detailed address
-        // Add structured location data for filtering/display
+        location_text: formState.location.trim() || null,
         country: formState.countryName || null,
         state: formState.stateName || null,
         city: formState.cityName || null,

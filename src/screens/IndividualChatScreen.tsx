@@ -39,7 +39,9 @@ import { MessageUtils } from '@/utils/message/MessageUtils';
 import { useMessageFetching } from '@/hooks/message/useMessageFetching';
 import { useMessageSending } from '@/hooks/message/useMessageSending';
 import { MessageStatusService } from '@/services/message/MessageStatusService';
-import { decryptMessageContent } from '@/lib/e2e/e2eService';
+import { decryptMessageContent, ensureUserKeyPair, encryptImageBytes, E2E_UNDECRYPTABLE } from '@/lib/e2e/e2eService';
+import { base64ToBytes } from '@/lib/e2e/crypto';
+import { ChatImageContent } from '@/components/ChatImageContent';
 
 // Types and MessageBubble component
 type IndividualChatScreenRouteProp = RouteProp<RootStackParamList & {
@@ -125,10 +127,12 @@ interface ChatMessage {
     deliveredAt?: Date | null;
     isSeen?: boolean;
     seenAt?: Date | null;
+    contentFormat?: 'plain' | 'e2e';
 }
 interface MessageBubbleProps { 
     message: ChatMessage; 
-    currentUserId: string | undefined; 
+    currentUserId: string | undefined;
+    matchUserId: string | undefined;
     onImagePress: (imageUrl: string) => void;
     onEventPress?: (eventId: string) => void;
     onMessageLongPress: (message: ChatMessage) => void;
@@ -244,6 +248,7 @@ const formatEventDateTimeForModal = (isoString: string | null): { date: string; 
 const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ 
     message, 
     currentUserId, 
+    matchUserId,
     onImagePress, 
     onEventPress,
     onMessageLongPress,
@@ -481,8 +486,10 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                         </TouchableOpacity>
                     )}
                     <View style={[styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage, isHighlighted && styles.highlightedImageBubble]}>
-                        <Image
-                            source={{ uri: message.image }}
+                        <ChatImageContent
+                            imageUrl={message.image}
+                            contentFormat={message.contentFormat}
+                            context={currentUserId && matchUserId ? { type: 'individual', userId: currentUserId, peerId: matchUserId } : null}
                             style={styles.chatImage}
                             onError={() => setImageError(true)}
                         />
@@ -519,20 +526,29 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                         <View style={styles.replyPreviewContent}>
                             <Text style={styles.replyPreviewSenderName}>{repliedMessagePreview.senderName || 'User'}</Text>
                             {repliedMessagePreview.image ? (
-                                <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                                    <Feather name="image" size={12} color="#6B7280" style={{marginRight: 4}}/>
-                                    <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text}</Text>
-                                </View>
-                            ) : (
-                                <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text}</Text>
+                                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                        <Feather name="image" size={12} color="#6B7280" style={{marginRight: 4}}/>
+                                        <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text === E2E_UNDECRYPTABLE ? 'Unable to decrypt' : repliedMessagePreview.text}</Text>
+                                    </View>
+                                ) : (
+                                    <Text style={styles.replyPreviewText} numberOfLines={1}>{repliedMessagePreview.text === E2E_UNDECRYPTABLE ? 'Unable to decrypt' : repliedMessagePreview.text}</Text>
                             )}
                         </View>
                     </View>
                 )}
                 <View style={[styles.messageBubble, isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived]}>
-                    <Text style={[styles.messageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>
-                        {message.text}
-                    </Text>
+                    {message.text === E2E_UNDECRYPTABLE ? (
+                        <View style={styles.undecryptableMessageContent}>
+                            <Feather name="lock" size={14} color={isCurrentUser ? 'rgba(255,255,255,0.8)' : '#6B7280'} style={{ marginRight: 6 }} />
+                            <Text style={[styles.undecryptableMessageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>
+                                Unable to decrypt this message
+                            </Text>
+                        </View>
+                    ) : (
+                        <Text style={[styles.messageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>
+                            {message.text}
+                        </Text>
+                    )}
                     <View style={styles.timeAndEditContainer}>
                         {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
                         <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
@@ -901,6 +917,7 @@ const IndividualChatScreen: React.FC = () => {
             replyToMessageId: dbMessage.reply_to_message_id, isDelivered: dbMessage.is_delivered,
             deliveredAt: dbMessage.delivered_at ? new Date(dbMessage.delivered_at) : null,
             isSeen: dbMessage.is_seen, seenAt: dbMessage.seen_at ? new Date(dbMessage.seen_at) : null,
+            contentFormat: dbMessage.content_format,
         };
     }, [currentUserId, dynamicMatchName]);
 
@@ -2649,14 +2666,30 @@ const IndividualChatScreen: React.FC = () => {
             const fileName = `${currentUserId}-${Date.now()}.jpg`;
             const filePath = `${currentUserId}/${matchUserId}/${fileName}`;
 
-            // Upload to Supabase Storage
+            // E2E: encrypt image before upload
+            await ensureUserKeyPair(currentUserId);
+            const imageBytes = base64ToBytes(fileData);
+            const encryptedBase64 = await encryptImageBytes(imageBytes, {
+                type: 'individual',
+                userId: currentUserId,
+                peerId: matchUserId,
+            });
+            const encryptedBytes = base64ToBytes(encryptedBase64);
+            const uploadPayload = encryptedBytes.buffer.slice(
+                encryptedBytes.byteOffset,
+                encryptedBytes.byteOffset + encryptedBytes.byteLength
+            );
+
+            // Upload encrypted blob to Supabase Storage (verify: file is application/octet-stream, not viewable as image at URL)
             const { data: uploadData, error: uploadError } = await supabase.storage
                 .from('individual-chat-images')
-                .upload(filePath, decode(fileData), {
-                    contentType: 'image/jpeg',
+                .upload(filePath, uploadPayload, {
+                    contentType: 'application/octet-stream',
                     cacheControl: '3600',
                     upsert: false
                 });
+
+            if (__DEV__) console.log('[E2E] Individual chat image encrypted and uploaded; content_format=e2e');
 
             if (uploadError) {
                 console.error('[Supabase Upload Error]:', uploadError);
@@ -2672,13 +2705,14 @@ const IndividualChatScreen: React.FC = () => {
                 throw new Error('Failed to get public URL for uploaded image');
             }
 
-            // Insert message record with image_url
+            // Insert message record with image_url and E2E content_format
             const { data: insertedData, error: insertError } = await supabase
                 .from('messages')
                 .insert({
                     sender_id: currentUserId,
                     receiver_id: matchUserId,
-                    content: '[Image]', // Provide default content for image messages
+                    content: '[Image]',
+                    content_format: 'e2e',
                     image_url: urlData.publicUrl,
                     reply_to_message_id: replyToId || null,
                 })
@@ -2699,6 +2733,7 @@ const IndividualChatScreen: React.FC = () => {
                             ...optimisticMessage, 
                             _id: insertedData.id,
                             image: insertedData.image_url,
+                            contentFormat: 'e2e' as const,
                             createdAt: new Date(insertedData.created_at)
                         } 
                         : msg
@@ -3611,7 +3646,8 @@ const IndividualChatScreen: React.FC = () => {
                     renderItem={({ item }) => (
                         <MessageBubble 
                             message={item} 
-                            currentUserId={currentUserId} 
+                            currentUserId={currentUserId}
+                            matchUserId={matchUserId}
                             onImagePress={handleImagePress}
                             onEventPress={handleEventPressInternal}
                             onMessageLongPress={handleMessageLongPress}
@@ -4078,6 +4114,7 @@ const fetchMessageById = async (messageId: string): Promise<ChatMessage | null> 
             isDeleted: dbMessage.is_deleted,
             deletedAt: dbMessage.deleted_at ? new Date(dbMessage.deleted_at) : null,
             replyToMessageId: dbMessage.reply_to_message_id,
+            contentFormat: dbMessage.content_format,
         };
         // @ts-ignore - dbMessage can be complex due to join
         const status = dbMessage.message_status && Array.isArray(dbMessage.message_status) ? dbMessage.message_status[0] : dbMessage.message_status;

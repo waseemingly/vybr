@@ -210,7 +210,7 @@ import type { IndividualSubTab } from '@/screens/ChatsScreen';
 import { useMessageFetching } from '@/hooks/message/useMessageFetching';
 import { useMessageSending } from '@/hooks/message/useMessageSending';
 import { MessageStatusService } from '@/services/message/MessageStatusService';
-import { decryptMessageContent } from '@/lib/e2e/e2eService';
+import { decryptMessageContent, E2E_UNDECRYPTABLE } from '@/lib/e2e/e2eService';
 
 // PowerSync imports for mobile
 import { useIndividualChatListWithUnread, useGroupChatListWithUnread } from '@/lib/powersync/chatFunctions';
@@ -328,7 +328,7 @@ const IndividualChatRow: React.FC<{
             'e2e',
             { type: 'individual', userId: currentUserId, peerId: item.partner_user_id }
         ).then((decrypted) => {
-            if (!cancelled) setDisplayPreview(decrypted);
+            if (!cancelled) setDisplayPreview(decrypted === E2E_UNDECRYPTABLE ? 'Encrypted message' : decrypted);
         });
         return () => { cancelled = true; };
     }, [item.last_message_content, item.last_message_content_format, item.partner_user_id, currentUserId, isE2e]);
@@ -373,7 +373,7 @@ const GroupChatRow: React.FC<{
             'e2e',
             { type: 'group', userId: currentUserId, groupId: item.group_id }
         ).then((decrypted) => {
-            if (!cancelled) setDisplayPreview(decrypted);
+            if (!cancelled) setDisplayPreview(decrypted === E2E_UNDECRYPTABLE ? 'Encrypted message' : decrypted);
         });
         return () => { cancelled = true; };
     }, [item.last_message_content, item.last_message_content_format, item.group_id, currentUserId, isE2e]);
@@ -726,11 +726,12 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
             const partnerId = newMessage.sender_id;
             let previewContent = newMessage.content;
             if (newMessage.content_format === 'e2e' && newMessage.content) {
-                previewContent = await decryptMessageContent(
+                const decrypted = await decryptMessageContent(
                     newMessage.content,
                     'e2e',
                     { type: 'individual', userId: session.user.id, peerId: partnerId }
                 );
+                previewContent = decrypted === E2E_UNDECRYPTABLE ? 'Encrypted message' : decrypted;
             }
             
             setIndividualList(currentList => {
@@ -824,11 +825,12 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
 
             let previewContent = newMessage.content;
             if (newMessage.content_format === 'e2e' && newMessage.content) {
-                previewContent = await decryptMessageContent(
+                const decrypted = await decryptMessageContent(
                     newMessage.content,
                     'e2e',
                     { type: 'group', userId: session.user.id, groupId: newMessage.group_id }
                 );
+                previewContent = decrypted === E2E_UNDECRYPTABLE ? 'Encrypted message' : decrypted;
             }
 
             setGroupList(currentList => {

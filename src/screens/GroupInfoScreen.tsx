@@ -12,6 +12,7 @@ import * as ImagePicker from 'expo-image-picker';
 import ImageViewer from 'react-native-image-zoom-viewer';
 import ImageCropper from '@/components/ImageCropper';
 import { shareImage, downloadImage } from '@/utils/sharingUtils';
+import { StorageImage } from '@/components/StorageImage';
 
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
@@ -159,7 +160,6 @@ const GroupInfoScreen = () => {
              const path = `${groupId}/avatar.${Date.now()}.${fileExt}`;
              console.log('[GroupInfo] Uploading ArrayBuffer to "group-avatars", path:', path, 'bytes:', arrayBuffer.byteLength, 'contentType:', safeMime);
 
-             // Upload as ArrayBuffer (same as profile-pictures / useAuth) so Supabase stores correct MIME, not application/json
              const { data: uData, error: uError } = await supabase.storage.from('group-avatars').upload(path, arrayBuffer, { upsert: true, contentType: safeMime });
              if (uError) {
                  console.error('[GroupInfo] Storage upload failed:', uError);
@@ -417,8 +417,10 @@ const GroupInfoScreen = () => {
                             const uri = displayUri
                                 ? `${displayUri}${displayUri.includes('?') ? '&' : '?'}v=${(groupDetails.updated_at || Date.now()).toString().replace(/[^0-9]/g, '')}`
                                 : DEFAULT_GROUP_PIC;
-                            return (
-                                <RNImage key={uri} source={{ uri }} style={styles.groupAvatar} />
+                            return uri ? (
+                                <StorageImage key={uri} sourceUri={uri} style={styles.groupAvatar} resizeMode="cover" />
+                            ) : (
+                                <RNImage source={{ uri: DEFAULT_GROUP_PIC }} style={styles.groupAvatar} />
                             );
                         })()}
                          {(isCurrentUserAdmin || groupDetails.can_members_edit_info) && ( <View style={styles.cameraIconOverlay}><Feather name="camera" size={18} color="white" /></View> )}

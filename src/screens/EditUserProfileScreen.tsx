@@ -461,9 +461,9 @@ const EditUserProfileScreen: React.FC = () => {
                     // Upload to storage
                     console.log(`[EditUserProfile] Uploading to Supabase path: ${filePath}, contentType: ${actualMimeTypeForUpload}`);
                     const { data: uploadData, error: uploadError } = await supabase.storage
-                        .from('profile-pictures') 
+                        .from('profile-pictures')
                         .upload(filePath, fileDataArrayBuffer, {
-                            contentType: actualMimeTypeForUpload, 
+                            contentType: actualMimeTypeForUpload,
                             cacheControl: '3600',
                             upsert: false,
                         });

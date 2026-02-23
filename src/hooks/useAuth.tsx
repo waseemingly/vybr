@@ -502,15 +502,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             }
             console.log(`${logPrefix} Final ContentType for upload: ${finalContentType}.`);
 
-
             // --- Upload ArrayBuffer to Supabase ---
             console.log(`${logPrefix} Uploading ArrayBuffer to Supabase bucket "${bucket}" at path "${filePath}"`);
             const { data: uploadData, error: uploadError } = await supabase.storage
                 .from(bucket)
-                .upload(filePath, fileData, { // <<< Pass ArrayBuffer
+                .upload(filePath, fileData, {
                     cacheControl: '3600',
                     upsert: false,
-                    contentType: finalContentType // <<< Pass determined Content-Type
+                    contentType: finalContentType
                 });
 
             if (uploadError) {

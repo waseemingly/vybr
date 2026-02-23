@@ -27,7 +27,10 @@ import { MessageUtils } from '@/utils/message/MessageUtils';
 import { useMessageFetching } from '@/hooks/message/useMessageFetching';
 import { useMessageSending } from '@/hooks/message/useMessageSending';
 import { MessageStatusService } from '@/services/message/MessageStatusService';
-import { decryptMessageContent } from '@/lib/e2e/e2eService';
+import { decryptMessageContent, ensureUserKeyPair, encryptImageBytes, E2E_UNDECRYPTABLE } from '@/lib/e2e/e2eService';
+import { base64ToBytes } from '@/lib/e2e/crypto';
+import { ChatImageContent } from '@/components/ChatImageContent';
+import { StorageImage } from '@/components/StorageImage';
 
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
@@ -224,6 +227,7 @@ interface ChatMessage {
         userName: string;
         seenAt: Date;
     }[];
+    contentFormat?: 'plain' | 'e2e';
 }
 interface UserProfileInfo { user_id: string; first_name: string | null; last_name: string | null; profile_picture: string | null; }
 interface DbGroupChat { id: string; group_name: string; group_image: string | null; can_members_add_others?: boolean; can_members_edit_info?: boolean; }
@@ -240,6 +244,7 @@ const DEFAULT_ORGANIZER_NAME_CHAT = "Event Organizer";
 interface GroupMessageBubbleProps {
     message: ChatMessage;
     currentUserId: string | undefined;
+    groupId: string | undefined;
     onImagePress: (imageUri: string) => void;
     onEventPress?: (eventId: string) => void;
     onMessageLongPress: (message: ChatMessage) => void;
@@ -261,6 +266,7 @@ const areEqual = (prevProps: GroupMessageBubbleProps, nextProps: GroupMessageBub
 const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
     message,
     currentUserId,
+    groupId,
     onImagePress,
     onEventPress,
     onMessageLongPress,
@@ -561,10 +567,11 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                     )}
 
                     <View style={[styles.messageBubble, styles.imageBubble, isCurrentUser ? styles.messageBubbleSentImage : styles.messageBubbleReceivedImage, isHighlighted && styles.highlightedImageBubble]}>
-                        <Image
-                            source={{ uri: message.image }}
+                        <ChatImageContent
+                            imageUrl={message.image}
+                            contentFormat={message.contentFormat}
+                            context={currentUserId && groupId ? { type: 'group', userId: currentUserId, groupId } : null}
                             style={styles.chatImage}
-                            resizeMode="cover"
                             onError={() => setImageError(true)}
                         />
                         {imageError && (
@@ -631,7 +638,14 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                     )}
 
                     <View style={[styles.messageBubble, isCurrentUser ? styles.messageBubbleSent : styles.messageBubbleReceived, isHighlighted && styles.highlightedMessageBubble]}>
-                        <Text style={[styles.messageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>{message.text}</Text>
+                        {message.text === E2E_UNDECRYPTABLE ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Feather name="lock" size={14} color={isCurrentUser ? 'rgba(255,255,255,0.8)' : '#6B7280'} style={{ marginRight: 6 }} />
+                                <Text style={[styles.messageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>Unable to decrypt this message</Text>
+                            </View>
+                        ) : (
+                            <Text style={[styles.messageText, isCurrentUser ? styles.messageTextSent : styles.messageTextReceived]}>{message.text}</Text>
+                        )}
                         <View style={styles.timeAndEditContainer}>
                             {message.isEdited && <Text style={[styles.editedIndicator, isCurrentUser ? styles.editedIndicatorSent : styles.editedIndicatorReceived]}>(edited)</Text>}
                             <Text style={[styles.timeText, styles.timeTextInsideBubble, isCurrentUser ? styles.timeTextInsideSentBubble : styles.timeTextInsideReceivedBubble]}>
@@ -1037,6 +1051,7 @@ const GroupChatScreen: React.FC = () => {
             isSeen: false, // Will be set by calling code from joined data
             seenAt: null,
             seenBy: [], // Initialize seenBy array
+            contentFormat: dbMessage.content_format,
         };
     }, [currentUserId]);
 
@@ -1792,14 +1807,30 @@ const GroupChatScreen: React.FC = () => {
             const fileName = `${currentUserId}-${Date.now()}.jpg`;
             const filePath = `${groupId}/${currentUserId}/${fileName}`;
 
-            // Upload to Supabase Storage
+            // E2E: encrypt image before upload
+            await ensureUserKeyPair(currentUserId);
+            const imageBytes = base64ToBytes(fileData);
+            const encryptedBase64 = await encryptImageBytes(imageBytes, {
+                type: 'group',
+                userId: currentUserId,
+                groupId,
+            });
+            const encryptedBytes = base64ToBytes(encryptedBase64);
+            const uploadPayload = encryptedBytes.buffer.slice(
+                encryptedBytes.byteOffset,
+                encryptedBytes.byteOffset + encryptedBytes.byteLength
+            );
+
+            // Upload encrypted blob to Supabase Storage (verify: file is application/octet-stream, not viewable as image at URL)
             const { data: uploadData, error: uploadError } = await supabase.storage
                 .from('group-chat-images')
-                .upload(filePath, decode(fileData), {
-                    contentType: 'image/jpeg',
+                .upload(filePath, uploadPayload, {
+                    contentType: 'application/octet-stream',
                     cacheControl: '3600',
                     upsert: false
                 });
+
+            if (__DEV__) console.log('[E2E] Group chat image encrypted and uploaded; content_format=e2e');
 
             if (uploadError) {
                 console.error('[Supabase Upload Error]:', uploadError);
@@ -1815,13 +1846,14 @@ const GroupChatScreen: React.FC = () => {
                 throw new Error('Failed to get public URL for uploaded image');
             }
 
-            // Insert message record
+            // Insert message record with E2E content_format for encrypted image
             const { data: insertedData, error: insertError } = await supabase
                 .from('group_chat_messages')
                 .insert({
                     sender_id: currentUserId,
                     group_id: groupId,
-                    content: '[Image]', // Provide default content for image messages
+                    content: '[Image]',
+                    content_format: 'e2e',
                     image_url: urlData.publicUrl,
                     is_system_message: false,
                     reply_to_message_id: replyToId || null
@@ -1862,13 +1894,14 @@ const GroupChatScreen: React.FC = () => {
             // Send broadcast for typing indicators and other real-time features
             sendBroadcast('group', groupId, 'message', insertedData);
 
-            // Update the message with the final data
+            // Update the message with the final data (include contentFormat for E2E image)
             setMessages(prev => prev.map(msg =>
                 msg._id === tempId
                     ? {
                         ...msg,
                         _id: insertedData.id,
                         image: urlData.publicUrl,
+                        contentFormat: 'e2e' as const,
                         createdAt: new Date(insertedData.created_at)
                     }
                     : msg
@@ -3171,17 +3204,15 @@ const GroupChatScreen: React.FC = () => {
             headerTitle: () => (
                 <TouchableOpacity style={styles.headerTitleContainer} onPress={navigateToGroupInfo} activeOpacity={0.8}>
                     <View style={styles.headerImageContainer}>
-                        <Image
-                        key={currentGroupImage ?? route.params.groupImage ?? 'default'}
-                        source={{
-                            uri: (() => {
-                                const u = currentGroupImage ?? route.params.groupImage ?? DEFAULT_GROUP_PIC;
-                                if (u === DEFAULT_GROUP_PIC || !u) return u;
-                                return `${u}${u.includes('?') ? '&' : '?'}v=${encodeURIComponent((u.split('/').pop() || '').slice(0, 50))}`;
-                            })(),
-                        }}
-                        style={styles.headerGroupImage}
-                    />
+                        {(currentGroupImage ?? route.params.groupImage) && (currentGroupImage ?? route.params.groupImage) !== DEFAULT_GROUP_PIC ? (
+                            <StorageImage
+                                sourceUri={currentGroupImage ?? route.params.groupImage ?? null}
+                                style={styles.headerGroupImage}
+                                resizeMode="cover"
+                            />
+                        ) : (
+                            <Image source={{ uri: DEFAULT_GROUP_PIC }} style={styles.headerGroupImage} />
+                        )}
                         {onlineCount > 0 && (
                             <View style={styles.onlineIndicator}>
                                 <Text style={styles.onlineIndicatorText}>{onlineCount}</Text>
@@ -4326,6 +4357,7 @@ const GroupChatScreen: React.FC = () => {
                         <GroupMessageBubble
                             message={item}
                             currentUserId={currentUserId}
+                            groupId={groupId}
                             onImagePress={handleImagePress}
                             onEventPress={handleEventPressInternal}
                             onMessageLongPress={handleMessageLongPress}

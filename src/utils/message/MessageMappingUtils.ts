@@ -109,6 +109,7 @@ export class MessageMappingUtils {
         avatar: undefined
       },
       image: dbMessage.image_url || null,
+      contentFormat: dbMessage.content_format ?? 'plain',
       isSystemMessage: false,
       sharedEvent: sharedEventInfo,
       originalContent: dbMessage.original_content,
@@ -227,6 +228,7 @@ export class MessageMappingUtils {
         avatar: dbMessage.sender_id === currentUserId ? undefined : senderAvatar 
       },
       image: dbMessage.image_url,
+      contentFormat: dbMessage.content_format ?? 'plain',
       isSystemMessage: dbMessage.is_system_message,
       sharedEvent: sharedEventInfo,
       originalContent: dbMessage.original_content,

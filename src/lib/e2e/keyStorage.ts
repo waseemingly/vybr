@@ -78,3 +78,7 @@ export function conversationCacheKey(userId: string, peerId: string): string {
 export function groupCacheKey(groupId: string): string {
   return `group:${groupId}`;
 }
+
+export function profileCacheKey(userId: string): string {
+  return `profile:${userId}`;
+}

@@ -9,9 +9,20 @@ import * as keyStorage from './keyStorage';
 export const CONTENT_FORMAT_PLAIN = 'plain';
 export const CONTENT_FORMAT_E2E = 'e2e';
 
+/** Sentinel returned by decryptMessageContent when decryption fails or content is corrupted. UI should show "Unable to decrypt" instead of this value. */
+export const E2E_UNDECRYPTABLE = '[Encrypted]';
+
 export type E2EContextIndividual = { type: 'individual'; userId: string; peerId: string };
 export type E2EContextGroup = { type: 'group'; userId: string; groupId: string };
-export type E2EContext = E2EContextIndividual | E2EContextGroup;
+/** Profile picture / avatar: only the owning user can decrypt (key derived from own key pair). */
+export type E2EContextProfile = { type: 'profile'; userId: string };
+/** Event images: key is stored per-event (e.g. in event row). */
+export type E2EContextEvent = { type: 'event'; eventImageKeyBase64: string };
+export type E2EContext =
+  | E2EContextIndividual
+  | E2EContextGroup
+  | E2EContextProfile
+  | E2EContextEvent;
 
 /** Check if this user's public key is in the DB (so others can encrypt to you). */
 export async function isKeyRegistered(userId: string): Promise<boolean> {
@@ -220,7 +231,7 @@ export async function encryptMessageContent(
     let key: Uint8Array | null = null;
     if (context.type === 'individual') {
       key = await getOrCreateConversationKey(context.userId, context.peerId);
-    } else {
+    } else if (context.type === 'group') {
       key = await getOrCreateGroupKey(context.userId, context.groupId);
     }
     if (!key) {
@@ -246,6 +257,13 @@ export async function decryptMessageContent(
   context: E2EContext
 ): Promise<string> {
   if (contentFormat !== CONTENT_FORMAT_E2E) return content;
+  if (typeof content !== 'string' || !content.trim()) {
+    if (__DEV__) console.warn('[E2E RECV] Content is not a non-empty string, skipping decrypt');
+    return E2E_UNDECRYPTABLE;
+  }
+  const contentTrimmed = content.trim();
+  // Image messages store placeholder '[Image]' with content_format e2e; do not attempt to decrypt.
+  if (contentTrimmed === '[Image]') return contentTrimmed;
   try {
     let key: Uint8Array | null = null;
     // Use 1:1 key only for individual; group messages must use group key (never getOrCreateConversationKey).
@@ -255,23 +273,186 @@ export async function decryptMessageContent(
       key = await getOrCreateGroupKey(context.userId, context.groupId);
     } else {
       console.warn('[E2E RECV] Unknown context type:', (context as E2EContext).type);
-      return '[Encrypted]';
+      return E2E_UNDECRYPTABLE;
     }
     if (!key) {
       console.warn('[E2E RECV] No shared key — cannot decrypt (userId=', context.type === 'individual' ? context.userId : '', 'peerId=', context.type === 'individual' ? context.peerId : '', ')');
-      return '[Encrypted]';
+      return E2E_UNDECRYPTABLE;
     }
-    const decrypted = await crypto.decryptWithKeyAsync(content, key);
+    const decrypted = await crypto.decryptWithKeyAsync(contentTrimmed, key);
     return decrypted;
-  } catch (e) {
+  } catch (e: any) {
     const ctxInfo = context.type === 'individual'
       ? `individual userId=${context.userId} peerId=${context.peerId}`
-      : `group userId=${context.userId} groupId=${context.groupId}`;
-    console.warn('[E2E RECV] Decrypt failed:', e, '— context:', ctxInfo);
-    return '[Encrypted]';
+      : context.type === 'group'
+        ? `group userId=${context.userId} groupId=${context.groupId}`
+        : String(context.type);
+    const isInvalidBase64 =
+      (e?.name === 'InvalidCharacterError') ||
+      (typeof e?.message === 'string' && e.message.includes('not correctly encoded'));
+    if (isInvalidBase64) {
+      // Corrupted or encrypted content that isn't valid base64; don't show raw ciphertext.
+      if (__DEV__) console.warn('[E2E RECV] Content not valid base64 — context:', ctxInfo);
+      return E2E_UNDECRYPTABLE;
+    }
+    const isOperationError = e?.name === 'OperationError';
+    if (isOperationError && __DEV__) {
+      const keyId = context.type === 'individual'
+        ? keyStorage.conversationCacheKey(context.userId, context.peerId)
+        : context.type === 'group'
+          ? keyStorage.groupCacheKey(context.groupId)
+          : 'n/a';
+      console.warn('[E2E RECV] Decrypt OperationError (wrong key or corrupted). keyId:', keyId, '— context:', ctxInfo);
+    } else {
+      console.warn('[E2E RECV] Decrypt failed:', e, '— context:', ctxInfo);
+    }
+    return E2E_UNDECRYPTABLE;
   }
 }
 
 export function clearE2ECache(): void {
   keyStorage.clearKeyCache();
+}
+
+/** Get key for profile picture encryption (derived from user's own key pair; only this user can decrypt). */
+export async function getOrCreateProfilePictureKey(userId: string): Promise<Uint8Array | null> {
+  const cacheKey = keyStorage.profileCacheKey(userId);
+  const cached = keyStorage.getCachedKey(cacheKey);
+  if (cached) return cached;
+  const stored = await keyStorage.getStoredKeyPair(userId);
+  if (!stored) return null;
+  try {
+    const key = await crypto.deriveSharedAesKeyAsync(stored.privateKeyBase64, stored.publicKeyBase64);
+    keyStorage.setCachedKey(cacheKey, key);
+    return key;
+  } catch (e) {
+    console.warn('[E2E] getOrCreateProfilePictureKey error:', e);
+    return null;
+  }
+}
+
+/** Encrypt image bytes for storage. Context determines which key is used. */
+export async function encryptImageBytes(
+  imageBytes: Uint8Array,
+  context: E2EContext
+): Promise<string> {
+  let key: Uint8Array | null = null;
+  if (context.type === 'individual') {
+    key = await getOrCreateConversationKey(context.userId, context.peerId);
+  } else if (context.type === 'group') {
+    key = await getOrCreateGroupKey(context.userId, context.groupId);
+  } else if (context.type === 'profile') {
+    key = await getOrCreateProfilePictureKey(context.userId);
+  } else if (context.type === 'event') {
+    key = crypto.base64ToBytes(context.eventImageKeyBase64);
+  }
+  if (!key) {
+    throw new Error('E2E: No key available for image encryption');
+  }
+  return crypto.encryptBytesWithKeyAsync(imageBytes, key);
+}
+
+/** Decrypt image payload (base64) to raw bytes. */
+export async function decryptImageBytes(
+  encryptedBase64: string,
+  context: E2EContext
+): Promise<Uint8Array> {
+  let key: Uint8Array | null = null;
+  if (context.type === 'individual') {
+    key = await getOrCreateConversationKey(context.userId, context.peerId);
+  } else if (context.type === 'group') {
+    key = await getOrCreateGroupKey(context.userId, context.groupId);
+  } else if (context.type === 'profile') {
+    key = await getOrCreateProfilePictureKey(context.userId);
+  } else if (context.type === 'event') {
+    key = crypto.base64ToBytes(context.eventImageKeyBase64);
+  }
+  if (!key) {
+    throw new Error('E2E: No key available for image decryption');
+  }
+  return crypto.decryptBytesWithKeyAsync(encryptedBase64, key);
+}
+
+/** Parse Supabase storage URL into bucket + path for authenticated download (works with private buckets). */
+function parseSupabaseStorageUrl(url: string): { bucket: string; path: string } | null {
+  try {
+    const match = url.match(/\/storage\/v1\/object\/(?:public|authenticated)\/([^/]+)\/(.+)$/);
+    if (!match) return null;
+    const [, bucket, pathRaw] = match;
+    if (!bucket || !pathRaw) return null;
+    const path = decodeURIComponent(pathRaw.split('?')[0]);
+    return { bucket, path };
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch image blob from URL. Uses Supabase authenticated download when URL is our storage (so private buckets work). */
+export async function fetchImageBlob(imageUrl: string): Promise<Blob | null> {
+  const parsed = parseSupabaseStorageUrl(imageUrl);
+  if (parsed) {
+    const { data, error } = await supabase.storage.from(parsed.bucket).download(parsed.path);
+    if (error) {
+      console.warn('[E2E] Storage download failed:', error.message);
+      return null;
+    }
+    return data;
+  }
+  const res = await fetch(imageUrl);
+  if (!res.ok) return null;
+  return res.blob();
+}
+
+/** Resolve a Supabase storage image URL to a displayable URI (data URL). Use for private buckets so viewing works. */
+export async function getAuthenticatedStorageImageUri(imageUrl: string | null | undefined): Promise<string | null> {
+  if (!imageUrl?.trim()) return null;
+  const blob = await fetchImageBlob(imageUrl);
+  if (!blob) return imageUrl;
+  try {
+    const buf = await blob.arrayBuffer();
+    const b64 = crypto.bytesToBase64(new Uint8Array(buf));
+    const mime = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg';
+    return `data:${mime};base64,${b64}`;
+  } catch {
+    return imageUrl;
+  }
+}
+
+/** Resolve chat image URL to a displayable URI. For our Supabase storage URLs always uses authenticated download (private buckets). If E2E, decrypts and returns data URI; otherwise returns data URI of blob or original URL. */
+export async function getDecryptedImageUri(
+  imageUrl: string,
+  contentFormat: string | null | undefined,
+  context: E2EContext | null
+): Promise<string | null> {
+  const isOurStorage = parseSupabaseStorageUrl(imageUrl) != null;
+  try {
+    if (isOurStorage) {
+      const blob = await fetchImageBlob(imageUrl);
+      if (!blob) return null;
+      const buf = await blob.arrayBuffer();
+      const mime = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg';
+      if (contentFormat === CONTENT_FORMAT_E2E && context) {
+        const encryptedB64 = crypto.bytesToBase64(new Uint8Array(buf));
+        const decrypted = await decryptImageBytes(encryptedB64, context);
+        const b64 = crypto.bytesToBase64(decrypted);
+        return `data:${mime};base64,${b64}`;
+      }
+      const b64 = crypto.bytesToBase64(new Uint8Array(buf));
+      return `data:${mime};base64,${b64}`;
+    }
+    if (contentFormat === CONTENT_FORMAT_E2E && context) {
+      const blob = await fetchImageBlob(imageUrl);
+      if (!blob) return null;
+      const buf = await blob.arrayBuffer();
+      const encryptedB64 = crypto.bytesToBase64(new Uint8Array(buf));
+      const decrypted = await decryptImageBytes(encryptedB64, context);
+      const b64 = crypto.bytesToBase64(decrypted);
+      const mime = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg';
+      return `data:${mime};base64,${b64}`;
+    }
+    return imageUrl;
+  } catch (e) {
+    console.warn('[E2E] getDecryptedImageUri failed:', e);
+    return null;
+  }
 }

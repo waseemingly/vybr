@@ -50,8 +50,38 @@ export async function encryptWithKeyAsync(plaintext: string, key: SymmetricKey):
 }
 
 export async function decryptWithKeyAsync(payloadBase64: string, key: SymmetricKey): Promise<string> {
+  const plainBytes = await decryptBytesWithKeyAsync(payloadBase64, key);
+  return new TextDecoder().decode(plainBytes);
+}
+
+/** Encrypt raw bytes (e.g. image). Returns base64(iv || ciphertext). */
+export async function encryptBytesWithKeyAsync(plainBytes: Uint8Array, key: SymmetricKey): Promise<string> {
+  const iv = randomBytes(IV_LENGTH);
+  const subtle = getSubtle();
+  const keyCopy = new Uint8Array(key);
+  const cryptoKey = await subtle.importKey('raw', keyCopy, { name: 'AES-GCM' }, false, ['encrypt']);
+  const ciphertext = await subtle.encrypt(
+    { name: 'AES-GCM', iv: new Uint8Array(iv), tagLength: 128 },
+    cryptoKey,
+    plainBytes as BufferSource
+  );
+  const combined = new Uint8Array(iv.length + ciphertext.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(ciphertext), iv.length);
+  return bytesToBase64(combined);
+}
+
+/** Decrypt payload from encryptBytesWithKeyAsync. Returns raw bytes. Payload format: base64(iv_12_bytes || ciphertext_with_auth_tag). */
+export async function decryptBytesWithKeyAsync(payloadBase64: string, key: SymmetricKey): Promise<Uint8Array> {
+  if (typeof payloadBase64 !== 'string' || !payloadBase64.length) {
+    throw new Error('E2E: decrypt payload must be a non-empty string');
+  }
   const combined = base64ToBytes(payloadBase64);
-  if (combined.length < IV_LENGTH + AUTH_TAG_LENGTH) {
+  const minLength = IV_LENGTH + AUTH_TAG_LENGTH;
+  if (combined.length < minLength) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('[E2E crypto] Invalid ciphertext length: base64Len=', payloadBase64.length, 'decodedLen=', combined.length, 'min=', minLength);
+    }
     throw new Error('E2E: invalid ciphertext length');
   }
   const iv = combined.slice(0, IV_LENGTH);
@@ -64,7 +94,7 @@ export async function decryptWithKeyAsync(payloadBase64: string, key: SymmetricK
     cryptoKey,
     ciphertext
   );
-  return new TextDecoder().decode(plainBytes);
+  return new Uint8Array(plainBytes);
 }
 
 /** Generate ECDH P-256 key pair; returns base64(pkcs8) and base64(spki) for storage/upload. */
@@ -166,10 +196,12 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return typeof btoa !== 'undefined' ? btoa(binary) : (global as any).Buffer?.from(bytes).toString('base64') ?? '';
 }
 
-/** Normalize base64 for decoding: strip whitespace, URL-safe to standard, padding. */
+/** Normalize base64 for decoding: fix common corruption (+→space), strip whitespace, URL-safe to standard, padding. */
 function normalizeBase64(base64: string): string {
-  let s = base64.replace(/\s/g, '');
+  let s = base64.replace(/ /g, '+'); // restore + if corrupted to space (e.g. form encoding)
+  s = s.replace(/\s/g, '');
   s = s.replace(/-/g, '+').replace(/_/g, '/');
+  s = s.replace(/[^A-Za-z0-9+/=]/g, '');
   const remainder = s.length % 4;
   if (remainder) s += '='.repeat(4 - remainder);
   return s;

@@ -349,7 +349,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-
+import { StorageImage } from '@/components/StorageImage';
 interface ChatCardProps {
     id: string; // Can be user_id or group_id
     name: string;
@@ -403,8 +403,8 @@ const ChatCard: React.FC<ChatCardProps> = ({
                     disabled={type === 'group' || !onProfileOpen}
                     activeOpacity={0.8}
                 >
-                    {/* Use Image component - key forces remount when URL changes so new group avatar shows */}
-                    <Image key={imageSourceUri} source={{ uri: imageSourceUri }} style={styles.avatar} />
+                    {/* StorageImage works with private buckets (auth fetch); fallback for non-storage URLs */}
+                    <StorageImage key={imageSourceUri} sourceUri={imageSourceUri} style={styles.avatar} resizeMode="cover" />
                     {/* Online indicator or other status indicators can be added here */}
                     {unread > 0 && (
                         <View style={styles.onlineIndicator} />
