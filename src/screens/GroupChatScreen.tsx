@@ -176,6 +176,7 @@ interface DbGroupMessage {
     sender_id: string;
     group_id: string;
     content: string | null;
+    content_format?: 'plain' | 'e2e';
     image_url: string | null;
     is_system_message: boolean;
     metadata?: any; // Add metadata property for shared event data
@@ -1173,7 +1174,7 @@ const GroupChatScreen: React.FC = () => {
             const { data: messagesData, error: messagesError } = await supabase
                 .from('group_chat_messages')
                 .select(`
-                    id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, 
+                    id, created_at, sender_id, group_id, content, content_format, image_url, is_system_message, metadata, 
                     original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id,
                     group_message_status(*)
                 `)
@@ -1662,15 +1663,8 @@ const GroupChatScreen: React.FC = () => {
                 shareEventToGroupViaRpc(initialSharedEventData);
             }
         } else if (inputText.trim()) {
-            if (useNewServices) {
-                // NEW: Use new text message sending service
-                console.log('[NEW] Using new group text message sending service');
-                newSendTextMessage(inputText, replyingToMessage?._id);
-            } else {
-                // OLD: Use existing text message sending
-                console.log('[OLD] Using existing group text message sending service');
-                sendTextMessage(inputText);
-            }
+            // Always use E2E-capable service for group text messages
+            newSendTextMessage(inputText, replyingToMessage?._id);
         }
     };
 

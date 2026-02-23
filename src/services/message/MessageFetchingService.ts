@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { MessageMappingUtils } from '@/utils/message/MessageMappingUtils';
 import type { ChatMessage, DbMessage, DbGroupMessage, UserProfileInfo, FetchMessagesResult } from '@/types/message';
+import { decryptMessageContent } from '@/lib/e2e/e2eService';
 
 export class MessageFetchingService {
   /**
@@ -46,7 +47,7 @@ export class MessageFetchingService {
       const { data: messagesData, error: messagesError } = await supabase
         .from('group_chat_messages')
         .select(`
-          id, created_at, sender_id, group_id, content, image_url, is_system_message, metadata, 
+          id, created_at, sender_id, group_id, content, content_format, image_url, is_system_message, metadata, 
           original_content, is_edited, edited_at, is_deleted, deleted_at, reply_to_message_id,
           group_message_status(*)
         `)
@@ -150,6 +151,12 @@ export class MessageFetchingService {
       const hiddenMessageIds = new Set(hiddenMessagesData?.map((h: {message_id: string}) => h.message_id) || []);
 
       if (data) {
+        const individualContext = { type: 'individual' as const, userId, peerId: partnerId };
+        for (const msg of data) {
+          if (msg.content_format === 'e2e' && msg.content) {
+            msg.content = await decryptMessageContent(msg.content, msg.content_format, individualContext);
+          }
+        }
         const visibleMessages = data.filter((msg: DbMessage) => !hiddenMessageIds.has(msg.id));
         const fetchedChatMessages = visibleMessages.map((dbMsg: any) => {
           const chatMsg = MessageMappingUtils.mapDbMessageToChatMessage(dbMsg as DbMessage, userId, 'Partner');

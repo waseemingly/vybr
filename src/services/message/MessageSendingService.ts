@@ -3,6 +3,7 @@ import { MessageUtils } from '@/utils/message/MessageUtils';
 import { MessageMappingUtils } from '@/utils/message/MessageMappingUtils';
 import type { SendMessageOptions, MessageResult, ChatMessage } from '@/types/message';
 import { v4 as uuidv4 } from 'uuid';
+import { ensureUserKeyPair, encryptMessageContent, CONTENT_FORMAT_PLAIN } from '@/lib/e2e/e2eService';
 
 export class MessageSendingService {
   /**
@@ -19,9 +20,23 @@ export class MessageSendingService {
     const trimmedContent = content.trim();
     
     try {
-      console.log(`[MessageSendingService] Sending ${chatType} text message with tempId: ${tempId}`);
-      
-      // Create optimistic message
+      console.warn(`[E2E SEND] Starting send — chatType=${chatType} senderId=${senderId?.slice(0, 8)}... receiverId=${receiverId?.slice(0, 8)}...`);
+
+      // E2E only for individual chat; group chat stays plain
+      let contentToStore = trimmedContent;
+      let contentFormat = CONTENT_FORMAT_PLAIN;
+      if (chatType === 'individual') {
+        const keyOk = await ensureUserKeyPair(senderId);
+        console.warn('[E2E SEND] ensureUserKeyPair:', keyOk ? 'OK' : 'FAILED');
+        const context = { type: 'individual' as const, userId: senderId, peerId: receiverId! };
+        const e2eResult = await encryptMessageContent(trimmedContent, context);
+        if (e2eResult) {
+          contentToStore = e2eResult.ciphertext;
+          contentFormat = e2eResult.contentFormat;
+        }
+      }
+
+      // Create optimistic message (show plaintext to sender)
       const optimisticMessage: ChatMessage = {
         _id: tempId,
         text: trimmedContent,
@@ -37,10 +52,11 @@ export class MessageSendingService {
         seenBy: [],
       };
 
-      // Send to database
+      // Send to database (ciphertext if E2E)
       let insertData: any = {
         sender_id: senderId,
-        content: trimmedContent,
+        content: contentToStore,
+        content_format: contentFormat,
         reply_to_message_id: replyToMessageId || null,
         metadata: metadata || null,
       };

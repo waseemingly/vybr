@@ -5,6 +5,7 @@ export interface DbMessage {
   sender_id: string;
   receiver_id: string;
   content: string;
+  content_format?: 'plain' | 'e2e' | null;
   image_url?: string | null;
   metadata?: {
     shared_event?: {
@@ -34,6 +35,7 @@ export interface DbGroupMessage {
   sender_id: string;
   group_id: string;
   content: string | null;
+  content_format?: 'plain' | 'e2e' | null;
   image_url: string | null;
   is_system_message: boolean;
   metadata?: any;
@@ -139,6 +141,7 @@ export interface MessageQueryParams {
 export interface IndividualChatListItem {
   partner_user_id: string;
   last_message_content: string | null;
+  last_message_content_format?: 'plain' | 'e2e' | null;
   last_message_created_at: string;
   last_message_sender_id?: string;
   last_message_sender_name?: string;
@@ -157,6 +160,7 @@ export interface GroupChatListItem {
   group_name: string | null;
   group_image: string | null;
   last_message_content: string | null;
+  last_message_content_format?: 'plain' | 'e2e' | null;
   last_message_created_at: string | null;
   last_message_sender_id?: string;
   last_message_sender_name?: string;

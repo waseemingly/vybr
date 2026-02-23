@@ -27,6 +27,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import NotificationService from '../services/NotificationService';
 // Import the new deep link parser
 import { parseDeepLink } from '../utils/navigationUtils';
+import { ensureUserKeyPair, isKeyRegistered, clearE2ECache } from '../lib/e2e/e2eService';
 
 // --- Exported Types ---
 export type MusicLoverBio = SupabaseMusicLoverBio;
@@ -246,6 +247,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             (window as any).__VYBR_CURRENT_USER_ID__ = session?.user?.id || null;
             console.log('[AuthProvider] Set global user ID for navigation:', session?.user?.id || 'null');
         }
+    }, [session?.user?.id]);
+
+    // Ensure E2E key pair for existing and new users (so they can send/receive E2E messages)
+    useEffect(() => {
+        if (!session?.user?.id) {
+            clearE2ECache();
+            return;
+        }
+        const uid = session.user.id;
+        ensureUserKeyPair(uid)
+            .then((ok) => {
+                return isKeyRegistered(uid).then((registered) => {
+                    console.log('[E2E] Key registered for this user:', ok && registered);
+                });
+            })
+            .catch(() => {});
     }, [session?.user?.id]);
 
     // Enhanced session persistence for mobile

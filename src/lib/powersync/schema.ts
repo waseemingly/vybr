@@ -76,6 +76,7 @@ export const createAppSchema = async () => {
     sender_id: column.text,
     receiver_id: column.text,
     content: column.text,
+    content_format: column.text,
     created_at: column.text
   });
 
@@ -115,6 +116,7 @@ export const createAppSchema = async () => {
     group_id: column.text,
     sender_id: column.text,
     content: column.text,
+    content_format: column.text,
     created_at: column.text
   });
 

@@ -192,7 +192,8 @@ const ChatsScreen = () => {
     
     if (useWebLayout) {
         return (
-            <SafeAreaView style={styles.webContainer} edges={['top']}>
+            <>
+                <SafeAreaView style={styles.webContainer} edges={['top']}>
                 {/* Left Panel: Chat List */}
                 <View style={styles.webLeftPanel}>
                     {/* Custom Header Area */}
@@ -262,12 +263,14 @@ const ChatsScreen = () => {
                     />
                 </View>
             </SafeAreaView>
+            </>
         );
     }
 
     // On mobile, render original single-panel layout
     return (
-        <SafeAreaView style={styles.container} edges={['top']}>
+        <>
+            <SafeAreaView style={styles.container} edges={['top']}>
             {/* Custom Header Area */}
             <View style={styles.header}>
                  <View style={styles.headerTitleRow}>
@@ -322,6 +325,7 @@ const ChatsScreen = () => {
                 />
             </View>
         </SafeAreaView>
+        </>
     );
 };
 

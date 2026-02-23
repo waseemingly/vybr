@@ -68,6 +68,7 @@ export class PowerSyncChatFunctions {
       SELECT
         m.partner_id AS partner_user_id,
         m.content AS last_message_content,
+        m.content_format AS last_message_content_format,
         m.created_at AS last_message_created_at,
         m.sender_id AS last_message_sender_id,
         COALESCE(sender_prof.first_name || ' ' || sender_prof.last_name, sender_prof.username, 'User') AS last_message_sender_name,
@@ -136,6 +137,7 @@ export class PowerSyncChatFunctions {
       SELECT
         m.partner_id AS partner_user_id,
         m.content AS last_message_content,
+        m.content_format AS last_message_content_format,
         m.created_at AS last_message_created_at,
         m.sender_id AS last_message_sender_id,
         COALESCE(sender_prof.first_name || ' ' || sender_prof.last_name, sender_prof.username, 'User') AS last_message_sender_name,
@@ -175,6 +177,7 @@ export class PowerSyncChatFunctions {
         SELECT
           gcm.group_id,
           gcm.content as last_message_content,
+          gcm.content_format as last_message_content_format,
           gcm.created_at as last_message_created_at
         FROM group_chat_messages gcm
         WHERE gcm.group_id IN (SELECT gcp.group_id FROM group_chat_participants gcp WHERE gcp.user_id = ?)
@@ -198,6 +201,7 @@ export class PowerSyncChatFunctions {
         SELECT 
           gcm.group_id,
           gcm.content AS last_message_content,
+          gcm.content_format AS last_message_content_format,
           gcm.created_at AS last_message_created_at,
           gcm.sender_id AS last_message_sender_id,
           COALESCE(sender_prof.first_name || ' ' || sender_prof.last_name, sender_prof.username, 'User') as last_message_sender_name,
@@ -505,13 +509,8 @@ export function useIndividualChatList(userId: string) {
       type: 'individual' as const,
       data: {
         ...chat,
-        last_message_content: MessageUtils.formatLastMessageForPreview(
-          chat.last_message_content,
-          chat.last_message_sender_id,
-          userId,
-          chat.last_message_sender_name,
-          false
-        ),
+        last_message_content: chat.last_message_content ?? null,
+        last_message_content_format: (chat as IndividualChatListItem).last_message_content_format ?? undefined,
         unread_count: chat.unread_count || 0,
         isPinned: false
       }
@@ -554,13 +553,8 @@ export function useIndividualChatListWithUnread(userId: string) {
       type: 'individual' as const,
       data: {
         ...chat,
-        last_message_content: MessageUtils.formatLastMessageForPreview(
-          chat.last_message_content,
-          chat.last_message_sender_id,
-          userId,
-          chat.last_message_sender_name,
-          false
-        ),
+        last_message_content: chat.last_message_content ?? null,
+        last_message_content_format: (chat as IndividualChatListItem).last_message_content_format ?? undefined,
         unread_count: chat.unread_count || 0,
         isPinned: false
       }
@@ -596,7 +590,7 @@ export function useGroupChatList(userId: string) {
       data: {
         ...chat,
         last_message_content: MessageUtils.formatLastMessageForPreview(
-          chat.last_message_content,
+          chat.last_message_content_format === 'e2e' ? 'New message' : (chat.last_message_content ?? ''),
           chat.last_message_sender_id,
           userId,
           chat.last_message_sender_name,
@@ -645,7 +639,7 @@ export function useGroupChatListWithUnread(userId: string) {
       data: {
         ...chat,
         last_message_content: MessageUtils.formatLastMessageForPreview(
-          chat.last_message_content,
+          chat.last_message_content_format === 'e2e' ? 'New message' : (chat.last_message_content ?? ''),
           chat.last_message_sender_id,
           userId,
           chat.last_message_sender_name,
@@ -668,7 +662,7 @@ export function useGroupChatListWithUnread(userId: string) {
     : error;
 
   return { chats: chatItems, loading, error: finalError };
-} 
+}
 
 /**
  * Hook to fetch individual messages using PowerSync

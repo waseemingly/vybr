@@ -1,5 +1,6 @@
 import '@azure/core-asynciterator-polyfill';
 import './src/utils/EventTargetPolyfill';
+import 'react-native-get-random-values'; // required for E2E crypto (e.g. @noble/ciphers) on React Native
 import * as Linking from 'expo-linking';
 
 // Set up EventTarget for Hermes

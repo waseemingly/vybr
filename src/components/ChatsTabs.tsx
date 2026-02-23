@@ -187,6 +187,7 @@ import ChatCard from './ChatCard';
 export interface IndividualChatListItem {
     partner_user_id: string;
     last_message_content: string | null;
+    last_message_content_format?: 'plain' | 'e2e';
     last_message_created_at: string;
     last_message_sender_id?: string;
     last_message_sender_name?: string;
@@ -209,6 +210,7 @@ import type { IndividualSubTab } from '@/screens/ChatsScreen';
 import { useMessageFetching } from '@/hooks/message/useMessageFetching';
 import { useMessageSending } from '@/hooks/message/useMessageSending';
 import { MessageStatusService } from '@/services/message/MessageStatusService';
+import { decryptMessageContent } from '@/lib/e2e/e2eService';
 
 // PowerSync imports for mobile
 import { useIndividualChatListWithUnread, useGroupChatListWithUnread } from '@/lib/powersync/chatFunctions';
@@ -295,6 +297,56 @@ const formatLastMessageForPreview = (
     }
     
     return messageContent;
+};
+
+// Heuristic: content that looks like E2E ciphertext (base64) when RPC doesn't return content_format
+const looksLikeE2eCiphertext = (content: string | null): boolean =>
+    !!content && content.length >= 20 && /^[A-Za-z0-9+/]+=*$/.test(content) && !content.startsWith('SHARED_EVENT:');
+
+// Wrapper that decrypts E2E last message for chat list preview (same logic as IndividualChatScreen)
+const IndividualChatRow: React.FC<{
+    item: IndividualChatListItem;
+    currentUserId: string | undefined;
+    onChatOpen: () => void;
+    onProfileOpen?: () => void;
+    onLongPress: () => void;
+}> = ({ item, currentUserId, onChatOpen, onProfileOpen, onLongPress }) => {
+    const [displayPreview, setDisplayPreview] = useState<string | null>(item.last_message_content);
+    const isE2e = item.last_message_content && (
+        item.last_message_content_format === 'e2e' || looksLikeE2eCiphertext(item.last_message_content)
+    );
+
+    useEffect(() => {
+        if (!isE2e || !currentUserId || !item.partner_user_id) {
+            setDisplayPreview(item.last_message_content);
+            return;
+        }
+        let cancelled = false;
+        decryptMessageContent(
+            item.last_message_content!,
+            'e2e',
+            { type: 'individual', userId: currentUserId, peerId: item.partner_user_id }
+        ).then((decrypted) => {
+            if (!cancelled) setDisplayPreview(decrypted);
+        });
+        return () => { cancelled = true; };
+    }, [item.last_message_content, item.last_message_content_format, item.partner_user_id, currentUserId, isE2e]);
+
+    return (
+        <ChatCard
+            id={item.partner_user_id}
+            name={`${item.partner_first_name || ''} ${item.partner_last_name || ''}`.trim() || 'User'}
+            image={item.partner_profile_picture}
+            lastMessage={formatLastMessageForPreview(displayPreview ?? null, item.last_message_sender_id, currentUserId, item.last_message_sender_name, false)}
+            time={formatTimestamp(item.last_message_created_at)}
+            unread={item.unread_count || 0}
+            isPinned={item.isPinned || false}
+            type="individual"
+            onChatOpen={onChatOpen}
+            onProfileOpen={onProfileOpen}
+            onLongPress={onLongPress}
+        />
+    );
 };
 
 // Function to delete individual chat
@@ -606,16 +658,24 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         if (!session?.user?.id) return;
 
         // --- Handler for new individual messages ---
-        const handleNewIndividualMessage = (payload: any) => {
+        const handleNewIndividualMessage = async (payload: any) => {
             if (!session?.user) return; // Guard clause
             const newMessage = payload.new as {
-                id: string; sender_id: string; receiver_id: string; content: string; created_at: string;
+                id: string; sender_id: string; receiver_id: string; content: string; content_format?: 'plain' | 'e2e'; created_at: string;
             };
 
             // Only process messages sent to the current user
             if (newMessage.receiver_id !== session.user.id) return;
             
             const partnerId = newMessage.sender_id;
+            let previewContent = newMessage.content;
+            if (newMessage.content_format === 'e2e' && newMessage.content) {
+                previewContent = await decryptMessageContent(
+                    newMessage.content,
+                    'e2e',
+                    { type: 'individual', userId: session.user.id, peerId: partnerId }
+                );
+            }
             
             setIndividualList(currentList => {
                 const chatIndex = currentList.findIndex(c => c.partner_user_id === partnerId);
@@ -636,7 +696,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 console.log('ChatsTabs: Updating existing individual chat smoothly.');
                 const existingChat = { ...currentList[chatIndex] };
 
-                existingChat.last_message_content = newMessage.content;
+                existingChat.last_message_content = previewContent;
+                existingChat.last_message_content_format = newMessage.content_format ?? 'plain';
                 existingChat.last_message_created_at = newMessage.created_at;
                 existingChat.last_message_sender_id = newMessage.sender_id;
                 //existingChat.unread_count = (existingChat.unread_count || 0) + 1;
@@ -1131,15 +1192,9 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 data={listToShow}
                 keyExtractor={(item) => item.partner_user_id}
                 renderItem={({ item }) => (
-                    <ChatCard
-                        id={item.partner_user_id}
-                        name={`${item.partner_first_name || ''} ${item.partner_last_name || ''}`.trim() || 'User'}
-                        image={item.partner_profile_picture}
-                        lastMessage={formatLastMessageForPreview(item.last_message_content, item.last_message_sender_id, session?.user?.id, item.last_message_sender_name, false)}
-                        time={formatTimestamp(item.last_message_created_at)}
-                        unread={item.unread_count || 0}
-                        isPinned={item.isPinned || false}
-                        type='individual'
+                    <IndividualChatRow
+                        item={item}
+                        currentUserId={session?.user?.id}
                         onChatOpen={() => handleChatOpen({ type: 'individual', data: item })}
                         onProfileOpen={(onProfileOpen) ? () => onProfileOpen({ type: 'individual', data: item }) : undefined}
                         onLongPress={() => handleChatLongPress({ type: 'individual', data: item })}

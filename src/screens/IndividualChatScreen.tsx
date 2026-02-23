@@ -39,6 +39,7 @@ import { MessageUtils } from '@/utils/message/MessageUtils';
 import { useMessageFetching } from '@/hooks/message/useMessageFetching';
 import { useMessageSending } from '@/hooks/message/useMessageSending';
 import { MessageStatusService } from '@/services/message/MessageStatusService';
+import { decryptMessageContent } from '@/lib/e2e/e2eService';
 
 // Types and MessageBubble component
 type IndividualChatScreenRouteProp = RouteProp<RootStackParamList & {
@@ -72,6 +73,7 @@ interface DbMessage {
     sender_id: string; 
     receiver_id: string; 
     content: string; 
+    content_format?: 'plain' | 'e2e';
     image_url?: string | null; 
     metadata?: { 
         shared_event?: {
@@ -1113,6 +1115,13 @@ const IndividualChatScreen: React.FC = () => {
             const hiddenMessageIds = new Set(hiddenMessagesData?.map((h: {message_id: string}) => h.message_id) || []);
 
             if (data) {
+                // Decrypt E2E content before mapping (same as MessageFetchingService)
+                const individualContext = { type: 'individual' as const, userId: currentUserId, peerId: matchUserId };
+                for (const msg of data) {
+                    if (msg.content_format === 'e2e' && msg.content) {
+                        msg.content = await decryptMessageContent(msg.content, msg.content_format, individualContext);
+                    }
+                }
                 const visibleMessages = data.filter((msg: DbMessage) => !hiddenMessageIds.has(msg.id));
                 const fetchedChatMessages = visibleMessages.map((dbMsg: any) => {
                     const chatMsg = mapDbMessageToChatMessage(dbMsg as DbMessage);
@@ -1421,15 +1430,8 @@ const IndividualChatScreen: React.FC = () => {
                 shareEventToUser(initialSharedEventData);
             }
         } else if (inputText.trim()) {
-            if (useNewServices) {
-                // NEW: Use new text message sending service
-                console.log('[NEW] Using new text message sending service');
-                newSendTextMessage(inputText, replyingToMessage?._id);
-            } else {
-                // OLD: Use existing text message sending
-                console.log('[OLD] Using existing text message sending service');
-                sendTextMessage(inputText);
-            }
+            // Always use MessageSendingService so E2E encryption runs for every text send
+            newSendTextMessage(inputText, replyingToMessage?._id);
         }
     };
 
@@ -1724,7 +1726,17 @@ const IndividualChatScreen: React.FC = () => {
                         console.warn("Exception checking hidden message status:", hiddenCheckErr);
                     }
 
-                    const receivedMessage = mapDbMessageToChatMessage(newMessageDb);
+                    // Decrypt E2E content before mapping to UI
+                    let dbMsgForMap = newMessageDb;
+                    if (newMessageDb.content_format === 'e2e' && newMessageDb.content && currentUserId && matchUserId) {
+                        const decrypted = await decryptMessageContent(
+                            newMessageDb.content,
+                            newMessageDb.content_format,
+                            { type: 'individual', userId: currentUserId, peerId: matchUserId }
+                        );
+                        dbMsgForMap = { ...newMessageDb, content: decrypted };
+                    }
+                    const receivedMessage = mapDbMessageToChatMessage(dbMsgForMap);
                     
                     // Add reply preview if it exists
                     if (receivedMessage.replyToMessageId) {
@@ -1968,7 +1980,17 @@ const IndividualChatScreen: React.FC = () => {
                     console.warn("Exception checking hidden message status:", hiddenCheckErr);
                 }
 
-                const receivedMessage = mapDbMessageToChatMessage(newMessageDb);
+                // Decrypt E2E content before mapping to UI
+                let dbMsgForMap = newMessageDb;
+                if (newMessageDb.content_format === 'e2e' && newMessageDb.content && currentUserId && matchUserId) {
+                    const decrypted = await decryptMessageContent(
+                        newMessageDb.content,
+                        newMessageDb.content_format,
+                        { type: 'individual', userId: currentUserId, peerId: matchUserId }
+                    );
+                    dbMsgForMap = { ...newMessageDb, content: decrypted };
+                }
+                const receivedMessage = mapDbMessageToChatMessage(dbMsgForMap);
                 
                 // Add reply preview if it exists
                 if (receivedMessage.replyToMessageId) {

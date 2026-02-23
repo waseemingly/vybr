@@ -210,9 +210,8 @@ export class UnifiedNotificationService {
       ? `${params.sender_name} in ${params.group_name || 'Group Chat'}`
       : `New message from ${params.sender_name}`;
 
-    const body = params.content.length > 100
-      ? params.content.substring(0, 100) + '...'
-      : params.content;
+    // Use generic body for E2E and privacy: do not send message content in push
+    const body = 'You have a new message';
 
     const deep_link = isGroup
       ? `/group-chat/${params.group_id}`
