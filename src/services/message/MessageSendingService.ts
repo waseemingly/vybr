@@ -22,13 +22,22 @@ export class MessageSendingService {
     try {
       console.warn(`[E2E SEND] Starting send — chatType=${chatType} senderId=${senderId?.slice(0, 8)}... receiverId=${receiverId?.slice(0, 8)}...`);
 
-      // E2E only for individual chat; group chat stays plain
+      // E2E for individual and group chat (same logic as individual)
       let contentToStore = trimmedContent;
       let contentFormat = CONTENT_FORMAT_PLAIN;
       if (chatType === 'individual') {
         const keyOk = await ensureUserKeyPair(senderId);
         console.warn('[E2E SEND] ensureUserKeyPair:', keyOk ? 'OK' : 'FAILED');
         const context = { type: 'individual' as const, userId: senderId, peerId: receiverId! };
+        const e2eResult = await encryptMessageContent(trimmedContent, context);
+        if (e2eResult) {
+          contentToStore = e2eResult.ciphertext;
+          contentFormat = e2eResult.contentFormat;
+        }
+      } else if (chatType === 'group' && groupId) {
+        const keyOk = await ensureUserKeyPair(senderId);
+        console.warn('[E2E SEND] ensureUserKeyPair (group):', keyOk ? 'OK' : 'FAILED');
+        const context = { type: 'group' as const, userId: senderId, groupId };
         const e2eResult = await encryptMessageContent(trimmedContent, context);
         if (e2eResult) {
           contentToStore = e2eResult.ciphertext;

@@ -224,6 +224,7 @@ export interface GroupChatListItem {
     group_name: string | null;
     group_image: string | null;
     last_message_content: string | null;
+    last_message_content_format?: 'plain' | 'e2e';
     last_message_created_at: string | null;
     last_message_sender_id?: string;
     last_message_sender_name?: string;
@@ -344,6 +345,61 @@ const IndividualChatRow: React.FC<{
             type="individual"
             onChatOpen={onChatOpen}
             onProfileOpen={onProfileOpen}
+            onLongPress={onLongPress}
+        />
+    );
+};
+
+// Wrapper that decrypts E2E last message for group chat list preview (same logic as IndividualChatRow)
+const GroupChatRow: React.FC<{
+    item: GroupChatListItem;
+    currentUserId: string | undefined;
+    onChatOpen: () => void;
+    onLongPress: () => void;
+}> = ({ item, currentUserId, onChatOpen, onLongPress }) => {
+    const [displayPreview, setDisplayPreview] = useState<string | null>(item.last_message_content);
+    const isE2e = item.last_message_content && (
+        item.last_message_content_format === 'e2e' || looksLikeE2eCiphertext(item.last_message_content)
+    );
+
+    useEffect(() => {
+        if (!isE2e || !currentUserId || !item.group_id) {
+            setDisplayPreview(item.last_message_content);
+            return;
+        }
+        let cancelled = false;
+        decryptMessageContent(
+            item.last_message_content!,
+            'e2e',
+            { type: 'group', userId: currentUserId, groupId: item.group_id }
+        ).then((decrypted) => {
+            if (!cancelled) setDisplayPreview(decrypted);
+        });
+        return () => { cancelled = true; };
+    }, [item.last_message_content, item.last_message_content_format, item.group_id, currentUserId, isE2e]);
+
+    return (
+        <ChatCard
+            id={item.group_id}
+            name={item.group_name || `Group (${item.member_count || '...'})`}
+            image={item.group_image}
+            lastMessage={formatLastMessageForPreview(
+                displayPreview ?? null,
+                item.last_message_sender_id,
+                currentUserId,
+                item.last_message_sender_name,
+                true
+            )}
+            time={formatTimestamp(item.last_message_created_at)}
+            unread={item.unread_count || 0}
+            isPinned={item.isPinned || false}
+            type="group"
+            membersPreview={
+                item.other_members_preview && item.other_members_preview.length > 0
+                    ? item.other_members_preview.map(member => member.name).join(', ')
+                    : undefined
+            }
+            onChatOpen={onChatOpen}
             onLongPress={onLongPress}
         />
     );
@@ -757,14 +813,23 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
         };
         
         // --- Handler for new group messages ---
-        const handleNewGroupMessage = (payload: any) => {
+        const handleNewGroupMessage = async (payload: any) => {
             if (!session?.user) return; // Guard clause
             const newMessage = payload.new as {
-                id: string; group_id: string; sender_id: string; content: string; created_at: string;
+                id: string; group_id: string; sender_id: string; content: string; content_format?: 'plain' | 'e2e'; created_at: string;
             };
             
             // Ignore messages sent by the current user
             if (newMessage.sender_id === session.user.id) return;
+
+            let previewContent = newMessage.content;
+            if (newMessage.content_format === 'e2e' && newMessage.content) {
+                previewContent = await decryptMessageContent(
+                    newMessage.content,
+                    'e2e',
+                    { type: 'group', userId: session.user.id, groupId: newMessage.group_id }
+                );
+            }
 
             setGroupList(currentList => {
                 const chatIndex = currentList.findIndex(c => c.group_id === newMessage.group_id);
@@ -784,7 +849,8 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 console.log('ChatsTabs: Updating existing group chat smoothly.');
                 const existingChat = { ...currentList[chatIndex] };
                 
-                existingChat.last_message_content = newMessage.content;
+                existingChat.last_message_content = previewContent;
+                existingChat.last_message_content_format = newMessage.content_format ?? 'plain';
                 existingChat.last_message_created_at = newMessage.created_at;
                 existingChat.last_message_sender_id = newMessage.sender_id;
                 //existingChat.unread_count = (existingChat.unread_count || 0) + 1;
@@ -1255,26 +1321,9 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
                 data={groupChats}
                 keyExtractor={(item) => item.group_id}
                 renderItem={({ item }) => (
-                    <ChatCard
-                        id={item.group_id}
-                        name={item.group_name || `Group (${item.member_count || '...'})`}
-                        image={item.group_image}
-                        lastMessage={formatLastMessageForPreview(
-                            item.last_message_content, 
-                            item.last_message_sender_id, 
-                            session?.user?.id, 
-                            item.last_message_sender_name,
-                            true
-                        )}
-                        time={formatTimestamp(item.last_message_created_at)}
-                        unread={item.unread_count || 0}
-                        isPinned={item.isPinned || false}
-                        type='group'
-                        membersPreview={
-                            item.other_members_preview && item.other_members_preview.length > 0 
-                                ? item.other_members_preview.map(member => member.name).join(', ')
-                                : undefined
-                        }
+                    <GroupChatRow
+                        item={item}
+                        currentUserId={session?.user?.id}
                         onChatOpen={() => handleChatOpen({ type: 'group', data: item })}
                         onLongPress={() => handleChatLongPress({ type: 'group', data: item })}
                     />

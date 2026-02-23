@@ -27,6 +27,7 @@ import { MessageUtils } from '@/utils/message/MessageUtils';
 import { useMessageFetching } from '@/hooks/message/useMessageFetching';
 import { useMessageSending } from '@/hooks/message/useMessageSending';
 import { MessageStatusService } from '@/services/message/MessageStatusService';
+import { decryptMessageContent } from '@/lib/e2e/e2eService';
 
 // --- Adjust Paths ---
 import { supabase } from '@/lib/supabase';
@@ -1189,6 +1190,13 @@ const GroupChatScreen: React.FC = () => {
                 initialFetchCompleteRef.current = true;
                 console.log(`[GroupChatScreen] No messages found. Initial fetch complete.`);
             } else {
+                // Decrypt E2E content before mapping (same as individual)
+                const groupContext = { type: 'group' as const, userId: currentUserId, groupId };
+                for (const msg of messagesData) {
+                    if (msg.content_format === 'e2e' && msg.content) {
+                        msg.content = await decryptMessageContent(msg.content, msg.content_format, groupContext);
+                    }
+                }
                 console.log('[GroupChatScreen] Supabase messages before filtering:', messagesData.length);
                 const visibleMessages = messagesData.filter(msg => !msg.is_system_message && msg.sender_id);
                 console.log('[GroupChatScreen] Supabase messages after filtering:', visibleMessages.length, 'senders:', visibleMessages.map(m => ({ sender_id: m.sender_id, content: m.content?.substring(0, 20) })));
@@ -2348,7 +2356,17 @@ const GroupChatScreen: React.FC = () => {
                         } catch (err) { console.warn("On-the-fly profile fetch failed:", err) }
                     }
                     
-                    const receivedMessage = mapDbMessageToChatMessage(newMessageDb, rtProfilesMap);
+                    // Decrypt E2E content before mapping to UI (same as individual)
+                    let dbMsgForMap = newMessageDb;
+                    if (newMessageDb.content_format === 'e2e' && newMessageDb.content && currentUserId && groupId) {
+                        const decrypted = await decryptMessageContent(
+                            newMessageDb.content,
+                            newMessageDb.content_format,
+                            { type: 'group', userId: currentUserId, groupId }
+                        );
+                        dbMsgForMap = { ...newMessageDb, content: decrypted };
+                    }
+                    const receivedMessage = mapDbMessageToChatMessage(dbMsgForMap, rtProfilesMap);
                     if (receivedMessage.replyToMessageId) {
                         try {
                             const repliedMsg = await fetchMessageById(receivedMessage.replyToMessageId);
@@ -2613,7 +2631,17 @@ const GroupChatScreen: React.FC = () => {
                     } catch (err) { console.warn("On-the-fly profile fetch failed:", err) }
                 }
                 
-                const receivedMessage = mapDbMessageToChatMessage(newMessageDb, rtProfilesMap);
+                // Decrypt E2E content before mapping to UI (same as individual)
+                let dbMsgForMapRealtime = newMessageDb;
+                if (newMessageDb.content_format === 'e2e' && newMessageDb.content && currentUserId && groupId) {
+                    const decrypted = await decryptMessageContent(
+                        newMessageDb.content,
+                        newMessageDb.content_format,
+                        { type: 'group', userId: currentUserId, groupId }
+                    );
+                    dbMsgForMapRealtime = { ...newMessageDb, content: decrypted };
+                }
+                const receivedMessage = mapDbMessageToChatMessage(dbMsgForMapRealtime, rtProfilesMap);
                 if (receivedMessage.replyToMessageId) {
                     try {
                         const repliedMsg = await fetchMessageById(receivedMessage.replyToMessageId);

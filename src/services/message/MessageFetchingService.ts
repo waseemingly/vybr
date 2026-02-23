@@ -64,6 +64,14 @@ export class MessageFetchingService {
         return { messages: [], hasMore: false };
       }
 
+      // Decrypt E2E content before mapping (same as individual)
+      const groupContext = { type: 'group' as const, userId, groupId };
+      for (const msg of messagesData) {
+        if (msg.content_format === 'e2e' && msg.content) {
+          msg.content = await decryptMessageContent(msg.content, msg.content_format, groupContext);
+        }
+      }
+
       // Fetch user profiles for message mapping
       const senderIds = Array.from(new Set(messagesData.map(msg => msg.sender_id).filter(id => id)));
       const profilesMap = await this.fetchUserProfiles(senderIds);

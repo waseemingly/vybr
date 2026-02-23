@@ -166,9 +166,19 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return typeof btoa !== 'undefined' ? btoa(binary) : (global as any).Buffer?.from(bytes).toString('base64') ?? '';
 }
 
+/** Normalize base64 for decoding: strip whitespace, URL-safe to standard, padding. */
+function normalizeBase64(base64: string): string {
+  let s = base64.replace(/\s/g, '');
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  const remainder = s.length % 4;
+  if (remainder) s += '='.repeat(4 - remainder);
+  return s;
+}
+
 export function base64ToBytes(base64: string): Uint8Array {
-  if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(base64, 'base64'));
-  const binary = typeof atob !== 'undefined' ? atob(base64) : (global as any).Buffer?.from(base64, 'base64').toString('binary') ?? '';
+  const normalized = normalizeBase64(base64);
+  if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(normalized, 'base64'));
+  const binary = typeof atob !== 'undefined' ? atob(normalized) : (global as any).Buffer?.from(normalized, 'base64').toString('binary') ?? '';
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;

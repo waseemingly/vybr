@@ -124,6 +124,7 @@ export async function getOrCreateGroupKey(userId: string, groupId: string): Prom
       const key = await decryptGroupKeyFromString(myKeyRow.encrypted_key, stored.privateKeyBase64);
       if (key) {
         keyStorage.setCachedKey(cacheKey, key);
+        void topUpGroupKeyDistribution(groupId, key, userId);
         return key;
       }
     } catch (e) {
@@ -132,12 +133,21 @@ export async function getOrCreateGroupKey(userId: string, groupId: string): Prom
     return null;
   }
 
+  // We don't have our key row. Only the first member to send should create and distribute the group key.
+  // If we create a new key here we'd overwrite the real key and decrypt would fail (wrong key).
   const { data: participants } = await supabase
     .from('group_chat_participants')
     .select('user_id')
     .eq('group_id', groupId);
 
   if (!participants?.length) return null;
+
+  // Only create if no key exists yet (RLS hides other users' rows, so we need an RPC)
+  const { data: groupHasKey } = await supabase.rpc('e2e_group_has_any_key', { gid: groupId }).maybeSingle();
+  if (groupHasKey === true) {
+    console.warn('[E2E] Group key exists but no row for this user — wait for key distribution');
+    return null;
+  }
 
   const groupKey = crypto.generateSymmetricKey();
   const stored = await keyStorage.getStoredKeyPair(userId);
@@ -148,10 +158,11 @@ export async function getOrCreateGroupKey(userId: string, groupId: string): Prom
     const memberPublicKeyBase64 = memberId === userId ? stored.publicKeyBase64 : (await supabase.from('user_public_keys').select('public_key').eq('user_id', memberId).limit(1).maybeSingle()).data?.public_key;
     if (!memberPublicKeyBase64) continue;
     const encryptedKey = await encryptGroupKeyForMember(groupKey, memberPublicKeyBase64);
-    const { error } = await supabase.from('group_keys').upsert(
-      { group_id: groupId, user_id: memberId, encrypted_key: encryptedKey },
-      { onConflict: 'group_id,user_id' }
-    );
+    const { error } = await supabase.rpc('e2e_upsert_group_key_row', {
+      gid: groupId,
+      target_user_id: memberId,
+      encrypted_key: encryptedKey,
+    });
     if (error) console.warn('[E2E] Failed to store group key for', memberId, error.message);
   }
 
@@ -176,6 +187,30 @@ async function decryptGroupKeyFromString(encryptedPayload: string, ourPrivateKey
   return crypto.base64ToBytes(keyB64);
 }
 
+/** Background: distribute group key to participants who don't have a row yet (e.g. new members or failed initial distribution). */
+async function topUpGroupKeyDistribution(groupId: string, groupKey: Uint8Array, userId: string): Promise<void> {
+  try {
+    const { data: rawMissing, error: listError } = await supabase.rpc('e2e_group_missing_key_user_ids', { gid: groupId });
+    if (listError || !rawMissing?.length) return;
+    const missingIds = (Array.isArray(rawMissing) ? rawMissing : []).map((m: unknown) =>
+      typeof m === 'string' ? m : (m as { user_id?: string })?.user_id
+    ).filter((id): id is string => typeof id === 'string');
+    if (!missingIds.length) return;
+    const stored = await keyStorage.getStoredKeyPair(userId);
+    if (!stored) return;
+    for (const memberId of missingIds) {
+      if (memberId === userId) continue;
+      const { data: keyRow } = await supabase.from('user_public_keys').select('public_key').eq('user_id', memberId).limit(1).maybeSingle();
+      if (!keyRow?.public_key) continue;
+      const encryptedKey = await encryptGroupKeyForMember(groupKey, keyRow.public_key);
+      const { error } = await supabase.rpc('e2e_upsert_group_key_row', { gid: groupId, target_user_id: memberId, encrypted_key: encryptedKey });
+      if (error) console.warn('[E2E] Top-up store group key for', memberId, error.message);
+    }
+  } catch (e) {
+    console.warn('[E2E] topUpGroupKeyDistribution error:', e);
+  }
+}
+
 /** Encrypt message content. Returns ciphertext + contentFormat or null to send plain. */
 export async function encryptMessageContent(
   plaintext: string,
@@ -189,15 +224,18 @@ export async function encryptMessageContent(
       key = await getOrCreateGroupKey(context.userId, context.groupId);
     }
     if (!key) {
-      console.warn('[E2E SEND] No shared key — sending as PLAIN. See STEP 1/2/3 FAILED above.');
-      return null;
+      const msg = context.type === 'group'
+        ? 'E2E: No group key for this user — wait for key distribution or ensure you are a participant.'
+        : 'E2E: No shared key with peer — ensure peer has registered their key.';
+      console.warn('[E2E SEND]', msg);
+      throw new Error(msg);
     }
     const ciphertext = await crypto.encryptWithKeyAsync(plaintext, key);
     console.warn('[E2E SEND] Message encrypted successfully — storing as e2e');
     return { ciphertext, contentFormat: CONTENT_FORMAT_E2E };
   } catch (e) {
     console.warn('[E2E SEND] encryptMessageContent error:', e);
-    return null;
+    throw e;
   }
 }
 
@@ -210,10 +248,14 @@ export async function decryptMessageContent(
   if (contentFormat !== CONTENT_FORMAT_E2E) return content;
   try {
     let key: Uint8Array | null = null;
+    // Use 1:1 key only for individual; group messages must use group key (never getOrCreateConversationKey).
     if (context.type === 'individual') {
       key = await getOrCreateConversationKey(context.userId, context.peerId);
-    } else {
+    } else if (context.type === 'group') {
       key = await getOrCreateGroupKey(context.userId, context.groupId);
+    } else {
+      console.warn('[E2E RECV] Unknown context type:', (context as E2EContext).type);
+      return '[Encrypted]';
     }
     if (!key) {
       console.warn('[E2E RECV] No shared key — cannot decrypt (userId=', context.type === 'individual' ? context.userId : '', 'peerId=', context.type === 'individual' ? context.peerId : '', ')');
@@ -222,7 +264,10 @@ export async function decryptMessageContent(
     const decrypted = await crypto.decryptWithKeyAsync(content, key);
     return decrypted;
   } catch (e) {
-    console.warn('[E2E RECV] Decrypt failed:', e);
+    const ctxInfo = context.type === 'individual'
+      ? `individual userId=${context.userId} peerId=${context.peerId}`
+      : `group userId=${context.userId} groupId=${context.groupId}`;
+    console.warn('[E2E RECV] Decrypt failed:', e, '— context:', ctxInfo);
     return '[Encrypted]';
   }
 }

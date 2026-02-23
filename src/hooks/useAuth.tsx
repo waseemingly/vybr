@@ -249,7 +249,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         }
     }, [session?.user?.id]);
 
-    // Ensure E2E key pair for existing and new users (so they can send/receive E2E messages)
+    // Ensure E2E key pair for existing and new users. This uploads the current user's public key
+    // to user_public_keys so others can derive 1:1 shared keys and so we can receive E2E messages.
+    // Until the peer has opened the app and this has run for them, "no shared key" is expected.
     useEffect(() => {
         if (!session?.user?.id) {
             clearE2ECache();
@@ -324,7 +326,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         const handleAppStateChange = async (nextAppState: string) => {
             if (nextAppState === 'active' && session) {
                 console.log('[AuthProvider] App became active, checking session validity...');
-                
+
+                // Re-ensure E2E public key when app comes to foreground (retry if initial run failed, e.g. network).
+                // Ensures this user's key is in user_public_keys so peers can derive 1:1 keys.
+                if (session.user?.id) {
+                    ensureUserKeyPair(session.user.id).catch(() => {});
+                }
+
                 // Re-register push notifications when app comes to foreground
                 // This ensures tokens are always up to date
                 if (session.user?.id && (session.musicLoverProfile || session.organizerProfile)) {
