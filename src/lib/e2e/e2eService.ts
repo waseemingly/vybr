@@ -1,6 +1,10 @@
 /**
  * E2E service: ensure keys, encrypt/decrypt message content for 1:1 and group.
  * Existing users/groups get keys on first use.
+ *
+ * Multi-device: A backup of the E2E private key (encrypted with a per-user key in the DB)
+ * is stored so the same account on different devices can restore the key and decrypt
+ * all messages. First device to use E2E uploads the backup; new devices restore from it.
  */
 import { supabase } from '@/lib/supabase';
 import * as crypto from './crypto';
@@ -34,23 +38,74 @@ export async function isKeyRegistered(userId: string): Promise<boolean> {
   return data != null;
 }
 
+const BACKUP_PAYLOAD_KEYS = ['privateKeyBase64', 'publicKeyBase64'] as const;
+
+function tryRestoreFromBackup(
+  encryptedPrivateKey: string,
+  backupKeyB64: string
+): Promise<{ privateKeyBase64: string; publicKeyBase64: string } | null> {
+  return (async () => {
+    const backupKeyBytes = crypto.base64ToBytes(backupKeyB64);
+    const payloadStr = await crypto.decryptWithKeyAsync(encryptedPrivateKey.trim(), backupKeyBytes);
+    const payload = JSON.parse(payloadStr) as Record<string, string>;
+    if (BACKUP_PAYLOAD_KEYS.every((k) => payload[k])) {
+      return { privateKeyBase64: payload.privateKeyBase64, publicKeyBase64: payload.publicKeyBase64 };
+    }
+    return null;
+  })();
+}
+
 export async function ensureUserKeyPair(userId: string): Promise<boolean> {
   try {
     let stored = await keyStorage.getStoredKeyPair(userId);
-    if (!stored) {
-      keyStorage.clearKeyCache();
-      const pair = await crypto.generateKeyPairAsync();
-      await keyStorage.setStoredKeyPair(userId, pair.privateKeyBase64, pair.publicKeyBase64);
-      stored = { privateKeyBase64: pair.privateKeyBase64, publicKeyBase64: pair.publicKeyBase64 };
-      console.log('[E2E] Generated new key pair for user');
-    }
-    const { data: existing } = await supabase
+
+    // Fetch row once for both "sync from server" and "upload backup" decisions.
+    const { data: row } = await supabase
       .from('user_public_keys')
-      .select('user_id')
+      .select('user_id, public_key, encrypted_private_key, backup_key')
       .eq('user_id', userId)
       .limit(1)
       .maybeSingle();
-    const payload = { public_key: stored.publicKeyBase64, updated_at: new Date().toISOString() };
+
+    // If we have a local key but the server has a different public key and a backup, sync to server (another device is canonical).
+    if (stored && row?.public_key?.trim() && row.public_key !== stored.publicKeyBase64 && row.encrypted_private_key?.trim() && row.backup_key?.trim()) {
+      try {
+        const restored = await tryRestoreFromBackup(row.encrypted_private_key, row.backup_key);
+        if (restored) {
+          keyStorage.clearKeyCache();
+          await keyStorage.setStoredKeyPair(userId, restored.privateKeyBase64, restored.publicKeyBase64);
+          stored = restored;
+          if (__DEV__) console.log('[E2E] Synced to canonical key from server (multi-device)');
+        }
+      } catch (e) {
+        if (__DEV__) console.warn('[E2E] Sync from server backup failed:', e);
+      }
+    }
+
+    if (!stored) {
+      keyStorage.clearKeyCache();
+      if (row?.encrypted_private_key?.trim() && row?.backup_key?.trim()) {
+        try {
+          const restored = await tryRestoreFromBackup(row.encrypted_private_key, row.backup_key);
+          if (restored) {
+            await keyStorage.setStoredKeyPair(userId, restored.privateKeyBase64, restored.publicKeyBase64);
+            stored = restored;
+            if (__DEV__) console.log('[E2E] Restored key pair from backup (multi-device)');
+          }
+        } catch (e) {
+          if (__DEV__) console.warn('[E2E] Restore from backup failed:', e);
+        }
+      }
+      if (!stored) {
+        const pair = await crypto.generateKeyPairAsync();
+        await keyStorage.setStoredKeyPair(userId, pair.privateKeyBase64, pair.publicKeyBase64);
+        stored = { privateKeyBase64: pair.privateKeyBase64, publicKeyBase64: pair.publicKeyBase64 };
+        console.log('[E2E] Generated new key pair for user');
+      }
+    }
+
+    const existing = row;
+    const payload: Record<string, unknown> = { public_key: stored.publicKeyBase64, updated_at: new Date().toISOString() };
     if (existing) {
       const { error } = await supabase.from('user_public_keys').update(payload).eq('user_id', userId);
       if (error) {
@@ -64,9 +119,40 @@ export async function ensureUserKeyPair(userId: string): Promise<boolean> {
         const res = await supabase.from('user_public_keys').insert({ user_id: userId, ...payload });
         error = res.error;
       }
-      if (error) {
+      if (error && (error.message.includes('duplicate key') || error.message.includes('unique constraint') || error.message.includes('user_public_keys_pkey'))) {
+        const { error: updateErr } = await supabase.from('user_public_keys').update(payload).eq('user_id', userId);
+        if (updateErr) {
+          console.warn('[E2E] Failed to update public key after duplicate:', updateErr.message);
+          return false;
+        }
+      } else if (error) {
         console.warn('[E2E] Failed to insert public key:', error.message);
         return false;
+      }
+    }
+
+    // Upload encrypted key backup so other devices can restore. Also overwrite when our key differs (we become canonical).
+    const hasBackup = !!existing?.encrypted_private_key?.trim();
+    const serverKeyDiffers = existing?.public_key?.trim() && existing.public_key !== stored.publicKeyBase64;
+    if (!hasBackup || serverKeyDiffers) {
+      const backupKey = crypto.generateSymmetricKey();
+      const backupPayload = JSON.stringify({
+        privateKeyBase64: stored.privateKeyBase64,
+        publicKeyBase64: stored.publicKeyBase64,
+      });
+      const encryptedBackup = await crypto.encryptWithKeyAsync(backupPayload, backupKey);
+      const { error: backupErr } = await supabase
+        .from('user_public_keys')
+        .update({
+          encrypted_private_key: encryptedBackup,
+          backup_key: crypto.bytesToBase64(backupKey),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', userId);
+      if (backupErr) {
+        console.warn('[E2E] Failed to upload key backup:', backupErr.message);
+      } else if (__DEV__) {
+        console.log('[E2E] Key backup uploaded for multi-device');
       }
     }
     return true;
