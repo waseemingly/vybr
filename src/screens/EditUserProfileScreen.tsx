@@ -11,6 +11,7 @@ import {
     Platform,
     Image,
 } from 'react-native';
+import { StorageImage } from '@/components/StorageImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -552,9 +553,10 @@ const EditUserProfileScreen: React.FC = () => {
                 {/* Profile Picture Section */}
                 <View style={styles.profilePicSection}>
                     {profilePictureUri ? (
-                        <Image 
-                            source={{ uri: profilePictureUri }} 
-                            style={styles.profilePicture} 
+                        <StorageImage 
+                            sourceUri={profilePictureUri} 
+                            style={styles.profilePicture}
+                            resizeMode="cover"
                         />
                     ) : (
                         <View style={styles.profilePicPlaceholder}>

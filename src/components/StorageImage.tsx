@@ -22,7 +22,12 @@ export const StorageImage: React.FC<StorageImageProps> = ({
   resizeMode = 'cover',
   onError,
 }) => {
-  const [displayUri, setDisplayUri] = useState<string | null>(sourceUri ?? null);
+  // For storage URLs, start with null so we don't render the raw URL (fails with 400 on private buckets)
+  const [displayUri, setDisplayUri] = useState<string | null>(() => {
+    if (!sourceUri) return null;
+    if (SUPABASE_STORAGE_REGEX.test(sourceUri)) return null;
+    return sourceUri;
+  });
 
   useEffect(() => {
     if (!sourceUri) {

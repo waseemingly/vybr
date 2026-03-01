@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import ConversationStarters from "./ConversationStarters";
+import { StorageImage } from "@/components/StorageImage";
 import { Chat, IndividualChat } from "@/types/chat";
 
 interface ChatProfileSheetProps {
@@ -50,7 +51,7 @@ const ChatProfileSheet: React.FC<ChatProfileSheetProps> = ({
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.profileContainer}>
               {chat.image ? (
-                <Image source={{ uri: chat.image }} style={styles.avatar} />
+                <StorageImage sourceUri={chat.image} style={styles.avatar} resizeMode="cover" />
               ) : (
                 <View style={styles.avatarFallback}>
                   <Text style={styles.avatarText}>{chat.name.charAt(0)}</Text>

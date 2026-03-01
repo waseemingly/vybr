@@ -3,6 +3,7 @@ import {
     View, Text, StyleSheet, FlatList, TouchableOpacity,
     Image, ActivityIndicator, RefreshControl, ScrollView
 } from 'react-native';
+import { StorageImage } from '@/components/StorageImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -106,7 +107,11 @@ const OrganizerListScreen: React.FC = () => {
             style={styles.itemContainer}
             onPress={() => navigation.push('ViewOrganizerProfileScreen', { organizerUserId: item.userId })}
         >
-            <Image source={{ uri: item.logo ?? DEFAULT_ORGANIZER_LOGO }} style={styles.avatar} />
+            {item.logo && item.logo !== DEFAULT_ORGANIZER_LOGO ? (
+                <StorageImage sourceUri={item.logo} style={styles.avatar} resizeMode="cover" />
+            ) : (
+                <Image source={{ uri: DEFAULT_ORGANIZER_LOGO }} style={styles.avatar} />
+            )}
             <View style={styles.itemTextContainer}>
                 <Text style={styles.itemName} numberOfLines={1}>{item.companyName || 'Organizer'}</Text>
                 {item.businessType && <Text style={styles.itemSubText}>{formatBusinessType(item.businessType)}</Text>}

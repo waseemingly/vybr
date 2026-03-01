@@ -403,7 +403,9 @@ const ChatCard: React.FC<ChatCardProps> = ({
                     disabled={type === 'group' || !onProfileOpen}
                     activeOpacity={0.8}
                 >
-                    {/* StorageImage works with private buckets (auth fetch); fallback for non-storage URLs */}
+                    {/* Default placeholder so avatar area is never empty while StorageImage loads (e.g. from private bucket) */}
+                    <Image source={{ uri: type === 'group' ? DEFAULT_GROUP_PIC_URL : DEFAULT_PROFILE_PIC_URL }} style={[styles.avatar, { position: 'absolute' }]} />
+                    {/* StorageImage works with private buckets (auth fetch); overlays placeholder when loaded */}
                     <StorageImage key={imageSourceUri} sourceUri={imageSourceUri} style={styles.avatar} resizeMode="cover" />
                     {/* Online indicator or other status indicators can be added here */}
                     {unread > 0 && (

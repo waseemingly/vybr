@@ -4,6 +4,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Dimensions,
   ActivityIndicator, Linking, Platform, Alert, RefreshControl
 } from "react-native";
+import { StorageImage } from '@/components/StorageImage';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -121,7 +122,7 @@ const OrganizerProfileScreen: React.FC = () => {
       ]} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} />}>
         <View style={styles.profileCard}>
             <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={styles.coverPhoto} />
-            <View style={styles.avatarContainer}><Image source={{ uri: logoUrl }} style={styles.avatar} /></View>
+            <View style={styles.avatarContainer}>{logo && logo !== DEFAULT_ORGANIZER_LOGO ? <StorageImage sourceUri={logo} style={styles.avatar} resizeMode="cover" /> : <Image source={{ uri: DEFAULT_ORGANIZER_LOGO }} style={styles.avatar} />}</View>
             <View style={styles.profileInfo}>
                 <Text style={styles.name}>{company_name ?? "Organizer"}</Text>
                  {businessTypeFormatted && (<Text style={styles.businessType}>{businessTypeFormatted}</Text>)}

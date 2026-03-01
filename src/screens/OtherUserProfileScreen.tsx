@@ -4,6 +4,7 @@ import {
     View, Text, StyleSheet, ScrollView, Image, TouchableOpacity,
     ActivityIndicator, Alert, Platform, Modal, TextInput
 } from 'react-native';
+import { StorageImage } from '@/components/StorageImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -1214,7 +1215,11 @@ const OtherUserProfileScreen: React.FC = () => {
                 <View style={profileStyles.profileCard}>
                     <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={[profileStyles.coverPhoto, { height: 90 }]} />
                     <View style={[profileStyles.avatarContainer, { top: 40 }]}>
-                         <Image source={{ uri: profilePictureUrl }} style={[profileStyles.avatar, { width: 90, height: 90, borderRadius: 45 }]} />
+                         {profilePictureUrl && profilePictureUrl !== DEFAULT_PROFILE_PIC ? (
+                             <StorageImage sourceUri={profilePictureUrl} style={[profileStyles.avatar, { width: 90, height: 90, borderRadius: 45 }]} resizeMode="cover" />
+                         ) : (
+                             <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={[profileStyles.avatar, { width: 90, height: 90, borderRadius: 45 }]} />
+                         )}
                     </View>
                     <View style={[profileStyles.profileInfo, { paddingTop: 55 }]}>
                         <View style={profileStyles.nameContainer}>

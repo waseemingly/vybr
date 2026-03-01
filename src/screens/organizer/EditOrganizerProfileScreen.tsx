@@ -11,6 +11,7 @@ import {
     Platform,
     Image,
 } from 'react-native';
+import { StorageImage } from '@/components/StorageImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -231,7 +232,7 @@ const EditOrganizerProfileScreen: React.FC = () => {
             <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
                 {/* Logo Section */}
                 <View style={styles.logoSection}>
-                     <Image source={{ uri: displayLogo }} style={styles.logo} />
+                     {displayLogo && displayLogo !== DEFAULT_ORGANIZER_LOGO ? <StorageImage sourceUri={displayLogo} style={styles.logo} resizeMode="cover" /> : <Image source={{ uri: DEFAULT_ORGANIZER_LOGO }} style={styles.logo} />}
                      <TouchableOpacity style={styles.changeLogoButton} onPress={pickImage} disabled={isUploading || isSaving}>
                         <Feather name="edit-2" size={14} color={APP_CONSTANTS.COLORS.PRIMARY} style={{ marginRight: 5 }} />
                         <Text style={styles.changeLogoText}>Change Logo</Text>

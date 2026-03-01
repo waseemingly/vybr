@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Image,
   ActivityIndicator, Alert, SafeAreaView, TextInput
 } from 'react-native';
+import { StorageImage } from '@/components/StorageImage';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
@@ -210,10 +211,11 @@ const ShareEventScreen = () => {
         }}
         disabled={isSharing}
       >
-        <Image
-          source={{ uri: item.image || (item.type === 'group' ? DEFAULT_GROUP_IMAGE : DEFAULT_IMAGE) }}
-          style={styles.chatAvatar}
-        />
+        {item.image && item.image !== (item.type === 'group' ? DEFAULT_GROUP_IMAGE : DEFAULT_IMAGE) ? (
+          <StorageImage sourceUri={item.image} style={styles.chatAvatar} resizeMode="cover" />
+        ) : (
+          <Image source={{ uri: item.type === 'group' ? DEFAULT_GROUP_IMAGE : DEFAULT_IMAGE }} style={styles.chatAvatar} />
+        )}
         <View style={styles.chatInfo}>
           <Text style={styles.chatName}>{item.name}</Text>
           <Text style={styles.chatType}>
@@ -234,10 +236,11 @@ const ShareEventScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.eventPreview}>
-        <Image 
-          source={{ uri: eventImage || DEFAULT_EVENT_IMAGE }}
-          style={styles.eventImage}
-        />
+        {eventImage && eventImage !== DEFAULT_EVENT_IMAGE ? (
+          <StorageImage sourceUri={eventImage} style={styles.eventImage} resizeMode="cover" />
+        ) : (
+          <Image source={{ uri: DEFAULT_EVENT_IMAGE }} style={styles.eventImage} />
+        )}
         <View style={styles.eventInfo}>
           <Text style={styles.eventTitle} numberOfLines={2}>{eventTitle}</Text>
           <View style={styles.eventDetailRow}>

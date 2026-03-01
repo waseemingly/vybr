@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet, Animated, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { StorageImage } from '@/components/StorageImage';
 import { WebNotificationProps } from '../context/NotificationContext';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -134,7 +135,7 @@ const WebNotification: React.FC<WebNotificationComponentProps> = ({
         <View style={styles.content}>
           <View style={styles.iconContainer}>
             {image_url ? (
-              <Image source={{ uri: image_url }} style={styles.image} />
+              <StorageImage sourceUri={image_url} style={styles.image} resizeMode="cover" />
             ) : (
               <View style={[styles.iconBackground, { backgroundColor: getIconColor() + '15' }]}>
                 <Ionicons name={getIcon()} size={20} color={getIconColor()} />

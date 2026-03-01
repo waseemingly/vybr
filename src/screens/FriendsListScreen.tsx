@@ -3,6 +3,7 @@ import {
     View, Text, StyleSheet, FlatList, TouchableOpacity,
     Image, ActivityIndicator, RefreshControl, ScrollView, Alert, Dimensions
 } from 'react-native';
+import { StorageImage } from '@/components/StorageImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -215,7 +216,11 @@ const FriendsListScreen: React.FC = () => {
                 userId: item.userId,
             })} 
         >
-            <Image source={{ uri: item.profilePicture ?? DEFAULT_PROFILE_PIC }} style={styles.avatar} />
+            {item.profilePicture && item.profilePicture !== DEFAULT_PROFILE_PIC ? (
+                <StorageImage sourceUri={item.profilePicture} style={styles.avatar} resizeMode="cover" />
+            ) : (
+                <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.avatar} />
+            )}
             <View style={styles.itemTextContainer}>
                 <Text style={styles.itemName} numberOfLines={1}>{`${item.firstName} ${item.lastName}`.trim() || item.username}</Text>
                 {item.username && <Text style={styles.itemUsername}>@{item.username}</Text>}

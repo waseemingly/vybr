@@ -42,6 +42,7 @@ import { MessageStatusService } from '@/services/message/MessageStatusService';
 import { decryptMessageContent, ensureUserKeyPair, encryptImageBytes, E2E_UNDECRYPTABLE } from '@/lib/e2e/e2eService';
 import { base64ToBytes } from '@/lib/e2e/crypto';
 import { ChatImageContent } from '@/components/ChatImageContent';
+import { StorageImage } from '@/components/StorageImage';
 
 // Types and MessageBubble component
 type IndividualChatScreenRouteProp = RouteProp<RootStackParamList & {
@@ -390,15 +391,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
                             activeOpacity={eventIsOver ? 1 : 0.7}
                             disabled={eventIsOver}
                         >
-                            <Image 
-                                source={{ uri: message.sharedEvent.eventImage || DEFAULT_EVENT_IMAGE_CHAT }}
-                                style={[
-                                    styles.sharedEventPreviewImage,
-                                    eventIsOver && styles.sharedEventPreviewImageDisabled
-                                ]}
-                                resizeMode="cover"
-                                onError={() => setImageError(true)}
-                            />
+                            {(message.sharedEvent.eventImage && message.sharedEvent.eventImage !== DEFAULT_EVENT_IMAGE_CHAT) ? (
+                                <StorageImage sourceUri={message.sharedEvent.eventImage} style={[styles.sharedEventPreviewImage, eventIsOver && styles.sharedEventPreviewImageDisabled]} resizeMode="cover" onError={() => setImageError(true)} />
+                            ) : (
+                                <Image source={{ uri: DEFAULT_EVENT_IMAGE_CHAT }} style={[styles.sharedEventPreviewImage, eventIsOver && styles.sharedEventPreviewImageDisabled]} resizeMode="cover" onError={() => setImageError(true)} />
+                            )}
                             {imageError && (
                                 <View style={styles.imageErrorOverlay}>
                                     <Feather name="image" size={20} color="#FFFFFF" />
@@ -1531,10 +1528,11 @@ const IndividualChatScreen: React.FC = () => {
                      style={styles.headerTitleContainer}
                  >
                      <View>
-                          <Image
-                              source={{ uri: route.params.matchProfilePicture ?? DEFAULT_PROFILE_PIC }}
-                              style={styles.headerProfileImage}
-                          />
+                          {route.params.matchProfilePicture && route.params.matchProfilePicture !== DEFAULT_PROFILE_PIC ? (
+                              <StorageImage sourceUri={route.params.matchProfilePicture} style={styles.headerProfileImage} resizeMode="cover" />
+                          ) : (
+                              <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.headerProfileImage} />
+                          )}
                           {isMatchOnline && !isBlocked && <View style={styles.onlineIndicator} />}
                       </View>
                       <Text style={[styles.headerTitle, isBlocked && styles.blockedText]} numberOfLines={1}>
@@ -2788,11 +2786,11 @@ const IndividualChatScreen: React.FC = () => {
         return (
             <View style={styles.sharedEventContainer}>
                 <View style={styles.sharedEventContent}>
-                    <Image 
-                        source={{ uri: initialSharedEventData.eventImage || DEFAULT_EVENT_IMAGE_CHAT }} 
-                        style={styles.sharedEventImage} 
-                        resizeMode="cover"
-                    />
+                    {(initialSharedEventData.eventImage && initialSharedEventData.eventImage !== DEFAULT_EVENT_IMAGE_CHAT) ? (
+                        <StorageImage sourceUri={initialSharedEventData.eventImage} style={styles.sharedEventImage} resizeMode="cover" />
+                    ) : (
+                        <Image source={{ uri: DEFAULT_EVENT_IMAGE_CHAT }} style={styles.sharedEventImage} resizeMode="cover" />
+                    )}
                     <View style={styles.sharedEventInfo}>
                         <Text style={styles.sharedEventTitle} numberOfLines={1}>{initialSharedEventData.eventTitle}</Text>
                         <Text style={styles.sharedEventDetails} numberOfLines={1}>{initialSharedEventData.eventDate}</Text>
@@ -3547,10 +3545,11 @@ const IndividualChatScreen: React.FC = () => {
                     style={styles.headerTitleContainer}
                 >
                     <View>
-                        <Image
-                            source={{ uri: route.params.matchProfilePicture ?? DEFAULT_PROFILE_PIC }}
-                            style={styles.headerProfileImage}
-                        />
+                        {route.params.matchProfilePicture && route.params.matchProfilePicture !== DEFAULT_PROFILE_PIC ? (
+                            <StorageImage sourceUri={route.params.matchProfilePicture} style={styles.headerProfileImage} resizeMode="cover" />
+                        ) : (
+                            <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.headerProfileImage} />
+                        )}
                         {isMatchOnline && !isBlocked && <View style={styles.onlineIndicator} />}
                     </View>
                     <Text style={[styles.headerTitle, isBlocked && styles.blockedText]} numberOfLines={1}>

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, Image, StyleSheet, Platform, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { StorageImage } from '@/components/StorageImage';
 // *** Import CommonActions and useNavigation ***
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -221,7 +222,11 @@ const MatchCard: React.FC<MatchCardProps> = ({
                  )}
 
                 {/* Image */}
-                <Image source={{ uri: image ?? DEFAULT_PROFILE_PIC }} style={styles.profileImage} />
+                {image && image !== DEFAULT_PROFILE_PIC ? (
+                    <StorageImage sourceUri={image} style={styles.profileImage} resizeMode="cover" />
+                ) : (
+                    <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.profileImage} />
+                )}
 
                 {/* Info Container below Image */}
                 <View style={styles.infoContainer}>

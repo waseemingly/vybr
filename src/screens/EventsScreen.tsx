@@ -6,6 +6,7 @@ import {
   Share, // Added Share API
   // SectionList // No longer used
 } from "react-native";
+import { StorageImage } from '@/components/StorageImage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -339,10 +340,10 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
                            style={{ width: imageContainerWidth, height: imageContainerHeight }} // Use dynamic height
                        >
                            {images.map((uri, index) => (
-                               <Image
+                               <StorageImage
                                    key={index}
-                                   source={{ uri: uri }}
-                                   style={[styles.modalImage, { width: imageContainerWidth, height: imageContainerHeight }]} // Use dynamic height
+                                   sourceUri={uri}
+                                   style={[styles.modalImage, { width: imageContainerWidth, height: imageContainerHeight }]}
                                    resizeMode="cover"
                                />
                            ))}
@@ -382,7 +383,11 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, visib
                        <TouchableOpacity style={styles.organizerRow} onPress={handleOrganizerPress} activeOpacity={0.7} disabled={!event.organizer?.userId}>
                            <View style={styles.organizerInfo}>
                                {/* Use organizer data from MappedEvent */}
-                               <Image source={{ uri: event.organizer.image ?? DEFAULT_ORGANIZER_LOGO }} style={styles.organizerImage} />
+                               {event.organizer?.image && event.organizer.image !== DEFAULT_ORGANIZER_LOGO ? (
+                                   <StorageImage sourceUri={event.organizer.image} style={styles.organizerImage} resizeMode="cover" />
+                               ) : (
+                                   <Image source={{ uri: DEFAULT_ORGANIZER_LOGO }} style={styles.organizerImage} />
+                               )}
                                <View>
                                    <Text style={styles.organizerName}>{event.organizer.name}</Text>
                                    <Text style={styles.organizerLabel}>Organizer</Text>
@@ -486,10 +491,11 @@ interface RestaurantCardProps {
 }
 const RestaurantCard: React.FC<RestaurantCardProps> = React.memo(({ organizer, onPress }) => (
     <View style={[styles.eventCard, styles.restaurantCard]}>
-        <Image 
-            source={{ uri: organizer.image ?? DEFAULT_ORGANIZER_LOGO }} 
-            style={styles.restaurantImage}
-        />
+        {organizer.image && organizer.image !== DEFAULT_ORGANIZER_LOGO ? (
+            <StorageImage sourceUri={organizer.image} style={styles.restaurantImage} resizeMode="cover" />
+        ) : (
+            <Image source={{ uri: DEFAULT_ORGANIZER_LOGO }} style={styles.restaurantImage} />
+        )}
         <View style={styles.cardContent}>
             <Text style={styles.eventTitle} numberOfLines={1}>{organizer.name}</Text>
             <Text style={styles.restaurantCapacity} numberOfLines={1}>Capacity: {organizer.capacity} guests</Text>

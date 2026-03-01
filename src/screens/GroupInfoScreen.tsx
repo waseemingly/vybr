@@ -168,22 +168,17 @@ const GroupInfoScreen = () => {
              if (!uData?.path) throw new Error("Upload failed path.");
              console.log('[GroupInfo] Upload response:', { path: uData.path, fullPath: uData.fullPath, id: (uData as any).id });
 
-             const { data: urlD } = supabase.storage.from('group-avatars').getPublicUrl(uData.path);
-             const uploadedImageUrl = urlD.publicUrl;
-             if (!uploadedImageUrl) throw new Error("Failed URL.");
-             console.log('[GroupInfo] Public URL:', uploadedImageUrl);
+            const { data: urlD } = supabase.storage.from('group-avatars').getPublicUrl(uData.path);
+            const uploadedImageUrl = urlD.publicUrl;
+            if (!uploadedImageUrl) throw new Error("Failed URL.");
+            console.log('[GroupInfo] Public URL:', uploadedImageUrl);
 
-             // Verify file is actually accessible (bucket may not persist on some setups)
-             try {
-                 const check = await fetch(uploadedImageUrl, { method: 'HEAD' });
-                 if (!check.ok) {
-                     console.error('[GroupInfo] File not accessible after upload:', check.status, uploadedImageUrl);
-                     throw new Error(`Upload may have failed: file returned ${check.status}. Check Storage bucket "group-avatars" and RLS.`);
-                 }
-             } catch (verifyErr: any) {
-                 if (verifyErr.message?.includes('Upload may have failed')) throw verifyErr;
-                 console.warn('[GroupInfo] Could not verify upload (CORS/network):', verifyErr.message);
-             }
+            // Verify file is readable via authenticated download (bucket is private; anonymous fetch would return 400)
+            const { data: verifyData, error: verifyErr } = await supabase.storage.from('group-avatars').download(uData.path);
+            if (verifyErr || !verifyData || verifyData.size === 0) {
+                console.error('[GroupInfo] File not accessible after upload:', verifyErr?.message ?? 'empty file');
+                throw new Error(verifyErr ? `Upload verify failed: ${verifyErr.message}` : 'Upload may have failed: file empty or unreadable. Check Storage bucket "group-avatars" and RLS.');
+            }
 
              // 2) Persist URL in DB: RPC update_group_image(group_id_input, new_image_url), then always direct update as fallback
              const { error: rpcErr } = await supabase.rpc('update_group_image', { group_id_input: groupId, new_image_url: uploadedImageUrl });
@@ -351,7 +346,7 @@ const GroupInfoScreen = () => {
                 }
             } 
         };
-        return ( <TouchableOpacity style={styles.memberItem} onPress={handlePressMember} disabled={isSelf} activeOpacity={isSelf ? 1 : 0.7}><RNImage source={{ uri: item.profile.profile_picture ?? DEFAULT_PROFILE_PIC }} style={styles.memberAvatar} /><View style={styles.memberInfo}><Text style={styles.memberName}>{name} {isSelf ? '(You)' : ''}</Text>{item.is_admin && <Text style={styles.adminBadge}>Admin</Text>}</View>{isCurrentUserAdmin && !isSelf && ( <View style={styles.memberActions}><TouchableOpacity style={styles.actionButton} onPress={() => { handleSetAdminStatus(item.user_id, name, !item.is_admin); }}><Feather name={item.is_admin ? "arrow-down-circle" : "arrow-up-circle"} size={20} color={item.is_admin ? "#F59E0B" : "#10B981"} /></TouchableOpacity><TouchableOpacity style={styles.actionButton} onPress={() => { handleRemoveMember(item.user_id, name); }}><Feather name="x-circle" size={20} color="#EF4444" /></TouchableOpacity></View> )}{processingAction === `remove_${item.user_id}` || processingAction === `admin_${item.user_id}` ? ( <ActivityIndicator size="small" color="#6B7280" style={styles.memberProcessingIndicator}/> ) : null}</TouchableOpacity> );
+        return ( <TouchableOpacity style={styles.memberItem} onPress={handlePressMember} disabled={isSelf} activeOpacity={isSelf ? 1 : 0.7}>{item.profile.profile_picture && item.profile.profile_picture !== DEFAULT_PROFILE_PIC ? <StorageImage sourceUri={item.profile.profile_picture} style={styles.memberAvatar} resizeMode="cover" /> : <RNImage source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.memberAvatar} />}<View style={styles.memberInfo}><Text style={styles.memberName}>{name} {isSelf ? '(You)' : ''}</Text>{item.is_admin && <Text style={styles.adminBadge}>Admin</Text>}</View>{isCurrentUserAdmin && !isSelf && ( <View style={styles.memberActions}><TouchableOpacity style={styles.actionButton} onPress={() => { handleSetAdminStatus(item.user_id, name, !item.is_admin); }}><Feather name={item.is_admin ? "arrow-down-circle" : "arrow-up-circle"} size={20} color={item.is_admin ? "#F59E0B" : "#10B981"} /></TouchableOpacity><TouchableOpacity style={styles.actionButton} onPress={() => { handleRemoveMember(item.user_id, name); }}><Feather name="x-circle" size={20} color="#EF4444" /></TouchableOpacity></View> )}{processingAction === `remove_${item.user_id}` || processingAction === `admin_${item.user_id}` ? ( <ActivityIndicator size="small" color="#6B7280" style={styles.memberProcessingIndicator}/> ) : null}</TouchableOpacity> );
     };
 
     // --- Render Media Item ---
@@ -366,8 +361,8 @@ const GroupInfoScreen = () => {
             }}
         >
             {item.imageUrl ? (
-                <RNImage 
-                    source={{ uri: item.imageUrl }} 
+                <StorageImage 
+                    sourceUri={item.imageUrl} 
                     style={styles.mediaThumbnail} 
                     resizeMode="cover"
                 />
@@ -520,8 +515,8 @@ const GroupInfoScreen = () => {
                                     style={styles.mediaGridItem}
                                     onPress={() => handleImagePress(item.imageUrl!)}
                                 >
-                                    <RNImage 
-                                        source={{ uri: item.imageUrl || '' }} 
+                                    <StorageImage 
+                                        sourceUri={item.imageUrl || ''} 
                                         style={styles.mediaGridImage} 
                                         resizeMode="cover"
                                     />

@@ -367,12 +367,11 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 <View style={styles.messageContentContainer}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
-                            <Image
-                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }}
-                                style={styles.senderAvatar}
-                                onError={() => console.warn('Failed to load sender avatar, using default')}
-                                defaultSource={{ uri: DEFAULT_PROFILE_PIC }}
-                            />
+                            {message.user.avatar && message.user.avatar !== DEFAULT_PROFILE_PIC ? (
+                                <StorageImage sourceUri={message.user.avatar} style={styles.senderAvatar} resizeMode="cover" onError={() => console.warn('Failed to load sender avatar, using default')} />
+                            ) : (
+                                <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.senderAvatar} />
+                            )}
                             {senderName && senderName !== 'User' && (
                                 <Text style={styles.senderName}>{senderName}</Text>
                             )}
@@ -423,12 +422,11 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
-                            <Image
-                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }}
-                                style={styles.senderAvatar}
-                                onError={() => console.warn('Failed to load sender avatar, using default')}
-                                defaultSource={{ uri: DEFAULT_PROFILE_PIC }}
-                            />
+                            {message.user.avatar && message.user.avatar !== DEFAULT_PROFILE_PIC ? (
+                                <StorageImage sourceUri={message.user.avatar} style={styles.senderAvatar} resizeMode="cover" onError={() => console.warn('Failed to load sender avatar, using default')} />
+                            ) : (
+                                <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.senderAvatar} />
+                            )}
                             {senderName && senderName !== 'User' && (
                                 <Text style={styles.senderName}>{senderName}</Text>
                             )}
@@ -456,15 +454,11 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                             activeOpacity={eventIsOver ? 1 : 0.7}
                             disabled={eventIsOver}
                         >
-                            <Image
-                                source={{ uri: message.sharedEvent.eventImage || DEFAULT_EVENT_IMAGE_CHAT }}
-                                style={[
-                                    styles.sharedEventPreviewImage,
-                                    eventIsOver && styles.sharedEventPreviewImageDisabled
-                                ]}
-                                resizeMode="cover"
-                                onError={() => setImageError(true)}
-                            />
+                            {(message.sharedEvent.eventImage && message.sharedEvent.eventImage !== DEFAULT_EVENT_IMAGE_CHAT) ? (
+                                <StorageImage sourceUri={message.sharedEvent.eventImage} style={[styles.sharedEventPreviewImage, eventIsOver && styles.sharedEventPreviewImageDisabled]} resizeMode="cover" onError={() => setImageError(true)} />
+                            ) : (
+                                <Image source={{ uri: DEFAULT_EVENT_IMAGE_CHAT }} style={[styles.sharedEventPreviewImage, eventIsOver && styles.sharedEventPreviewImageDisabled]} resizeMode="cover" onError={() => setImageError(true)} />
+                            )}
                             {imageError && (
                                 <View style={styles.imageErrorOverlay}>
                                     <Feather name="image" size={20} color="#FFFFFF" />
@@ -532,12 +526,11 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
-                            <Image
-                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }}
-                                style={styles.senderAvatar}
-                                onError={() => console.warn('Failed to load sender avatar, using default')}
-                                defaultSource={{ uri: DEFAULT_PROFILE_PIC }}
-                            />
+                            {message.user.avatar && message.user.avatar !== DEFAULT_PROFILE_PIC ? (
+                                <StorageImage sourceUri={message.user.avatar} style={styles.senderAvatar} resizeMode="cover" onError={() => console.warn('Failed to load sender avatar, using default')} />
+                            ) : (
+                                <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.senderAvatar} />
+                            )}
                             {senderName && senderName !== 'User' && (
                                 <Text style={styles.senderName}>{senderName}</Text>
                             )}
@@ -603,12 +596,11 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
-                            <Image
-                                source={{ uri: message.user.avatar || DEFAULT_PROFILE_PIC }}
-                                style={styles.senderAvatar}
-                                onError={() => console.warn('Failed to load sender avatar, using default')}
-                                defaultSource={{ uri: DEFAULT_PROFILE_PIC }}
-                            />
+                            {message.user.avatar && message.user.avatar !== DEFAULT_PROFILE_PIC ? (
+                                <StorageImage sourceUri={message.user.avatar} style={styles.senderAvatar} resizeMode="cover" onError={() => console.warn('Failed to load sender avatar, using default')} />
+                            ) : (
+                                <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.senderAvatar} />
+                            )}
                             {senderName && senderName !== 'User' && (
                                 <Text style={styles.senderName}>{senderName}</Text>
                             )}
@@ -3704,11 +3696,11 @@ const GroupChatScreen: React.FC = () => {
         return (
             <View style={styles.sharedEventContainer}>
                 <View style={styles.sharedEventContent}>
-                    <Image
-                        source={{ uri: initialSharedEventData.eventImage || DEFAULT_EVENT_IMAGE_CHAT }}
-                        style={styles.sharedEventImage}
-                        resizeMode="cover"
-                    />
+                    {(initialSharedEventData.eventImage && initialSharedEventData.eventImage !== DEFAULT_EVENT_IMAGE_CHAT) ? (
+                        <StorageImage sourceUri={initialSharedEventData.eventImage} style={styles.sharedEventImage} resizeMode="cover" />
+                    ) : (
+                        <Image source={{ uri: DEFAULT_EVENT_IMAGE_CHAT }} style={styles.sharedEventImage} resizeMode="cover" />
+                    )}
                     <View style={styles.sharedEventInfo}>
                         <Text style={styles.sharedEventTitle} numberOfLines={1}>
                             {initialSharedEventData.eventTitle}
@@ -4296,17 +4288,15 @@ const GroupChatScreen: React.FC = () => {
                     style={styles.headerTitleContainer}
                 >
                     <View>
-                        <Image
-                            key={currentGroupImage ?? 'default'}
-                            source={{
-                                uri: (() => {
-                                    const u = currentGroupImage ?? DEFAULT_GROUP_PIC;
-                                    if (u === DEFAULT_GROUP_PIC || !u) return u;
-                                    return `${u}${u.includes('?') ? '&' : '?'}v=${encodeURIComponent((u.split('/').pop() || '').slice(0, 50))}`;
-                                })(),
-                            }}
-                            style={styles.headerGroupImage}
-                        />
+                        {(currentGroupImage ?? route.params.groupImage) && (currentGroupImage ?? route.params.groupImage) !== DEFAULT_GROUP_PIC ? (
+                            <StorageImage
+                                sourceUri={currentGroupImage ?? route.params.groupImage ?? null}
+                                style={styles.headerGroupImage}
+                                resizeMode="cover"
+                            />
+                        ) : (
+                            <Image source={{ uri: DEFAULT_GROUP_PIC }} style={styles.headerGroupImage} />
+                        )}
                         <View style={styles.onlineIndicator}>
                             <Text style={styles.onlineCount}>{onlineMembers.size}</Text>
                         </View>

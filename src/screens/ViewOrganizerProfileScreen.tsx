@@ -3,6 +3,7 @@ import {
     View, Text, StyleSheet, TouchableOpacity, Image, ScrollView,
     ActivityIndicator, Alert, RefreshControl, Modal, TextInput, Platform
 } from 'react-native';
+import { StorageImage } from '@/components/StorageImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import type { RouteProp } from '@react-navigation/native';
@@ -366,7 +367,7 @@ const ViewOrganizerProfileScreen: React.FC = () => {
                 {/* Profile Header Card - Adapted from OrganizerProfileScreen */}
                 <View style={styles.profileCard}>
                     <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={styles.coverPhoto} />
-                    <View style={styles.avatarContainer}><Image source={{ uri: logoUrl }} style={styles.avatar} /></View>
+                    <View style={styles.avatarContainer}>{logoUrl && logoUrl !== DEFAULT_ORGANIZER_LOGO ? <StorageImage sourceUri={logoUrl} style={styles.avatar} resizeMode="cover" /> : <Image source={{ uri: DEFAULT_ORGANIZER_LOGO }} style={styles.avatar} />}</View>
                     <View style={styles.profileInfo}>
                         <Text style={styles.name}>{organizerProfile.company_name ?? "Organizer"}</Text>
                         {businessTypeFormatted && (<Text style={styles.businessType}>{businessTypeFormatted}</Text>)}
