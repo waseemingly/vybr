@@ -1680,6 +1680,7 @@ const GroupChatScreen: React.FC = () => {
         } else if (inputText.trim()) {
             // Always use E2E-capable service for group text messages
             newSendTextMessage(inputText, replyingToMessage?._id);
+            setInputText('');
         }
     };
 

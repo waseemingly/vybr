@@ -1446,6 +1446,7 @@ const IndividualChatScreen: React.FC = () => {
         } else if (inputText.trim()) {
             // Always use MessageSendingService so E2E encryption runs for every text send
             newSendTextMessage(inputText, replyingToMessage?._id);
+            setInputText('');
         }
     };
 
