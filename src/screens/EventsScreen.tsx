@@ -22,6 +22,7 @@ import { TextInput } from 'react-native';
 import { Calendar, DateData } from 'react-native-calendars';
 import { LinearGradient } from "expo-linear-gradient";
 import { getCurrencyForCountry, getCurrencySymbol, formatPriceWithCurrency } from '../utils/currencyUtils'; // Add currency utilities
+import { FEATURE_FLAGS } from '@/config/featureFlags';
 
 // Define navigation prop using imported types
 // Add openEventId to EventsScreen params in RootStackParamList
@@ -1344,6 +1345,34 @@ const EventsScreen: React.FC = () => {
         );
     };
 
+    // When events/payments are disabled, show inline "Coming soon" within the screen (no modal overlay)
+    if (!FEATURE_FLAGS.PAYMENTS_AND_ORGANIZERS_ENABLED) {
+        return (
+            <SafeAreaView edges={["top"]} style={styles.container}>
+                <View style={styles.rootContainer}>
+                    <View style={styles.header}>
+                        <View style={styles.headerTitleRow}>
+                            <View style={styles.titleContainer}>
+                                <Feather name="calendar" size={22} color="#60A5FA" style={styles.headerIcon} />
+                                <Text style={styles.title}>Events</Text>
+                            </View>
+                        </View>
+                        <Text style={styles.subtitle}>Discover concerts and music events</Text>
+                    </View>
+                    <View style={[styles.centeredContainer, { paddingHorizontal: 24 }]}>
+                        <View style={styles.comingSoonCard}>
+                            <Feather name="zap" size={36} color="#fbbf24" style={{ marginBottom: 12 }} />
+                            <Text style={styles.comingSoonTitle}>Coming soon</Text>
+                            <Text style={styles.comingSoonSubtext}>
+                                Events are on the way. We can’t wait to help you discover concerts and music events.
+                            </Text>
+                        </View>
+                    </View>
+                </View>
+            </SafeAreaView>
+        );
+    }
+
     return (
         <SafeAreaView edges={["top"]} style={styles.container}>
             <View style={styles.rootContainer}>
@@ -1393,6 +1422,20 @@ const styles = StyleSheet.create({
     retryButtonText: { color: '#FFF', fontWeight: '600', },
     emptyText: { fontSize: 18, fontWeight: '600', color: '#4B5563', marginTop: 10, },
     emptySubText: { fontSize: 14, color: '#6B7280', marginTop: 5, textAlign: 'center', },
+    comingSoonCard: {
+        backgroundColor: 'white',
+        borderRadius: 16,
+        padding: 28,
+        alignItems: 'center',
+        maxWidth: 360,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 4,
+    },
+    comingSoonTitle: { fontSize: 22, fontWeight: '800', color: '#1e293b', marginBottom: 8, },
+    comingSoonSubtext: { fontSize: 15, color: '#64748b', textAlign: 'center', lineHeight: 22, },
     rootContainer: { flex: 1, },
     flatListContainer: { flex: 1, }, // Original style, might not be needed if tabs have own lists
     flatListContainerOnly: { flex: 1 }, // Specific for FlatList inside TabView scene

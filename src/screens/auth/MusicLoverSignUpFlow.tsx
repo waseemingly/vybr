@@ -50,6 +50,8 @@ import ImageCropper from '@/components/ImageCropper'; // Add ImageCropper
 // Import navigation types
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator'; // Import stack param lists
 import { authStyles } from '@/styles/authStyles'; // Import authStyles
+import { ComingSoonHypeModal } from '@/components/ComingSoonOverlay';
+import { FEATURE_FLAGS } from '@/config/featureFlags';
 
 // Define window width for animations
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -233,6 +235,7 @@ const MusicLoverSignUpFlow = () => {
 
     // Navigation state to prevent auto-navigation after manual back navigation
     const [isManualBackNavigation, setIsManualBackNavigation] = useState(false);
+    const [showPremiumHype, setShowPremiumHype] = useState(false);
 
     // Debug function to check current authentication state
     const debugAuthState = async () => {
@@ -2379,10 +2382,22 @@ const MusicLoverSignUpFlow = () => {
                     style={[
                         authStyles.signupSubscriptionCard,
                         styles.premiumCard,
-                        formData.subscriptionTier === 'premium' && authStyles.signupSelectedSubscriptionCard
+                        formData.subscriptionTier === 'premium' && authStyles.signupSelectedSubscriptionCard,
+                        !FEATURE_FLAGS.PAYMENTS_AND_ORGANIZERS_ENABLED && styles.comingSoonCard
                     ]}
-                    onPress={() => handleSubscriptionChange('premium')}
+                    onPress={() => {
+                        if (FEATURE_FLAGS.PAYMENTS_AND_ORGANIZERS_ENABLED) {
+                            handleSubscriptionChange('premium');
+                        } else {
+                            setShowPremiumHype(true);
+                        }
+                    }}
                 >
+                    {!FEATURE_FLAGS.PAYMENTS_AND_ORGANIZERS_ENABLED && (
+                        <View style={styles.comingSoonBadge}>
+                            <Text style={styles.comingSoonBadgeText}>Coming soon</Text>
+                        </View>
+                    )}
                     <View style={authStyles.signupPlanHeader}>
                         <Text style={authStyles.signupPlanTitle}>Premium</Text>
                         <Text style={authStyles.signupPlanPrice}>$4.99/month</Text>
@@ -2414,6 +2429,16 @@ const MusicLoverSignUpFlow = () => {
                     )}
                 </TouchableOpacity>
             </View>
+
+            {!FEATURE_FLAGS.PAYMENTS_AND_ORGANIZERS_ENABLED && (
+                <ComingSoonHypeModal
+                    visible={showPremiumHype}
+                    onDismiss={() => setShowPremiumHype(false)}
+                    headline="Premium is almost here."
+                    message="Unlimited favorites, advanced matching, and music analytics — we're rolling it out soon. You're going to love it. ✨"
+                    buttonLabel="Can't wait!"
+                />
+            )}
 
             <View style={authStyles.signupButtonContainer}>
                 <TouchableOpacity 
@@ -3099,6 +3124,26 @@ const styles = StyleSheet.create({
         color: 'white', 
         fontSize: 11, // Adjusted size
         fontWeight: '600', 
+    },
+    comingSoonCard: {
+        opacity: 0.98,
+        borderStyle: 'dashed',
+        borderColor: APP_CONSTANTS.COLORS.TEXT_TERTIARY,
+    },
+    comingSoonBadge: {
+        position: 'absolute',
+        top: 12,
+        left: 12,
+        backgroundColor: '#0f172a',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 10,
+        zIndex: 1,
+    },
+    comingSoonBadgeText: {
+        color: '#fbbf24',
+        fontSize: 11,
+        fontWeight: '700',
     },
     
     // --- YouTube Music Cookie Input Styles --- 

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Animated, Dimensions, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -6,15 +6,21 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { APP_CONSTANTS } from '@/config/constants';
 import { authStyles } from '@/styles/authStyles';
+import { ComingSoonHypeModal } from '@/components/ComingSoonOverlay';
+import { FEATURE_FLAGS } from '@/config/featureFlags';
 
 const { width, height } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
 
+const ORGANIZER_HYPE_HEADLINE = "We're building something huge for organizers.";
+const ORGANIZER_HYPE_MESSAGE = "Create events, sell tickets, and grow your community — all in one place. We're putting the finishing touches on. You'll be first to know when it drops. 🎉";
+
 const LandingScreen = () => {
   const navigation = useNavigation<any>();
-  const fadeAnim = new Animated.Value(0);
-  const slideAnim = new Animated.Value(50);
-  const scaleAnim = new Animated.Value(0.8);
+  const [showOrganizerHype, setShowOrganizerHype] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const scaleAnim = useRef(new Animated.Value(0.8)).current;
 
   useEffect(() => {
     Animated.parallel([
@@ -146,7 +152,13 @@ const LandingScreen = () => {
                     marginBottom: isWeb ? 20 : 16,
                   }
                 ]}
-                onPress={() => navigation.navigate('OrganizerLogin')}
+                onPress={() => {
+                  if (FEATURE_FLAGS.PAYMENTS_AND_ORGANIZERS_ENABLED) {
+                    navigation.navigate('OrganizerLogin');
+                  } else {
+                    setShowOrganizerHype(true);
+                  }
+                }}
                 activeOpacity={0.8}
               >
                 <View style={authStyles.buttonContent}>
@@ -159,7 +171,9 @@ const LandingScreen = () => {
                   </View>
                   <View style={[authStyles.buttonTextContainer, { flex: 1, minWidth: 0 }]}>
                     <Text style={authStyles.buttonTitle} numberOfLines={1}>Event Organizer</Text>
-                    <Text style={authStyles.buttonSubtitle} numberOfLines={1}>Login / Sign up with Google</Text>
+                    <Text style={authStyles.buttonSubtitle} numberOfLines={1}>
+                      {FEATURE_FLAGS.PAYMENTS_AND_ORGANIZERS_ENABLED ? 'Login / Sign up with Google' : 'Coming soon - tap to see what’s ahead'}
+                    </Text>
                   </View>
                   <Feather 
                     name="chevron-right" 
@@ -168,6 +182,14 @@ const LandingScreen = () => {
                   />
                 </View>
               </TouchableOpacity>
+
+              <ComingSoonHypeModal
+                visible={showOrganizerHype}
+                onDismiss={() => setShowOrganizerHype(false)}
+                headline={ORGANIZER_HYPE_HEADLINE}
+                message={ORGANIZER_HYPE_MESSAGE}
+                buttonLabel="Can't wait!"
+              />
             </View>
           </View>
         </Animated.View>

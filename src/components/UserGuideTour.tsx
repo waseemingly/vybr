@@ -11,8 +11,6 @@ import { useUserGuide } from '@/hooks/useUserGuide';
 import { useIsMobileBrowser } from '@/hooks/use-mobile';
 import type { TourTarget } from '@/config/tourConfig';
 
-const CHAT_STEPS_WITH_CUSTOM_SPOTLIGHT = ['chats-pending', 'chats-active'];
-
 /** Height of the bottom tab bar on mobile. Align with AppNavigator tabBarStyle (iOS 85, Android 65, web 72). */
 const MOBILE_BOTTOM_BAR_HEIGHT =
   Platform.OS === 'ios' ? 85 : Platform.OS === 'web' ? 72 : 65;
@@ -96,18 +94,21 @@ export default function UserGuideTour({ suppressAuto }: Props) {
   const tourSpotlight = useTourSpotlight();
   const { active, steps, step, stepIndex, userType, next, prev, skip } = useUserGuide({ suppressAuto });
 
-  // Sync current step id to context so ChatsScreen/ChatsTabs can show the right sub-tab and report rects.
+  // Sync step id + tab target to context so sidebar/tab components can measure and report exact rects.
   useEffect(() => {
-    if (tourSpotlight) {
-      tourSpotlight.setCurrentStepId(active && step ? step.id : null);
-    }
+    if (!tourSpotlight) return;
+    tourSpotlight.setCurrentStepId(active && step ? step.id : null);
+    const tabTarget =
+      active && step && (step.target.kind === 'userTab' || step.target.kind === 'organizerTab')
+        ? step.target.tab
+        : null;
+    tourSpotlight.setCurrentTabTarget(tabTarget);
   }, [active, step?.id, tourSpotlight]);
 
   const spotlight = useMemo(() => {
     if (!step) return null;
-    const useReported =
-      step.id && CHAT_STEPS_WITH_CUSTOM_SPOTLIGHT.includes(step.id) && tourSpotlight?.reportedSpotlightRect;
-    if (useReported) return tourSpotlight!.reportedSpotlightRect;
+    // Always prefer a rect measured from the actual rendered element (reported by sidebar/ChatsTabs).
+    if (tourSpotlight?.reportedSpotlightRect) return tourSpotlight.reportedSpotlightRect;
     return computeSpotlightRect(step.target, { width, height }, isMobileBrowser);
   }, [step, width, height, isMobileBrowser, tourSpotlight?.reportedSpotlightRect]);
 

@@ -14,7 +14,9 @@ import { useNavigation, NavigationProp, useNavigationState, useFocusEffect } fro
 import { supabase } from '@/lib/supabase';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
 import UserGuideTour from '@/components/UserGuideTour';
-import { TourSpotlightProvider } from '@/context/TourSpotlightContext';
+import { ComingSoonGate, ComingSoonOverlay } from '@/components/ComingSoonOverlay';
+import { FEATURE_FLAGS } from '@/config/featureFlags';
+import { TourSpotlightProvider, useTourSpotlight } from '@/context/TourSpotlightContext';
 import { useIsMobileBrowser } from '@/hooks/use-mobile';
 import { safeLocalStorage } from '@/utils/safeStorage';
 
@@ -299,7 +301,7 @@ const PaymentRequiredStack = () => (
   >
     <PaymentRequiredStackNav.Screen 
       name="RequiredPaymentScreen" 
-      component={RequiredPaymentScreen}
+      component={wrapWithComingSoonGate(RequiredPaymentScreen)}
       options={{
         gestureEnabled: false, // Double ensure no gesture navigation
         headerShown: false,
@@ -312,7 +314,35 @@ const PaymentRequiredStack = () => (
 const WebVerticalTabsUser = () => {
   const navigation = useNavigation();
   const { unreadCount } = useUnreadCount();
-  
+  const tourSpotlight = useTourSpotlight();
+  const tabRefs = useRef<Record<string, any>>({});
+
+  // Measure the sidebar button for the active tour tab step and report exact rect.
+  useEffect(() => {
+    const tabTarget = tourSpotlight?.currentTabTarget;
+    const stepId = tourSpotlight?.currentStepId;
+
+    if (!tabTarget) {
+      // Non-tab steps (mainScreen, none): clear any rect we previously reported.
+      tourSpotlight?.reportSpotlightRect(null);
+      return;
+    }
+    // chats-pending/chats-active are handled by ChatsTabs - skip to avoid overwriting.
+    if (stepId === 'chats-pending' || stepId === 'chats-active') return;
+
+    const node = tabRefs.current[tabTarget];
+    if (node?.measureInWindow) {
+      const timer = setTimeout(() => {
+        node.measureInWindow((x: number, y: number, width: number, height: number) => {
+          tourSpotlight?.reportSpotlightRect({ x, y, width, height, radius: 12 });
+        });
+      }, 150);
+      return () => clearTimeout(timer);
+    } else {
+      tourSpotlight?.reportSpotlightRect(null);
+    }
+  }, [tourSpotlight?.currentTabTarget, tourSpotlight?.currentStepId]);
+
   // Get current navigation state to determine active tab
   const currentRouteName = useNavigationState(state => {
     // Correctly find the deepest route name
@@ -408,6 +438,7 @@ const WebVerticalTabsUser = () => {
             return (
               <TouchableOpacity
                 key={tab.name}
+                ref={(r) => { tabRefs.current[tab.name] = r; }}
                 style={[
                   styles.webTabButton,
                   isActive ? styles.webTabButtonActive : styles.webTabButtonInactive
@@ -494,7 +525,31 @@ const WebVerticalTabsUser = () => {
 
 const WebVerticalTabsOrganizer = () => {
   const navigation = useNavigation();
-  
+  const tourSpotlight = useTourSpotlight();
+  const tabRefs = useRef<Record<string, any>>({});
+
+  // Measure the sidebar button for the active tour tab step and report exact rect.
+  useEffect(() => {
+    const tabTarget = tourSpotlight?.currentTabTarget;
+
+    if (!tabTarget) {
+      tourSpotlight?.reportSpotlightRect(null);
+      return;
+    }
+
+    const node = tabRefs.current[tabTarget];
+    if (node?.measureInWindow) {
+      const timer = setTimeout(() => {
+        node.measureInWindow((x: number, y: number, width: number, height: number) => {
+          tourSpotlight?.reportSpotlightRect({ x, y, width, height, radius: 12 });
+        });
+      }, 150);
+      return () => clearTimeout(timer);
+    } else {
+      tourSpotlight?.reportSpotlightRect(null);
+    }
+  }, [tourSpotlight?.currentTabTarget, tourSpotlight?.currentStepId]);
+
   // Get current navigation state to determine active tab
   const currentRouteName = useNavigationState(state => {
     // Correctly find the deepest route name
@@ -590,6 +645,7 @@ const WebVerticalTabsOrganizer = () => {
             return (
               <TouchableOpacity
                 key={tab.name}
+                ref={(r) => { tabRefs.current[tab.name] = r; }}
                 style={[
                   styles.webTabButton,
                   isActive ? styles.webTabButtonActive : styles.webTabButtonInactive
@@ -1125,62 +1181,93 @@ const wrapScreenForWeb = (ScreenComponent: React.ComponentType<any>, isOrganizer
   };
 };
 
+// When payments/organizers are disabled, show Coming Soon and option to switch to Music Lover
+const ComingSoonOrganizerView = ({ onSwitchToUser }: { onSwitchToUser: () => void }) => (
+  <View style={{ flex: 1 }}>
+    <ComingSoonOverlay
+      visible={true}
+      onDismiss={onSwitchToUser}
+      subtitle="Organizer tools & events are coming soon. Switch to Music Lover to explore the app."
+      dismissLabel="Use as Music Lover"
+    />
+  </View>
+);
+
+// Wrap a screen so that when payments/organizers are disabled, Coming Soon overlay is shown (dismiss = goBack)
+const wrapWithComingSoonGate = (ScreenComponent: React.ComponentType<any>) => {
+  return (props: any) => {
+    const navigation = useNavigation();
+    return (
+      <ComingSoonGate onDismiss={() => navigation.goBack()} subtitle="This feature is coming soon.">
+        <ScreenComponent {...props} />
+      </ComingSoonGate>
+    );
+  };
+};
+
 // --- Main App Stack Component (NO PaymentGuard here anymore) ---
 const MainAppStack = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
-  const { isOrganizerMode } = useOrganizerMode();
+  const { isOrganizerMode, setIsOrganizerMode } = useOrganizerMode();
   const { session, loading, musicLoverProfile } = useAuth();
   const [initialRouteName, setInitialRouteName] = useState<keyof MainStackParamList | null>(null);
+
+  // When payments/organizers disabled and user is in organizer mode, show Coming Soon and option to switch
+  if (!FEATURE_FLAGS.PAYMENTS_AND_ORGANIZERS_ENABLED && isOrganizerMode) {
+    return (
+      <ComingSoonOrganizerView onSwitchToUser={() => setIsOrganizerMode(false)} />
+    );
+  }
 
   return (
       <MainStack.Navigator screenOptions={{ headerShown: false, contentStyle: styles.cardStyle, title: undefined }} >
           {isOrganizerMode ? (
                <>
                    <MainStack.Screen name="OrganizerTabs" component={OrganizerTabs} options={{ headerShown: false }} />
-                   <MainStack.Screen name="EventDetail" component={wrapScreenForWeb(EventDetailScreen, true)} />
-                   <MainStack.Screen name="EditEvent" component={wrapScreenForWeb(EditEventScreen, true)} />
-                   <MainStack.Screen name="ViewBookings" component={wrapScreenForWeb(ViewBookingsScreen, true)} />
-                   <MainStack.Screen name="OrganizerSettingsScreen" component={wrapScreenForWeb(OrganizerSettingsScreen, true)} />
-                   <MainStack.Screen name="SetAvailabilityScreen" component={wrapScreenForWeb(SetAvailabilityScreen, true)} />
-                   <MainStack.Screen name="EditOrganizerProfileScreen" component={wrapScreenForWeb(EditOrganizerProfileScreen, true)} />
-                   <MainStack.Screen name="ManagePlanScreen" component={wrapScreenForWeb(ManagePlanScreen, true)} />
-                   <MainStack.Screen name="OrgBillingHistoryScreen" component={wrapScreenForWeb(OrgBillingHistoryScreen, true)} />
+                   <MainStack.Screen name="EventDetail" component={wrapWithComingSoonGate(wrapScreenForWeb(EventDetailScreen, true))} />
+                   <MainStack.Screen name="EditEvent" component={wrapWithComingSoonGate(wrapScreenForWeb(EditEventScreen, true))} />
+                   <MainStack.Screen name="ViewBookings" component={wrapWithComingSoonGate(wrapScreenForWeb(ViewBookingsScreen, true))} />
+                   <MainStack.Screen name="OrganizerSettingsScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(OrganizerSettingsScreen, true))} />
+                   <MainStack.Screen name="SetAvailabilityScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(SetAvailabilityScreen, true))} />
+                   <MainStack.Screen name="EditOrganizerProfileScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(EditOrganizerProfileScreen, true))} />
+                   <MainStack.Screen name="ManagePlanScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(ManagePlanScreen, true))} />
+                   <MainStack.Screen name="OrgBillingHistoryScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(OrgBillingHistoryScreen, true))} />
                    <MainStack.Screen name="UserListScreen" component={wrapScreenForWeb(UserListScreen, true)} />
-                   <MainStack.Screen name="OverallAnalyticsScreen" component={wrapScreenForWeb(OverallAnalyticsScreen, true)} />
-                   <MainStack.Screen name="ShareEventScreen" component={wrapScreenForWeb(ShareEventScreen, true)} />
-                   <MainStack.Screen name="OrganizerReservationsScreen" component={wrapScreenForWeb(OrganizerReservationsScreen, true)} />
+                   <MainStack.Screen name="OverallAnalyticsScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(OverallAnalyticsScreen, true))} />
+                   <MainStack.Screen name="ShareEventScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(ShareEventScreen, true))} />
+                   <MainStack.Screen name="OrganizerReservationsScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(OrganizerReservationsScreen, true))} />
                </>
           ) : (
                <>
                    <MainStack.Screen name="UserTabs" component={UserTabs} options={{ headerShown: false }}/>
                    <MainStack.Screen name="UserSettingsScreen" component={wrapScreenForWeb(UserSettingsScreen, false)} />
                    <MainStack.Screen name="EditUserProfileScreen" component={wrapScreenForWeb(EditUserProfileScreen, false)} />
-                   <MainStack.Screen name="UserManageSubscriptionScreen" component={wrapScreenForWeb(UserManageSubscriptionScreen, false)} />
-                   <MainStack.Screen name="ManagePlan" component={wrapScreenForWeb(ManagePlanScreen, false)} />
+                   <MainStack.Screen name="UserManageSubscriptionScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(UserManageSubscriptionScreen, false))} />
+                   <MainStack.Screen name="ManagePlan" component={wrapWithComingSoonGate(wrapScreenForWeb(ManagePlanScreen, false))} />
                    <MainStack.Screen name="UserMutedListScreen" component={wrapScreenForWeb(UserMutedListScreen, false)} />
                    <MainStack.Screen name="UserBlockedListScreen" component={wrapScreenForWeb(UserBlockedListScreen, false)} />
                    <MainStack.Screen name="FriendsListScreen" component={wrapScreenForWeb(FriendsListScreen, false)} />
                    <MainStack.Screen name="OrganizerListScreen" component={wrapScreenForWeb(OrganizerListScreen, false)} />
-                   <MainStack.Screen name="UpgradeScreen" component={wrapScreenForWeb(UpgradeScreen, false)} />
-                   <MainStack.Screen name="AttendedEventsScreen" component={wrapScreenForWeb(AttendedEventsScreen, false)} />
-                   <MainStack.Screen name="UserBillingHistoryScreen" component={wrapScreenForWeb(UserBillingHistoryScreen, false)} />
+                   <MainStack.Screen name="UpgradeScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(UpgradeScreen, false))} />
+                   <MainStack.Screen name="AttendedEventsScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(AttendedEventsScreen, false))} />
+                   <MainStack.Screen name="UserBillingHistoryScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(UserBillingHistoryScreen, false))} />
                    <MainStack.Screen name="UpdateMusicFavoritesScreen" component={wrapScreenForWeb(UpdateMusicFavoritesScreen, false)} />
                    <MainStack.Screen name="LinkMusicServicesScreen" component={wrapScreenForWeb(LinkMusicServicesScreen, false)} />
-                   <MainStack.Screen name="MyBookingsScreen" component={wrapScreenForWeb(MyBookingsScreen, false)} />
-                   <MainStack.Screen name="PremiumSignupScreen" component={wrapScreenForWeb(PremiumSignupScreen, false)} />
-                   <MainStack.Screen name="PaymentConfirmationScreen" component={wrapScreenForWeb(PaymentConfirmationScreen, false)} />
-                   <MainStack.Screen name="PaymentSuccessScreen" component={wrapScreenForWeb(PaymentSuccessScreen, false)} />
-                   <MainStack.Screen name="ShareEventScreen" component={wrapScreenForWeb(ShareEventScreen, false)} />
+                   <MainStack.Screen name="MyBookingsScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(MyBookingsScreen, false))} />
+                   <MainStack.Screen name="PremiumSignupScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(PremiumSignupScreen, false))} />
+                   <MainStack.Screen name="PaymentConfirmationScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(PaymentConfirmationScreen, false))} />
+                   <MainStack.Screen name="PaymentSuccessScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(PaymentSuccessScreen, false))} />
+                   <MainStack.Screen name="ShareEventScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(ShareEventScreen, false))} />
                </>
           )}
           {/* Screens accessible by both modes */}
-          <MainStack.Screen name="CreateEventScreen" component={wrapScreenForWeb(CreateEventScreen, isOrganizerMode)} />
+          <MainStack.Screen name="CreateEventScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(CreateEventScreen, isOrganizerMode))} />
           <MainStack.Screen name="OtherUserProfileScreen" component={wrapScreenForWeb(OtherUserProfileScreen, isOrganizerMode)} />
-          <MainStack.Screen name="BookingConfirmation" component={wrapScreenForWeb(BookingConfirmationScreen, isOrganizerMode)} />
-          <MainStack.Screen name="UpcomingEventsListScreen" component={wrapScreenForWeb(UpcomingEventsListScreen, isOrganizerMode)} />
-          <MainStack.Screen name="PastEventsListScreen" component={wrapScreenForWeb(PastEventsListScreen, isOrganizerMode)} />
+          <MainStack.Screen name="BookingConfirmation" component={wrapWithComingSoonGate(wrapScreenForWeb(BookingConfirmationScreen, isOrganizerMode))} />
+          <MainStack.Screen name="UpcomingEventsListScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(UpcomingEventsListScreen, isOrganizerMode))} />
+          <MainStack.Screen name="PastEventsListScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(PastEventsListScreen, isOrganizerMode))} />
           {/* *** ViewOrganizerProfileScreen now registered in Main Stack *** */}
-          <MainStack.Screen name="ViewOrganizerProfileScreen" component={wrapScreenForWeb(ViewOrganizerProfileScreen, isOrganizerMode)} />
+          <MainStack.Screen name="ViewOrganizerProfileScreen" component={wrapWithComingSoonGate(wrapScreenForWeb(ViewOrganizerProfileScreen, isOrganizerMode))} />
           {/* *** END Move *** */}
           <MainStack.Screen name="NotFoundMain" component={wrapScreenForWeb(NotFoundScreen, isOrganizerMode)} />
       </MainStack.Navigator>
