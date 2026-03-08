@@ -6,9 +6,18 @@ import type { NavigationProp } from '@react-navigation/native';
 import type { RootStackParamList, UserTabParamList, OrganizerTabParamList } from '@/navigation/AppNavigator';
 import { TourOverlay, type SpotlightRect } from '@/components/TourOverlay';
 import { TourTooltip } from '@/components/TourTooltip';
+import { useTourSpotlight } from '@/context/TourSpotlightContext';
 import { useUserGuide } from '@/hooks/useUserGuide';
 import { useIsMobileBrowser } from '@/hooks/use-mobile';
 import type { TourTarget } from '@/config/tourConfig';
+
+const CHAT_STEPS_WITH_CUSTOM_SPOTLIGHT = ['chats-pending', 'chats-active'];
+
+/** Height of the bottom tab bar on mobile. Align with AppNavigator tabBarStyle (iOS 85, Android 65, web 72). */
+const MOBILE_BOTTOM_BAR_HEIGHT =
+  Platform.OS === 'ios' ? 85 : Platform.OS === 'web' ? 72 : 65;
+/** Gap between the tour tooltip and the top of the bottom bar so the tooltip sits right above it. */
+const TOOLTIP_GAP_ABOVE_BAR = 16;
 
 type Props = {
   /**
@@ -44,16 +53,15 @@ function computeSpotlightRect(
 
   // Use mobile bottom tab spotlight for native mobile or phone web browsers
   if (Platform.OS !== 'web' || isMobileBrowser) {
-    // Mobile bottom tab spotlight (approximate).
+    // Mobile bottom tab spotlight (align with AppNavigator tabBarStyle height).
+    const tabBarH = MOBILE_BOTTOM_BAR_HEIGHT + 8; // visual height for spotlight
     if (target.kind === 'userTab') {
       const idx = getUserTabIndexForPlatform(target.tab, isMobileBrowser);
-      const tabBarH = 92;
       const w = W / 5;
       return { x: idx * w + 6, y: H - tabBarH + 10, width: w - 12, height: tabBarH - 20, radius: 16 };
     }
     if (target.kind === 'organizerTab') {
       const idx = getOrganizerTabIndex(target.tab);
-      const tabBarH = 92;
       const w = W / 3;
       return { x: idx * w + 6, y: H - tabBarH + 10, width: w - 12, height: tabBarH - 20, radius: 16 };
     }
@@ -85,12 +93,23 @@ export default function UserGuideTour({ suppressAuto }: Props) {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { width, height } = useWindowDimensions();
   const isMobileBrowser = useIsMobileBrowser();
+  const tourSpotlight = useTourSpotlight();
   const { active, steps, step, stepIndex, userType, next, prev, skip } = useUserGuide({ suppressAuto });
+
+  // Sync current step id to context so ChatsScreen/ChatsTabs can show the right sub-tab and report rects.
+  useEffect(() => {
+    if (tourSpotlight) {
+      tourSpotlight.setCurrentStepId(active && step ? step.id : null);
+    }
+  }, [active, step?.id, tourSpotlight]);
 
   const spotlight = useMemo(() => {
     if (!step) return null;
+    const useReported =
+      step.id && CHAT_STEPS_WITH_CUSTOM_SPOTLIGHT.includes(step.id) && tourSpotlight?.reportedSpotlightRect;
+    if (useReported) return tourSpotlight!.reportedSpotlightRect;
     return computeSpotlightRect(step.target, { width, height }, isMobileBrowser);
-  }, [step, width, height, isMobileBrowser]);
+  }, [step, width, height, isMobileBrowser, tourSpotlight?.reportedSpotlightRect]);
 
   // When a step targets a tab, navigate to it so the UI matches the tooltip.
   useEffect(() => {
@@ -106,15 +125,10 @@ export default function UserGuideTour({ suppressAuto }: Props) {
 
   if (!active || !step) return null;
 
-  // On mobile (native or phone web), if we're spotlighting bottom tabs, lift the tooltip so it doesn't cover the highlighted area.
+  // On mobile (native or mobile web), place the tooltip right above the bottom sidebar.
   const tooltipContainerStyle =
     Platform.OS !== 'web' || isMobileBrowser
-      ? spotlight
-        ? spotlight.y > height * 0.6
-          ? { paddingBottom: 24 + Math.min(200, spotlight.height + 80) }
-          : undefined
-        : // No spotlight (welcome + screen-level steps): lift the tooltip so it doesn't sit on the bottom edge
-          { paddingBottom: 24 + 160 }
+      ? { paddingBottom: MOBILE_BOTTOM_BAR_HEIGHT + TOOLTIP_GAP_ABOVE_BAR }
       : undefined;
 
   return (

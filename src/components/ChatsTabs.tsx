@@ -216,6 +216,7 @@ import { decryptMessageContent, E2E_UNDECRYPTABLE } from '@/lib/e2e/e2eService';
 import { useIndividualChatListWithUnread, useGroupChatListWithUnread } from '@/lib/powersync/chatFunctions';
 //import { useIndividualChatList, useGroupChatList } from '@/lib/powersync/chatFunctions';
 import { usePowerSync } from '@/context/PowerSyncContext';
+import { useTourSpotlight } from '@/context/TourSpotlightContext';
 // --- End Adjustments ---
 
 // Define structure for Group Chat List Item (from RPC get_group_chat_list)
@@ -453,7 +454,12 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     const { session } = useAuth();
     const { subscribeToEvent, unsubscribeFromEvent } = useRealtime();
     const { refreshUnreadCount } = useUnreadCount(); // Use the hook instead of fetching separately
-    
+    const tourSpotlight = useTourSpotlight();
+
+    // Refs for app tour spotlight (measure Chats vs Pending sub-tab buttons)
+    const chatsSubTabRef = useRef<View>(null);
+    const pendingSubTabRef = useRef<View>(null);
+
     // PowerSync context for mobile detection
     const { isMobile, isPowerSyncAvailable, isOffline } = usePowerSync();
     
@@ -470,6 +476,31 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     const [useNewServices] = useState(false);
     const [isNetworkConnected, setIsNetworkConnected] = useState(true);
 
+    // Report spotlight rect for app tour when on Chats step (highlight Pending or Chats sub-tab).
+    useEffect(() => {
+        if (!tourSpotlight || activeTab !== 'individual') {
+            tourSpotlight?.reportSpotlightRect(null);
+            return;
+        }
+        const stepId = tourSpotlight.currentStepId;
+        if (stepId !== 'chats-pending' && stepId !== 'chats-active') {
+            tourSpotlight.reportSpotlightRect(null);
+            return;
+        }
+        const timer = setTimeout(() => {
+            const ref = stepId === 'chats-pending' ? pendingSubTabRef : chatsSubTabRef;
+            const node = ref.current as any;
+            if (node?.measureInWindow) {
+                node.measureInWindow((x: number, y: number, width: number, height: number) => {
+                    tourSpotlight.reportSpotlightRect({ x, y, width, height, radius: 12 });
+                });
+            } else {
+                tourSpotlight.reportSpotlightRect(null);
+            }
+        }, 150);
+        return () => clearTimeout(timer);
+    }, [tourSpotlight, activeTab, individualSubTab, tourSpotlight?.currentStepId]);
+
     // Use ref to store the latest fetchData function
     const fetchDataRef = useRef<((refreshing?: boolean) => Promise<void>) | undefined>(undefined);
 
@@ -480,7 +511,7 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
     // Network state listener
     useEffect(() => {
         const unsubscribe = NetInfo.addEventListener(state => {
-            const isConnected = state.isConnected && state.isInternetReachable;
+            const isConnected = Boolean(state.isConnected && state.isInternetReachable);
             setIsNetworkConnected(isConnected);
             console.log(`ChatsTabs: Network state changed - Connected: ${isConnected}`);
         });
@@ -1381,18 +1412,22 @@ const ChatsTabs: React.FC<ChatsTabsProps> = ({
 
             {activeTab === 'individual' && setIndividualSubTab && (
                 <View style={styles.subTabsContainer}>
-                    <TouchableOpacity
-                        style={[styles.subTabButton, individualSubTab === 'chats' && styles.activeSubTabButton]}
-                        onPress={() => setIndividualSubTab('chats')}
-                    >
-                        <Text style={[styles.subTabText, individualSubTab === 'chats' && styles.activeSubTabText]}>Chats</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.subTabButton, individualSubTab === 'pending' && styles.activeSubTabButton]}
-                        onPress={() => setIndividualSubTab('pending')}
-                    >
-                        <Text style={[styles.subTabText, individualSubTab === 'pending' && styles.activeSubTabText]}>Pending</Text>
-                    </TouchableOpacity>
+                    <View ref={chatsSubTabRef} collapsable={false}>
+                        <TouchableOpacity
+                            style={[styles.subTabButton, individualSubTab === 'chats' && styles.activeSubTabButton]}
+                            onPress={() => setIndividualSubTab('chats')}
+                        >
+                            <Text style={[styles.subTabText, individualSubTab === 'chats' && styles.activeSubTabText]}>Chats</Text>
+                        </TouchableOpacity>
+                    </View>
+                    <View ref={pendingSubTabRef} collapsable={false}>
+                        <TouchableOpacity
+                            style={[styles.subTabButton, individualSubTab === 'pending' && styles.activeSubTabButton]}
+                            onPress={() => setIndividualSubTab('pending')}
+                        >
+                            <Text style={[styles.subTabText, individualSubTab === 'pending' && styles.activeSubTabText]}>Pending</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
             )}
 

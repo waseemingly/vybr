@@ -14,6 +14,7 @@ import { useNavigation, NavigationProp, useNavigationState, useFocusEffect } fro
 import { supabase } from '@/lib/supabase';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
 import UserGuideTour from '@/components/UserGuideTour';
+import { TourSpotlightProvider } from '@/context/TourSpotlightContext';
 import { useIsMobileBrowser } from '@/hooks/use-mobile';
 import { safeLocalStorage } from '@/utils/safeStorage';
 
@@ -1354,7 +1355,7 @@ const AppNavigator = () => {
   }
 
   return (
-    <>
+    <TourSpotlightProvider>
       <RootStack.Navigator screenOptions={{ headerShown: false, title: undefined }} >
           {!session ? (
             // 1. Not Logged In - Show Auth
@@ -1431,7 +1432,7 @@ const AppNavigator = () => {
 
         {/* Global overlay tour (only shows for new users / replay) */}
         <UserGuideTour suppressAuto={requiresPaymentScreen ?? false} />
-      </>
+    </TourSpotlightProvider>
   );
   };
 

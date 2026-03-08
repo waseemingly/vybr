@@ -29,13 +29,6 @@ export const MUSIC_LOVER_TOUR_STEPS: TourStep[] = [
     target: { kind: 'userTab', tab: 'Matches' },
   },
   {
-    id: 'friends-requests',
-    title: 'Accepting Friends',
-    description:
-      'When someone sends you a friend request, open your Friends List and switch to the Requests tab to Accept or Decline.',
-    target: { kind: 'mainScreen', screen: 'FriendsListScreen' },
-  },
-  {
     id: 'events',
     title: 'Events',
     description: 'Explore events and see what’s happening near you.',
@@ -44,8 +37,36 @@ export const MUSIC_LOVER_TOUR_STEPS: TourStep[] = [
   {
     id: 'chats',
     title: 'Chats',
-    description: 'Message your matches and keep the conversation going.',
+    description: 'Message your matches and keep the conversation going. Open the Chats tab, then under Individual you’ll see two sub-tabs: Chats and Pending.',
     target: { kind: 'userTab', tab: 'Chats' },
+  },
+  {
+    id: 'chats-pending',
+    title: 'Pending Chats',
+    description:
+      'When you tap “Chat” with a match, that conversation appears in Pending first. New chats stay in Pending until both of you have sent at least one message.',
+    target: { kind: 'userTab', tab: 'Chats' },
+  },
+  {
+    id: 'chats-active',
+    title: 'Active Chats (Individual)',
+    description:
+      'Once both you and your match have sent a message, the chat moves from Pending to the main Chats list under Individual. That’s where your ongoing conversations live.',
+    target: { kind: 'userTab', tab: 'Chats' },
+  },
+  {
+    id: 'chats-add-friend',
+    title: 'Adding Someone as a Friend',
+    description:
+      'To add a chat partner as a friend, open the chat, tap their name or avatar to go to their profile, then send a friend request from there. They’ll see it in their Friends List under Requests.',
+    target: { kind: 'userTab', tab: 'Chats' },
+  },
+  {
+    id: 'friends-requests',
+    title: 'Accepting Friends',
+    description:
+      'When someone sends you a friend request, open your Friends List and switch to the Requests tab to Accept or Decline.',
+    target: { kind: 'mainScreen', screen: 'FriendsListScreen' },
   },
   {
     id: 'search',

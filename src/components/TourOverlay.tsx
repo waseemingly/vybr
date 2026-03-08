@@ -11,8 +11,26 @@ type Props = {
   children?: React.ReactNode;
 };
 
+/** Clamp spotlight to screen so the cutout wraps correctly on all viewport sizes. */
+function clampSpotlightToScreen(
+  rect: SpotlightRect,
+  screenW: number,
+  screenH: number
+): SpotlightRect {
+  const x = Math.max(0, Math.min(rect.x, screenW - 1));
+  const y = Math.max(0, Math.min(rect.y, screenH - 1));
+  const maxW = screenW - x;
+  const maxH = screenH - y;
+  const width = Math.max(0, Math.min(rect.width, maxW));
+  const height = Math.max(0, Math.min(rect.height, maxH));
+  return { ...rect, x, y, width, height };
+}
+
 export function TourOverlay({ visible, spotlight, onRequestClose, children }: Props) {
   const { width: screenW, height: screenH } = useWindowDimensions();
+  const clampedSpotlight = spotlight
+    ? clampSpotlightToScreen(spotlight, screenW, screenH)
+    : null;
 
   return (
     <Modal
@@ -31,14 +49,14 @@ export function TourOverlay({ visible, spotlight, onRequestClose, children }: Pr
           <Defs>
             <Mask id="spotlightMask">
               <Rect x="0" y="0" width={screenW} height={screenH} fill="white" />
-              {spotlight ? (
+              {clampedSpotlight ? (
                 <Rect
-                  x={spotlight.x}
-                  y={spotlight.y}
-                  width={spotlight.width}
-                  height={spotlight.height}
-                  rx={spotlight.radius ?? 14}
-                  ry={spotlight.radius ?? 14}
+                  x={clampedSpotlight.x}
+                  y={clampedSpotlight.y}
+                  width={clampedSpotlight.width}
+                  height={clampedSpotlight.height}
+                  rx={clampedSpotlight.radius ?? 14}
+                  ry={clampedSpotlight.radius ?? 14}
                   fill="black"
                 />
               ) : null}

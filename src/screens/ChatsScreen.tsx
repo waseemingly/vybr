@@ -17,6 +17,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from "@/navigation/AppNavigator"; // Adjust path
 import { APP_CONSTANTS } from '@/config/constants'; // Adjust path
 import ChatsTabs, { ChatItem, IndividualChatListItem } from '@/components/ChatsTabs'; // Import updated ChatsTabs and ChatItem type (adjust path)
+import { useTourSpotlight } from '@/context/TourSpotlightContext';
 import ChatPanelWrapper from '@/components/ChatPanelWrapper'; // Import the new ChatPanelWrapper component
 import { useIsMobileBrowser } from '@/hooks/use-mobile'; // Import mobile browser detection hook
 // --- End Adjustments ---
@@ -26,16 +27,30 @@ type ChatsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, '
 // New type for individual sub-tabs
 export type IndividualSubTab = 'chats' | 'pending';
 
+const CHAT_TOUR_STEP_IDS = ['chats', 'chats-pending', 'chats-active', 'chats-add-friend'];
+
 const ChatsScreen = () => {
     const navigation = useNavigation<ChatsScreenNavigationProp>();
     const route = useRoute();
     const isMobileBrowser = useIsMobileBrowser(); // Detect if we're on a mobile browser
+    const tourSpotlight = useTourSpotlight();
 
     // State managed by this screen: Search Query and Active Tab
     const [searchQuery, setSearchQuery] = useState('');
     const [activeTab, setActiveTab] = useState<'individual' | 'groups'>('individual');
     // New state for individual sub-tab
     const [individualSubTab, setIndividualSubTab] = useState<IndividualSubTab>('chats');
+
+    // Sync Individual sub-tab with app tour step so the spotlight can highlight Pending vs Chats.
+    useEffect(() => {
+        if (!tourSpotlight?.currentStepId || !CHAT_TOUR_STEP_IDS.includes(tourSpotlight.currentStepId)) return;
+        setActiveTab('individual');
+        if (tourSpotlight.currentStepId === 'chats-pending') {
+            setIndividualSubTab('pending');
+        } else {
+            setIndividualSubTab('chats');
+        }
+    }, [tourSpotlight?.currentStepId]);
     
     // New state for web chat panel (desktop only)
     const [selectedChat, setSelectedChat] = useState<ChatItem | null>(null);
