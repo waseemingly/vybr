@@ -1,3 +1,16 @@
+// Production: suppress test/debug logs so app.vybr.sg (Vercel) and other prod builds don't expose them
+(function() {
+  var isProd = (typeof __DEV__ !== 'undefined' && !__DEV__) ||
+    (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production');
+  if (isProd && typeof console !== 'undefined') {
+    var noop = function() {};
+    console.log = noop;
+    console.debug = noop;
+    console.info = noop;
+    // console.warn and console.error are left enabled so real issues can be seen in production
+  }
+})();
+
 // Global error handler - displays errors on screen for debugging (especially useful on mobile devices)
 (function() {
   if (typeof window !== 'undefined' && __DEV__) {

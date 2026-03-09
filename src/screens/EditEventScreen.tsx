@@ -48,6 +48,7 @@ interface FormState {
     songs: string;
     genres: string;
     eventType: EventTypeValue;
+    is18Plus: boolean;
     bookingMode: 'yes' | 'no';
     maxTickets: string;
     maxReservations: string;
@@ -104,6 +105,7 @@ interface ExistingEventData {
   country?: string | null;
   state?: string | null;
   city?: string | null;
+  is_18_plus?: boolean | null;
 }
 
 // Helper to determine event status
@@ -122,7 +124,7 @@ const EditEventScreen: React.FC = () => {
 
   const [formState, setFormState] = useState<FormState>({
     title: "", description: "", location: "", artists: "", songs: "", genres: "",
-    eventType: '', bookingMode: 'yes', maxTickets: '', maxReservations: '',
+    eventType: '', is18Plus: false, bookingMode: 'yes', maxTickets: '', maxReservations: '',
     ticketPrice: '', passFeeToUser: true,
     countryCode: '', countryName: '', stateCode: '', stateName: '', cityName: '' // Initialize new fields
   });
@@ -183,6 +185,7 @@ const EditEventScreen: React.FC = () => {
         songs: eventData.tags_songs?.join(', ') ?? "",
         genres: eventData.tags_genres?.join(', ') ?? "",
         eventType: eventData.event_type ?? '',
+        is18Plus: eventData.is_18_plus ?? false,
         bookingMode: eventData.booking_type === 'INFO_ONLY' ? 'no' : 'yes',
         maxTickets: eventData.booking_type === 'TICKETED' ? (eventData.max_tickets?.toString() ?? '0') : '',
         maxReservations: eventData.booking_type === 'RESERVATION' ? (eventData.max_reservations?.toString() ?? '0') : '',
@@ -652,6 +655,7 @@ const EditEventScreen: React.FC = () => {
               tags_artists: finalArtists,
               tags_songs: finalSongs,
               event_type: formState.eventType || null,
+              is_18_plus: formState.is18Plus,
               booking_type: currentBookingType,
               max_tickets: maxTicketsValue === 0 ? null : maxTicketsValue,
               max_reservations: maxReservationsValue === 0 ? null : maxReservationsValue,
@@ -718,7 +722,10 @@ const EditEventScreen: React.FC = () => {
               <View style={styles.formGroup}><Label>Event Title *</Label><TextInput style={styles.input} placeholder="Give your event a catchy name" value={formState.title} onChangeText={(text)=>handleChange("title",text)} maxLength={100} accessibilityLabel="Event Title Input"/>{!formState.title.trim() && (<Text style={styles.errorText}>Event title is required.</Text>)}</View>
 
               {/* Description */}
-              <View style={styles.formGroup}><Label>Description</Label><TextInput style={[styles.input, styles.textArea]} placeholder="Describe your event (lineup, details, etc.). If the event is 18+ only, please state that here." value={formState.description} onChangeText={(text)=>handleChange("description",text)} multiline numberOfLines={5} textAlignVertical="top" maxLength={5000} accessibilityLabel="Event Description Input"/></View>
+              <View style={styles.formGroup}><Label>Description</Label><TextInput style={[styles.input, styles.textArea]} placeholder="Describe your event (lineup, details, etc.)" value={formState.description} onChangeText={(text)=>handleChange("description",text)} multiline numberOfLines={5} textAlignVertical="top" maxLength={5000} accessibilityLabel="Event Description Input"/></View>
+
+              {/* 18+ only */}
+              <View style={styles.formGroup}><Label>18+ only</Label><View style={styles.switchContainer}><Text style={styles.switchLabel}>Event is for 18 and above</Text><Switch trackColor={{false:"#E5E7EB",true:"#60A5FA"}} thumbColor={formState.is18Plus?"#3B82F6":"#f4f3f4"} ios_backgroundColor="#E5E7EB" onValueChange={(v)=>handleChange('is18Plus',v)} value={formState.is18Plus} accessibilityLabel="Event 18 plus only" accessibilityHint={formState.is18Plus ? 'Event is 18+' : 'All ages'}/></View></View>
 
               {/* Date & Time */}
               <View style={styles.formRow}>

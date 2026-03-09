@@ -623,8 +623,8 @@ const MusicLoverSignUpFlow = () => {
             return false;
         }
 
-        // Age is required
-        if (!formData.age || !/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 1 || parseInt(formData.age, 10) > 120) {
+        // Age is required and must be at least 16
+        if (!formData.age || !/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 16 || parseInt(formData.age, 10) > 120) {
             return false;
         }
 
@@ -663,8 +663,11 @@ const MusicLoverSignUpFlow = () => {
         if (!formData.age) {
             return 'Please enter your age';
         }
-        if (!/^\d+$/.test(formData.age) || parseInt(formData.age, 10) < 1 || parseInt(formData.age, 10) > 120) {
-            return 'Please enter a valid age (1-120)';
+        if (!/^\d+$/.test(formData.age) || parseInt(formData.age, 10) > 120) {
+            return 'Please enter a valid age (16-120)';
+        }
+        if (parseInt(formData.age, 10) < 16) {
+            return 'You must be at least 16 to sign up';
         }
 
         if (!formData.countryCode) {
@@ -914,11 +917,11 @@ const MusicLoverSignUpFlow = () => {
 
     // Helper to consolidate profile data creation before calling the hook
     const prepareProfileData = async (userId: string): Promise<CreateMusicLoverProfileData> => {
-        // Validate age input (optional)
+        // Validate age input — must be at least 16
         const age = formData.age ? parseInt(formData.age) : null;
-        if (formData.age && (age === null || isNaN(age) || age < 1 || age > 120)) {
-             Alert.alert('Invalid Age', 'Please enter a valid age between 1 and 120, or leave it blank.');
-             throw new Error('Invalid age provided.');
+        if (formData.age && (age === null || isNaN(age) || age < 16 || age > 120)) {
+             Alert.alert('Age requirement', 'You must be at least 16 to sign up for Vybr.');
+             throw new Error('Invalid age: must be at least 16.');
         }
 
         // Get email from the authenticated user session
@@ -2304,15 +2307,15 @@ const MusicLoverSignUpFlow = () => {
                     <View style={styles.planFeaturesList}>
                         <View style={styles.planFeatureItem}>
                             <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                            <Text style={styles.featureText}>Limited Profiles</Text>
+                            <Text style={styles.featureText}>6 favorites per category</Text>
                         </View>
                         <View style={styles.planFeatureItem}>
                             <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                            <Text style={styles.featureText}>Basic Music Matches</Text>
+                            <Text style={styles.featureText}>2 matches per day</Text>
                         </View>
                         <View style={styles.planFeatureItem}>
                             <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                            <Text style={styles.featureText}>Top 3 Streaming Data</Text>
+                            <Text style={styles.featureText}>Message your matches</Text>
                         </View>
                     </View>
                     
@@ -2352,19 +2355,15 @@ const MusicLoverSignUpFlow = () => {
                     <View style={styles.planFeaturesList}>
                         <View style={styles.planFeatureItem}>
                             <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                            <Text style={styles.featureText}>Unlimited Profiles</Text>
+                            <Text style={styles.featureText}>10 favorites per category</Text>
                         </View>
                         <View style={styles.planFeatureItem}>
                             <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                            <Text style={styles.featureText}>Advanced Matching</Text>
+                            <Text style={styles.featureText}>5 matches per day</Text>
                         </View>
                         <View style={styles.planFeatureItem}>
                             <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                            <Text style={styles.featureText}>Top 10 Streaming Data</Text>
-                        </View>
-                        <View style={styles.planFeatureItem}>
-                            <Feather name="check" size={16} color={APP_CONSTANTS.COLORS.PRIMARY} />
-                            <Text style={styles.featureText}>Music Analytics</Text>
+                            <Text style={styles.featureText}>AI-generated conversation starters</Text>
                         </View>
                     </View>
                     
@@ -2381,7 +2380,7 @@ const MusicLoverSignUpFlow = () => {
                     visible={showPremiumHype}
                     onDismiss={() => setShowPremiumHype(false)}
                     headline="Premium is almost here."
-                    message="Unlimited favorites, advanced matching, and music analytics — we're rolling it out soon. You're going to love it. ✨"
+                    message="More favorites, 5 matches per day, and AI conversation starters — we're rolling it out soon. You're going to love it. ✨"
                     buttonLabel="Can't wait!"
                 />
             )}

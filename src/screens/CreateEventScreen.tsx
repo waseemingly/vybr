@@ -41,6 +41,7 @@ interface FormState {
     songs: string;
     genres: string;
     eventType: EventTypeValue;
+    is18Plus: boolean;
     bookingMode: 'yes' | 'no';
     maxTickets: string;
     maxReservations: string;
@@ -96,6 +97,7 @@ const CreateEventScreen: React.FC = () => {
     songs: "",
     genres: "",
     eventType: '',
+    is18Plus: false,
     bookingMode: 'yes',
     maxTickets: '',
     maxReservations: '',
@@ -608,6 +610,7 @@ const CreateEventScreen: React.FC = () => {
         tags_artists: finalArtists,
         tags_songs: finalSongs,
         event_type: formState.eventType || null,
+        is_18_plus: formState.is18Plus,
         booking_type: currentBookingType,
         max_tickets: maxTicketsValue === 0 ? null : maxTicketsValue,
         max_reservations: maxReservationsValue === 0 ? null : maxReservationsValue,
@@ -620,7 +623,7 @@ const CreateEventScreen: React.FC = () => {
       Alert.alert("Success!", "Your event has been created.");
       setFormState({
         title: "", description: "", location: "", artists: "", songs: "", genres: "",
-        eventType: '', bookingMode: 'yes', maxTickets: '', maxReservations: '', ticketPrice: '', passFeeToUser: true,
+        eventType: '', is18Plus: false, bookingMode: 'yes', maxTickets: '', maxReservations: '', ticketPrice: '', passFeeToUser: true,
         countryCode: '', countryName: '', stateCode: '', stateName: '', cityName: '' // Reset location fields
       });
       setImageAssets([]);
@@ -666,7 +669,9 @@ const CreateEventScreen: React.FC = () => {
 
               <View style={styles.formGroup}><Label>Event Title *</Label><TextInput style={styles.input} placeholder="Give your event a catchy name" value={formState.title} onChangeText={(text)=>handleChange("title",text)} maxLength={100} accessibilityLabel="Event Title Input"/>{!formState.title.trim() && (<Text style={styles.errorText}>Event title is required.</Text>)}</View>
 
-              <View style={styles.formGroup}><Label>Description</Label><TextInput style={[styles.input, styles.textArea]} placeholder="Describe your event (lineup, details, etc.). If the event is 18+ only, please state that here." value={formState.description} onChangeText={(text)=>handleChange("description",text)} multiline numberOfLines={5} textAlignVertical="top" maxLength={5000} accessibilityLabel="Event Description Input"/></View>
+              <View style={styles.formGroup}><Label>Description</Label><TextInput style={[styles.input, styles.textArea]} placeholder="Describe your event (lineup, details, etc.)" value={formState.description} onChangeText={(text)=>handleChange("description",text)} multiline numberOfLines={5} textAlignVertical="top" maxLength={5000} accessibilityLabel="Event Description Input"/></View>
+
+              <View style={styles.formGroup}><Label>18+ only</Label><View style={styles.switchContainer}><Text style={styles.switchLabel}>Event is for 18 and above</Text><Switch trackColor={{false:"#E5E7EB",true:"#60A5FA"}} thumbColor={formState.is18Plus?"#3B82F6":"#f4f3f4"} ios_backgroundColor="#E5E7EB" onValueChange={(v)=>handleChange('is18Plus',v)} value={formState.is18Plus} accessibilityLabel="Event 18 plus only" accessibilityHint={formState.is18Plus ? 'Event is 18+' : 'All ages'}/></View></View>
 
               <View style={styles.formRow}>
                   <View style={[styles.formGroup,{flex:1,marginRight:8, marginBottom: 0}]}><Label>Date *</Label><TouchableOpacity style={styles.inputWithIconTouchable} onPress={()=>setShowDatePicker(true)} accessibilityLabel="Select Event Date" accessibilityHint={`Current date: ${formatDate(eventDate)}`} ><Feather name="calendar" size={16} color="#9CA3AF" style={styles.inputIcon} /><Text style={styles.pickerText}>{formatDate(eventDate)}</Text></TouchableOpacity></View>
