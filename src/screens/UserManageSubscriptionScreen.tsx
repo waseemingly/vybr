@@ -12,8 +12,9 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator';
 import { APP_CONSTANTS } from '@/config/constants';
+import { devLog } from '@/utils/logger';
 
-console.log('[DEBUG] UserManageSubscriptionScreen module loaded');
+if (__DEV__) devLog('[DEBUG] UserManageSubscriptionScreen module loaded');
 
 // Define navigation prop type for this screen
 type ManageSubscriptionNavigationProp = NativeStackNavigationProp<RootStackParamList & MainStackParamList, 'UserManageSubscriptionScreen'>;
@@ -24,7 +25,7 @@ interface PlanDetailProps {
 }
 
 const PlanDetail: React.FC<PlanDetailProps> = ({ label, value }) => {
-    console.log('[DEBUG] PlanDetail render:', { label, value, valueType: typeof value });
+    devLog('[DEBUG] PlanDetail render:', { label, value, valueType: typeof value });
     return (
     <View style={styles.planDetailItem}>
         <Text style={styles.planDetailLabel}>{label}:</Text>
@@ -47,7 +48,7 @@ const UserManageSubscriptionScreen: React.FC = () => {
     const userId = session?.user?.id;
     const isPremium = musicLoverProfile?.isPremium ?? false;
 
-    console.log('[DEBUG] UserManageSubscriptionScreen render - State:', {
+    devLog('[DEBUG] UserManageSubscriptionScreen render - State:', {
         subscriptionStatus,
         planName,
         renewalDate,
@@ -168,15 +169,15 @@ const UserManageSubscriptionScreen: React.FC = () => {
     }, [userId, isPremium]); // Re-run if userId or premium status changes
 
     const handleCancelSubscription = () => {
-        console.log('[DEBUG] Cancel button clicked on platform:', Platform.OS);
-        console.log('[DEBUG] Current state:', { userId, isPremium, subscriptionStatus });
+        devLog('[DEBUG] Cancel button clicked on platform:', Platform.OS);
+        devLog('[DEBUG] Current state:', { userId, isPremium, subscriptionStatus });
         
         if (!userId || !isPremium || subscriptionStatus !== 'active') {
-            console.log('[DEBUG] Early return - conditions not met');
+            devLog('[DEBUG] Early return - conditions not met');
             return;
         }
         
-        console.log('[DEBUG] About to show Alert.alert');
+        devLog('[DEBUG] About to show Alert.alert');
 
         // For web, use window.confirm instead of Alert.alert
         if (Platform.OS === 'web') {

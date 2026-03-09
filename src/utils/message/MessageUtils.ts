@@ -1,4 +1,5 @@
 import type { ChatMessage, SharedEvent } from '@/types/message';
+import { devLog } from '@/utils/logger';
 
 export class MessageUtils {
   /**
@@ -108,7 +109,7 @@ export class MessageUtils {
    */
   static isEventOver(eventDateString: string): boolean {
     try {
-      console.log('[DEBUG] Checking if event is over, date string:', eventDateString);
+      devLog('[DEBUG] Checking if event is over, date string:', eventDateString);
       
       // First, try direct parsing
       let eventDate = new Date(eventDateString);
@@ -128,7 +129,7 @@ export class MessageUtils {
         
         for (const format of dateFormats) {
           const parsed = new Date(format);
-          console.log('[DEBUG] Trying format:', format, 'Result:', parsed.toISOString(), 'Valid:', !isNaN(parsed.getTime()));
+          devLog('[DEBUG] Trying format:', format, 'Result:', parsed.toISOString(), 'Valid:', !isNaN(parsed.getTime()));
           if (!isNaN(parsed.getTime())) {
             eventDate = parsed;
             break;
@@ -137,13 +138,13 @@ export class MessageUtils {
         
         // If still couldn't parse, assume event is not over
         if (isNaN(eventDate.getTime())) {
-          console.log('[DEBUG] Could not parse event date, assuming not over:', eventDateString);
+          devLog('[DEBUG] Could not parse event date, assuming not over:', eventDateString);
           return false;
         }
       }
       
       const isOver = eventDate < now;
-      console.log('[DEBUG] Event date:', eventDate.toISOString(), 'Now:', now.toISOString(), 'Is over:', isOver);
+      devLog('[DEBUG] Event date:', eventDate.toISOString(), 'Now:', now.toISOString(), 'Is over:', isOver);
       return isOver;
     } catch (e) {
       console.warn('Error checking if event is over:', e);
@@ -168,7 +169,7 @@ export class MessageUtils {
           console.warn('Invalid eventDateTime:', sharedEvent.eventDateTime);
         } else {
           const isOver = eventDate < now;
-          console.log('[DEBUG] Using eventDateTime:', sharedEvent.eventDateTime, 'Is over:', isOver);
+          devLog('[DEBUG] Using eventDateTime:', sharedEvent.eventDateTime, 'Is over:', isOver);
           return isOver;
         }
       } catch (e) {
@@ -178,7 +179,7 @@ export class MessageUtils {
     
     // Fallback to eventDate string parsing (less reliable due to formatting issues)
     if (sharedEvent.eventDate) {
-      console.log('[DEBUG] Falling back to eventDate string parsing for:', sharedEvent.eventDate);
+      devLog('[DEBUG] Falling back to eventDate string parsing for:', sharedEvent.eventDate);
       return this.isEventOver(sharedEvent.eventDate);
     }
     

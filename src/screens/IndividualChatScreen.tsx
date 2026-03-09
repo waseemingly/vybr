@@ -34,6 +34,7 @@ import type { ChatItem } from '@/components/ChatsTabs';
 import { individualChatScreenStyles as styles } from '@/styles/chatstyles';
 import VybrLoadingAnimation from '@/components/VybrLoadingAnimation';
 import { MessageUtils } from '@/utils/message/MessageUtils';
+import { devLog, devWarn } from '@/utils/logger';
 
 // NEW: Import new modular services (parallel implementation)
 import { useMessageFetching } from '@/hooks/message/useMessageFetching';
@@ -160,7 +161,7 @@ const formatTime = (date: Date) => {
 // Helper to check if event is over
 const isEventOver = (eventDateString: string): boolean => {
     try {
-        console.log('[DEBUG] Checking if event is over, date string:', eventDateString);
+        devLog('[DEBUG] Checking if event is over, date string:', eventDateString);
         
         // First, try direct parsing
         let eventDate = new Date(eventDateString);
@@ -180,7 +181,7 @@ const isEventOver = (eventDateString: string): boolean => {
             
             for (const format of dateFormats) {
                 const parsed = new Date(format);
-                console.log('[DEBUG] Trying format:', format, 'Result:', parsed.toISOString(), 'Valid:', !isNaN(parsed.getTime()));
+                devLog('[DEBUG] Trying format:', format, 'Result:', parsed.toISOString(), 'Valid:', !isNaN(parsed.getTime()));
                 if (!isNaN(parsed.getTime())) {
                     eventDate = parsed;
                     break;
@@ -189,13 +190,13 @@ const isEventOver = (eventDateString: string): boolean => {
             
             // If still couldn't parse, assume event is not over
             if (isNaN(eventDate.getTime())) {
-                console.log('[DEBUG] Could not parse event date, assuming not over:', eventDateString);
+                devLog('[DEBUG] Could not parse event date, assuming not over:', eventDateString);
                 return false;
             }
         }
         
         const isOver = eventDate < now;
-        console.log('[DEBUG] Event date:', eventDate.toISOString(), 'Now:', now.toISOString(), 'Is over:', isOver);
+        devLog('[DEBUG] Event date:', eventDate.toISOString(), 'Now:', now.toISOString(), 'Is over:', isOver);
         return isOver;
     } catch (e) {
         console.warn('Error checking if event is over:', e);
@@ -218,7 +219,7 @@ const isSharedEventOver = (sharedEvent: ChatMessage['sharedEvent']): boolean => 
                 console.warn('Invalid eventDateTime:', sharedEvent.eventDateTime);
             } else {
                 const isOver = eventDate < now;
-                console.log('[DEBUG] Using eventDateTime:', sharedEvent.eventDateTime, 'Is over:', isOver);
+                devLog('[DEBUG] Using eventDateTime:', sharedEvent.eventDateTime, 'Is over:', isOver);
                 return isOver;
             }
         } catch (e) {
@@ -228,7 +229,7 @@ const isSharedEventOver = (sharedEvent: ChatMessage['sharedEvent']): boolean => 
     
     // Fallback to eventDate string parsing (less reliable due to formatting issues)
     if (sharedEvent.eventDate) {
-        console.log('[DEBUG] Falling back to eventDate string parsing for:', sharedEvent.eventDate);
+        devLog('[DEBUG] Falling back to eventDate string parsing for:', sharedEvent.eventDate);
         return isEventOver(sharedEvent.eventDate);
     }
     
@@ -450,11 +451,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({
             <Pressable
                 style={[styles.messageRowTouchable, isCurrentUser ? styles.messageRowSent : styles.messageRowReceived]}
                 onLongPress={() => {
-                    console.log('[DEBUG] Long press detected on image message:', message._id);
+                    devLog('[DEBUG] Long press detected on image message:', message._id);
                     onMessageLongPress(message);
                 }}
                 onPress={() => {
-                    console.log('[DEBUG] Image tap detected for:', message.image);
+                    devLog('[DEBUG] Image tap detected for:', message.image);
                     onImagePress(message.image!);
                 }}
                 delayLongPress={200}
@@ -931,7 +932,7 @@ const IndividualChatScreen: React.FC = () => {
             return messages;
         }
 
-        console.log(`[DEBUG] Enhancing ${messagesToEnhance.length} shared event messages with missing eventDateTime`);
+        devLog(`[DEBUG] Enhancing ${messagesToEnhance.length} shared event messages with missing eventDateTime`);
 
         // Fetch event data for all messages that need enhancement
         const eventIds = messagesToEnhance.map(msg => msg.sharedEvent!.eventId);
@@ -944,12 +945,12 @@ const IndividualChatScreen: React.FC = () => {
                 .in('id', uniqueEventIds);
 
             if (eventsError) {
-                console.warn('[DEBUG] Error fetching event data for enhancement:', eventsError.message);
+                devWarn('[DEBUG] Error fetching event data for enhancement:', eventsError.message);
                 return messages;
             }
 
             if (!eventsData || eventsData.length === 0) {
-                console.warn('[DEBUG] No event data found for enhancement');
+                devWarn('[DEBUG] No event data found for enhancement');
                 return messages;
             }
 
@@ -961,7 +962,7 @@ const IndividualChatScreen: React.FC = () => {
                 if (msg.sharedEvent && !msg.sharedEvent.eventDateTime && msg.sharedEvent.eventId !== 'unknown') {
                     const eventData = eventDataMap.get(msg.sharedEvent.eventId);
                     if (eventData) {
-                        console.log(`[DEBUG] Enhanced message ${msg._id} with eventDateTime: ${eventData.event_datetime}`);
+                        devLog(`[DEBUG] Enhanced message ${msg._id} with eventDateTime: ${eventData.event_datetime}`);
                         return {
                             ...msg,
                             sharedEvent: {
@@ -980,7 +981,7 @@ const IndividualChatScreen: React.FC = () => {
 
             return enhancedMessages;
         } catch (error) {
-            console.warn('[DEBUG] Exception during event enhancement:', error);
+            devWarn('[DEBUG] Exception during event enhancement:', error);
             return messages;
         }
     }, []);
@@ -2815,18 +2816,18 @@ const IndividualChatScreen: React.FC = () => {
     // --- New Chat Feature Handlers ---
 
     const handleMessageLongPress = (message: ChatMessage) => {
-        console.log('[DEBUG] handleMessageLongPress called with message:', {
+        devLog('[DEBUG] handleMessageLongPress called with message:', {
             id: message._id,
             type: message.image ? 'image' : message.sharedEvent ? 'sharedEvent' : 'text',
             isDeleted: message.isDeleted
         });
         
         if (message.isDeleted) {
-            console.log('[DEBUG] Message is deleted, returning early');
+            devLog('[DEBUG] Message is deleted, returning early');
             return; // Don't show actions for already deleted messages
         }
         
-        console.log('[DEBUG] Setting selected message and showing modal');
+        devLog('[DEBUG] Setting selected message and showing modal');
         setSelectedMessageForAction(message);
         setMessageActionModalVisible(true);
     };

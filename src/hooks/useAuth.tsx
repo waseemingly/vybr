@@ -28,6 +28,7 @@ import NotificationService from '../services/NotificationService';
 // Import the new deep link parser
 import { parseDeepLink } from '../utils/navigationUtils';
 import { ensureUserKeyPair, isKeyRegistered, clearE2ECache } from '../lib/e2e/e2eService';
+import { devLog, devWarn, devError } from '@/utils/logger';
 
 // --- Exported Types ---
 export type MusicLoverBio = SupabaseMusicLoverBio;
@@ -225,9 +226,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         if (Platform.OS !== 'web') {
             const webClientId = Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "830574548321-h59962oi42ok7tejuhkefud8tbooo18j.apps.googleusercontent.com";
             const iosClientId = "830574548321-h59962oi42k7sjuhkefud8tbooo18j.apps.googleusercontent.com";
-            console.log('🔍 DEBUG: Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID =', Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID);
-            console.log('🔍 DEBUG: Using webClientId =', webClientId);
-            console.log('🔍 DEBUG: Using iosClientId =', iosClientId);
+            devLog('🔍 DEBUG: Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID =', Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID);
+            devLog('🔍 DEBUG: Using webClientId =', webClientId);
+            devLog('🔍 DEBUG: Using iosClientId =', iosClientId);
             
             GoogleSignin.configure({
                 webClientId: webClientId, // Web client ID for backend verification
@@ -245,7 +246,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     useEffect(() => {
         if (Platform.OS === 'web' && typeof window !== 'undefined') {
             (window as any).__VYBR_CURRENT_USER_ID__ = session?.user?.id || null;
-            console.log('[AuthProvider] Set global user ID for navigation:', session?.user?.id || 'null');
+            devLog('[AuthProvider] Set global user ID for navigation:', session?.user?.id || 'null');
         }
     }, [session?.user?.id]);
 
@@ -261,7 +262,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         ensureUserKeyPair(uid)
             .then((ok) => {
                 return isKeyRegistered(uid).then((registered) => {
-                    console.log('[E2E] Key registered for this user:', ok && registered);
+                    devLog('[E2E] Key registered for this user:', ok && registered);
                 });
             })
             .catch(() => {});
@@ -281,15 +282,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         timestamp: Date.now()
                     }));
                     await AsyncStorage.setItem(SESSION_PERSISTENCE_KEY, 'true');
-                    console.log('[AuthProvider] Session saved to AsyncStorage');
+                    devLog('[AuthProvider] Session saved to AsyncStorage');
                 } else {
                     await AsyncStorage.removeItem(LAST_SESSION_KEY);
                     await AsyncStorage.removeItem(SESSION_PERSISTENCE_KEY);
-                    console.log('[AuthProvider] Session cleared from AsyncStorage');
+                    devLog('[AuthProvider] Session cleared from AsyncStorage');
                 }
             }
         } catch (error) {
-            console.error('[AuthProvider] Error saving session to storage:', error);
+            devError('[AuthProvider] Error saving session to storage:', error);
         }
     }, []);
 
@@ -305,10 +306,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         // Check if session is not too old (e.g., within 30 days)
                         const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
                         if (sessionData.timestamp > thirtyDaysAgo) {
-                            console.log('[AuthProvider] Found valid stored session, attempting restoration...');
+                            devLog('[AuthProvider] Found valid stored session, attempting restoration...');
                             return sessionData;
                         } else {
-                            console.log('[AuthProvider] Stored session is too old, clearing...');
+                            devLog('[AuthProvider] Stored session is too old, clearing...');
                             await AsyncStorage.removeItem(LAST_SESSION_KEY);
                             await AsyncStorage.removeItem(SESSION_PERSISTENCE_KEY);
                         }
@@ -316,7 +317,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 }
             }
         } catch (error) {
-            console.error('[AuthProvider] Error loading session from storage:', error);
+            devError('[AuthProvider] Error loading session from storage:', error);
         }
         return null;
     }, []);
@@ -325,7 +326,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     useEffect(() => {
         const handleAppStateChange = async (nextAppState: string) => {
             if (nextAppState === 'active' && session) {
-                console.log('[AuthProvider] App became active, checking session validity...');
+                devLog('[AuthProvider] App became active, checking session validity...');
 
                 // Re-ensure E2E public key when app comes to foreground (retry if initial run failed, e.g. network).
                 // Ensures this user's key is in user_public_keys so peers can derive 1:1 keys.
@@ -336,16 +337,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 // Re-register push notifications when app comes to foreground
                 // This ensures tokens are always up to date
                 if (session.user?.id && (session.musicLoverProfile || session.organizerProfile)) {
-                    console.log('[AuthProvider] Re-registering push notifications on app active...');
+                    devLog('[AuthProvider] Re-registering push notifications on app active...');
                     try {
                         const token = await NotificationService.registerForPushNotifications(session.user.id);
                         if (token) {
-                            console.log('[AuthProvider] Push notification re-registration successful');
+                            devLog('[AuthProvider] Push notification re-registration successful');
                         } else {
-                            console.warn('[AuthProvider] Push notification re-registration failed');
+                            devWarn('[AuthProvider] Push notification re-registration failed');
                         }
                     } catch (error) {
-                        console.error('[AuthProvider] Error re-registering push notifications:', error);
+                        devError('[AuthProvider] Error re-registering push notifications:', error);
                     }
                 }
             }
@@ -375,18 +376,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 const { status } = await requestMediaLibraryPermissionsAsync();
                 if (status !== 'granted') {
                     Alert.alert('Permission Required', 'Vybr needs access to your photos to upload a profile picture.');
-                    console.warn("[AuthProvider] Media library permission denied.");
+                    devWarn("[AuthProvider] Media library permission denied.");
                     return false;
                 }
-                console.log("[AuthProvider] Media library permission granted.");
+                devLog("[AuthProvider] Media library permission granted.");
                 return true;
             } catch (e) {
-                console.error("[AuthProvider] Error requesting media library permissions:", e)
+                devError("[AuthProvider] Error requesting media library permissions:", e)
                 Alert.alert('Permission Error', 'Could not request photo permissions.');
                 return false;
             }
         }
-        console.log("[AuthProvider] Media library permissions not applicable on web or already assumed.");
+        devLog("[AuthProvider] Media library permissions not applicable on web or already assumed.");
         return true; // Assume granted or not needed on web
     };
 
@@ -397,7 +398,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             // Create ArrayBuffer from Buffer's underlying ArrayBuffer
             return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
         } catch (error) {
-            console.error("Error in base64ToArrayBuffer:", error);
+            devError("Error in base64ToArrayBuffer:", error);
             throw new Error("Failed to decode base64 string."); // Re-throw
         }
     };
@@ -411,50 +412,50 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         providedMimeType?: string | null // <<< Pass mimeType from picker result
     ): Promise<string | null> => {
         if (!userId || !fileUri) {
-            console.error('[AuthProvider] _uploadImage: Invalid userId or fileUri provided.');
+            devError('[AuthProvider] _uploadImage: Invalid userId or fileUri provided.');
             return null;
         }
         const isNative = Platform.OS !== 'web' && (fileUri.startsWith('file:') || fileUri.startsWith('content:') || fileUri.startsWith('ph:'));
         const logPrefix = `[AuthProvider][${isNative ? 'Native' : 'Web'}] _uploadImage:`;
 
         try {
-            console.log(`${logPrefix} Uploading for user ${userId}. Bucket: ${bucket}. URI: ${fileUri.substring(0, 100)}... MimeType Hint: ${providedMimeType || 'none'}`);
+            devLog(`${logPrefix} Uploading for user ${userId}. Bucket: ${bucket}. URI: ${fileUri.substring(0, 100)}... MimeType Hint: ${providedMimeType || 'none'}`);
 
             // --- Determine File Extension (Best Effort) ---
             let fileExt = fileUri.split('.').pop()?.toLowerCase().split('?')[0]; // Handle query params
             if (fileExt && (fileExt.length > 5 || !/^[a-z0-9]+$/.test(fileExt))) fileExt = undefined; // Likely not a real extension
             if (!fileExt && providedMimeType?.startsWith('image/')) {
                 fileExt = providedMimeType.split('/')[1]?.split('+')[0]; // Get ext from mime type (e.g., image/jpeg -> jpeg), handle image/svg+xml
-                console.log(`${logPrefix} Using extension '${fileExt}' from provided mimeType.`);
+                devLog(`${logPrefix} Using extension '${fileExt}' from provided mimeType.`);
             }
             if (!fileExt || !['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'svg'].includes(fileExt)) { // Added common types
-                console.warn(`${logPrefix} Could not determine reliable extension ('${fileExt}'). Defaulting to 'jpg'.`);
+                devWarn(`${logPrefix} Could not determine reliable extension ('${fileExt}'). Defaulting to 'jpg'.`);
                 fileExt = 'jpg';
             }
             if (fileExt === 'jpg') fileExt = 'jpeg'; // Normalize
 
             const fileName = `${userId}-${Date.now()}.${fileExt}`;
             const filePath = `${userId}/${fileName}`;
-            console.log(`${logPrefix} Determined filePath: ${filePath}`);
+            devLog(`${logPrefix} Determined filePath: ${filePath}`);
 
             // --- Get File Data (Native vs Web) ---
             let fileData: ArrayBuffer;
             let detectedMimeType: string | undefined | null = providedMimeType; // Start with hint
 
             if (isNative) {
-                console.log(`${logPrefix} Using FileSystem.readAsStringAsync for native URI.`);
+                devLog(`${logPrefix} Using FileSystem.readAsStringAsync for native URI.`);
                 let fileSize = 0;
                 try {
                     const fileInfo = await FileSystem.getInfoAsync(fileUri, { size: true });
                     if (!fileInfo.exists) throw new Error(`File not found at URI: ${fileUri}`);
                     fileSize = fileInfo.size;
-                    console.log(`${logPrefix} FileSystem.getInfoAsync: Exists=true, Size=${fileSize}`);
+                    devLog(`${logPrefix} FileSystem.getInfoAsync: Exists=true, Size=${fileSize}`);
                     if (fileSize === 0) {
-                       console.warn(`${logPrefix} File exists but FileSystem reports size 0. Will attempt to read anyway.`);
+                       devWarn(`${logPrefix} File exists but FileSystem reports size 0. Will attempt to read anyway.`);
                        // Don't throw error here yet, reading might still yield data
                     }
                 } catch (infoError: any) {
-                    console.error(`${logPrefix} FileSystem.getInfoAsync failed: ${infoError.message}. Proceeding cautiously.`);
+                    devError(`${logPrefix} FileSystem.getInfoAsync failed: ${infoError.message}. Proceeding cautiously.`);
                 }
 
                 const base64 = await FileSystem.readAsStringAsync(fileUri, {
@@ -463,11 +464,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 if (!base64 || base64.length < 10) {
                     throw new Error(`FileSystem.readAsStringAsync returned empty or invalid base64 (length: ${base64?.length})`);
                 }
-                console.log(`${logPrefix} Read file as Base64 successfully (Base64 length: ${base64.length}). Estimated original size: ${fileSize > 0 ? fileSize : 'unknown'}`);
+                devLog(`${logPrefix} Read file as Base64 successfully (Base64 length: ${base64.length}). Estimated original size: ${fileSize > 0 ? fileSize : 'unknown'}`);
 
-                console.log(`${logPrefix} Converting Base64 to ArrayBuffer...`);
+                devLog(`${logPrefix} Converting Base64 to ArrayBuffer...`);
                 fileData = base64ToArrayBuffer(base64);
-                console.log(`${logPrefix} Converted to ArrayBuffer (byteLength: ${fileData.byteLength})`);
+                devLog(`${logPrefix} Converted to ArrayBuffer (byteLength: ${fileData.byteLength})`);
 
                 if (fileData.byteLength === 0) {
                     throw new Error('Converted ArrayBuffer has size 0.');
@@ -477,13 +478,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
             } else {
                 // Web: Use fetch API
-                console.log(`${logPrefix} Using fetch API for web URI.`);
+                devLog(`${logPrefix} Using fetch API for web URI.`);
                 const response = await fetch(fileUri);
                 if (!response.ok) throw new Error(`Failed to fetch web URI: ${response.status}`);
                 detectedMimeType = response.headers.get('content-type') || providedMimeType;
-                console.log(`${logPrefix} Fetch response OK. Reading as ArrayBuffer...`);
+                devLog(`${logPrefix} Fetch response OK. Reading as ArrayBuffer...`);
                 fileData = await response.arrayBuffer();
-                console.log(`${logPrefix} Read web file as ArrayBuffer (byteLength: ${fileData.byteLength})`);
+                devLog(`${logPrefix} Read web file as ArrayBuffer (byteLength: ${fileData.byteLength})`);
                 if (fileData.byteLength === 0) {
                     throw new Error('Fetched ArrayBuffer has size 0.');
                 }
@@ -492,18 +493,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             // --- Determine Final Content-Type ---
             let finalContentType = detectedMimeType;
             if (!finalContentType || !finalContentType.startsWith('image/')) { // Be stricter for images
-                 console.warn(`${logPrefix} MimeType '${finalContentType || 'none'}' is invalid/missing/not image. Falling back to extension guess: image/${fileExt}`);
+                 devWarn(`${logPrefix} MimeType '${finalContentType || 'none'}' is invalid/missing/not image. Falling back to extension guess: image/${fileExt}`);
                  finalContentType = `image/${fileExt}`;
             }
              // Special case for SVG if needed
             if (fileExt === 'svg' && finalContentType !== 'image/svg+xml') {
-                 console.log(`${logPrefix} Setting content type to image/svg+xml for .svg extension.`);
+                 devLog(`${logPrefix} Setting content type to image/svg+xml for .svg extension.`);
                  finalContentType = 'image/svg+xml';
             }
-            console.log(`${logPrefix} Final ContentType for upload: ${finalContentType}.`);
+            devLog(`${logPrefix} Final ContentType for upload: ${finalContentType}.`);
 
             // --- Upload ArrayBuffer to Supabase ---
-            console.log(`${logPrefix} Uploading ArrayBuffer to Supabase bucket "${bucket}" at path "${filePath}"`);
+            devLog(`${logPrefix} Uploading ArrayBuffer to Supabase bucket "${bucket}" at path "${filePath}"`);
             const { data: uploadData, error: uploadError } = await supabase.storage
                 .from(bucket)
                 .upload(filePath, fileData, {
@@ -513,42 +514,42 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 });
 
             if (uploadError) {
-                console.error(`${logPrefix} Supabase upload error:`, JSON.stringify(uploadError, null, 2));
+                devError(`${logPrefix} Supabase upload error:`, JSON.stringify(uploadError, null, 2));
                 if (uploadError.message?.includes('policy') || uploadError.message?.includes('403')) { 
-                    console.error(`--->>> [AuthProvider] RLS CHECK: Failed to upload to bucket '${bucket}'. Verify INSERT RLS policy for authenticated users. Policy should likely check \`(storage.foldername(name))[1] = auth.uid()::text\` <<<---`);
+                    devError(`--->>> [AuthProvider] RLS CHECK: Failed to upload to bucket '${bucket}'. Verify INSERT RLS policy for authenticated users. Policy should likely check \`(storage.foldername(name))[1] = auth.uid()::text\` <<<---`);
                 } else if (uploadError.message?.includes('Bucket not found')) {
-                    console.error(`--->>> [AuthProvider] BUCKET CHECK: Bucket named '${bucket}' not found in Supabase Storage. <<<---`);
+                    devError(`--->>> [AuthProvider] BUCKET CHECK: Bucket named '${bucket}' not found in Supabase Storage. <<<---`);
                 }
                 throw new Error(`Supabase storage upload failed: ${uploadError.message || 'Unknown upload error'}`);
             }
             if (!uploadData?.path) throw new Error('Supabase storage upload succeeded but returned no path.');
 
             const uploadedPath = uploadData.path;
-            console.log(`${logPrefix} Image uploaded successfully, path:`, uploadedPath);
+            devLog(`${logPrefix} Image uploaded successfully, path:`, uploadedPath);
 
             // --- Get Public URL ---
             const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(uploadedPath);
             let publicUrl: string | null = null;
             if (urlData?.publicUrl) {
                  publicUrl = urlData.publicUrl;
-                 console.log(`${logPrefix} Public URL obtained via API: ${publicUrl}`);
+                 devLog(`${logPrefix} Public URL obtained via API: ${publicUrl}`);
             } else {
-                 console.warn(`${logPrefix} Could not get public URL via API immediately. Constructing fallback.`);
+                 devWarn(`${logPrefix} Could not get public URL via API immediately. Constructing fallback.`);
                  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || Constants.expoConfig?.extra?.supabaseUrl;
                  if (!supabaseUrl) {
-                     console.error(`${logPrefix} CRITICAL - Cannot construct fallback URL. EXPO_PUBLIC_SUPABASE_URL or Constants...supabaseUrl is missing!`);
+                     devError(`${logPrefix} CRITICAL - Cannot construct fallback URL. EXPO_PUBLIC_SUPABASE_URL or Constants...supabaseUrl is missing!`);
                  } else {
                      publicUrl = `${supabaseUrl.replace(/\/$/, '')}/storage/v1/object/public/${bucket}/${uploadedPath}`;
-                     console.log(`${logPrefix} Using manually constructed URL: ${publicUrl}`);
+                     devLog(`${logPrefix} Using manually constructed URL: ${publicUrl}`);
                  }
             }
             return publicUrl;
 
         } catch (error: any) {
-            console.error(`${logPrefix} Error during upload process for user ${userId}. Bucket: ${bucket}. URI: ${fileUri.substring(0, 100)}... Error:`, error.message || error, error.stack);
-            if (error.message?.includes('Failed to fetch') || error.message?.includes('Network request failed')) console.error(`${logPrefix} HINT - Check network connection and if the file URI '${fileUri.substring(0, 100)}...' is correct and accessible by the app.`);
-            if (error.message?.includes('File not found at URI')) console.error(`${logPrefix} HINT - The file URI provided by the picker might be invalid or temporary and no longer accessible.`);
-            if (error.message?.includes('size 0')) console.error(`${logPrefix} HINT - The file selected appears to be empty.`);
+            devError(`${logPrefix} Error during upload process for user ${userId}. Bucket: ${bucket}. URI: ${fileUri.substring(0, 100)}... Error:`, error.message || error, error.stack);
+            if (error.message?.includes('Failed to fetch') || error.message?.includes('Network request failed')) devError(`${logPrefix} HINT - Check network connection and if the file URI '${fileUri.substring(0, 100)}...' is correct and accessible by the app.`);
+            if (error.message?.includes('File not found at URI')) devError(`${logPrefix} HINT - The file URI provided by the picker might be invalid or temporary and no longer accessible.`);
+            if (error.message?.includes('size 0')) devError(`${logPrefix} HINT - The file selected appears to be empty.`);
             Alert.alert("Upload Failed", `Could not upload image. Please try again or select a different image. ${error.message?.substring(0, 100)}`);
             return null;
         }
@@ -557,7 +558,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
     // --- Check Session & Fetch Profile --- 
     const checkSession = useCallback(async (options?: { navigateToProfile?: boolean }) => {
-        console.log("[AuthProvider] checkSession called");
+        devLog("[AuthProvider] checkSession called");
         setLoading(true);
         setMusicLoverProfile(null); // Clear profiles initially
         setOrganizerProfile(null);
@@ -569,7 +570,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             if (Platform.OS !== 'web') {
                 const storedSession = await loadSessionFromStorage();
                 if (storedSession) {
-                    console.log("[AuthProvider] Found stored session, attempting to restore...");
+                    devLog("[AuthProvider] Found stored session, attempting to restore...");
                     // Try to restore the session with Supabase
                     try {
                         const { data: { session: restoredSession }, error: restoreError } = await supabase.auth.setSession({
@@ -578,7 +579,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         });
                         
                         if (restoredSession && !restoreError) {
-                            console.log("[AuthProvider] Successfully restored session from storage");
+                            devLog("[AuthProvider] Successfully restored session from storage");
                             currentSession = {
                                 ...restoredSession,
                                 userType: storedSession.userType
@@ -586,10 +587,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             setSession(currentSession);
                             await saveSessionToStorage(currentSession);
                         } else {
-                            console.log("[AuthProvider] Failed to restore session, falling back to Supabase getSession");
+                            devLog("[AuthProvider] Failed to restore session, falling back to Supabase getSession");
                         }
                     } catch (restoreError) {
-                        console.log("[AuthProvider] Error restoring session, falling back to Supabase getSession:", restoreError);
+                        devLog("[AuthProvider] Error restoring session, falling back to Supabase getSession:", restoreError);
                     }
                 }
             }
@@ -599,22 +600,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 const { data: { session: supabaseSession }, error: sessionError } = await supabase.auth.getSession();
 
                 if (sessionError) {
-                    console.error("[AuthProvider] Error getting session:", sessionError);
+                    devError("[AuthProvider] Error getting session:", sessionError);
                     throw sessionError;
                 }
 
                 if (supabaseSession) {
-                    console.log("[AuthProvider] Supabase session found, user ID:", supabaseSession.user.id);
+                    devLog("[AuthProvider] Supabase session found, user ID:", supabaseSession.user.id);
                     const userId = supabaseSession.user.id;
                 
                 // ENHANCED: Better user type determination with multiple fallbacks (reordered for reliability)
                 userType = (supabaseSession.user.user_metadata?.user_type as UserTypes) || null;
-                console.log(`[AuthProvider] User type from metadata: ${userType}`);
+                devLog(`[AuthProvider] User type from metadata: ${userType}`);
                 
                 // Fallback 1: Check if we have existing profiles in the database (most reliable)
                 // When BOTH profiles exist, do NOT pick music_lover by default — use users table or metadata to avoid organizer flow redirecting to MusicLoverSignUpFlow.
                 if (!userType) {
-                    console.log("[AuthProvider] User type still unknown, checking database profiles...");
+                    devLog("[AuthProvider] User type still unknown, checking database profiles...");
                     try {
                         const [musicLoverResult, organizerResult] = await Promise.all([
                             supabase.from('music_lover_profiles').select('id').eq('user_id', userId).maybeSingle(),
@@ -625,29 +626,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
                         if (hasMusicLover && !hasOrganizer) {
                             userType = 'music_lover';
-                            console.log(`[AuthProvider] User type determined from existing music lover profile only: ${userType}`);
+                            devLog(`[AuthProvider] User type determined from existing music lover profile only: ${userType}`);
                         } else if (hasOrganizer && !hasMusicLover) {
                             userType = 'organizer';
-                            console.log(`[AuthProvider] User type determined from existing organizer profile only: ${userType}`);
+                            devLog(`[AuthProvider] User type determined from existing organizer profile only: ${userType}`);
                         } else if (hasMusicLover && hasOrganizer) {
                             // Both exist: use users table or metadata so we don't force music_lover and break organizer flow
                             const { data: userData } = await supabase.from('users').select('user_type').eq('id', userId).maybeSingle();
                             if (userData?.user_type === 'organizer' || userData?.user_type === 'music_lover') {
                                 userType = userData.user_type as UserTypes;
-                                console.log(`[AuthProvider] User type from users table (both profiles exist): ${userType}`);
+                                devLog(`[AuthProvider] User type from users table (both profiles exist): ${userType}`);
                             } else {
                                 userType = (supabaseSession.user.user_metadata?.user_type as UserTypes) || 'music_lover';
-                                console.log(`[AuthProvider] User type when both profiles exist (metadata or default): ${userType}`);
+                                devLog(`[AuthProvider] User type when both profiles exist (metadata or default): ${userType}`);
                             }
                         }
                     } catch (profileCheckError) {
-                        console.error("[AuthProvider] Error checking existing profiles:", profileCheckError);
+                        devError("[AuthProvider] Error checking existing profiles:", profileCheckError);
                     }
                 }
                 
                 // Fallback 2: Check the public.users table
                 if (!userType) {
-                    console.log("[AuthProvider] User type still unknown, checking public.users table...");
+                    devLog("[AuthProvider] User type still unknown, checking public.users table...");
                     try {
                         const { data: userData, error: userError } = await supabase
                             .from('users')
@@ -657,27 +658,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         
                         if (!userError && userData?.user_type) {
                             userType = userData.user_type as UserTypes;
-                            console.log(`[AuthProvider] User type determined from public.users table: ${userType}`);
+                            devLog(`[AuthProvider] User type determined from public.users table: ${userType}`);
                         }
                     } catch (userTableError) {
-                        console.error("[AuthProvider] Error checking public.users table:", userTableError);
+                        devError("[AuthProvider] Error checking public.users table:", userTableError);
                     }
                 }
                 
                 // Fallback 3: Check URL path (for signup flows) - More specific matching (least reliable)
                 if (!userType && typeof window !== 'undefined' && Platform.OS === 'web') {
                     const currentPath = window.location.pathname;
-                    console.log(`[AuthProvider] Checking URL path for user type: ${currentPath}`);
+                    devLog(`[AuthProvider] Checking URL path for user type: ${currentPath}`);
                     
                     // More specific path matching to avoid false positives
                     if (currentPath.includes('/MusicLover') || currentPath.includes('/music-lover') || currentPath.includes('MusicLoverSignUpFlow')) {
                         userType = 'music_lover';
-                        console.log(`[AuthProvider] User type determined from URL path: ${userType}`);
+                        devLog(`[AuthProvider] User type determined from URL path: ${userType}`);
                     } else if (currentPath.includes('/Organizer') || currentPath.includes('/organizer') || currentPath.includes('OrganizerSignUpFlow')) {
                         userType = 'organizer';
-                        console.log(`[AuthProvider] User type determined from URL path: ${userType}`);
+                        devLog(`[AuthProvider] User type determined from URL path: ${userType}`);
                     } else {
-                        console.log(`[AuthProvider] URL path does not contain specific user type indicators: ${currentPath}`);
+                        devLog(`[AuthProvider] URL path does not contain specific user type indicators: ${currentPath}`);
                     }
                 }
                 
@@ -685,7 +686,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 if (!userType) {
                     // Try to read from a temporary variable or context that stores the user's intended type during signup
                     // For now, just log a warning and do NOT overwrite user_type
-                    console.warn("[AuthProvider] User type is still undefined after all checks. Not defaulting to music_lover automatically.");
+                    devWarn("[AuthProvider] User type is still undefined after all checks. Not defaulting to music_lover automatically.");
                     // Optionally, you could throw an error or navigate to a generic error screen here
                     // Do NOT update user metadata here
                 }
@@ -703,13 +704,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     // REMOVED token properties and duplicates
                 };
 
-                console.log(`[AuthProvider] Final user type determined: ${userType}`);
+                devLog(`[AuthProvider] Final user type determined: ${userType}`);
 
                 // Fetch the correct profile based on userType
                 const _fetchProfileData = async (user: any, userType: UserTypes) => {
                     try {
                         if (userType === 'music_lover') {
-                            console.log("[AuthProvider] Fetching music lover profile...");
+                            devLog("[AuthProvider] Fetching music lover profile...");
                             const { data: profileData, error: profileError } = await supabase
                                 .from('music_lover_profiles')
                                 .select('*')
@@ -717,10 +718,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             .maybeSingle();
 
                             if (profileError) {
-                                console.error("[AuthProvider] Error fetching music lover profile:", profileError);
+                                devError("[AuthProvider] Error fetching music lover profile:", profileError);
                                 // Don't throw, allow session to proceed but profile will be null
                             } else if (profileData) {
-                                console.log("[AuthProvider] Music lover profile fetched successfully:", profileData);
+                                devLog("[AuthProvider] Music lover profile fetched successfully:", profileData);
                                 // Map DB snake_case to frontend camelCase
                                 const fullProfile: MusicLoverProfile = {
                                    id: profileData.id.toString(),
@@ -745,14 +746,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                    favorite_songs: profileData.favorite_songs ?? undefined,
                                    stripe_customer_id: profileData.stripe_customer_id ?? undefined,
                                 };
-                                console.log("[AuthProvider] Setting musicLoverProfile state:", fullProfile);
+                                devLog("[AuthProvider] Setting musicLoverProfile state:", fullProfile);
                                 setMusicLoverProfile(fullProfile);
                                 if (currentSession) currentSession.musicLoverProfile = fullProfile;
                            } else {
-                                 console.log("[AuthProvider] No music lover profile found for this user.");
+                                 devLog("[AuthProvider] No music lover profile found for this user.");
                             }
                         } else if (userType === 'organizer') {
-                            console.log("[AuthProvider] Fetching organizer profile...");
+                            devLog("[AuthProvider] Fetching organizer profile...");
                              const { data: profileData, error: profileError } = await supabase
                                 .from('organizer_profiles')
                                 .select('*')
@@ -760,9 +761,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 .maybeSingle();
 
                             if (profileError) {
-                                console.error("[AuthProvider] Error fetching organizer profile:", profileError);
+                                devError("[AuthProvider] Error fetching organizer profile:", profileError);
                             } else if (profileData) {
-                                 console.log("[AuthProvider] Organizer profile fetched successfully.", profileData.id);
+                                 devLog("[AuthProvider] Organizer profile fetched successfully.", profileData.id);
                                  const { data: avgRatingData } = await supabase.rpc('get_organizer_average_rating', { p_organizer_id: userId });
 
                                  const fullProfile: OrganizerProfile = {
@@ -790,12 +791,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                  setOrganizerProfile(fullProfile);
                                  if (currentSession) currentSession.organizerProfile = fullProfile;
                             } else {
-                                console.log("[AuthProvider] No organizer profile found for this user.");
+                                devLog("[AuthProvider] No organizer profile found for this user.");
                             }
                         } else {
-                            console.warn("[AuthProvider] User type is null or unrecognized, cannot fetch profile.");
+                            devWarn("[AuthProvider] User type is null or unrecognized, cannot fetch profile.");
                             // If we still don't have a userType, try to determine it from existing data
-                            console.log("[AuthProvider] Attempting to determine user type from any existing profile...");
+                            devLog("[AuthProvider] Attempting to determine user type from any existing profile...");
                             
                             // Check both profile tables to see if the user has any existing profile
                             try {
@@ -805,97 +806,97 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 ]);
                                 
                                 if (!musicLoverResult.error && musicLoverResult.data) {
-                                    console.log("[AuthProvider] Found existing music lover profile, setting userType and fetching profile...");
+                                    devLog("[AuthProvider] Found existing music lover profile, setting userType and fetching profile...");
                                     userType = 'music_lover';
                                     if (currentSession) currentSession.userType = userType;
                                     // Recursively call to fetch the profile
                                     return await _fetchProfileData(user, userType);
                                 } else if (!organizerResult.error && organizerResult.data) {
-                                    console.log("[AuthProvider] Found existing organizer profile, setting userType and fetching profile...");
+                                    devLog("[AuthProvider] Found existing organizer profile, setting userType and fetching profile...");
                                     userType = 'organizer';
                                     if (currentSession) currentSession.userType = userType;
                                     // Recursively call to fetch the profile
                                     return await _fetchProfileData(user, userType);
                                 } else {
-                                    console.log("[AuthProvider] No existing profiles found, user needs to complete signup.");
+                                    devLog("[AuthProvider] No existing profiles found, user needs to complete signup.");
                                 }
                             } catch (profileSearchError) {
-                                console.error("[AuthProvider] Error searching for existing profiles:", profileSearchError);
+                                devError("[AuthProvider] Error searching for existing profiles:", profileSearchError);
                             }
                         }
 
                         // Set organizer mode based on fetched profile
                         if (currentSession?.organizerProfile) {
                             setIsOrganizerMode(true);
-                            console.log("[AuthProvider] Setting Organizer Mode ON based on profile.");
+                            devLog("[AuthProvider] Setting Organizer Mode ON based on profile.");
                         } else {
                             setIsOrganizerMode(false);
-                            console.log("[AuthProvider] Setting Organizer Mode OFF (no organizer profile).");
+                            devLog("[AuthProvider] Setting Organizer Mode OFF (no organizer profile).");
                         }
 
                         // --- Register for push notifications after successful profile fetch ---
                         try {
                             if (currentSession && (currentSession.musicLoverProfile || currentSession.organizerProfile)) {
-                                console.log("[AuthProvider] Registering for push notifications...");
+                                devLog("[AuthProvider] Registering for push notifications...");
                                 // Use ensurePushTokenRegistered which checks if token exists first
                                 const token = await NotificationService.ensurePushTokenRegistered(userId);
                                 if (token) {
-                                    console.log("[AuthProvider] ✅ Push notification registration successful. Token:", token.substring(0, 20) + "...");
+                                    devLog("[AuthProvider] ✅ Push notification registration successful. Token:", token.substring(0, 20) + "...");
                                 } else {
-                                    console.warn("[AuthProvider] ⚠️ Push notification registration failed or not supported");
-                                    console.warn("[AuthProvider] This may be due to:");
-                                    console.warn("[AuthProvider] - Running on emulator (expected)");
-                                    console.warn("[AuthProvider] - Firebase not configured (check google-services.json)");
-                                    console.warn("[AuthProvider] - Permissions not granted");
+                                    devWarn("[AuthProvider] ⚠️ Push notification registration failed or not supported");
+                                    devWarn("[AuthProvider] This may be due to:");
+                                    devWarn("[AuthProvider] - Running on emulator (expected)");
+                                    devWarn("[AuthProvider] - Firebase not configured (check google-services.json)");
+                                    devWarn("[AuthProvider] - Permissions not granted");
                                     // Retry after a delay (in case Firebase needs time to initialize)
                                     setTimeout(async () => {
-                                        console.log("[AuthProvider] Retrying push notification registration...");
+                                        devLog("[AuthProvider] Retrying push notification registration...");
                                         const retryToken = await NotificationService.ensurePushTokenRegistered(userId);
                                         if (retryToken) {
-                                            console.log("[AuthProvider] ✅ Push notification registration successful on retry");
+                                            devLog("[AuthProvider] ✅ Push notification registration successful on retry");
                                         } else {
-                                            console.warn("[AuthProvider] ⚠️ Push notification registration still failed after retry");
+                                            devWarn("[AuthProvider] ⚠️ Push notification registration still failed after retry");
                                         }
                                     }, 3000);
                                 }
                                 
                                 // Setup notification listeners
                                 NotificationService.addNotificationReceivedListener((notification) => {
-                                    console.log('[AuthProvider] Notification received while app is open:', notification);
+                                    devLog('[AuthProvider] Notification received while app is open:', notification);
                                     // You can handle in-app notifications here if you have a UI for it
                                     // For example, using the NotificationContext you might have created
                                 });
 
                                 NotificationService.addNotificationResponseReceivedListener((response) => {
-                                    console.log('[AuthProvider] Notification tapped:', response);
+                                    devLog('[AuthProvider] Notification tapped:', response);
                                     
                                     // Handle navigation based on notification data
                                     const data = response.notification.request.content.data as any;
                                     const deepLink = data?.deep_link;
 
                                     if (deepLink && navigationRef.current?.isReady()) {
-                                        console.log(`[AuthProvider] Handling deep link: ${deepLink}`);
+                                        devLog(`[AuthProvider] Handling deep link: ${deepLink}`);
                                         const routeInfo = parseDeepLink(deepLink);
                                         
                                         if (routeInfo) {
-                                            console.log('[AuthProvider] Navigating to:', routeInfo);
+                                            devLog('[AuthProvider] Navigating to:', routeInfo);
                                             // The `navigate` function can handle nested navigators if structured correctly
                                             (navigationRef.current as any)?.navigate(routeInfo.routeName, routeInfo.params);
                                         } else {
-                                            console.warn(`[AuthProvider] Could not parse deep link: ${deepLink}`);
+                                            devWarn(`[AuthProvider] Could not parse deep link: ${deepLink}`);
                                         }
                                     } else {
-                                        console.log('[AuthProvider] No deep link found in notification or navigator not ready.');
+                                        devLog('[AuthProvider] No deep link found in notification or navigator not ready.');
                                     }
                                 });
                             }
                         } catch (notificationError) {
-                            console.error("[AuthProvider] Error setting up notifications:", notificationError);
+                            devError("[AuthProvider] Error setting up notifications:", notificationError);
                             // Don't fail the whole login process if notifications fail
                         }
 
                     } catch (e) {
-                        console.error("[AuthProvider] Error in checkSession process:", e);
+                        devError("[AuthProvider] Error in checkSession process:", e);
                         setSession(null);
                         setMusicLoverProfile(null);
                         setOrganizerProfile(null);
@@ -909,7 +910,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 await _fetchProfileData(supabaseSession.user, userType);
 
             } else {
-                console.log("[AuthProvider] No active Supabase session found.");
+                devLog("[AuthProvider] No active Supabase session found.");
                  // Ensure mode is off if no session
                 setIsOrganizerMode(false);
                 setSession(null); // Explicitly set session to null if no supabase session
@@ -923,10 +924,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             // IMPROVED: Add a small delay to ensure auth state is properly synchronized
             // Do NOT navigate here — root navigator chooses screen from state (session, isProfileComplete, requiresPaymentScreen, userType).
             // Navigating here caused organizer flow to redirect to MusicLoverSignUpFlow when userType or profile state was wrong.
-            console.log(`[AuthProvider] Session updated; root navigator will show correct screen (userType: ${userType}, profileComplete: ${userType === 'music_lover' ? !!currentSession?.musicLoverProfile : userType === 'organizer' ? !!currentSession?.organizerProfile : false}).`);
+            devLog(`[AuthProvider] Session updated; root navigator will show correct screen (userType: ${userType}, profileComplete: ${userType === 'music_lover' ? !!currentSession?.musicLoverProfile : userType === 'organizer' ? !!currentSession?.organizerProfile : false}).`);
         }
         } catch (e) {
-            console.error("[AuthProvider] Error in checkSession process:", e);
+            devError("[AuthProvider] Error in checkSession process:", e);
             setSession(null);
             setMusicLoverProfile(null);
             setOrganizerProfile(null);
@@ -937,40 +938,40 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             // navigationRef.current?.reset({ index: 0, routes: [{ name: 'Auth' }] });
         } finally {
             setLoading(false);
-            console.log("[AuthProvider] checkSession finished.");
+            devLog("[AuthProvider] checkSession finished.");
         }
     }, [navigationRef, setIsOrganizerMode, saveSessionToStorage, loadSessionFromStorage]);
 
     // --- Refresh Session Data --- 
     const refreshSessionData = useCallback(async () => {
-        console.log("[AuthProvider] Refreshing session data...");
+        devLog("[AuthProvider] Refreshing session data...");
         await checkSession(); // Re-run the checkSession logic to fetch latest profiles
-         console.log("[AuthProvider] Session data refreshed.");
+         devLog("[AuthProvider] Session data refreshed.");
     }, [checkSession]); // Depend on checkSession
 
     // ---> ADD refreshUserProfile function <---
     const refreshUserProfile = useCallback(async () => {
-        console.log("[AuthProvider] Refreshing user profile data...");
+        devLog("[AuthProvider] Refreshing user profile data...");
         // Re-running checkSession also fetches the profile based on userType
         await checkSession(); 
-        console.log("[AuthProvider] User profile data refreshed via checkSession.");
+        devLog("[AuthProvider] User profile data refreshed via checkSession.");
     }, [checkSession]);
 
     // --- Initial Session Check on Mount ---
     useEffect(() => {
-        console.log("[AuthProvider] Initial checkSession on mount.");
+        devLog("[AuthProvider] Initial checkSession on mount.");
              checkSession();
     }, [checkSession]); // Depend on checkSession
 
     // --- Supabase Auth State Change Listener ---
     useEffect(() => {
-        console.log("[AuthProvider] Setting up Supabase auth listener.");
+        devLog("[AuthProvider] Setting up Supabase auth listener.");
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSupabaseSession) => {
-            console.log(`[AuthProvider] onAuthStateChange triggered: Event ${_event}`);
+            devLog(`[AuthProvider] onAuthStateChange triggered: Event ${_event}`);
             
             // CRITICAL: Don't navigate during manual login/signup to prevent race conditions
             if (isManualAuthInProgress.current && _event === 'SIGNED_IN') {
-                console.log("[AuthProvider] ⚠️ Manual auth in progress, skipping navigation for SIGNED_IN event");
+                devLog("[AuthProvider] ⚠️ Manual auth in progress, skipping navigation for SIGNED_IN event");
                 // Still update the session state, but don't navigate
                 checkSession({ navigateToProfile: false });
                 return;
@@ -978,58 +979,58 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             
             // Simple comparison: re-fetch profile if user ID changes or logs in/out
             if (newSupabaseSession?.user?.id !== previousSessionRef.current?.user?.id) {
-                console.log("[AuthProvider] Auth state change detected (user ID changed or login/logout), running checkSession...");
+                devLog("[AuthProvider] Auth state change detected (user ID changed or login/logout), running checkSession...");
                  checkSession({ navigateToProfile: _event === 'SIGNED_IN' }); // Navigate on explicit sign-in
             } else if (newSupabaseSession && !previousSessionRef.current) {
-                 console.log("[AuthProvider] Auth state change detected (session appeared), running checkSession...");
+                 devLog("[AuthProvider] Auth state change detected (session appeared), running checkSession...");
                  checkSession({ navigateToProfile: true }); // Navigate if session appears from null
             } else if (!newSupabaseSession && previousSessionRef.current) {
-                 console.log("[AuthProvider] Auth state change detected (session disappeared), running checkSession...");
+                 devLog("[AuthProvider] Auth state change detected (session disappeared), running checkSession...");
                  checkSession(); // Just update state, likely logout handled elsewhere
             } else {
-                console.log("[AuthProvider] Auth state change ignored (no significant user change or already handled).");
+                devLog("[AuthProvider] Auth state change ignored (no significant user change or already handled).");
             }
         });
 
         return () => {
-            console.log("[AuthProvider] Unsubscribing from Supabase auth listener.");
+            devLog("[AuthProvider] Unsubscribing from Supabase auth listener.");
             subscription.unsubscribe();
         };
     }, [checkSession]); // Depend on checkSession
 
     // --- Sign Up ---
     const signUp = async (credentials: SignUpCredentials): Promise<{ error: any } | { user: any }> => {
-        console.log(`[AuthProvider] signUp: Type: ${credentials.userType}, Email: ${credentials.email}`);
+        devLog(`[AuthProvider] signUp: Type: ${credentials.userType}, Email: ${credentials.email}`);
         setLoading(true);
         try {
             const { email, password, userType, firstName, lastName, username } = credentials;
             if (!email || !password || !userType) {
-                console.error('[AuthProvider] signUp: Missing required fields.');
+                devError('[AuthProvider] signUp: Missing required fields.');
                 return { error: new Error('Missing required fields (email, password, userType).') };
             }
 
             // This check is a safeguard. The UI should prevent this state.
             const emailCheckResult = await checkEmailExists(email);
             if (emailCheckResult.exists) {
-                console.error(`[AuthProvider] signUp: Email already exists. Message: ${emailCheckResult.error}`);
+                devError(`[AuthProvider] signUp: Email already exists. Message: ${emailCheckResult.error}`);
                 return { error: new Error(emailCheckResult.error || 'This email is already registered.') };
             }
             if (emailCheckResult.error && !emailCheckResult.exists) { // Only fail if there was an actual error, not just an existence message
-                console.error(`[AuthProvider] signUp: Error during pre-check for email. Message: ${emailCheckResult.error}`);
+                devError(`[AuthProvider] signUp: Error during pre-check for email. Message: ${emailCheckResult.error}`);
                 return { error: new Error(emailCheckResult.error) };
             }
 
-            console.log('[AuthProvider] signUp: Calling Supabase auth.signUp...');
+            devLog('[AuthProvider] signUp: Calling Supabase auth.signUp...');
             const { data: authData, error: authError } = await supabase.auth.signUp({
                 email, password, options: { data: { user_type: userType, /* optional: first_name, last_name */ } }
             });
             
             if (authError || !authData?.user) {
-                console.error('[AuthProvider] signUp: Supabase Auth Error:', JSON.stringify(authError, null, 2) || 'No user data returned');
+                devError('[AuthProvider] signUp: Supabase Auth Error:', JSON.stringify(authError, null, 2) || 'No user data returned');
                 
                 // Customize the error based on its type
                 if (authError?.message.includes('User already registered')) {
-                    console.error('[AuthProvider] signUp: Email already registered in Supabase auth');
+                    devError('[AuthProvider] signUp: Email already registered in Supabase auth');
                     
                     // Try to get more information about the existing user type
                     try {
@@ -1037,7 +1038,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         const oppositeUserType = userType === 'organizer' ? 'music_lover' : 'organizer';
                         const profileTable = oppositeUserType === 'organizer' ? 'organizer_profiles' : 'music_lover_profiles';
                         
-                        console.log(`[AuthProvider] signUp: Checking if email exists in ${profileTable} table...`);
+                        devLog(`[AuthProvider] signUp: Checking if email exists in ${profileTable} table...`);
                         const { count } = await supabase
                             .from(profileTable)
                             .select('*', { count: 'exact', head: true })
@@ -1048,7 +1049,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             return { error: new Error(`This email is already registered as ${friendlyType}. Please use a different email or login via the ${friendlyType} portal.`) };
                         }
                     } catch (e) {
-                        console.error('[AuthProvider] signUp: Error checking opposite profile table:', e);
+                        devError('[AuthProvider] signUp: Error checking opposite profile table:', e);
                     }
                     
                     // Default message if we couldn't determine more details
@@ -1063,24 +1064,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             }
             
             const userId = authData.user.id;
-            console.log('[AuthProvider] signUp: Auth user created:', userId);
+            devLog('[AuthProvider] signUp: Auth user created:', userId);
 
-            console.log('[AuthProvider] signUp: Upserting user type in DB...');
+            devLog('[AuthProvider] signUp: Upserting user type in DB...');
             const { error: upsertTypeError } = await supabase
                 .from('user_types').upsert({ user_id: userId, type: userType }, { onConflict: 'user_id' });
             if (upsertTypeError) {
-                console.error('[AuthProvider] signUp: DB type upsert failed:', upsertTypeError);
-                console.warn(`[AuthProvider] signUp: User ${userId} created, but failed DB user_type upsert. Relying on metadata.`);
+                devError('[AuthProvider] signUp: DB type upsert failed:', upsertTypeError);
+                devWarn(`[AuthProvider] signUp: User ${userId} created, but failed DB user_type upsert. Relying on metadata.`);
             } else {
-                console.log('[AuthProvider] signUp: DB user type upserted successfully.');
+                devLog('[AuthProvider] signUp: DB user type upserted successfully.');
             }
 
-            console.log('[AuthProvider] signUp: Success for user:', userId, 'Returning user object.');
+            devLog('[AuthProvider] signUp: Success for user:', userId, 'Returning user object.');
             // Listener will handle state update via SIGNED_IN -> checkSession
             return { user: authData.user };
 
         } catch (error: any) {
-            console.error('[AuthProvider] signUp: UNEXPECTED error:', error);
+            devError('[AuthProvider] signUp: UNEXPECTED error:', error);
             setLoading(false);
             return { error };
         }
@@ -1088,14 +1089,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
     // --- Create Music Lover Profile ---
     const createMusicLoverProfile = async (profileData: CreateMusicLoverProfileData): Promise<{ error: any } | { success: boolean; profilePictureUrl?: string | null }> => {
-        console.log(`[AuthProvider] createMusicLoverProfile: START user: ${profileData.userId}, Username: ${profileData.username}, Service: ${profileData.selectedStreamingService}`);
+        devLog(`[AuthProvider] createMusicLoverProfile: START user: ${profileData.userId}, Username: ${profileData.username}, Service: ${profileData.selectedStreamingService}`);
         setLoading(true);
         let publicImageUrl: string | null = null;
 
         try {
             // --- Basic Validation ---
             if (!profileData.userId || !profileData.firstName || !profileData.lastName || !profileData.username || !profileData.email || profileData.termsAccepted === undefined || !profileData.selectedStreamingService) {
-                console.error("[AuthProvider] createMusicLoverProfile: Missing required profile data.", profileData);
+                devError("[AuthProvider] createMusicLoverProfile: Missing required profile data.", profileData);
                 return { error: new Error("Missing required profile information (name, username, email, terms, streaming service).") };
             }
             if (/\s/.test(profileData.username)) {
@@ -1104,7 +1105,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
             // --- Handle Image Upload ---
             if (profileData.profilePictureUri) {
-                console.log('[AuthProvider] createMusicLoverProfile: Uploading profile picture...');
+                devLog('[AuthProvider] createMusicLoverProfile: Uploading profile picture...');
                 publicImageUrl = await _uploadImage(
                     profileData.userId,
                     profileData.profilePictureUri,
@@ -1113,12 +1114,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 );
 
                 if (publicImageUrl === null) {
-                    console.error('[AuthProvider] createMusicLoverProfile: Pic upload FAILED. Proceeding without saving URL.');
+                    devError('[AuthProvider] createMusicLoverProfile: Pic upload FAILED. Proceeding without saving URL.');
                 } else {
-                    console.log('[AuthProvider] createMusicLoverProfile: Pic uploaded successfully, URL:', publicImageUrl);
+                    devLog('[AuthProvider] createMusicLoverProfile: Pic uploaded successfully, URL:', publicImageUrl);
                 }
             } else {
-                console.log('[AuthProvider] createMusicLoverProfile: No profile picture provided.');
+                devLog('[AuthProvider] createMusicLoverProfile: No profile picture provided.');
             }
 
             // --- Prepare DB Data (Match DB Columns) ---
@@ -1149,7 +1150,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                  // Ensure all REQUIRED DB fields are present or have defaults
                 // music_data: {} // Example default if required and not nullable
             };
-            console.log('[AuthProvider] createMusicLoverProfile: Preparing to upsert profile data:', { 
+            devLog('[AuthProvider] createMusicLoverProfile: Preparing to upsert profile data:', { 
                 ...profileToInsert, 
                 profile_picture: profileToInsert.profile_picture ? 'URL exists' : 'null',
                 favorite_artists_type: typeof profileToInsert.favorite_artists,
@@ -1169,15 +1170,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 .single();
 
             if (upsertError) {
-                console.error('[AuthProvider] createMusicLoverProfile: Upsert FAILED:', JSON.stringify(upsertError, null, 2));
+                devError('[AuthProvider] createMusicLoverProfile: Upsert FAILED:', JSON.stringify(upsertError, null, 2));
                 if (upsertError.code === '23505' && upsertError.message.includes('username')) return { error: new Error('This username is already taken.') };
                 if (upsertError.code === '23505' && upsertError.message.includes('user_id')) {
-                    console.warn('[AuthProvider] createMusicLoverProfile: Profile already existed (user_id conflict), was updated.');
+                    devWarn('[AuthProvider] createMusicLoverProfile: Profile already existed (user_id conflict), was updated.');
                 } else {
                     return { error: new Error(`Failed to save profile details: ${upsertError.message}`) };
                 }
             }
-            console.log('[AuthProvider] createMusicLoverProfile: Upsert SUCCESS.', upsertData);
+            devLog('[AuthProvider] createMusicLoverProfile: Upsert SUCCESS.', upsertData);
 
             // Success! Return success flag and the image URL (if any).
             // The subsequent call to updatePremiumStatus will trigger checkSession and handle navigation.
@@ -1185,7 +1186,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             return { success: true, profilePictureUrl: publicImageUrl };
 
         } catch (error: any) {
-            console.error('[AuthProvider] createMusicLoverProfile: UNEXPECTED error:', error);
+            devError('[AuthProvider] createMusicLoverProfile: UNEXPECTED error:', error);
             return { error: new Error('An unexpected error occurred while saving your profile.') };
         } finally {
             setLoading(false);
@@ -1194,34 +1195,34 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
     // --- Create Organizer Profile ---
     const createOrganizerProfile = async (profileData: CreateOrganizerProfileData): Promise<{ error: any } | { success: boolean; logoUrl?: string | null }> => {
-        console.log('[AuthProvider] createOrganizerProfile: START user:', profileData.userId);
+        devLog('[AuthProvider] createOrganizerProfile: START user:', profileData.userId);
         setLoading(true);
         let publicLogoUrl: string | null = null;
 
         try {
             // --- Validation ---
             if (!profileData.userId || !profileData.companyName) {
-                console.error("[AuthProvider] createOrganizerProfile: Missing required profile data.");
+                devError("[AuthProvider] createOrganizerProfile: Missing required profile data.");
                 return { error: new Error("Missing required profile information (company name).") };
             }
 
             // Get email from the authenticated session
             const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
             if (sessionError) {
-                console.error("[AuthProvider] createOrganizerProfile: Error getting session:", sessionError);
+                devError("[AuthProvider] createOrganizerProfile: Error getting session:", sessionError);
                 return { error: new Error("Failed to get user session.") };
             }
             
             const email = sessionData?.session?.user?.email || profileData.email;
             if (!email) {
-                console.error("[AuthProvider] createOrganizerProfile: No email found in session or profile data.");
+                devError("[AuthProvider] createOrganizerProfile: No email found in session or profile data.");
                 return { error: new Error("Missing required email.") };
             }
-            console.log('[AuthProvider] createOrganizerProfile: Using email from session:', email);
+            devLog('[AuthProvider] createOrganizerProfile: Using email from session:', email);
 
             // --- Logo Upload ---
             if (profileData.logoUri) {
-                console.log('[AuthProvider] createOrganizerProfile: Uploading logo...');
+                devLog('[AuthProvider] createOrganizerProfile: Uploading logo...');
                 publicLogoUrl = await _uploadImage(
                     profileData.userId,
                     profileData.logoUri,
@@ -1229,12 +1230,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     profileData.logoMimeType // Pass hint
                 );
                 if (publicLogoUrl === null) {
-                    console.error('[AuthProvider] createOrganizerProfile: Logo upload FAILED. Proceeding without saving URL.');
+                    devError('[AuthProvider] createOrganizerProfile: Logo upload FAILED. Proceeding without saving URL.');
                 } else {
-                    console.log('[AuthProvider] createOrganizerProfile: Logo uploaded successfully.');
+                    devLog('[AuthProvider] createOrganizerProfile: Logo uploaded successfully.');
                 }
             } else {
-                console.log('[AuthProvider] createOrganizerProfile: No logo provided.');
+                devLog('[AuthProvider] createOrganizerProfile: No logo provided.');
             }
 
             // --- Prepare DB Data (Match DB Columns for organizer_profiles table) ---
@@ -1255,7 +1256,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 has_completed_tour: true, // Set to true by default, will be set to false after signup flow completes
                  // Ensure all REQUIRED DB fields are present or have defaults
             };
-            console.log('[AuthProvider] createOrganizerProfile: Preparing to upsert profile data:', { ...profileToInsert, logo: profileToInsert.logo ? 'URL exists' : 'null' });
+            devLog('[AuthProvider] createOrganizerProfile: Preparing to upsert profile data:', { ...profileToInsert, logo: profileToInsert.logo ? 'URL exists' : 'null' });
 
             // --- Upsert Profile in DB ---
             const client = supabaseAdmin || supabase; // Use admin client if available to bypass RLS
@@ -1266,18 +1267,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 .single();
 
             if (upsertError) {
-                console.error('[AuthProvider] createOrganizerProfile: Upsert FAILED:', JSON.stringify(upsertError, null, 2));
+                devError('[AuthProvider] createOrganizerProfile: Upsert FAILED:', JSON.stringify(upsertError, null, 2));
                 return { error: new Error(`Failed to save organizer profile: ${upsertError.message}`) };
             }
-            console.log('[AuthProvider] createOrganizerProfile: Upsert SUCCESS.', upsertData);
+            devLog('[AuthProvider] createOrganizerProfile: Upsert SUCCESS.', upsertData);
 
             // CRITICAL: Set user_type to organizer in metadata so checkSession (and root navigator)
             // never treats this user as music_lover — prevents redirect to MusicLoverSignUpFlow.
             try {
                 await supabase.auth.updateUser({ data: { user_type: 'organizer' } });
-                console.log('[AuthProvider] createOrganizerProfile: Set user_type=organizer in metadata.');
+                devLog('[AuthProvider] createOrganizerProfile: Set user_type=organizer in metadata.');
             } catch (metaErr) {
-                console.warn('[AuthProvider] createOrganizerProfile: Could not set user_type in metadata:', metaErr);
+                devWarn('[AuthProvider] createOrganizerProfile: Could not set user_type in metadata:', metaErr);
             }
 
             // Refresh session state; do NOT navigate — root navigator will show PaymentRequired.
@@ -1286,7 +1287,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             return { success: true, logoUrl: publicLogoUrl };
 
         } catch (error: any) {
-            console.error('[AuthProvider] createOrganizerProfile: UNEXPECTED error:', error);
+            devError('[AuthProvider] createOrganizerProfile: UNEXPECTED error:', error);
             return { error: new Error('An unexpected error occurred saving the organizer profile.') };
         } finally {
             setLoading(false);
@@ -1295,14 +1296,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
     // --- Update Organizer Profile ---
     const updateOrganizerProfile = async (userId: string, profileData: Partial<CreateOrganizerProfileData>): Promise<{ error: any } | { success: boolean; logoUrl?: string | null }> => {
-        console.log(`[AuthProvider] updateOrganizerProfile: START user: ${userId}`);
+        devLog(`[AuthProvider] updateOrganizerProfile: START user: ${userId}`);
         setLoading(true);
         let publicLogoUrl: string | null = null;
 
         try {
             // --- Logo Upload ---
             if (profileData.logoUri && !profileData.logoUri.startsWith('http')) {
-                console.log('[AuthProvider] updateOrganizerProfile: New logo provided, uploading...');
+                devLog('[AuthProvider] updateOrganizerProfile: New logo provided, uploading...');
                 publicLogoUrl = await _uploadImage(
                     userId,
                     profileData.logoUri,
@@ -1333,7 +1334,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             if (openingHours) profileToUpdate.opening_hours = openingHours;
             if (publicLogoUrl) profileToUpdate.logo = publicLogoUrl;
 
-            console.log('[AuthProvider] updateOrganizerProfile: Preparing to update profile data with:', profileToUpdate);
+            devLog('[AuthProvider] updateOrganizerProfile: Preparing to update profile data with:', profileToUpdate);
 
             // --- Update Profile in DB ---
             const client = supabaseAdmin || supabase;
@@ -1343,10 +1344,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 .eq('user_id', userId);
 
             if (updateError) {
-                console.error('[AuthProvider] updateOrganizerProfile: Update FAILED:', JSON.stringify(updateError, null, 2));
+                devError('[AuthProvider] updateOrganizerProfile: Update FAILED:', JSON.stringify(updateError, null, 2));
                 return { error: new Error(`Failed to update organizer profile: ${updateError.message}`) };
             }
-            console.log('[AuthProvider] updateOrganizerProfile: Update SUCCESS.');
+            devLog('[AuthProvider] updateOrganizerProfile: Update SUCCESS.');
 
             // --- Refresh Session ---
             await refreshSessionData();
@@ -1354,7 +1355,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             return { success: true, logoUrl: publicLogoUrl };
 
         } catch (error: any) {
-            console.error('[AuthProvider] updateOrganizerProfile: UNEXPECTED error:', error);
+            devError('[AuthProvider] updateOrganizerProfile: UNEXPECTED error:', error);
             return { error: new Error('An unexpected error occurred updating the organizer profile.') };
         } finally {
             setLoading(false);
@@ -1363,10 +1364,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
     // --- Update Premium Status ---
     const updatePremiumStatus = async (userId: string, isPremium: boolean): Promise<{ error: any } | { success: boolean }> => {
-        console.log(`[AuthProvider] updatePremiumStatus: Setting premium=${isPremium} for user ${userId}`);
+        devLog(`[AuthProvider] updatePremiumStatus: Setting premium=${isPremium} for user ${userId}`);
         setLoading(true);
         try {
-            console.log('[AuthPremium] Updating \'is_premium\' flag in music_lover_profiles for ' + userId + '...');
+            devLog('[AuthPremium] Updating \'is_premium\' flag in music_lover_profiles for ' + userId + '...');
             
             // Use admin client if available to bypass RLS
             const client = supabaseAdmin || supabase;
@@ -1395,7 +1396,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 .eq('user_id', userId); // Use user_id
 
             if (updateError) {
-                console.error('[AuthPremium] Error updating premium status:', updateError);
+                devError('[AuthPremium] Error updating premium status:', updateError);
                 return { error: new Error(`Failed to update premium status: ${updateError.message}`) };
             }
 
@@ -1403,12 +1404,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             // Add logic here if needed for subscriptions/payments tables
 
             // --- Refresh session AND NAVIGATE ---
-            console.log(`[AuthProvider] updatePremiumStatus: Calling checkSession with navigate=true after status update for ${userId}...`);
+            devLog(`[AuthProvider] updatePremiumStatus: Calling checkSession with navigate=true after status update for ${userId}...`);
             await checkSession({ navigateToProfile: true });
 
             return { success: true };
         } catch (error: any) {
-            console.error('[AuthProvider] updatePremiumStatus: UNEXPECTED error:', error);
+            devError('[AuthProvider] updatePremiumStatus: UNEXPECTED error:', error);
             return { error: new Error('An unexpected error occurred while updating premium status.') };
         } finally {
             setLoading(false);
@@ -1417,8 +1418,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
     // --- Login ---
     const login = async (credentials: LoginCredentials): Promise<{ error: any } | { user: any }> => {
-        console.log(`[AuthProvider] login: Starting login process`);
-        console.log(`[AuthProvider] login: Credentials received - Type: ${credentials.userType}, Email: ${credentials.email}, Username: ${credentials.username}`);
+        devLog(`[AuthProvider] login: Starting login process`);
+        devLog(`[AuthProvider] login: Credentials received - Type: ${credentials.userType}, Email: ${credentials.email}, Username: ${credentials.username}`);
         
         // Set flag to prevent auth state change listener from navigating prematurely
         isManualAuthInProgress.current = true;
@@ -1428,7 +1429,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             
             // Validate required fields
             if ((!email && !username) || !password || !userType) {
-                console.error('[AuthProvider] login: Missing required fields.');
+                devError('[AuthProvider] login: Missing required fields.');
                 isManualAuthInProgress.current = false;
                 return { error: new Error('Please enter email/username, password, and select account type.') };
             }
@@ -1436,13 +1437,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             // First try to authenticate with the provided input as email
             const loginInput = email || username;
             if (!loginInput) {
-                console.error('[AuthProvider] login: No login input provided');
+                devError('[AuthProvider] login: No login input provided');
                 isManualAuthInProgress.current = false;
                 return { error: new Error('Please enter email/username and password.') };
             }
 
             // Try to authenticate with the input as email first
-            console.log('[AuthProvider] login: First attempt - trying input as email:', loginInput);
+            devLog('[AuthProvider] login: First attempt - trying input as email:', loginInput);
             const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
                 email: loginInput,
                 password
@@ -1450,7 +1451,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
             // If email authentication fails, try username lookup
             if (loginError) {
-                console.log('[AuthProvider] login: Email authentication failed, trying username lookup for:', loginInput);
+                devLog('[AuthProvider] login: Email authentication failed, trying username lookup for:', loginInput);
                 const { data: profileData, error: profileError } = await supabase
                     .from('music_lover_profiles')
                     .select('email, user_id')
@@ -1458,13 +1459,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     .single();
 
                 if (profileError || !profileData?.email) {
-                    console.error('[AuthProvider] login: Username lookup failed:', profileError);
+                    devError('[AuthProvider] login: Username lookup failed:', profileError);
                     isManualAuthInProgress.current = false;
                     return { error: { message: 'Invalid email/username or password.' } };
                 }
 
                 const loginEmail = profileData.email;
-                console.log('[AuthProvider] login: Found email for username:', loginEmail);
+                devLog('[AuthProvider] login: Found email for username:', loginEmail);
 
                 // Try authentication again with the looked-up email
                 const { data: retryLoginData, error: retryLoginError } = await supabase.auth.signInWithPassword({
@@ -1473,22 +1474,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 });
 
                 if (retryLoginError) {
-                    console.error("[AuthProvider] login: Supabase signIn Error after username lookup:", retryLoginError);
+                    devError("[AuthProvider] login: Supabase signIn Error after username lookup:", retryLoginError);
                     isManualAuthInProgress.current = false;
                     return { error: { message: 'Invalid email/username or password.' } };
                 }
 
                 if (!retryLoginData?.user) {
-                    console.error('[AuthProvider] login: Login successful but no user data returned.');
+                    devError('[AuthProvider] login: Login successful but no user data returned.');
                     isManualAuthInProgress.current = false;
                     return { error: new Error('Login failed: Could not retrieve user data.') };
                 }
 
-                console.log('[AuthProvider] login: Successfully authenticated user via username:', retryLoginData.user.id);
+                devLog('[AuthProvider] login: Successfully authenticated user via username:', retryLoginData.user.id);
                 const userId = retryLoginData.user.id;
 
                 // --- Verify User Type from DB --- 
-                console.log('[AuthProvider] login: Verifying user type from DB...');
+                devLog('[AuthProvider] login: Verifying user type from DB...');
                 const { data: typeData, error: typeError } = await supabase
                     .from('user_types') 
                     .select('type')
@@ -1496,7 +1497,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     .single();
 
                 if (typeError || !typeData) {
-                    console.error(`[AuthProvider] login: Failed to verify DB user type for ${userId}:`, typeError || 'No type data found');
+                    devError(`[AuthProvider] login: Failed to verify DB user type for ${userId}:`, typeError || 'No type data found');
                     await logout();
                     setLoading(false);
                     isManualAuthInProgress.current = false;
@@ -1504,26 +1505,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 }
 
                 const dbUserType = typeData.type as UserTypes;
-                console.log(`[AuthProvider] login: DB user type confirmed as: ${dbUserType}`);
+                devLog(`[AuthProvider] login: DB user type confirmed as: ${dbUserType}`);
 
                 if (dbUserType !== userType) {
-                    console.warn(`[AuthProvider] login: TYPE MISMATCH! User ${userId} tried logging in via ${userType} portal, but DB type is ${dbUserType}.`);
+                    devWarn(`[AuthProvider] login: TYPE MISMATCH! User ${userId} tried logging in via ${userType} portal, but DB type is ${dbUserType}.`);
                     await logout();
                     setLoading(false);
                     isManualAuthInProgress.current = false;
                     return { error: { message: `Incorrect login portal. This account is registered as a ${dbUserType === 'music_lover' ? 'Music Lover' : 'Organizer'}. Please use the correct login page.` } };
                 }
 
-                console.log('[AuthProvider] login: User type verified. Updating user metadata and calling checkSession...');
+                devLog('[AuthProvider] login: User type verified. Updating user metadata and calling checkSession...');
                 
                 // CRITICAL: Update user metadata with the correct user type before checkSession
                 try {
                     await supabase.auth.updateUser({
                         data: { user_type: dbUserType }
                     });
-                    console.log(`[AuthProvider] login: ✅ Updated user metadata with user_type: ${dbUserType}`);
+                    devLog(`[AuthProvider] login: ✅ Updated user metadata with user_type: ${dbUserType}`);
                 } catch (metadataError) {
-                    console.error("[AuthProvider] login: ❌ Failed to update user metadata:", metadataError);
+                    devError("[AuthProvider] login: ❌ Failed to update user metadata:", metadataError);
                     // Don't fail the login if metadata update fails
                 }
                 
@@ -1538,16 +1539,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
             // If we get here, the first email authentication attempt was successful
             if (!loginData?.user) {
-                console.error('[AuthProvider] login: Login successful but no user data returned.');
+                devError('[AuthProvider] login: Login successful but no user data returned.');
                 isManualAuthInProgress.current = false;
                 return { error: new Error('Login failed: Could not retrieve user data.') };
             }
 
-            console.log('[AuthProvider] login: Successfully authenticated user via email:', loginData.user.id);
+            devLog('[AuthProvider] login: Successfully authenticated user via email:', loginData.user.id);
             const userId = loginData.user.id;
 
             // --- Verify User Type from DB --- 
-            console.log('[AuthProvider] login: Verifying user type from DB...');
+            devLog('[AuthProvider] login: Verifying user type from DB...');
             const { data: typeData, error: typeError } = await supabase
                 .from('user_types') 
                 .select('type')
@@ -1555,7 +1556,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 .single();
 
             if (typeError || !typeData) {
-                console.error(`[AuthProvider] login: Failed to verify DB user type for ${userId}:`, typeError || 'No type data found');
+                devError(`[AuthProvider] login: Failed to verify DB user type for ${userId}:`, typeError || 'No type data found');
                 await logout();
                 setLoading(false);
                 isManualAuthInProgress.current = false;
@@ -1563,26 +1564,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             }
 
             const dbUserType = typeData.type as UserTypes;
-            console.log(`[AuthProvider] login: DB user type confirmed as: ${dbUserType}`);
+            devLog(`[AuthProvider] login: DB user type confirmed as: ${dbUserType}`);
 
             if (dbUserType !== userType) {
-                console.warn(`[AuthProvider] login: TYPE MISMATCH! User ${userId} tried logging in via ${userType} portal, but DB type is ${dbUserType}.`);
+                devWarn(`[AuthProvider] login: TYPE MISMATCH! User ${userId} tried logging in via ${userType} portal, but DB type is ${dbUserType}.`);
                 await logout();
                 setLoading(false);
                 isManualAuthInProgress.current = false;
                 return { error: { message: `Incorrect login portal. This account is registered as a ${dbUserType === 'music_lover' ? 'Music Lover' : 'Organizer'}. Please use the correct login page.` } };
             }
 
-            console.log('[AuthProvider] login: User type verified. Updating user metadata and calling checkSession...');
+            devLog('[AuthProvider] login: User type verified. Updating user metadata and calling checkSession...');
             
             // CRITICAL: Update user metadata with the correct user type before checkSession
             try {
                 await supabase.auth.updateUser({
                     data: { user_type: dbUserType }
                 });
-                console.log(`[AuthProvider] login: ✅ Updated user metadata with user_type: ${dbUserType}`);
+                devLog(`[AuthProvider] login: ✅ Updated user metadata with user_type: ${dbUserType}`);
             } catch (metadataError) {
-                console.error("[AuthProvider] login: ❌ Failed to update user metadata:", metadataError);
+                devError("[AuthProvider] login: ❌ Failed to update user metadata:", metadataError);
                 // Don't fail the login if metadata update fails
             }
             
@@ -1594,7 +1595,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             return { user: loginData.user };
 
         } catch (error: any) {
-            console.error('[AuthProvider] login: UNEXPECTED error:', error);
+            devError('[AuthProvider] login: UNEXPECTED error:', error);
             setLoading(false);
             
             // Clear the flag on error
@@ -1605,29 +1606,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
     // --- Logout ---
     const logout = async () => {
-        console.log('[AuthProvider] logout: Initiating logout...');
+        devLog('[AuthProvider] logout: Initiating logout...');
         setLoading(true);
         try {
             // Remove push tokens before logging out
             if (session?.user?.id) {
                 try {
                     await NotificationService.removePushToken(session.user.id);
-                    console.log('[AuthProvider] logout: Push tokens removed successfully');
+                    devLog('[AuthProvider] logout: Push tokens removed successfully');
                 } catch (tokenError) {
-                    console.error('[AuthProvider] logout: Error removing push tokens:', tokenError);
+                    devError('[AuthProvider] logout: Error removing push tokens:', tokenError);
                 }
             }
 
             const { error } = await supabase.auth.signOut();
             if (error) {
-                console.error("[AuthProvider] logout: Supabase signOut Error:", error);
+                devError("[AuthProvider] logout: Supabase signOut Error:", error);
             } else {
-                console.log("[AuthProvider] logout: Supabase signOut successful.");
+                devLog("[AuthProvider] logout: Supabase signOut successful.");
             }
         } catch (e) {
-            console.error("[AuthProvider] logout: UNEXPECTED error during Supabase signOut call:", e);
+            devError("[AuthProvider] logout: UNEXPECTED error during Supabase signOut call:", e);
         } finally {
-            console.log("[AuthProvider] logout: Clearing local session state and resetting mode.");
+            devLog("[AuthProvider] logout: Clearing local session state and resetting mode.");
             setSession(null);
             setMusicLoverProfile(null);
             setOrganizerProfile(null);
@@ -1640,22 +1641,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
                 localStorage.removeItem('NAVIGATION_STATE_V2');
                 localStorage.removeItem('NAVIGATION_USER_ID');
-                console.log('[AuthProvider] logout: Cleared navigation state from localStorage');
+                devLog('[AuthProvider] logout: Cleared navigation state from localStorage');
             } else {
                 // Clear navigation state from AsyncStorage on mobile
                 try {
                     await AsyncStorage.removeItem('@vybr_navigation_state');
                     await AsyncStorage.removeItem('@vybr_navigation_user_id');
-                    console.log('[AuthProvider] logout: Cleared navigation state from AsyncStorage');
+                    devLog('[AuthProvider] logout: Cleared navigation state from AsyncStorage');
                 } catch (navClearError) {
-                    console.error('[AuthProvider] logout: Error clearing navigation state:', navClearError);
+                    devError('[AuthProvider] logout: Error clearing navigation state:', navClearError);
                 }
             }
         }
     };
 
     const checkUsernameExists = async (username: string): Promise<{ exists: boolean, error?: string }> => {
-        console.log(`[AuthProvider] checkUsernameExists: Checking username "${username}"`);
+        devLog(`[AuthProvider] checkUsernameExists: Checking username "${username}"`);
         if (!username || username.trim().length < 3) {
             // Basic client-side check, though MusicLoverSignUpFlow also does this
             return { exists: false, error: "Username must be at least 3 characters." };
@@ -1668,13 +1669,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 .eq('username', username.trim());
 
             if (mlError) {
-                console.error('[AuthProvider] checkUsernameExists: Supabase error:', mlError);
+                devError('[AuthProvider] checkUsernameExists: Supabase error:', mlError);
                 return { exists: false, error: `Error checking username: ${mlError.message}` };
             }
 
             // If found in music_lover_profiles, return early
             if (mlCount !== null && mlCount > 0) {
-                console.log(`[AuthProvider] checkUsernameExists: Username "${username}" exists in music_lover_profiles`);
+                devLog(`[AuthProvider] checkUsernameExists: Username "${username}" exists in music_lover_profiles`);
                 return { exists: true };
             }
 
@@ -1686,43 +1687,43 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 .eq('company_name', username.trim());
 
             if (orgError) {
-                console.error('[AuthProvider] checkUsernameExists: Supabase error checking organizer_profiles:', orgError);
+                devError('[AuthProvider] checkUsernameExists: Supabase error checking organizer_profiles:', orgError);
                 return { exists: false, error: `Error checking username: ${orgError.message}` };
             }
  
             const totalCount = (mlCount || 0) + (orgCount || 0);
-            console.log(`[AuthProvider] checkUsernameExists: Count for username "${username}": ${totalCount} (ML: ${mlCount}, Org: ${orgCount})`);
+            devLog(`[AuthProvider] checkUsernameExists: Count for username "${username}": ${totalCount} (ML: ${mlCount}, Org: ${orgCount})`);
             return { exists: totalCount > 0 };
  
         } catch (e: any) {
-            console.error('[AuthProvider] checkUsernameExists: Unexpected error:', e);
+            devError('[AuthProvider] checkUsernameExists: Unexpected error:', e);
             return { exists: false, error: 'An unexpected error occurred while checking username.' };
         }
     };
  
     // This function verifies if an email is real using the verify-email-api edge function
     const verifyEmailIsReal = async (email: string): Promise<{ isValid: boolean, error?: string }> => {
-        console.log(`[AuthProvider] verifyEmailIsReal: Verifying if email "${email}" is real`);
+        devLog(`[AuthProvider] verifyEmailIsReal: Verifying if email "${email}" is real`);
         try {
             const { data, error } = await supabase.functions.invoke('verify-email-api', {
                 body: { email: email.trim() }
             });
 
             if (error) {
-                console.error('[AuthProvider] verifyEmailIsReal: Edge function error:', error);
+                devError('[AuthProvider] verifyEmailIsReal: Edge function error:', error);
                 return { isValid: false, error: 'Could not verify email at this time.' };
             }
 
             return { isValid: !!data?.isValid, error: data?.error };
         } catch (e: any) {
-            console.error('[AuthProvider] verifyEmailIsReal: Unexpected error:', e);
+            devError('[AuthProvider] verifyEmailIsReal: Unexpected error:', e);
             return { isValid: false, error: 'An unexpected error occurred while verifying email.' };
         }
     };
 
     // This function checks both music_lover_profiles and organizer_profiles
     const checkEmailExists = async (email: string): Promise<{ exists: boolean, error?: string }> => {
-        console.log(`[AuthProvider] checkEmailExists: Checking email "${email}" across all profiles`);
+        devLog(`[AuthProvider] checkEmailExists: Checking email "${email}" across all profiles`);
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!email || !emailRegex.test(email.trim())) {
             return { exists: false, error: "Invalid email format." };
@@ -1737,7 +1738,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 .eq('email', trimmedEmail);
  
             if (mlError) {
-                console.error('[AuthProvider] Supabase error checking music_lover_profiles:', mlError);
+                devError('[AuthProvider] Supabase error checking music_lover_profiles:', mlError);
                 return { exists: false, error: `Error checking email: ${mlError.message}` };
             }
  
@@ -1752,7 +1753,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 .eq('email', trimmedEmail);
  
             if (orgError) {
-                console.error('[AuthProvider] Supabase error checking organizer_profiles:', orgError);
+                devError('[AuthProvider] Supabase error checking organizer_profiles:', orgError);
                 return { exists: false, error: `Error checking email: ${orgError.message}` };
             }
  
@@ -1764,7 +1765,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             return { exists: false };
  
         } catch (e: any) {
-            console.error('[AuthProvider] Unexpected error in checkEmailExists:', e);
+            devError('[AuthProvider] Unexpected error in checkEmailExists:', e);
             return { exists: false, error: 'An unexpected error occurred while checking email.' };
         }
     };
@@ -1772,7 +1773,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     // Function to verify Google authentication was completed successfully
     const verifyGoogleAuthCompleted = async (): Promise<boolean> => {
         if (!session) {
-            console.log('[useAuth] No session available, Google authorization not complete');
+            devLog('[useAuth] No session available, Google authorization not complete');
             return false;
         }
         
@@ -1781,18 +1782,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             const { data, error } = await supabase.auth.getUser();
             
             if (error) {
-                console.error('[useAuth] Error validating Google auth token:', error);
+                devError('[useAuth] Error validating Google auth token:', error);
                 return false;
             }
             
             if (data?.user) {
-                console.log('[useAuth] Google auth token validation successful');
+                devLog('[useAuth] Google auth token validation successful');
                 return true;
             }
             
             return false;
         } catch (err) {
-            console.error('[useAuth] Error during Google auth verification:', err);
+            devError('[useAuth] Error during Google auth verification:', err);
             return false;
         }
     };
@@ -1805,13 +1806,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         isManualAuthInProgress.current = true;
         
         try {
-            console.log('[useAuth] 🚀 Starting Google Sign-In...');
-            console.log('[useAuth] 📱 Platform:', Platform.OS);
-            console.log('[useAuth] 🌐 Current URL:', typeof window !== 'undefined' && window.location ? window.location.href : 'N/A');
+            devLog('[useAuth] 🚀 Starting Google Sign-In...');
+            devLog('[useAuth] 📱 Platform:', Platform.OS);
+            devLog('[useAuth] 🌐 Current URL:', typeof window !== 'undefined' && window.location ? window.location.href : 'N/A');
             
             if (Platform.OS === 'web') {
                 // For web, use Supabase's built-in OAuth with popup
-                console.log('[useAuth] 🌐 Using web OAuth flow with popup');
+                devLog('[useAuth] 🌐 Using web OAuth flow with popup');
                 
                 const { data, error } = await supabase.auth.signInWithOAuth({
                     provider: 'google',
@@ -1826,17 +1827,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 });
                 
                 if (error) {
-                    console.error('[useAuth] ❌ Google OAuth initiation error:', error);
+                    devError('[useAuth] ❌ Google OAuth initiation error:', error);
                     setLoading(false);
                     return { error };
                 }
                 
-                console.log('[useAuth] ✅ OAuth URL received:', data?.url ? data.url.substring(0, 100) + '...' : 'No URL');
+                devLog('[useAuth] ✅ OAuth URL received:', data?.url ? data.url.substring(0, 100) + '...' : 'No URL');
                 
                 // Open popup manually with the OAuth URL
                 let popup: Window | null = null;
                 if (data?.url) {
-                    console.log('[useAuth] 🪟 Opening OAuth popup...');
+                    devLog('[useAuth] 🪟 Opening OAuth popup...');
                     popup = window.open(
                         data.url, 
                         'google-oauth', 
@@ -1844,11 +1845,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     );
                     
                     if (!popup) {
-                        console.error('[useAuth] ❌ Popup blocked by browser');
+                        devError('[useAuth] ❌ Popup blocked by browser');
                         setLoading(false);
                         return { error: { message: "Popup blocked. Please allow popups for this site." } };
                     }
-                    console.log('[useAuth] ✅ Popup opened successfully');
+                    devLog('[useAuth] ✅ Popup opened successfully');
                 }
                 
                 // Wait for the authentication to complete by listening for session changes
@@ -1857,35 +1858,35 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     const maxAttempts = 120; // 60 seconds timeout
                     let resolved = false;
                     
-                    console.log('[useAuth] 👂 Setting up auth state listener...');
+                    devLog('[useAuth] 👂 Setting up auth state listener...');
                     
                     // Listen for auth state changes
                     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
                         if (resolved) return;
                         
-                        console.log('[useAuth] 📡 Auth state change:', event, session?.user ? 'User present' : 'No user');
+                        devLog('[useAuth] 📡 Auth state change:', event, session?.user ? 'User present' : 'No user');
                         
                         if (event === 'SIGNED_IN' && session?.user) {
-                            console.log('[useAuth] ✅ Google authentication successful via auth state change');
-                            console.log('[useAuth] 👤 User ID:', session.user.id);
-                            console.log('[useAuth] 📧 User email:', session.user.email);
-                            console.log('[useAuth] 🔍 Full user object:', session.user);
+                            devLog('[useAuth] ✅ Google authentication successful via auth state change');
+                            devLog('[useAuth] 👤 User ID:', session.user.id);
+                            devLog('[useAuth] 📧 User email:', session.user.email);
+                            devLog('[useAuth] 🔍 Full user object:', session.user);
                             
                             // CRITICAL: Verify the user actually exists in auth.users
-                            console.log('[useAuth] 🔍 Verifying user exists in database...');
+                            devLog('[useAuth] 🔍 Verifying user exists in database...');
                             try {
                                 const { data: userCheck, error: userCheckError } = await supabase.auth.getUser();
-                                console.log('[useAuth] 📊 User verification result:', {
+                                devLog('[useAuth] 📊 User verification result:', {
                                     hasUser: !!userCheck?.user,
                                     userId: userCheck?.user?.id,
                                     error: userCheckError
                                 });
                                 
                                 if (userCheckError) {
-                                    console.error('[useAuth] ❌ User verification failed:', userCheckError);
+                                    devError('[useAuth] ❌ User verification failed:', userCheckError);
                                     
                                     // CRITICAL: Try to diagnose the issue
-                                    console.log('[useAuth] 🔍 Diagnosing OAuth user creation issue...');
+                                    devLog('[useAuth] 🔍 Diagnosing OAuth user creation issue...');
                                     
                                     // Check if we can see the user in public.users
                                     try {
@@ -1895,16 +1896,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                             .eq('id', session.user.id)
                                             .single();
                                         
-                                        console.log('[useAuth] 📊 Public users check:', {
+                                        devLog('[useAuth] 📊 Public users check:', {
                                             found: !!publicUserCheck,
                                             error: publicError?.message
                                         });
                                     } catch (publicCheckError) {
-                                        console.error('[useAuth] ❌ Could not check public.users:', publicCheckError);
+                                        devError('[useAuth] ❌ Could not check public.users:', publicCheckError);
                                     }
                                     
                                     // Try to manually create the user record
-                                    console.log('[useAuth] 🔧 Attempting to manually create user record...');
+                                    devLog('[useAuth] 🔧 Attempting to manually create user record...');
                                     try {
                                         const currentPath = Platform.OS === 'web' ? window.location.pathname : '';
                                         const userType = currentPath.includes('MusicLover') ? 'music_lover' : 'organizer';
@@ -1919,13 +1920,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                             .select()
                                             .single();
                                         
-                                        console.log('[useAuth] 📊 Manual user creation result:', {
+                                        devLog('[useAuth] 📊 Manual user creation result:', {
                                             success: !!manualUserCreate,
                                             error: manualError?.message
                                         });
                                         
                                         if (manualUserCreate) {
-                                            console.log('[useAuth] ✅ Successfully created user record manually');
+                                            devLog('[useAuth] ✅ Successfully created user record manually');
                                             // Continue with the flow
                                         } else {
                                             resolved = true;
@@ -1936,7 +1937,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                             return;
                                         }
                                     } catch (manualCreateError) {
-                                        console.error('[useAuth] ❌ Manual user creation failed:', manualCreateError);
+                                        devError('[useAuth] ❌ Manual user creation failed:', manualCreateError);
                                         resolved = true;
                                         setLoading(false);
                                         if (popup) popup.close();
@@ -1946,7 +1947,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                     }
                                 }
                             } catch (verifyError) {
-                                console.error('[useAuth] ❌ Error verifying user:', verifyError);
+                                devError('[useAuth] ❌ Error verifying user:', verifyError);
                             }
                             
                             resolved = true;
@@ -1954,9 +1955,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             if (popup) {
                                 try {
                                     popup.close();
-                                    console.log('[useAuth] 🪟 Popup closed');
+                                    devLog('[useAuth] 🪟 Popup closed');
                                 } catch (e) {
-                                    console.log('[useAuth] 🪟 Could not close popup (expected with COOP)');
+                                    devLog('[useAuth] 🪟 Could not close popup (expected with COOP)');
                                 }
                             }
                             authListener.subscription.unsubscribe();
@@ -1971,13 +1972,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             // First, try to determine from URL path with more specific checks
                             if (currentPath.includes('MusicLover') || currentPath.includes('/music-lover') || currentPath.includes('MusicLoverSignUpFlow')) {
                                 userType = 'music_lover';
-                                console.log('[useAuth] 🏷️ User type determined from URL path (music_lover):', currentPath);
+                                devLog('[useAuth] 🏷️ User type determined from URL path (music_lover):', currentPath);
                             } else if (currentPath.includes('Organizer') || currentPath.includes('/organizer') || currentPath.includes('OrganizerSignUpFlow')) {
                                 userType = 'organizer';
-                                console.log('[useAuth] 🏷️ User type determined from URL path (organizer):', currentPath);
+                                devLog('[useAuth] 🏷️ User type determined from URL path (organizer):', currentPath);
                             } else {
                                 // If URL path is ambiguous, check if user already exists in database
-                                console.log('[useAuth] 🔍 URL path is ambiguous, checking existing user profiles...');
+                                devLog('[useAuth] 🔍 URL path is ambiguous, checking existing user profiles...');
                                 try {
                                     // Check if user already has profiles in database
                                     const [musicLoverResult, organizerResult] = await Promise.all([
@@ -1987,31 +1988,31 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                     
                                     if (musicLoverResult.data && !organizerResult.data) {
                                         userType = 'music_lover';
-                                        console.log('[useAuth] 🏷️ User type determined from existing music lover profile');
+                                        devLog('[useAuth] 🏷️ User type determined from existing music lover profile');
                                     } else if (organizerResult.data && !musicLoverResult.data) {
                                         userType = 'organizer';
-                                        console.log('[useAuth] 🏷️ User type determined from existing organizer profile');
+                                        devLog('[useAuth] 🏷️ User type determined from existing organizer profile');
                                     } else {
                                         // If user has both profiles or no profiles, default to music_lover (more common)
                                         userType = 'music_lover';
-                                        console.log('[useAuth] 🏷️ User type defaulted to music_lover (ambiguous case)');
+                                        devLog('[useAuth] 🏷️ User type defaulted to music_lover (ambiguous case)');
                                     }
                                 } catch (profileCheckError) {
-                                    console.error('[useAuth] ❌ Error checking existing profiles:', profileCheckError);
+                                    devError('[useAuth] ❌ Error checking existing profiles:', profileCheckError);
                                     // Default to music_lover as fallback
                                     userType = 'music_lover';
-                                    console.log('[useAuth] 🏷️ User type defaulted to music_lover (error case)');
+                                    devLog('[useAuth] 🏷️ User type defaulted to music_lover (error case)');
                                 }
                             }
                             
-                            console.log('[useAuth] 🏷️ Setting user_type immediately:', userType, 'based on path:', currentPath);
+                            devLog('[useAuth] 🏷️ Setting user_type immediately:', userType, 'based on path:', currentPath);
                             try {
                                 await supabase.auth.updateUser({
                                     data: { user_type: userType }
                                 });
-                                console.log('[useAuth] ✅ User type set successfully:', userType);
+                                devLog('[useAuth] ✅ User type set successfully:', userType);
                             } catch (metaError) {
-                                console.error('[useAuth] ❌ Error setting user_type:', metaError);
+                                devError('[useAuth] ❌ Error setting user_type:', metaError);
                                 // Don't fail the whole process if metadata update fails
                             }
                             
@@ -2019,7 +2020,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 isManualAuthInProgress.current = false;
                                 resolve({ user: session.user });
                         } else if (event === 'SIGNED_OUT') {
-                            console.log('[useAuth] ❌ Authentication was cancelled or failed');
+                            devLog('[useAuth] ❌ Authentication was cancelled or failed');
                         }
                     });
                     
@@ -2028,32 +2029,32 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         if (resolved) return;
                         
                         attempts++;
-                        console.log('[useAuth] 🔄 Polling attempt:', attempts, '/', maxAttempts);
+                        devLog('[useAuth] 🔄 Polling attempt:', attempts, '/', maxAttempts);
                         
                         try {
                             const { data: sessionData } = await supabase.auth.getSession();
                             
                             if (sessionData?.session?.user) {
-                                console.log('[useAuth] ✅ Google authentication successful via polling');
-                                console.log('[useAuth] 👤 User ID:', sessionData.session.user.id);
-                                console.log('[useAuth] 📧 User email:', sessionData.session.user.email);
-                                console.log('[useAuth] 🔍 Full user object (polling):', sessionData.session.user);
+                                devLog('[useAuth] ✅ Google authentication successful via polling');
+                                devLog('[useAuth] 👤 User ID:', sessionData.session.user.id);
+                                devLog('[useAuth] 📧 User email:', sessionData.session.user.email);
+                                devLog('[useAuth] 🔍 Full user object (polling):', sessionData.session.user);
                                 
                                 // CRITICAL: Verify the user actually exists in auth.users
-                                console.log('[useAuth] 🔍 Verifying user exists in database (polling)...');
+                                devLog('[useAuth] 🔍 Verifying user exists in database (polling)...');
                                 try {
                                     const { data: userCheck, error: userCheckError } = await supabase.auth.getUser();
-                                    console.log('[useAuth] 📊 User verification result (polling):', {
+                                    devLog('[useAuth] 📊 User verification result (polling):', {
                                         hasUser: !!userCheck?.user,
                                         userId: userCheck?.user?.id,
                                         error: userCheckError
                                     });
                                     
                                     if (userCheckError) {
-                                        console.error('[useAuth] ❌ User verification failed (polling):', userCheckError);
+                                        devError('[useAuth] ❌ User verification failed (polling):', userCheckError);
                                         
                                         // CRITICAL: Try to diagnose the issue
-                                        console.log('[useAuth] 🔍 Diagnosing OAuth user creation issue...');
+                                        devLog('[useAuth] 🔍 Diagnosing OAuth user creation issue...');
                                         
                                         // Check if we can see the user in auth.users directly
                                         try {
@@ -2063,12 +2064,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                                 .eq('id', sessionData.session.user.id)
                                                 .single();
                                             
-                                            console.log('[useAuth] 📊 Direct auth.users check:', {
+                                            devLog('[useAuth] 📊 Direct auth.users check:', {
                                                 found: !!directUserCheck,
                                                 error: directError?.message
                                             });
                                         } catch (directCheckError) {
-                                            console.error('[useAuth] ❌ Could not check auth.users directly:', directCheckError);
+                                            devError('[useAuth] ❌ Could not check auth.users directly:', directCheckError);
                                         }
                                         
                                         // Check if we can see the user in public.users
@@ -2079,16 +2080,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                                 .eq('id', sessionData.session.user.id)
                                                 .single();
                                             
-                                            console.log('[useAuth] 📊 Public users check:', {
+                                            devLog('[useAuth] 📊 Public users check:', {
                                                 found: !!publicUserCheck,
                                                 error: publicError?.message
                                             });
                                         } catch (publicCheckError) {
-                                            console.error('[useAuth] ❌ Could not check public.users:', publicCheckError);
+                                            devError('[useAuth] ❌ Could not check public.users:', publicCheckError);
                                         }
                                         
                                         // Try to manually create the user record
-                                        console.log('[useAuth] 🔧 Attempting to manually create user record...');
+                                        devLog('[useAuth] 🔧 Attempting to manually create user record...');
                                         try {
                                             const { data: manualUserCreate, error: manualError } = await supabase
                                                 .from('users')
@@ -2100,13 +2101,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                                 .select()
                                                 .single();
                                             
-                                            console.log('[useAuth] 📊 Manual user creation result:', {
+                                            devLog('[useAuth] 📊 Manual user creation result:', {
                                                 success: !!manualUserCreate,
                                                 error: manualError?.message
                                             });
                                             
                                             if (manualUserCreate) {
-                                                console.log('[useAuth] ✅ Successfully created user record manually');
+                                                devLog('[useAuth] ✅ Successfully created user record manually');
                                                 // Continue with the flow
                                             } else {
                                                 resolved = true;
@@ -2117,7 +2118,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                                 return;
                                             }
                                         } catch (manualCreateError) {
-                                            console.error('[useAuth] ❌ Manual user creation failed:', manualCreateError);
+                                            devError('[useAuth] ❌ Manual user creation failed:', manualCreateError);
                                             resolved = true;
                                             setLoading(false);
                                             if (popup) popup.close();
@@ -2127,7 +2128,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                         }
                                     }
                                 } catch (verifyError) {
-                                    console.error('[useAuth] ❌ Error verifying user (polling):', verifyError);
+                                    devError('[useAuth] ❌ Error verifying user (polling):', verifyError);
                                 }
                                 
                                 resolved = true;
@@ -2135,9 +2136,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 if (popup) {
                                     try {
                                         popup.close();
-                                        console.log('[useAuth] 🪟 Popup closed');
+                                        devLog('[useAuth] 🪟 Popup closed');
                                     } catch (e) {
-                                        console.log('[useAuth] 🪟 Could not close popup (expected with COOP)');
+                                        devLog('[useAuth] 🪟 Could not close popup (expected with COOP)');
                                     }
                                 }
                                 authListener.subscription.unsubscribe();
@@ -2150,13 +2151,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 // First, try to determine from URL path with more specific checks
                                 if (currentPath.includes('MusicLover') || currentPath.includes('/music-lover') || currentPath.includes('MusicLoverSignUpFlow')) {
                                     userType = 'music_lover';
-                                    console.log('[useAuth] 🏷️ User type determined from URL path (music_lover) - polling:', currentPath);
+                                    devLog('[useAuth] 🏷️ User type determined from URL path (music_lover) - polling:', currentPath);
                                 } else if (currentPath.includes('Organizer') || currentPath.includes('/organizer') || currentPath.includes('OrganizerSignUpFlow')) {
                                     userType = 'organizer';
-                                    console.log('[useAuth] 🏷️ User type determined from URL path (organizer) - polling:', currentPath);
+                                    devLog('[useAuth] 🏷️ User type determined from URL path (organizer) - polling:', currentPath);
                                 } else {
                                     // If URL path is ambiguous, check if user already exists in database
-                                    console.log('[useAuth] 🔍 URL path is ambiguous, checking existing user profiles (polling)...');
+                                    devLog('[useAuth] 🔍 URL path is ambiguous, checking existing user profiles (polling)...');
                                     try {
                                         // Check if user already has profiles in database
                                         const [musicLoverResult, organizerResult] = await Promise.all([
@@ -2166,31 +2167,31 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                         
                                         if (musicLoverResult.data && !organizerResult.data) {
                                             userType = 'music_lover';
-                                            console.log('[useAuth] 🏷️ User type determined from existing music lover profile (polling)');
+                                            devLog('[useAuth] 🏷️ User type determined from existing music lover profile (polling)');
                                         } else if (organizerResult.data && !musicLoverResult.data) {
                                             userType = 'organizer';
-                                            console.log('[useAuth] 🏷️ User type determined from existing organizer profile (polling)');
+                                            devLog('[useAuth] 🏷️ User type determined from existing organizer profile (polling)');
                                         } else {
                                             // If user has both profiles or no profiles, default to music_lover (more common)
                                             userType = 'music_lover';
-                                            console.log('[useAuth] 🏷️ User type defaulted to music_lover (ambiguous case - polling)');
+                                            devLog('[useAuth] 🏷️ User type defaulted to music_lover (ambiguous case - polling)');
                                         }
                                     } catch (profileCheckError) {
-                                        console.error('[useAuth] ❌ Error checking existing profiles (polling):', profileCheckError);
+                                        devError('[useAuth] ❌ Error checking existing profiles (polling):', profileCheckError);
                                         // Default to music_lover as fallback
                                         userType = 'music_lover';
-                                        console.log('[useAuth] 🏷️ User type defaulted to music_lover (error case - polling)');
+                                        devLog('[useAuth] 🏷️ User type defaulted to music_lover (error case - polling)');
                                     }
                                 }
                                 
-                                console.log('[useAuth] 🏷️ Setting user_type immediately (polling):', userType, 'based on path:', currentPath);
+                                devLog('[useAuth] 🏷️ Setting user_type immediately (polling):', userType, 'based on path:', currentPath);
                                 try {
                                     await supabase.auth.updateUser({
                                         data: { user_type: userType }
                                     });
-                                    console.log('[useAuth] ✅ User type set successfully (polling):', userType);
+                                    devLog('[useAuth] ✅ User type set successfully (polling):', userType);
                                 } catch (metaError) {
-                                    console.error('[useAuth] ❌ Error setting user_type (polling):', metaError);
+                                    devError('[useAuth] ❌ Error setting user_type (polling):', metaError);
                                     // Don't fail the whole process if metadata update fails
                                 }
                                 
@@ -2200,19 +2201,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                                 return;
                             }
                         } catch (err) {
-                            console.error('[useAuth] ❌ Error checking session:', err);
+                            devError('[useAuth] ❌ Error checking session:', err);
                         }
                         
                         if (attempts >= maxAttempts) {
-                            console.log('[useAuth] ⏰ Google authentication timeout');
+                            devLog('[useAuth] ⏰ Google authentication timeout');
                             resolved = true;
                             setLoading(false);
                             if (popup) {
                                 try {
                                     popup.close();
-                                    console.log('[useAuth] 🪟 Popup closed due to timeout');
+                                    devLog('[useAuth] 🪟 Popup closed due to timeout');
                                 } catch (e) {
-                                    console.log('[useAuth] 🪟 Could not close popup (expected with COOP)');
+                                    devLog('[useAuth] 🪟 Could not close popup (expected with COOP)');
                                 }
                             }
                             authListener.subscription.unsubscribe();
@@ -2225,18 +2226,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     };
                     
                     // Start monitoring after a brief delay
-                    console.log('[useAuth] ⏱️ Starting polling in 2 seconds...');
+                    devLog('[useAuth] ⏱️ Starting polling in 2 seconds...');
                     setTimeout(checkAuth, 2000);
                 });
             } else {
                 // For mobile (Android/iOS), use browser-based OAuth flow similar to Spotify
-                console.log('[useAuth] Using browser OAuth for mobile Google Sign-In');
+                devLog('[useAuth] Using browser OAuth for mobile Google Sign-In');
                 
                 try {
                     // Create redirect URI for mobile OAuth
                     const redirectUri = `${Constants.expoConfig?.scheme || 'vybr'}://auth/callback`;
                     
-                    console.log('[useAuth] Using OAuth redirect URI:', redirectUri);
+                    devLog('[useAuth] Using OAuth redirect URI:', redirectUri);
                     
                     // Get the OAuth URL from Supabase
                     const { data, error } = await supabase.auth.signInWithOAuth({
@@ -2252,7 +2253,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     });
 
                     if (error) {
-                        console.error('[useAuth] Error getting OAuth URL:', error);
+                        devError('[useAuth] Error getting OAuth URL:', error);
                         setLoading(false);
                         // Clear the flag on error
                         isManualAuthInProgress.current = false;
@@ -2260,14 +2261,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     }
 
                     if (!data?.url) {
-                        console.error('[useAuth] No OAuth URL received from Supabase');
+                        devError('[useAuth] No OAuth URL received from Supabase');
                         setLoading(false);
                         // Clear the flag on error
                         isManualAuthInProgress.current = false;
                         return { error: { message: 'Failed to get authentication URL' } };
                     }
 
-                    console.log('[useAuth] Opening OAuth URL in browser:', data.url.substring(0, 100) + '...');
+                    devLog('[useAuth] Opening OAuth URL in browser:', data.url.substring(0, 100) + '...');
 
                     // Use WebBrowser for the OAuth flow (same as Spotify)
                     const result = await WebBrowser.openAuthSessionAsync(
@@ -2275,7 +2276,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         redirectUri
                     );
 
-                    console.log('[useAuth] WebBrowser auth session result:', result);
+                    devLog('[useAuth] WebBrowser auth session result:', result);
 
                     if (result.type === 'success' && result.url) {
                         const parsedUrl = new URL(result.url);
@@ -2287,22 +2288,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                         
                         // If not found in query params, check URL fragment
                         if (!accessToken && !code && parsedUrl.hash) {
-                            console.log('[useAuth] Checking URL fragment for tokens:', parsedUrl.hash);
+                            devLog('[useAuth] Checking URL fragment for tokens:', parsedUrl.hash);
                             const fragmentParams = new URLSearchParams(parsedUrl.hash.substring(1));
                             code = fragmentParams.get('code');
                             accessToken = fragmentParams.get('access_token');
                             refreshToken = fragmentParams.get('refresh_token');
-                            console.log('[useAuth] Fragment parsing result - code:', !!code, 'accessToken:', !!accessToken, 'refreshToken:', !!refreshToken);
+                            devLog('[useAuth] Fragment parsing result - code:', !!code, 'accessToken:', !!accessToken, 'refreshToken:', !!refreshToken);
                         }
                         
                         if (code) {
-                            console.log('[useAuth] Authorization code received, exchanging for session...');
+                            devLog('[useAuth] Authorization code received, exchanging for session...');
                             
                             // Exchange the code for a session
                             const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
                             
                             if (sessionError) {
-                                console.error('[useAuth] Error exchanging code for session:', sessionError);
+                                devError('[useAuth] Error exchanging code for session:', sessionError);
                                 setLoading(false);
                                 // Clear the flag on error
                                 isManualAuthInProgress.current = false;
@@ -2310,14 +2311,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             }
 
                             if (sessionData?.user) {
-                                console.log('[useAuth] Google OAuth authentication successful');
+                                devLog('[useAuth] Google OAuth authentication successful');
                                 setLoading(false);
                                 // Clear the flag on success
                                 isManualAuthInProgress.current = false;
                                 return { user: sessionData.user };
                             }
                         } else if (accessToken) {
-                            console.log('[useAuth] Access token received, setting session...');
+                            devLog('[useAuth] Access token received, setting session...');
                             
                             // Set the session directly with the tokens
                             const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
@@ -2326,7 +2327,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             });
                             
                             if (sessionError) {
-                                console.error('[useAuth] Error setting session:', sessionError);
+                                devError('[useAuth] Error setting session:', sessionError);
                                 setLoading(false);
                                 // Clear the flag on error
                                 isManualAuthInProgress.current = false;
@@ -2334,7 +2335,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             }
 
                             if (sessionData?.user) {
-                                console.log('[useAuth] Google OAuth authentication successful');
+                                devLog('[useAuth] Google OAuth authentication successful');
                                 setLoading(false);
                                 // Clear the flag on success
                                 isManualAuthInProgress.current = false;
@@ -2342,19 +2343,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             }
                         }
                         
-                        console.error('[useAuth] No valid authentication data found in callback URL');
+                        devError('[useAuth] No valid authentication data found in callback URL');
                         setLoading(false);
                         // Clear the flag on error
                         isManualAuthInProgress.current = false;
                         return { error: { message: 'Authentication failed - no valid data received' } };
                     } else if (result.type === 'cancel') {
-                        console.log('[useAuth] User cancelled Google OAuth');
+                        devLog('[useAuth] User cancelled Google OAuth');
                         setLoading(false);
                         // Clear the flag on cancellation
                         isManualAuthInProgress.current = false;
                         return { error: { message: 'Sign-in was cancelled.', cancelled: true } };
                     } else {
-                        console.error('[useAuth] Unexpected AuthSession result:', result);
+                        devError('[useAuth] Unexpected AuthSession result:', result);
                         setLoading(false);
                         // Clear the flag on error
                         isManualAuthInProgress.current = false;
@@ -2362,7 +2363,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     }
                     
                 } catch (browserError: any) {
-                    console.error('[useAuth] OAuth error:', browserError);
+                    devError('[useAuth] OAuth error:', browserError);
                     setLoading(false);
                     // Clear the flag on error
                     isManualAuthInProgress.current = false;
@@ -2370,7 +2371,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 }
             }
         } catch (err: any) {
-            console.error('[useAuth] Error in signInWithGoogle:', err);
+            devError('[useAuth] Error in signInWithGoogle:', err);
             setLoading(false);
             // Clear the flag on error
             isManualAuthInProgress.current = false;
@@ -2381,20 +2382,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     // Function to update user metadata with userType (needed for Google OAuth users)
     const updateUserMetadata = async (userType: UserTypes): Promise<{ error: any } | { success: boolean }> => {
         try {
-            console.log(`[useAuth] updateUserMetadata: Setting user_type to ${userType}`);
+            devLog(`[useAuth] updateUserMetadata: Setting user_type to ${userType}`);
             const { error } = await supabase.auth.updateUser({
                 data: { user_type: userType }
             });
             
             if (error) {
-                console.error('[useAuth] updateUserMetadata: Error updating user metadata:', error);
+                devError('[useAuth] updateUserMetadata: Error updating user metadata:', error);
                 return { error };
             }
             
-            console.log('[useAuth] updateUserMetadata: Successfully updated user metadata');
+            devLog('[useAuth] updateUserMetadata: Successfully updated user metadata');
             return { success: true };
         } catch (err) {
-            console.error('[useAuth] updateUserMetadata: Unexpected error:', err);
+            devError('[useAuth] updateUserMetadata: Unexpected error:', err);
             return { error: err };
         }
     };
@@ -2403,7 +2404,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     const debugUserState = async () => {
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            console.log('[useAuth] DEBUG - Current session:', session ? {
+            devLog('[useAuth] DEBUG - Current session:', session ? {
                 userId: session.user.id,
                 email: session.user.email,
                 userType: session.user.user_metadata?.user_type
@@ -2416,7 +2417,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     supabase.from('organizer_profiles').select('id').eq('user_id', session.user.id).maybeSingle()
                 ]);
                 
-                console.log('[useAuth] DEBUG - Profile check:', {
+                devLog('[useAuth] DEBUG - Profile check:', {
                     musicLoverProfile: !!musicLoverResult.data,
                     organizerProfile: !!organizerResult.data,
                     musicLoverError: musicLoverResult.error?.message,
@@ -2424,13 +2425,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 });
             }
         } catch (err) {
-            console.error('[useAuth] DEBUG - Error checking user state:', err);
+            devError('[useAuth] DEBUG - Error checking user state:', err);
         }
     };
 
     // Function to set setup in progress state (prevents navigation bouncing)
     const setSetupInProgress = (inProgress: boolean) => {
-        console.log('[useAuth] Setting setup in progress:', inProgress);
+        devLog('[useAuth] Setting setup in progress:', inProgress);
         setIsSetupInProgress(inProgress);
     };
 

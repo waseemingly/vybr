@@ -10,6 +10,7 @@ import { APP_CONSTANTS } from '@/config/constants';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from "@/navigation/AppNavigator";
+import { devLog, devWarn, devError } from '@/utils/logger';
 
 // Type for the data returned by the Supabase RPC function
 interface MatchDbResult {
@@ -61,28 +62,28 @@ const MatchesScreen: React.FC = () => {
         if (!isSilentRefresh) {
             setLoadingMatches(true);
         }
-        console.log('[MatchesScreen] Calling RPC with p_current_user_id:', session.user.id);
+        devLog('[MatchesScreen] Calling RPC with p_current_user_id:', session.user.id);
 
         try {
-            console.log('[MatchesScreen] Calling RPC with user_id:', session.user.id);
+            devLog('[MatchesScreen] Calling RPC with user_id:', session.user.id);
             const { data, error } = await supabase.rpc('atestget_user_matches', {
                 p_current_user_id: session.user.id,
                 p_minimum_score: 0.01 // <-- This filters out all 0% matches
             });
 
-            console.log('[MatchesScreen] RPC Response - error:', error);
-            console.log('[MatchesScreen] RPC Response - data:', data);
-            console.log('[MatchesScreen] RPC Response - data type:', typeof data);
-            console.log('[MatchesScreen] RPC Response - data length:', Array.isArray(data) ? data.length : 'not an array');
+            devLog('[MatchesScreen] RPC Response - error:', error);
+            devLog('[MatchesScreen] RPC Response - data:', data);
+            devLog('[MatchesScreen] RPC Response - data type:', typeof data);
+            devLog('[MatchesScreen] RPC Response - data length:', Array.isArray(data) ? data.length : 'not an array');
 
             if (error) {
-                console.error('[MatchesScreen] Error fetching matches:', error);
+                devError('[MatchesScreen] Error fetching matches:', error);
                 if (!isSilentRefresh) Alert.alert('Error', 'Could not load matches. ' + error.message);
                 setMatches([]);
             } else if (data && Array.isArray(data) && data.length > 0) {
-                console.log('[MatchesScreen] Processing matches. Raw data count:', data.length);
+                devLog('[MatchesScreen] Processing matches. Raw data count:', data.length);
                 const formattedMatches: MatchCardProps[] = data.map((match: MatchDbResult) => {
-                    console.log('[MatchesScreen] Processing match:', match.match_user_id, match.name);
+                    devLog('[MatchesScreen] Processing match:', match.match_user_id, match.name);
                     return {
                         id: match.match_user_id,
                         userId: match.match_user_id,
@@ -99,16 +100,16 @@ const MatchesScreen: React.FC = () => {
                         topMoods: match.common_moods || [],
                     };
                 });
-                console.log(`[MatchesScreen] ✅ Fetched ${formattedMatches.length} matches. Formatted data:`, formattedMatches);
+                devLog(`[MatchesScreen] ✅ Fetched ${formattedMatches.length} matches. Formatted data:`, formattedMatches);
                 setMatches(formattedMatches);
                 setCurrentMatchIndex(0);
             } else {
-                console.warn('[MatchesScreen] ⚠️ No matches data returned by RPC. Data:', data, 'Type:', typeof data, 'IsArray:', Array.isArray(data));
+                devWarn('[MatchesScreen] ⚠️ No matches data returned by RPC. Data:', data, 'Type:', typeof data, 'IsArray:', Array.isArray(data));
                 setMatches([]); 
                 setCurrentMatchIndex(0);
             }
         } catch (e: any) {
-            console.error('[MatchesScreen] Unexpected error fetching matches:', e);
+            devError('[MatchesScreen] Unexpected error fetching matches:', e);
             if (!isSilentRefresh) Alert.alert('Error', 'An unexpected error occurred while loading matches.');
         } finally {
             if (!isSilentRefresh) {
@@ -191,7 +192,7 @@ const MatchesScreen: React.FC = () => {
                                       prevStreamingTopMoodsJSONRef.current === undefined;
             
             if (!isInitialPopulation) {
-                console.log("[MatchesScreen] Profile/Streaming data content changed, triggering silent refresh of matches.");
+                devLog("[MatchesScreen] Profile/Streaming data content changed, triggering silent refresh of matches.");
                 fetchMatchesCallback(true); // Perform a silent refresh
             }
         }
@@ -223,17 +224,17 @@ const MatchesScreen: React.FC = () => {
 
             if (significantChange) {
                 if (session?.user?.id && hasMusicLoverProfile) {
-                    console.log("[MatchesScreen] Focus effect (significant data change or first run): Fetching matches.");
+                    devLog("[MatchesScreen] Focus effect (significant data change or first run): Fetching matches.");
                     fetchMatchesCallback(); // This call resets the index to 0
 
                     const isStreamingDataEffectivelyEmpty = streamingDataJSON === 'null' || streamingDataJSON === 'undefined' || streamingDataJSON === '{}';
                     if (isStreamingDataEffectivelyEmpty && !streamingDataLoading) {
-                        console.log("[MatchesScreen] Focus effect: streamingData appears empty/null and not loading, fetching streaming data.");
+                        devLog("[MatchesScreen] Focus effect: streamingData appears empty/null and not loading, fetching streaming data.");
                         fetchStreamingData();
                     }
                 } else if (session?.user?.id && hasMusicLoverProfile) {
                     // Log if effect ran but no significant change was detected (after first run)
-                    console.log("[MatchesScreen] Focus effect ran, but no significant change in streamingDataJSON content detected to re-fetch matches.");
+                    devLog("[MatchesScreen] Focus effect ran, but no significant change in streamingDataJSON content detected to re-fetch matches.");
                 }
             }
             prevStreamingDataJSONFocusRef.current = streamingDataJSON;
@@ -251,13 +252,13 @@ const MatchesScreen: React.FC = () => {
     const handleChatPress = useCallback((matchUserId: string) => {
         const matchDetails = matches.find(m => m.userId === matchUserId);
         if (!matchDetails) {
-            console.error(`[MatchesScreen] Could not find details for match ${matchUserId}`);
+            devError(`[MatchesScreen] Could not find details for match ${matchUserId}`);
             return;
         }
 
         const newMatches = matches.filter(match => match.userId !== matchUserId);
         setMatches(newMatches);
-        console.log(`[MatchesScreen] Chat pressed for ${matchUserId}. Card removed locally. Navigating...`);
+        devLog(`[MatchesScreen] Chat pressed for ${matchUserId}. Card removed locally. Navigating...`);
         
         if (newMatches.length === 0) {
             setCurrentMatchIndex(0);
@@ -289,14 +290,14 @@ const MatchesScreen: React.FC = () => {
     }, [fetchMatchesCallback, fetchStreamingData]);
 
     const handleNextMatch = () => {
-        console.log('[MatchesScreen] handleNextMatch called. Current index:', currentMatchIndex, 'Total matches:', matches.length);
+        devLog('[MatchesScreen] handleNextMatch called. Current index:', currentMatchIndex, 'Total matches:', matches.length);
         if (currentMatchIndex < matches.length - 1) {
             setCurrentMatchIndex(currentMatchIndex + 1);
         }
     };
 
     const handlePreviousMatch = () => {
-        console.log('[MatchesScreen] handlePreviousMatch called. Current index:', currentMatchIndex, 'Total matches:', matches.length);
+        devLog('[MatchesScreen] handlePreviousMatch called. Current index:', currentMatchIndex, 'Total matches:', matches.length);
         if (currentMatchIndex > 0) {
             setCurrentMatchIndex(currentMatchIndex - 1);
         }
@@ -348,9 +349,9 @@ const MatchesScreen: React.FC = () => {
         }
     };
 
-    console.log('[MatchesScreen] Rendering. Current Index:', currentMatchIndex, 'Matches Count:', matches.length, 'InitialLoadAttempted:', initialMatchesLoadAttempted, 'Loading:', loadingMatches, 'AuthLoading:', authLoading);
-    console.log('[MatchesScreen] Will show matches?', matches.length > 0 && initialMatchesLoadAttempted);
-    console.log('[MatchesScreen] Matches array:', matches);
+    devLog('[MatchesScreen] Rendering. Current Index:', currentMatchIndex, 'Matches Count:', matches.length, 'InitialLoadAttempted:', initialMatchesLoadAttempted, 'Loading:', loadingMatches, 'AuthLoading:', authLoading);
+    devLog('[MatchesScreen] Will show matches?', matches.length > 0 && initialMatchesLoadAttempted);
+    devLog('[MatchesScreen] Matches array:', matches);
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>

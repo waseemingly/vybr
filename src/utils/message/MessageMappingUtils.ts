@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { devLog, devWarn } from '@/utils/logger';
 import type { 
   ChatMessage, 
   DbMessage, 
@@ -260,7 +261,7 @@ export class MessageMappingUtils {
       return messages;
     }
 
-    console.log(`[DEBUG] Enhancing ${messagesToEnhance.length} shared event messages with missing eventDateTime`);
+    devLog(`[DEBUG] Enhancing ${messagesToEnhance.length} shared event messages with missing eventDateTime`);
 
     // Fetch event data for all messages that need enhancement
     const eventIds = messagesToEnhance.map(msg => msg.sharedEvent!.eventId);
@@ -273,12 +274,12 @@ export class MessageMappingUtils {
         .in('id', uniqueEventIds);
 
       if (eventsError) {
-        console.warn('[DEBUG] Error fetching event data for enhancement:', eventsError.message);
+        devWarn('[DEBUG] Error fetching event data for enhancement:', eventsError.message);
         return messages;
       }
 
       if (!eventsData || eventsData.length === 0) {
-        console.warn('[DEBUG] No event data found for enhancement');
+        devWarn('[DEBUG] No event data found for enhancement');
         return messages;
       }
 
@@ -290,7 +291,7 @@ export class MessageMappingUtils {
         if (msg.sharedEvent && !msg.sharedEvent.eventDateTime && msg.sharedEvent.eventId !== 'unknown') {
           const eventData = eventDataMap.get(msg.sharedEvent.eventId);
           if (eventData) {
-            console.log(`[DEBUG] Enhanced message ${msg._id} with eventDateTime: ${eventData.event_datetime}`);
+            devLog(`[DEBUG] Enhanced message ${msg._id} with eventDateTime: ${eventData.event_datetime}`);
             return {
               ...msg,
               sharedEvent: {
@@ -309,7 +310,7 @@ export class MessageMappingUtils {
 
       return enhancedMessages;
     } catch (error) {
-      console.warn('[DEBUG] Exception during event enhancement:', error);
+      devWarn('[DEBUG] Exception during event enhancement:', error);
       return messages;
     }
   }
