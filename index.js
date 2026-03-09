@@ -1,4 +1,4 @@
-// Production: suppress test/debug logs so app.vybr.sg (Vercel) and other prod builds don't expose them
+// Production: suppress all console output so app.vybr.sg (Vercel) and other prod builds stay clean
 (function() {
   var isProd = (typeof __DEV__ !== 'undefined' && !__DEV__) ||
     (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production');
@@ -7,7 +7,8 @@
     console.log = noop;
     console.debug = noop;
     console.info = noop;
-    // console.warn and console.error are left enabled so real issues can be seen in production
+    console.warn = noop;
+    console.error = noop;
   }
 })();
 

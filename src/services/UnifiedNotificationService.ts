@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import NotificationService from './NotificationService';
+import { devLog, devWarn, devError } from '../utils/logger';
 
 export interface CreateNotificationParams {
   user_id: string;
@@ -62,12 +63,12 @@ export class UnifiedNotificationService {
       });
 
       if (error) {
-        console.error('Error creating notification:', error);
+        devError('Error creating notification:', error);
         return null;
       }
 
       const notificationId = data as string;
-      console.log('Notification created successfully:', notificationId);
+      devLog('Notification created successfully:', notificationId);
 
       // Automatically send push notification after creating the notification
       // This ensures push notifications are sent even when createNotification is called directly
@@ -86,18 +87,18 @@ export class UnifiedNotificationService {
         });
 
         if (pushResponse.error) {
-          console.error('Error sending push notification:', pushResponse.error);
+          devError('Error sending push notification:', pushResponse.error);
         } else {
-          console.log('Push notification sent successfully for notification:', notificationId);
+          devLog('Push notification sent successfully for notification:', notificationId);
         }
       } catch (pushError) {
-        console.error('Exception sending push notification:', pushError);
+        devError('Exception sending push notification:', pushError);
         // Don't fail the notification creation if push fails
       }
 
       return notificationId;
     } catch (error) {
-      console.error('Exception creating notification:', error);
+      devError('Exception creating notification:', error);
       return null;
     }
   }
@@ -155,7 +156,7 @@ export class UnifiedNotificationService {
             },
           });
         } catch (pushError) {
-          console.error('Error sending push notification:', pushError);
+          devError('Error sending push notification:', pushError);
         }
       }
 
@@ -181,13 +182,13 @@ export class UnifiedNotificationService {
               },
             });
         } catch (webError) {
-          console.error('Error sending web notification:', webError);
+          devError('Error sending web notification:', webError);
         }
       }
 
       return true;
     } catch (error) {
-      console.error('Exception sending immediate notification:', error);
+      devError('Exception sending immediate notification:', error);
       return false;
     }
   }
@@ -407,7 +408,7 @@ export class UnifiedNotificationService {
     const results = await Promise.allSettled(promises);
     const successCount = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
 
-    console.log(`Bulk notifications sent: ${successCount}/${userIds.length}`);
+    devLog(`Bulk notifications sent: ${successCount}/${userIds.length}`);
     return successCount;
   }
 
@@ -423,13 +424,13 @@ export class UnifiedNotificationService {
         .single();
 
       if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching user preferences:', error);
+        devError('Error fetching user preferences:', error);
         return null;
       }
 
       return data;
     } catch (error) {
-      console.error('Exception fetching user preferences:', error);
+      devError('Exception fetching user preferences:', error);
       return null;
     }
   }
@@ -448,13 +449,13 @@ export class UnifiedNotificationService {
         });
 
       if (error) {
-        console.error('Error updating user preferences:', error);
+        devError('Error updating user preferences:', error);
         return false;
       }
 
       return true;
     } catch (error) {
-      console.error('Exception updating user preferences:', error);
+      devError('Exception updating user preferences:', error);
       return false;
     }
   }
@@ -466,7 +467,7 @@ export class UnifiedNotificationService {
     try {
       await supabase.functions.invoke('process-notification-queue');
     } catch (error) {
-      console.error('Error processing notification queue:', error);
+      devError('Error processing notification queue:', error);
     }
   }
 
@@ -483,13 +484,13 @@ export class UnifiedNotificationService {
         .limit(limit);
 
       if (error) {
-        console.error('Error fetching notification history:', error);
+        devError('Error fetching notification history:', error);
         return [];
       }
 
       return data || [];
     } catch (error) {
-      console.error('Exception fetching notification history:', error);
+      devError('Exception fetching notification history:', error);
       return [];
     }
   }
@@ -504,13 +505,13 @@ export class UnifiedNotificationService {
       });
 
       if (error) {
-        console.error('Error marking notification as read:', error);
+        devError('Error marking notification as read:', error);
         return false;
       }
 
       return true;
     } catch (error) {
-      console.error('Exception marking notification as read:', error);
+      devError('Exception marking notification as read:', error);
       return false;
     }
   }
@@ -525,13 +526,13 @@ export class UnifiedNotificationService {
       });
 
       if (error) {
-        console.error('Error getting unread count:', error);
+        devError('Error getting unread count:', error);
         return 0;
       }
 
       return data || 0;
     } catch (error) {
-      console.error('Exception getting unread count:', error);
+      devError('Exception getting unread count:', error);
       return 0;
     }
   }

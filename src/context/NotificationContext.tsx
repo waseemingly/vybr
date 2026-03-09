@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import NotificationService from '../services/NotificationService';
 import { parseDeepLink } from '../utils/navigationUtils';
 import { navigationRef } from '../navigation/navigationRef';
+import { devLog, devWarn, devError } from '../utils/logger';
 
 export interface NotificationData {
   id: string;
@@ -134,14 +135,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Handle new notification from real-time
   const handleNewNotification = useCallback(async (payload: any) => {
-    console.log('[NotificationProvider] Received notification payload:', JSON.stringify(payload, null, 2));
+    devLog('[NotificationProvider] Received notification payload:', JSON.stringify(payload, null, 2));
     const notificationData = payload.new || payload;
     
-    console.log('[NotificationProvider] New notification received:', notificationData);
+    devLog('[NotificationProvider] New notification received:', notificationData);
 
     // Skip if user is viewing the conversation
     if (isViewingConversation(notificationData.data)) {
-      console.log('[NotificationProvider] Skipping notification - user is viewing conversation');
+      devLog('[NotificationProvider] Skipping notification - user is viewing conversation');
       return;
     }
 
@@ -190,7 +191,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           onClick: () => {
             // Handle navigation based on deep link
             if (notificationData.deep_link && navigationRef.current?.isReady()) {
-              console.log('[NotificationProvider] Navigating to deep link:', notificationData.deep_link);
+              devLog('[NotificationProvider] Navigating to deep link:', notificationData.deep_link);
               const routeInfo = parseDeepLink(notificationData.deep_link);
               if (routeInfo) {
                 let finalParams = { ...routeInfo.params };
@@ -203,7 +204,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                 }
                 (navigationRef.current as any)?.navigate(routeInfo.routeName, finalParams);
               } else {
-                console.warn(`[NotificationProvider] Could not parse deep link: ${notificationData.deep_link}`);
+                devWarn(`[NotificationProvider] Could not parse deep link: ${notificationData.deep_link}`);
               }
             }
             dismissWebNotification(notificationData.notification_id || notificationData.id);
@@ -224,7 +225,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       });
 
       if (error) {
-        console.error('Error marking notification as read:', error);
+        devError('Error marking notification as read:', error);
         return;
       }
 
@@ -238,7 +239,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Update unread count
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (error) {
-      console.error('Exception marking notification as read:', error);
+      devError('Exception marking notification as read:', error);
     }
   }, []);
 
@@ -250,7 +251,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       });
 
       if (error) {
-        console.error('Error marking notification as seen:', error);
+        devError('Error marking notification as seen:', error);
         return;
       }
 
@@ -261,7 +262,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           : n
       ));
     } catch (error) {
-      console.error('Exception marking notification as seen:', error);
+      devError('Exception marking notification as seen:', error);
     }
   }, []);
 
@@ -289,7 +290,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
       setUnreadCount(0);
     } catch (error) {
-      console.error('Exception marking all notifications as read:', error);
+      devError('Exception marking all notifications as read:', error);
     }
   }, [notifications, session?.user?.id]);
 
@@ -311,14 +312,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         .limit(100);
 
       if (error) {
-        console.error('Error fetching notifications:', error);
+        devError('Error fetching notifications:', error);
         return;
       }
 
       setNotifications(data || []);
       setUnreadCount(data?.filter(n => !n.is_read).length || 0);
     } catch (error) {
-      console.error('Exception fetching notifications:', error);
+      devError('Exception fetching notifications:', error);
     } finally {
       setRefreshing(false);
     }
@@ -336,13 +337,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         .single();
 
       if (error && error.code !== 'PGRST116') {
-        console.error('Error loading notification preferences:', error);
+        devError('Error loading notification preferences:', error);
         return;
       }
 
       setPreferences(data || null);
     } catch (error) {
-      console.error('Exception loading notification preferences:', error);
+      devError('Exception loading notification preferences:', error);
     }
   }, [session?.user?.id]);
 
@@ -362,13 +363,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         .single();
 
       if (error) {
-        console.error('Error updating notification preferences:', error);
+        devError('Error updating notification preferences:', error);
         throw error;
       }
 
       setPreferences(data);
     } catch (error) {
-      console.error('Exception updating notification preferences:', error);
+      devError('Exception updating notification preferences:', error);
       throw error;
     }
   }, [session?.user?.id]);
@@ -397,7 +398,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const channel = supabase
       .channel(userChannel)
       .on('broadcast', { event: 'new_notification' }, ({ payload }) => {
-        console.log('[NotificationProvider] Received notification on user channel:', payload);
+        devLog('[NotificationProvider] Received notification on user channel:', payload);
         if (payload.user_id === session.user?.id) {
           handleNewNotification(payload);
         }
@@ -416,7 +417,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           filter: `user_id=eq.${session.user.id}`,
         },
         (payload) => {
-          console.log('[NotificationProvider] New notification inserted:', payload);
+          devLog('[NotificationProvider] New notification inserted:', payload);
           handleNewNotification(payload);
         }
       )
