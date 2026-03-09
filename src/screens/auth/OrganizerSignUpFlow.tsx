@@ -20,6 +20,7 @@ import type { RootStackParamList } from '@/navigation/AppNavigator'; // Adjust t
 
 // Import shared auth styles
 import { authStyles } from '@/styles/authStyles';
+import { VYBR_TERMS_AND_CONDITIONS } from '@/legal/termsAndConditions';
 
 // Define the navigation prop type
 type OrganizerSignUpNavigationProp = NavigationProp<RootStackParamList>;
@@ -33,48 +34,6 @@ type Step = 'company-name' | 'profile-details';
 // Define window width for animations (Assuming SCREEN_WIDTH is needed)
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
-
-// --- Placeholder Terms Text (Defined outside component) ---
-const termsAndConditionsText = `**Vybr Organizer Terms & Conditions (Placeholder)**
-
-**Last Updated: [Date]**
-
-Welcome to Vybr for Organizers! Please read these Terms & Conditions ("Terms") carefully before using the Vybr mobile application ("Service") as an Event Organizer.
-
-**1. Acceptance of Terms**
-By accessing or using the Service as an Organizer, you agree to be bound by these Terms, in addition to the general Vybr Terms & Conditions applicable to all users. If you disagree with any part of these terms, you may not access the Service as an Organizer. **This is a placeholder text and not legally binding. You must consult with a legal professional to draft comprehensive and compliant Terms & Conditions.**
-
-**2. Description of Service for Organizers**
-Vybr allows verified Organizers to create event listings, manage event details, view attendee information (subject to privacy constraints), and potentially utilize promotional tools.
-
-**3. Organizer Account & Verification**
-You are responsible for maintaining the confidentiality of your Organizer account. You agree to provide accurate and verifiable information during the sign-up and verification process. Vybr reserves the right to approve or deny Organizer accounts.
-
-**4. Event Listings & Content**
-You are solely responsible for the accuracy, legality, and content of the events you list on Vybr. You warrant that you have all necessary rights and permissions to list and promote your events. You agree not to post misleading, fraudulent, or prohibited event content.
-
-**5. User Data & Privacy**
-You may receive access to limited information about users who interact with your events (e.g., attendees, followers). You agree to use this information solely for the purpose of managing your event and communicating relevant event information, in compliance with Vybr's Privacy Policy and all applicable data protection laws. Misuse of user data is strictly prohibited.
-
-**6. Fees & Payments (If Applicable)**
-Terms related to any listing fees, service charges, or payment processing for ticketed/paid events will be outlined in a separate Organizer Agreement or within the specific feature interface.
-
-**7. Organizer Conduct**
-You agree to conduct your activities on Vybr professionally and ethically. You will respond promptly to user inquiries related to your events. You will adhere to all general user conduct rules outlined in the main Vybr Terms & Conditions.
-
-**8. Indemnification**
-You agree to indemnify and hold harmless Vybr, its affiliates, officers, agents, and employees from any claim or demand made by any third party due to or arising out of your use of the Service as an Organizer, your violation of these Terms, or your violation of any rights of another.
-
-**9. Disclaimers & Liability**
-Refer to the main Vybr Terms & Conditions for general disclaimers and limitations of liability. Vybr is not responsible for the execution, quality, or safety of events listed by Organizers.
-
-**10. Governing Law & Changes**
-Refer to the main Vybr Terms & Conditions.
-
-**11. Contact Us**
-Refer to the main Vybr Terms & Conditions.
-
-**By checking the box, you acknowledge that you have read, understood, and agree to be bound by these Organizer Terms & Conditions.**`;
 
 const OrganizerSignUpFlow = () => {
   const navigation = useNavigation<OrganizerSignUpNavigationProp>();
@@ -444,7 +403,7 @@ const OrganizerSignUpFlow = () => {
           <Text style={authStyles.signupTermsText}> 
             I agree to the{' '}
             <Text style={authStyles.signupTermsLink} onPress={() => setIsTermsModalVisible(true)}>
-              Organizer Terms and Conditions
+              Terms and Conditions
             </Text> *
           </Text>
         </View>
@@ -851,8 +810,8 @@ const OrganizerSignUpFlow = () => {
         <TermsModal
             visible={isTermsModalVisible}
             onClose={() => setIsTermsModalVisible(false)}
-            termsText={termsAndConditionsText} // Uses the organizer-specific text
-            title="Organizer Terms & Conditions"
+            termsText={VYBR_TERMS_AND_CONDITIONS}
+            title="Vybr Terms and Conditions"
         />
         
         {/* Web Image Cropper */}

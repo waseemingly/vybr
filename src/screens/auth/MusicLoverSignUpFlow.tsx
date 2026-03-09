@@ -46,6 +46,7 @@ const getCountryStateCity = async () => {
 // Import the specific types expected by createMusicLoverProfile and for the form state
 import { MusicLoverBio, CreateMusicLoverProfileData } from '@/hooks/useAuth'; // Assuming types are exported from useAuth
 import TermsModal from '@/components/TermsModal'; // Import the new modal
+import { VYBR_TERMS_AND_CONDITIONS } from '@/legal/termsAndConditions';
 import ImageCropper from '@/components/ImageCropper'; // Add ImageCropper
 // Import navigation types
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator'; // Import stack param lists
@@ -102,61 +103,6 @@ interface MusicLoverFormData {
     favoriteGenres: string;
     favoriteSongs: string;
 }
-
-// --- Placeholder Terms Text (Replace with actual legal text) ---
-const termsAndConditionsText = `Vybr Terms & Conditions (Placeholder)
-
-Last Updated: [Date]
-
-Welcome to Vybr! Please read these Terms & Conditions ("Terms") carefully before using the Vybr mobile application ("Service").
-
-1. Acceptance of Terms
-By accessing or using the Service, you agree to be bound by these Terms. If you disagree with any part of the terms, you may not access the Service. This is a placeholder text and not legally binding. You must consult with a legal professional to draft comprehensive and compliant Terms & Conditions for your specific service, location, and features.
-
-2. Description of Service
-Vybr is a platform designed to connect music lovers and event organizers. Features include profile creation, event discovery, matching based on musical preferences, chat functionalities, and potential premium subscription services.
-
-3. User Accounts
-You are responsible for safeguarding your account information, including your password. You agree not to disclose your password to any third party. You must notify us immediately upon becoming aware of any breach of security or unauthorized use of your account. You must provide accurate and complete information when creating your account.
-
-4. User Conduct
-You agree not to use the Service to:
-   - Post unauthorized commercial communications (such as spam).
-   - Collect users' content or information, or otherwise access the Service using automated means.
-   - Engage in unlawful, misleading, malicious, or discriminatory activity.
-   - Bully, intimidate, or harass any user.
-   - Post content that is hate speech, threatening, pornographic, incites violence, or contains nudity or graphic/gratuitous violence.
-   - Do anything that could disable, overburden, or impair the proper working or appearance of Vybr.
-   - Violate any applicable laws or regulations.
-
-5. Content Ownership
-You retain ownership of the content you post on Vybr. By posting content, you grant Vybr a non-exclusive, transferable, sub-licensable, royalty-free, worldwide license to use, display, reproduce, and distribute such content on and through the Service.
-
-6. Music Data & Privacy
-If you link streaming services or manually input music preferences, you consent to Vybr analyzing this data to provide matching and recommendation features. Your privacy is important to us. Please review our Privacy Policy [Link to Privacy Policy - REQUIRED] for details on how we collect, use, and protect your information.
-
-7. Premium Services & Payments (If Applicable)
-Specific terms related to subscription fees, billing cycles, renewals, and cancellations for any premium features will be presented at the time of subscription.
-
-8. Termination
-We may terminate or suspend your account immediately, without prior notice or liability, for any reason whatsoever, including without limitation if you breach the Terms.
-
-9. Disclaimers
-The Service is provided on an "AS IS" and "AS AVAILABLE" basis. Vybr makes no warranties, expressed or implied, and hereby disclaims all other warranties including, without limitation, implied warranties of merchantability, fitness for a particular purpose, or non-infringement.
-
-10. Limitation of Liability
-In no event shall Vybr, nor its directors, employees, partners, agents, suppliers, or affiliates, be liable for any indirect, incidental, special, consequential or punitive damages arising out of your use of the Service.
-
-11. Governing Law
-These Terms shall be governed by the laws of [Your Jurisdiction - REQUIRED], without regard to its conflict of law provisions.
-
-12. Changes to Terms
-We reserve the right, at our sole discretion, to modify or replace these Terms at any time. We will provide notice of any changes by posting the new Terms on the Service.
-
-13. Contact Us
-If you have any questions about these Terms, please contact us at [Your Support Email/Contact Info - REQUIRED].
-
-By checking the box, you acknowledge that you have read, understood, and agree to be bound by these Terms & Conditions.`;
 
 // Define the specific navigation prop type for this screen
 type MusicLoverSignUpNavigationProp = NavigationProp<RootStackParamList & MainStackParamList>;
@@ -2835,7 +2781,7 @@ const MusicLoverSignUpFlow = () => {
                     </ScrollView>
                 </KeyboardAvoidingView>
 
-                <TermsModal visible={isTermsModalVisible} onClose={() => setIsTermsModalVisible(false)} termsText={termsAndConditionsText} />
+                <TermsModal visible={isTermsModalVisible} onClose={() => setIsTermsModalVisible(false)} termsText={VYBR_TERMS_AND_CONDITIONS} />
                 {/* Web Image Cropper */}
                 {Platform.OS === 'web' && (
                     <ImageCropper

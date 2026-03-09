@@ -26,18 +26,16 @@ const TermsModal: React.FC<TermsModalProps> = ({
     termsText,
     title = "Terms & Conditions",
 }) => {
-    console.log('TermsModal termsText:', termsText);
     return (
         <Modal
             animationType="slide"
             transparent={true}
             visible={visible}
-            onRequestClose={onClose} // Handle back button on Android
+            onRequestClose={onClose}
         >
             <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
-                        {/* Header */}
                         <View style={styles.header}>
                             <Text style={styles.title}>{title}</Text>
                             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
@@ -45,14 +43,16 @@ const TermsModal: React.FC<TermsModalProps> = ({
                             </TouchableOpacity>
                         </View>
 
-                        {/* Terms Content */}
-                        <View style={{flex: 1}}>
-                            <ScrollView style={{flex: 1}} contentContainerStyle={{padding: 20}}>
-                                <Text style={{color: 'black', fontSize: 16, lineHeight: 22}}>{termsText}</Text>
+                        <View style={styles.scrollWrapper}>
+                            <ScrollView
+                                style={styles.scrollView}
+                                contentContainerStyle={styles.scrollContent}
+                                showsVerticalScrollIndicator={true}
+                            >
+                                <Markdown style={markdownStyles}>{termsText}</Markdown>
                             </ScrollView>
                         </View>
 
-                        {/* Footer Close Button */}
                         <TouchableOpacity style={styles.footerButton} onPress={onClose}>
                             <Text style={styles.footerButtonText}>Done</Text>
                         </TouchableOpacity>
@@ -65,37 +65,69 @@ const TermsModal: React.FC<TermsModalProps> = ({
 
 const markdownStyles = {
     body: {
-        fontSize: Platform.OS === 'web' ? 14 : 15,
-        lineHeight: Platform.OS === 'web' ? 20 : 22,
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        fontSize: Platform.OS === 'web' ? 15 : 15,
+        lineHeight: Platform.OS === 'web' ? 24 : 24,
+        color: '#1a1a1a',
     },
     text: {
-        fontSize: Platform.OS === 'web' ? 14 : 15,
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        fontSize: 15,
+        lineHeight: 24,
+        color: '#1a1a1a',
     },
     strong: {
-        fontWeight: '700',
+        fontWeight: '700' as const,
+        color: '#1a1a1a',
     },
     em: {
-        fontStyle: 'italic',
+        fontStyle: 'italic' as const,
     },
     heading1: {
-        fontSize: 20,
-        fontWeight: '700',
-        marginBottom: 8,
+        fontSize: 22,
+        fontWeight: '700' as const,
+        marginTop: 0,
+        marginBottom: 12,
+        color: '#111',
+        lineHeight: 28,
     },
     heading2: {
-        fontSize: 18,
-        fontWeight: '700',
-        marginBottom: 6,
+        fontSize: 17,
+        fontWeight: '700' as const,
+        marginTop: 20,
+        marginBottom: 10,
+        color: '#111',
+        lineHeight: 22,
     },
     heading3: {
         fontSize: 16,
-        fontWeight: '700',
-        marginBottom: 4,
+        fontWeight: '600' as const,
+        marginTop: 12,
+        marginBottom: 6,
+        color: '#1a1a1a',
     },
     paragraph: {
-        marginBottom: 8,
+        marginTop: 0,
+        marginBottom: 12,
+        lineHeight: 24,
+        color: '#1a1a1a',
+    },
+    bullet_list: {
+        marginBottom: 12,
+    },
+    bullet_list_icon: {
+        color: APP_CONSTANTS.COLORS.PRIMARY,
+        fontSize: 18,
+        lineHeight: 24,
+    },
+    list_item: {
+        marginBottom: 6,
+        paddingLeft: 4,
+        lineHeight: 24,
+        color: '#1a1a1a',
+    },
+    hr: {
+        backgroundColor: APP_CONSTANTS.COLORS.BORDER_LIGHT,
+        marginVertical: 16,
+        height: 1,
     },
 };
 
@@ -147,19 +179,25 @@ const styles = StyleSheet.create({
         marginRight: 10, // Space before close button
     },
     closeButton: {
-        padding: Platform.OS === 'web' ? 8 : 12, // Increase tap area on mobile
+        padding: Platform.OS === 'web' ? 8 : 12,
         borderRadius: Platform.OS === 'web' ? 4 : 8,
     },
+    scrollWrapper: {
+        flex: 1,
+        minHeight: 0,
+    },
     scrollView: {
-        flex: 1, // Allow scroll view to take remaining space
+        flex: 1,
     },
     scrollContent: {
-        padding: Platform.OS === 'web' ? 16 : 20,
+        paddingHorizontal: Platform.OS === 'web' ? 24 : 20,
+        paddingTop: 8,
+        paddingBottom: 32,
     },
     termsBody: {
-        fontSize: Platform.OS === 'web' ? 14 : 15,
-        lineHeight: Platform.OS === 'web' ? 20 : 22,
-        color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
+        fontSize: 15,
+        lineHeight: 24,
+        color: '#1a1a1a',
     },
     footerButton: {
         backgroundColor: APP_CONSTANTS.COLORS.PRIMARY,
