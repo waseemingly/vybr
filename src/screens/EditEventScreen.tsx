@@ -718,7 +718,7 @@ const EditEventScreen: React.FC = () => {
               <View style={styles.formGroup}><Label>Event Title *</Label><TextInput style={styles.input} placeholder="Give your event a catchy name" value={formState.title} onChangeText={(text)=>handleChange("title",text)} maxLength={100} accessibilityLabel="Event Title Input"/>{!formState.title.trim() && (<Text style={styles.errorText}>Event title is required.</Text>)}</View>
 
               {/* Description */}
-              <View style={styles.formGroup}><Label>Description</Label><TextInput style={[styles.input, styles.textArea]} placeholder="What's this event about? (Lineup, details, etc.)" value={formState.description} onChangeText={(text)=>handleChange("description",text)} multiline numberOfLines={5} textAlignVertical="top" maxLength={5000} accessibilityLabel="Event Description Input"/></View>
+              <View style={styles.formGroup}><Label>Description</Label><TextInput style={[styles.input, styles.textArea]} placeholder="Describe your event (lineup, details, etc.). If the event is 18+ only, please state that here." value={formState.description} onChangeText={(text)=>handleChange("description",text)} multiline numberOfLines={5} textAlignVertical="top" maxLength={5000} accessibilityLabel="Event Description Input"/></View>
 
               {/* Date & Time */}
               <View style={styles.formRow}>
