@@ -10,6 +10,9 @@
     "lint": "eslint .",
     "dev": "vite",
     "build": "npx expo export --platform web",
+    "build:ios": "EXPO_NO_CAPABILITY_SYNC=1 eas build --platform ios --profile production",
+    "submit:ios": "eas submit --platform ios --profile production --latest",
+    "submit:ios:debug": "EXPO_APP_STORE_DEBUG=1 EXPO_DEBUG=1 eas submit --platform ios --profile production --latest",
     "preview": "npx serve dist",
     "postinstall": "patch-package"
   },
