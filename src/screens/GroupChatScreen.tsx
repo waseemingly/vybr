@@ -794,7 +794,26 @@ const GroupChatScreen: React.FC = () => {
             console.error('[NEW] Message failed:', error);
             // Remove failed message from state
             setMessages(prev => prev.filter(msg => msg._id !== tempId));
-        }
+        },
+        onNotificationNeeded: (params) => {
+            if (!currentUserId || !groupId || !params.isGroup || !params.groupId) return;
+            const membersToNotify = Array.from(groupMembers.keys()).filter((id) => id !== currentUserId);
+            if (membersToNotify.length === 0) return;
+            const senderName = userProfileCache[currentUserId]?.name || 'Someone';
+            const groupName = currentGroupName || 'Group Chat';
+            membersToNotify.forEach((userId) => {
+                UnifiedNotificationService.notifyNewMessage({
+                    receiver_id: userId,
+                    sender_id: currentUserId,
+                    sender_name: senderName,
+                    message_id: params.messageId,
+                    content: params.content,
+                    is_group: true,
+                    group_id: params.groupId,
+                    group_name: groupName,
+                }).catch((err) => console.error('Failed to send group message notification:', err));
+            });
+        },
     });
 
     // --- State for Real-time Features ---

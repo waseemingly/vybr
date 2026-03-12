@@ -3,12 +3,22 @@ import { MessageSendingService } from '@/services/message/MessageSendingService'
 import { MessageUtils } from '@/utils/message/MessageUtils';
 import type { SendMessageOptions, MessageResult, ChatMessage } from '@/types/message';
 
+export interface NotificationNeededParams {
+  messageId: string;
+  content: string;
+  isGroup?: boolean;
+  groupId?: string;
+  sharedEventTitle?: string;
+}
+
 interface UseMessageSendingOptions {
   chatType: 'individual' | 'group';
   chatId: string;
   senderId: string;
   onMessageSent?: (message: ChatMessage) => void;
   onMessageFailed?: (tempId: string, error: string) => void;
+  /** Called after a message is successfully sent so the screen can trigger push notifications. */
+  onNotificationNeeded?: (params: NotificationNeededParams) => void;
 }
 
 interface UseMessageSendingReturn {
@@ -19,7 +29,7 @@ interface UseMessageSendingReturn {
 }
 
 export const useMessageSending = (options: UseMessageSendingOptions): UseMessageSendingReturn => {
-  const { chatType, chatId, senderId, onMessageSent, onMessageFailed } = options;
+  const { chatType, chatId, senderId, onMessageSent, onMessageFailed, onNotificationNeeded } = options;
   
   const [sending, setSending] = useState(false);
 
@@ -59,6 +69,15 @@ export const useMessageSending = (options: UseMessageSendingOptions): UseMessage
         };
 
         onMessageSent(optimisticMessage);
+
+        if (result.messageId && onNotificationNeeded) {
+          onNotificationNeeded({
+            messageId: result.messageId,
+            content: content.trim(),
+            isGroup: chatType === 'group',
+            ...(chatType === 'group' && { groupId: chatId }),
+          });
+        }
       } else if (!result.success && onMessageFailed && result.tempId) {
         onMessageFailed(result.tempId, result.error || 'Failed to send message');
       }
@@ -71,7 +90,7 @@ export const useMessageSending = (options: UseMessageSendingOptions): UseMessage
     } finally {
       setSending(false);
     }
-  }, [chatType, chatId, senderId, onMessageSent, onMessageFailed]);
+  }, [chatType, chatId, senderId, onMessageSent, onMessageFailed, onNotificationNeeded]);
 
   const sendImageMessage = useCallback(async (imageUrl: string, replyToMessageId?: string): Promise<MessageResult> => {
     if (!imageUrl) {
@@ -109,6 +128,15 @@ export const useMessageSending = (options: UseMessageSendingOptions): UseMessage
         };
 
         onMessageSent(optimisticMessage);
+
+        if (result.messageId && onNotificationNeeded) {
+          onNotificationNeeded({
+            messageId: result.messageId,
+            content: '[Image]',
+            isGroup: chatType === 'group',
+            ...(chatType === 'group' && { groupId: chatId }),
+          });
+        }
       } else if (!result.success && onMessageFailed && result.tempId) {
         onMessageFailed(result.tempId, result.error || 'Failed to send image');
       }
@@ -121,7 +149,7 @@ export const useMessageSending = (options: UseMessageSendingOptions): UseMessage
     } finally {
       setSending(false);
     }
-  }, [chatType, chatId, senderId, onMessageSent, onMessageFailed]);
+  }, [chatType, chatId, senderId, onMessageSent, onMessageFailed, onNotificationNeeded]);
 
   const shareEvent = useCallback(async (eventData: any, replyToMessageId?: string): Promise<MessageResult> => {
     if (!eventData) {
@@ -160,6 +188,16 @@ export const useMessageSending = (options: UseMessageSendingOptions): UseMessage
         };
 
         onMessageSent(optimisticMessage);
+
+        if (result.messageId && onNotificationNeeded) {
+          onNotificationNeeded({
+            messageId: result.messageId,
+            content: `Shared an event: ${eventData?.eventTitle ?? 'Event'}`,
+            isGroup: chatType === 'group',
+            ...(chatType === 'group' && { groupId: chatId }),
+            sharedEventTitle: eventData?.eventTitle,
+          });
+        }
       } else if (!result.success && onMessageFailed && result.tempId) {
         onMessageFailed(result.tempId, result.error || 'Failed to share event');
       }
@@ -172,7 +210,7 @@ export const useMessageSending = (options: UseMessageSendingOptions): UseMessage
     } finally {
       setSending(false);
     }
-  }, [chatType, chatId, senderId, onMessageSent, onMessageFailed]);
+  }, [chatType, chatId, senderId, onMessageSent, onMessageFailed, onNotificationNeeded]);
 
   return {
     sending,

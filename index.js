@@ -12,9 +12,10 @@
   }
 })();
 
-// Global error handler - displays errors on screen for debugging (especially useful on mobile devices)
+// Global error handler - displays errors on screen for debugging (web only; React Native has no DOM)
 (function() {
-  if (typeof window !== 'undefined' && __DEV__) {
+  var isWeb = typeof window !== 'undefined' && typeof window.addEventListener === 'function' && typeof document !== 'undefined';
+  if (isWeb && __DEV__) {
     var showError = function(title, msg) {
       var root = document.getElementById('root');
       if (root && !root.querySelector('.error-display')) {
@@ -26,12 +27,12 @@
         root.appendChild(errorDiv);
       }
     };
-    
+
     window.onerror = function(msg, url, line, col, error) {
       showError('JavaScript Error', msg + '\n\nFile: ' + url + '\nLine: ' + line + ':' + col + '\n\n' + (error && error.stack ? error.stack : ''));
       return false;
     };
-    
+
     window.addEventListener('unhandledrejection', function(e) {
       var reason = e.reason;
       showError('Unhandled Promise Rejection', (reason && reason.message ? reason.message : String(reason)) + '\n\n' + (reason && reason.stack ? reason.stack : ''));

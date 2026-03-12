@@ -726,7 +726,17 @@ const IndividualChatScreen: React.FC = () => {
             console.error('[NEW] Message failed:', error);
             // Remove failed message from state
             setMessages(prev => prev.filter(msg => msg._id !== tempId));
-        }
+        },
+        onNotificationNeeded: (params) => {
+            if (!currentUserId || !matchUserId) return;
+            UnifiedNotificationService.notifyNewMessage({
+                receiver_id: matchUserId,
+                sender_id: currentUserId,
+                sender_name: musicLoverProfile?.firstName || 'Someone',
+                message_id: params.messageId,
+                content: params.content,
+            }).catch((err) => console.error('Failed to send new message notification:', err));
+        },
     });
 
     // --- Callback Functions (useCallback) & Other Helpers ---
