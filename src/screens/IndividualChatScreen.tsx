@@ -1540,11 +1540,7 @@ const IndividualChatScreen: React.FC = () => {
                      style={styles.headerTitleContainer}
                  >
                      <View>
-                          {route.params.matchProfilePicture && route.params.matchProfilePicture !== DEFAULT_PROFILE_PIC ? (
-                              <StorageImage sourceUri={route.params.matchProfilePicture} style={styles.headerProfileImage} resizeMode="cover" />
-                          ) : (
-                              <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.headerProfileImage} />
-                          )}
+                          <StorageImage sourceUri={route.params?.matchProfilePicture || DEFAULT_PROFILE_PIC} style={styles.headerProfileImage} resizeMode="cover" />
                           {isMatchOnline && !isBlocked && <View style={styles.onlineIndicator} />}
                       </View>
                       <Text style={[styles.headerTitle, isBlocked && styles.blockedText]} numberOfLines={1}>
@@ -3557,11 +3553,7 @@ const IndividualChatScreen: React.FC = () => {
                     style={styles.headerTitleContainer}
                 >
                     <View>
-                        {route.params.matchProfilePicture && route.params.matchProfilePicture !== DEFAULT_PROFILE_PIC ? (
-                            <StorageImage sourceUri={route.params.matchProfilePicture} style={styles.headerProfileImage} resizeMode="cover" />
-                        ) : (
-                            <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.headerProfileImage} />
-                        )}
+                        <StorageImage sourceUri={route.params?.matchProfilePicture || DEFAULT_PROFILE_PIC} style={styles.headerProfileImage} resizeMode="cover" />
                         {isMatchOnline && !isBlocked && <View style={styles.onlineIndicator} />}
                     </View>
                     <Text style={[styles.headerTitle, isBlocked && styles.blockedText]} numberOfLines={1}>

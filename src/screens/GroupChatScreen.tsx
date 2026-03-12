@@ -368,11 +368,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 <View style={styles.messageContentContainer}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
-                            {message.user.avatar && message.user.avatar !== DEFAULT_PROFILE_PIC ? (
-                                <StorageImage sourceUri={message.user.avatar} style={styles.senderAvatar} resizeMode="cover" onError={() => console.warn('Failed to load sender avatar, using default')} />
-                            ) : (
-                                <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.senderAvatar} />
-                            )}
+                            <StorageImage sourceUri={message.user.avatar || DEFAULT_PROFILE_PIC} style={styles.senderAvatar} resizeMode="cover" />
                             {senderName && senderName !== 'User' && (
                                 <Text style={styles.senderName}>{senderName}</Text>
                             )}
@@ -423,11 +419,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
-                            {message.user.avatar && message.user.avatar !== DEFAULT_PROFILE_PIC ? (
-                                <StorageImage sourceUri={message.user.avatar} style={styles.senderAvatar} resizeMode="cover" onError={() => console.warn('Failed to load sender avatar, using default')} />
-                            ) : (
-                                <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.senderAvatar} />
-                            )}
+                            <StorageImage sourceUri={message.user.avatar || DEFAULT_PROFILE_PIC} style={styles.senderAvatar} resizeMode="cover" />
                             {senderName && senderName !== 'User' && (
                                 <Text style={styles.senderName}>{senderName}</Text>
                             )}
@@ -527,11 +519,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
-                            {message.user.avatar && message.user.avatar !== DEFAULT_PROFILE_PIC ? (
-                                <StorageImage sourceUri={message.user.avatar} style={styles.senderAvatar} resizeMode="cover" onError={() => console.warn('Failed to load sender avatar, using default')} />
-                            ) : (
-                                <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.senderAvatar} />
-                            )}
+                            <StorageImage sourceUri={message.user.avatar || DEFAULT_PROFILE_PIC} style={styles.senderAvatar} resizeMode="cover" />
                             {senderName && senderName !== 'User' && (
                                 <Text style={styles.senderName}>{senderName}</Text>
                             )}
@@ -597,11 +585,7 @@ const GroupMessageBubble: React.FC<GroupMessageBubbleProps> = React.memo(({
                 <View style={[styles.messageContentContainer, isHighlighted && styles.highlightedMessageContainer]}>
                     {!isCurrentUser && (
                         <View style={styles.senderInfoContainer}>
-                            {message.user.avatar && message.user.avatar !== DEFAULT_PROFILE_PIC ? (
-                                <StorageImage sourceUri={message.user.avatar} style={styles.senderAvatar} resizeMode="cover" onError={() => console.warn('Failed to load sender avatar, using default')} />
-                            ) : (
-                                <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.senderAvatar} />
-                            )}
+                            <StorageImage sourceUri={message.user.avatar || DEFAULT_PROFILE_PIC} style={styles.senderAvatar} resizeMode="cover" />
                             {senderName && senderName !== 'User' && (
                                 <Text style={styles.senderName}>{senderName}</Text>
                             )}
@@ -3217,15 +3201,11 @@ const GroupChatScreen: React.FC = () => {
             headerTitle: () => (
                 <TouchableOpacity style={styles.headerTitleContainer} onPress={navigateToGroupInfo} activeOpacity={0.8}>
                     <View style={styles.headerImageContainer}>
-                        {(currentGroupImage ?? route.params.groupImage) && (currentGroupImage ?? route.params.groupImage) !== DEFAULT_GROUP_PIC ? (
-                            <StorageImage
-                                sourceUri={currentGroupImage ?? route.params.groupImage ?? null}
-                                style={styles.headerGroupImage}
-                                resizeMode="cover"
-                            />
-                        ) : (
-                            <Image source={{ uri: DEFAULT_GROUP_PIC }} style={styles.headerGroupImage} />
-                        )}
+                        <StorageImage
+                            sourceUri={currentGroupImage ?? route.params?.groupImage ?? DEFAULT_GROUP_PIC}
+                            style={styles.headerGroupImage}
+                            resizeMode="cover"
+                        />
                         {onlineCount > 0 && (
                             <View style={styles.onlineIndicator}>
                                 <Text style={styles.onlineIndicatorText}>{onlineCount}</Text>
@@ -4309,15 +4289,11 @@ const GroupChatScreen: React.FC = () => {
                     style={styles.headerTitleContainer}
                 >
                     <View>
-                        {(currentGroupImage ?? route.params.groupImage) && (currentGroupImage ?? route.params.groupImage) !== DEFAULT_GROUP_PIC ? (
-                            <StorageImage
-                                sourceUri={currentGroupImage ?? route.params.groupImage ?? null}
-                                style={styles.headerGroupImage}
-                                resizeMode="cover"
-                            />
-                        ) : (
-                            <Image source={{ uri: DEFAULT_GROUP_PIC }} style={styles.headerGroupImage} />
-                        )}
+                        <StorageImage
+                            sourceUri={currentGroupImage ?? route.params?.groupImage ?? DEFAULT_GROUP_PIC}
+                            style={styles.headerGroupImage}
+                            resizeMode="cover"
+                        />
                         <View style={styles.onlineIndicator}>
                             <Text style={styles.onlineCount}>{onlineMembers.size}</Text>
                         </View>

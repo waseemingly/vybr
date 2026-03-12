@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, StyleSheet, FlatList, TouchableOpacity,
-    Image, ActivityIndicator, Alert, TextInput, Platform, Keyboard
+    ActivityIndicator, Alert, TextInput, Platform, Keyboard
 } from 'react-native';
 import { StorageImage } from '@/components/StorageImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -155,11 +155,7 @@ const AddGroupMembersScreen = () => {
         const isSelected = selectedUsers.has(item.user_id); const name = `${item.first_name || ''} ${item.last_name || ''}`.trim() || item.username || 'Friend';
         return (
             <TouchableOpacity style={[styles.userItem, isSelected && styles.userItemSelected]} onPress={() => toggleUserSelection(item.user_id)} activeOpacity={0.7}>
-                {item.profile_picture && item.profile_picture !== DEFAULT_PROFILE_PIC ? (
-                    <StorageImage sourceUri={item.profile_picture} style={styles.avatar} resizeMode="cover" />
-                ) : (
-                    <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.avatar} />
-                )}
+                <StorageImage sourceUri={item.profile_picture || DEFAULT_PROFILE_PIC} style={styles.avatar} resizeMode="cover" />
                  <View style={styles.userNameContainer}>
                      <Text style={styles.userName} numberOfLines={1}>{name}</Text>{item.username && <Text style={styles.userUsername}>@{item.username}</Text>}
                  </View>

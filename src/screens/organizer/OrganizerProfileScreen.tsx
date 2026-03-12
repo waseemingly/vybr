@@ -122,7 +122,7 @@ const OrganizerProfileScreen: React.FC = () => {
       ]} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} />}>
         <View style={styles.profileCard}>
             <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={styles.coverPhoto} />
-            <View style={styles.avatarContainer}>{logo && logo !== DEFAULT_ORGANIZER_LOGO ? <StorageImage sourceUri={logo} style={styles.avatar} resizeMode="cover" /> : <Image source={{ uri: DEFAULT_ORGANIZER_LOGO }} style={styles.avatar} />}</View>
+            <View style={styles.avatarContainer}><StorageImage sourceUri={logo || DEFAULT_ORGANIZER_LOGO} style={styles.avatar} resizeMode="cover" /></View>
             <View style={styles.profileInfo}>
                 <Text style={styles.name}>{company_name ?? "Organizer"}</Text>
                  {businessTypeFormatted && (<Text style={styles.businessType}>{businessTypeFormatted}</Text>)}

@@ -1,7 +1,7 @@
 /**
  * Image that works with private Supabase storage buckets.
- * If the URI is from our Supabase storage, fetches via authenticated download
- * and displays the result; otherwise uses the URI as-is.
+ * For Supabase storage URLs, uses signed URLs so private buckets work on web and native
+ * (React Native Image cannot send auth headers; signed URLs avoid data-URI issues on Android).
  */
 import React, { useState, useEffect } from 'react';
 import { Image, StyleProp, ImageStyle } from 'react-native';
@@ -22,7 +22,7 @@ export const StorageImage: React.FC<StorageImageProps> = ({
   resizeMode = 'cover',
   onError,
 }) => {
-  // For storage URLs, start with null so we don't render the raw URL (fails with 400 on private buckets)
+  // For storage URLs, start with null so we don't render the raw URL (fails on private buckets)
   const [displayUri, setDisplayUri] = useState<string | null>(() => {
     if (!sourceUri) return null;
     if (SUPABASE_STORAGE_REGEX.test(sourceUri)) return null;
@@ -40,13 +40,14 @@ export const StorageImage: React.FC<StorageImageProps> = ({
       return;
     }
     let cancelled = false;
-    getAuthenticatedStorageImageUri(sourceUri).then((uri) => {
-      if (!cancelled && uri) setDisplayUri(uri);
-      else if (!cancelled) setDisplayUri(sourceUri);
-    }).catch(() => {
-      if (!cancelled) setDisplayUri(sourceUri);
-    });
-    return () => { cancelled = true; };
+    getAuthenticatedStorageImageUri(sourceUri)
+      .then((uri) => {
+        if (!cancelled && uri) setDisplayUri(uri);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [sourceUri]);
 
   if (!displayUri) return null;

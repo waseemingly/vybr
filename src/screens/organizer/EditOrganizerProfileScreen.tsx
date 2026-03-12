@@ -232,7 +232,7 @@ const EditOrganizerProfileScreen: React.FC = () => {
             <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
                 {/* Logo Section */}
                 <View style={styles.logoSection}>
-                     {displayLogo && displayLogo !== DEFAULT_ORGANIZER_LOGO ? <StorageImage sourceUri={displayLogo} style={styles.logo} resizeMode="cover" /> : <Image source={{ uri: DEFAULT_ORGANIZER_LOGO }} style={styles.logo} />}
+                     <StorageImage sourceUri={displayLogo || DEFAULT_ORGANIZER_LOGO} style={styles.logo} resizeMode="cover" />
                      <TouchableOpacity style={styles.changeLogoButton} onPress={pickImage} disabled={isUploading || isSaving}>
                         <Feather name="edit-2" size={14} color={APP_CONSTANTS.COLORS.PRIMARY} style={{ marginRight: 5 }} />
                         <Text style={styles.changeLogoText}>Change Logo</Text>

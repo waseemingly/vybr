@@ -346,7 +346,7 @@ const GroupInfoScreen = () => {
                 }
             } 
         };
-        return ( <TouchableOpacity style={styles.memberItem} onPress={handlePressMember} disabled={isSelf} activeOpacity={isSelf ? 1 : 0.7}>{item.profile.profile_picture && item.profile.profile_picture !== DEFAULT_PROFILE_PIC ? <StorageImage sourceUri={item.profile.profile_picture} style={styles.memberAvatar} resizeMode="cover" /> : <RNImage source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.memberAvatar} />}<View style={styles.memberInfo}><Text style={styles.memberName}>{name} {isSelf ? '(You)' : ''}</Text>{item.is_admin && <Text style={styles.adminBadge}>Admin</Text>}</View>{isCurrentUserAdmin && !isSelf && ( <View style={styles.memberActions}><TouchableOpacity style={styles.actionButton} onPress={() => { handleSetAdminStatus(item.user_id, name, !item.is_admin); }}><Feather name={item.is_admin ? "arrow-down-circle" : "arrow-up-circle"} size={20} color={item.is_admin ? "#F59E0B" : "#10B981"} /></TouchableOpacity><TouchableOpacity style={styles.actionButton} onPress={() => { handleRemoveMember(item.user_id, name); }}><Feather name="x-circle" size={20} color="#EF4444" /></TouchableOpacity></View> )}{processingAction === `remove_${item.user_id}` || processingAction === `admin_${item.user_id}` ? ( <ActivityIndicator size="small" color="#6B7280" style={styles.memberProcessingIndicator}/> ) : null}</TouchableOpacity> );
+        return ( <TouchableOpacity style={styles.memberItem} onPress={handlePressMember} disabled={isSelf} activeOpacity={isSelf ? 1 : 0.7}><StorageImage sourceUri={item.profile.profile_picture || DEFAULT_PROFILE_PIC} style={styles.memberAvatar} resizeMode="cover" /><View style={styles.memberInfo}><Text style={styles.memberName}>{name} {isSelf ? '(You)' : ''}</Text>{item.is_admin && <Text style={styles.adminBadge}>Admin</Text>}</View>{isCurrentUserAdmin && !isSelf && ( <View style={styles.memberActions}><TouchableOpacity style={styles.actionButton} onPress={() => { handleSetAdminStatus(item.user_id, name, !item.is_admin); }}><Feather name={item.is_admin ? "arrow-down-circle" : "arrow-up-circle"} size={20} color={item.is_admin ? "#F59E0B" : "#10B981"} /></TouchableOpacity><TouchableOpacity style={styles.actionButton} onPress={() => { handleRemoveMember(item.user_id, name); }}><Feather name="x-circle" size={20} color="#EF4444" /></TouchableOpacity></View> )}{processingAction === `remove_${item.user_id}` || processingAction === `admin_${item.user_id}` ? ( <ActivityIndicator size="small" color="#6B7280" style={styles.memberProcessingIndicator}/> ) : null}</TouchableOpacity> );
     };
 
     // --- Render Media Item ---
@@ -412,11 +412,7 @@ const GroupInfoScreen = () => {
                             const uri = displayUri
                                 ? `${displayUri}${displayUri.includes('?') ? '&' : '?'}v=${(groupDetails.updated_at || Date.now()).toString().replace(/[^0-9]/g, '')}`
                                 : DEFAULT_GROUP_PIC;
-                            return uri ? (
-                                <StorageImage key={uri} sourceUri={uri} style={styles.groupAvatar} resizeMode="cover" />
-                            ) : (
-                                <RNImage source={{ uri: DEFAULT_GROUP_PIC }} style={styles.groupAvatar} />
-                            );
+                            return <StorageImage key={uri} sourceUri={uri} style={styles.groupAvatar} resizeMode="cover" />;
                         })()}
                          {(isCurrentUserAdmin || groupDetails.can_members_edit_info) && ( <View style={styles.cameraIconOverlay}><Feather name="camera" size={18} color="white" /></View> )}
                           {processingAction === 'update_image' && <ActivityIndicator style={styles.imageLoadingIndicator} color="#FFF"/>}

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Image, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Alert, TextInput } from 'react-native';
 import { StorageImage } from '@/components/StorageImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
@@ -184,11 +184,7 @@ const ViewBookingsScreen = () => {
     
     return (
       <View style={styles.bookingItem}>
-        {item.profile_picture_url && item.profile_picture_url !== DEFAULT_PROFILE_IMAGE ? (
-          <StorageImage sourceUri={item.profile_picture_url} style={styles.profilePic} resizeMode="cover" onError={() => console.log(`[ViewBookingsScreen] Image load error for ${item.user_id}`)} />
-        ) : (
-          <Image source={{ uri: DEFAULT_PROFILE_IMAGE }} style={styles.profilePic} />
-        )}
+        <StorageImage sourceUri={item.profile_picture_url || DEFAULT_PROFILE_IMAGE} style={styles.profilePic} resizeMode="cover" />
         <View style={styles.bookingInfo}>
           <Text style={styles.userName}>{item.name}</Text>
           <Text style={styles.ticketInfo}>{item.quantity} {item.quantity === 1 ? 'ticket' : 'tickets'}</Text>

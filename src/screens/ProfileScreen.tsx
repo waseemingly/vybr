@@ -576,7 +576,7 @@ const ProfileScreen: React.FC = () => {
             ]} showsVerticalScrollIndicator={false} refreshControl={ <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} tintColor={APP_CONSTANTS.COLORS.PRIMARY} /> } >
                 <View style={styles.profileCard}>
                     <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={styles.coverPhoto} />
-                    <View style={styles.avatarContainer}>{profilePictureUrl && profilePictureUrl !== DEFAULT_PROFILE_PIC ? <StorageImage sourceUri={profilePictureUrl} style={styles.avatar} resizeMode="cover" /> : <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.avatar} />}</View>
+                    <View style={styles.avatarContainer}><StorageImage sourceUri={profilePictureUrl || DEFAULT_PROFILE_PIC} style={styles.avatar} resizeMode="cover" /></View>
                     <View style={styles.profileInfo}>
                         <View style={styles.nameContainer}><Text style={styles.name}>{userName}</Text>{isPremium && (<View style={styles.premiumBadgeName}><Feather name="award" size={10} color="#B8860B" /><Text style={styles.premiumTextName}>Premium</Text></View>)}</View>
                         {musicLoverProfile.username && (

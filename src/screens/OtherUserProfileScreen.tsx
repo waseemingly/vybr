@@ -1215,11 +1215,7 @@ const OtherUserProfileScreen: React.FC = () => {
                 <View style={profileStyles.profileCard}>
                     <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={[profileStyles.coverPhoto, { height: 90 }]} />
                     <View style={[profileStyles.avatarContainer, { top: 40 }]}>
-                         {profilePictureUrl && profilePictureUrl !== DEFAULT_PROFILE_PIC ? (
-                             <StorageImage sourceUri={profilePictureUrl} style={[profileStyles.avatar, { width: 90, height: 90, borderRadius: 45 }]} resizeMode="cover" />
-                         ) : (
-                             <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={[profileStyles.avatar, { width: 90, height: 90, borderRadius: 45 }]} />
-                         )}
+                         <StorageImage sourceUri={profilePictureUrl || DEFAULT_PROFILE_PIC} style={[profileStyles.avatar, { width: 90, height: 90, borderRadius: 45 }]} resizeMode="cover" />
                     </View>
                     <View style={[profileStyles.profileInfo, { paddingTop: 55 }]}>
                         <View style={profileStyles.nameContainer}>
@@ -1510,8 +1506,8 @@ const OtherUserProfileScreen: React.FC = () => {
                                             }}
                                             style={profileStyles.sharedMediaItem}
                                         >
-                                            <Image
-                                                source={{ uri: imageUrl }}
+                                            <StorageImage
+                                                sourceUri={imageUrl}
                                                 style={profileStyles.sharedMediaImage}
                                                 resizeMode="cover"
                                             />

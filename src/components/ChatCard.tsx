@@ -347,7 +347,7 @@
 // src/components/ChatCard.tsx
 
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { StorageImage } from '@/components/StorageImage';
 interface ChatCardProps {
@@ -398,14 +398,10 @@ const ChatCard: React.FC<ChatCardProps> = ({
                 {/* Avatar Area - Tappable only for individual profiles */}
                 <TouchableOpacity
                     style={styles.avatarContainer}
-                    // Only allow profile open for individual chats and if handler exists
                     onPress={ (type === 'individual' && onProfileOpen) ? (e) => { e.stopPropagation(); onProfileOpen(); } : undefined }
                     disabled={type === 'group' || !onProfileOpen}
                     activeOpacity={0.8}
                 >
-                    {/* Default placeholder so avatar area is never empty while StorageImage loads (e.g. from private bucket) */}
-                    <Image source={{ uri: type === 'group' ? DEFAULT_GROUP_PIC_URL : DEFAULT_PROFILE_PIC_URL }} style={[styles.avatar, { position: 'absolute' }]} />
-                    {/* StorageImage works with private buckets (auth fetch); overlays placeholder when loaded */}
                     <StorageImage key={imageSourceUri} sourceUri={imageSourceUri} style={styles.avatar} resizeMode="cover" />
                     {/* Online indicator or other status indicators can be added here */}
                     {unread > 0 && (

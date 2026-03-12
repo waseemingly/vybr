@@ -460,7 +460,7 @@ export async function decryptImageBytes(
 }
 
 /** Parse Supabase storage URL into bucket + path for authenticated download (works with private buckets). */
-function parseSupabaseStorageUrl(url: string): { bucket: string; path: string } | null {
+export function parseSupabaseStorageUrl(url: string): { bucket: string; path: string } | null {
   try {
     const match = url.match(/\/storage\/v1\/object\/(?:public|authenticated)\/([^/]+)\/(.+)$/);
     if (!match) return null;
@@ -489,19 +489,31 @@ export async function fetchImageBlob(imageUrl: string): Promise<Blob | null> {
   return res.blob();
 }
 
-/** Resolve a Supabase storage image URL to a displayable URI (data URL). Use for private buckets so viewing works. */
+/** Default expiry for signed storage URLs (1 hour). */
+const SIGNED_URL_EXPIRY_SEC = 3600;
+
+/**
+ * Resolve a Supabase storage image URL to a displayable URI.
+ * Uses createSignedUrl so private buckets work on web and native (React Native Image
+ * does not send auth headers; data URIs can be unreliable on Android). Returns the
+ * original URL if it is not our storage or if signing fails.
+ */
 export async function getAuthenticatedStorageImageUri(imageUrl: string | null | undefined): Promise<string | null> {
   if (!imageUrl?.trim()) return null;
-  const blob = await fetchImageBlob(imageUrl);
-  if (!blob) return imageUrl;
-  try {
-    const buf = await blob.arrayBuffer();
-    const b64 = crypto.bytesToBase64(new Uint8Array(buf));
-    const mime = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg';
-    return `data:${mime};base64,${b64}`;
-  } catch {
+  const parsed = parseSupabaseStorageUrl(imageUrl);
+  if (!parsed) return imageUrl;
+  const { data, error } = await supabase.storage
+    .from(parsed.bucket)
+    .createSignedUrl(parsed.path, SIGNED_URL_EXPIRY_SEC);
+  if (error) {
+    if (__DEV__) console.warn('[StorageImage] createSignedUrl failed:', error.message);
     return imageUrl;
   }
+  const signedUrl =
+    typeof data === 'string'
+      ? data
+      : (data as { signedUrl?: string } | null)?.signedUrl ?? null;
+  return signedUrl || imageUrl;
 }
 
 /** Resolve chat image URL to a displayable URI. For our Supabase storage URLs always uses authenticated download (private buckets). If E2E, decrypts and returns data URI; otherwise returns data URI of blob or original URL. */

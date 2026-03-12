@@ -1,11 +1,12 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, SectionList, ActivityIndicator, RefreshControl, TouchableOpacity, Image, TextInput } from 'react-native';
+import { View, Text, StyleSheet, SectionList, ActivityIndicator, RefreshControl, TouchableOpacity, TextInput } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { APP_CONSTANTS } from '@/config/constants';
+import { StorageImage } from '@/components/StorageImage';
 
 interface Reservation {
   booking_id: string;
@@ -182,10 +183,7 @@ const OrganizerReservationsScreen = () => {
 
     const renderItem = ({ item }: { item: Reservation }) => (
         <View style={styles.bookingItem}>
-            <Image
-              source={{ uri: item.user_profile_picture || DEFAULT_PROFILE_IMAGE }}
-              style={styles.profilePic}
-            />
+            <StorageImage sourceUri={item.user_profile_picture || DEFAULT_PROFILE_IMAGE} style={styles.profilePic} resizeMode="cover" />
             <View style={styles.bookingInfo}>
               <Text style={styles.userName}>{item.user_name}</Text>
               <Text style={styles.ticketInfo}>{item.quantity} {item.quantity === 1 ? 'guest' : 'guests'} for {item.event_title}</Text>

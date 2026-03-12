@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, StyleSheet, FlatList, TouchableOpacity,
-    Image, ActivityIndicator, RefreshControl, ScrollView, Alert, Dimensions
+    ActivityIndicator, RefreshControl, ScrollView, Alert, Dimensions
 } from 'react-native';
 import { StorageImage } from '@/components/StorageImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -216,11 +216,7 @@ const FriendsListScreen: React.FC = () => {
                 userId: item.userId,
             })} 
         >
-            {item.profilePicture && item.profilePicture !== DEFAULT_PROFILE_PIC ? (
-                <StorageImage sourceUri={item.profilePicture} style={styles.avatar} resizeMode="cover" />
-            ) : (
-                <Image source={{ uri: DEFAULT_PROFILE_PIC }} style={styles.avatar} />
-            )}
+            <StorageImage sourceUri={item.profilePicture || DEFAULT_PROFILE_PIC} style={styles.avatar} resizeMode="cover" />
             <View style={styles.itemTextContainer}>
                 <Text style={styles.itemName} numberOfLines={1}>{`${item.firstName} ${item.lastName}`.trim() || item.username}</Text>
                 {item.username && <Text style={styles.itemUsername}>@{item.username}</Text>}
