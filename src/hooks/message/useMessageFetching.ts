@@ -4,6 +4,7 @@ import { MessageMappingUtils } from '@/utils/message/MessageMappingUtils';
 import { usePowerSync } from '@/context/PowerSyncContext';
 import { useIndividualMessages, useGroupMessages } from '@/lib/powersync/chatFunctions';
 import type { ChatMessage, FetchMessagesResult } from '@/types/message';
+import { decryptMessageContent, E2E_UNDECRYPTABLE } from '@/lib/e2e/e2eService';
 
 interface UseMessageFetchingOptions {
   chatType: 'individual' | 'group';
@@ -33,15 +34,108 @@ export const useMessageFetching = (options: UseMessageFetchingOptions): UseMessa
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [powerSyncMessages, setPowerSyncMessages] = useState<ChatMessage[] | null>(null);
 
   // PowerSync hooks for mobile
   const individualMessagesResult = useIndividualMessages(userId, chatId, limit, 0);
   const groupMessagesResult = useGroupMessages(chatId, userId, limit, 0);
 
+  // Heuristic: looks like our E2E ciphertext
+  const looksLikeE2eCiphertext = useCallback((content: string | null | undefined): boolean => {
+    return !!content && content.length >= 20 && /^[A-Za-z0-9+/]+=*$/.test(content) && !content.startsWith('SHARED_EVENT:');
+  }, []);
+
   // Set current user ID for message mapping
   useEffect(() => {
     MessageMappingUtils.setCurrentUserId(userId);
   }, [userId]);
+
+  // Build decrypted messages from PowerSync whenever its data changes (mobile only)
+  useEffect(() => {
+    if (!isMobile || !isPowerSyncAvailable) {
+      setPowerSyncMessages(null);
+      return;
+    }
+
+    const source =
+      chatType === 'individual'
+        ? (individualMessagesResult.messages as any[])
+        : (groupMessagesResult.messages as any[]);
+
+    if (!source || source.length === 0) {
+      setPowerSyncMessages(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const run = async () => {
+      const ctx =
+        chatType === 'individual'
+          ? { type: 'individual' as const, userId, peerId: chatId }
+          : { type: 'group' as const, userId, groupId: chatId };
+
+      const mapped: ChatMessage[] = [];
+
+      for (const msg of source) {
+        let text: string = msg.content ?? '';
+
+        if (looksLikeE2eCiphertext(text)) {
+          try {
+            const decrypted = await decryptMessageContent(text, 'e2e', ctx);
+            text = decrypted === E2E_UNDECRYPTABLE ? 'Encrypted message' : decrypted;
+          } catch {
+            text = 'Encrypted message';
+          }
+        }
+
+        mapped.push({
+          _id: msg.id,
+          text,
+          createdAt: new Date(msg.created_at),
+          user: {
+            _id: msg.sender_id,
+            name: msg.sender_name,
+            avatar: msg.sender_profile_picture,
+          },
+          image: null,
+          isSystemMessage: false,
+          sharedEvent: null,
+          originalContent: null,
+          isEdited: false,
+          editedAt: null,
+          isDeleted: false,
+          deletedAt: null,
+          replyToMessageId: null,
+          replyToMessagePreview: null,
+          isDelivered: msg.is_delivered,
+          deliveredAt: msg.delivered_at ? new Date(msg.delivered_at) : null,
+          isSeen: Boolean(msg.is_seen),
+          seenAt: msg.seen_at ? new Date(msg.seen_at) : null,
+          seenBy: chatType === 'group' ? msg.seen_by || [] : [],
+        });
+      }
+
+      if (!cancelled) {
+        setPowerSyncMessages(mapped);
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isMobile,
+    isPowerSyncAvailable,
+    chatType,
+    chatId,
+    userId,
+    individualMessagesResult.messages,
+    groupMessagesResult.messages,
+    looksLikeE2eCiphertext,
+  ]);
 
   const fetchMessages = useCallback(async (offset: number = 0) => {
     if (!chatId || !userId) {
@@ -139,88 +233,15 @@ export const useMessageFetching = (options: UseMessageFetchingOptions): UseMessa
   // Get messages based on platform
   const getMessages = useMemo(() => {
     if (isMobile && isPowerSyncAvailable) {
-      // Use PowerSync data if available and has content
-      if (chatType === 'individual') {
-        const powerSyncMessages = individualMessagesResult.messages;
-        console.log(`🔍 PowerSync Debug - Individual Messages:`, {
-          messages: powerSyncMessages,
-          length: powerSyncMessages?.length || 0,
-          loading: individualMessagesResult.loading,
-          error: individualMessagesResult.error
-        });
-        
-        if (powerSyncMessages && powerSyncMessages.length > 0) {
-          console.log(`🔍 PowerSync: Using ${powerSyncMessages.length} individual messages from PowerSync`);
-          return powerSyncMessages.map((msg: any) => ({
-            _id: msg.id,
-            text: msg.content,
-            createdAt: new Date(msg.created_at),
-            user: {
-              _id: msg.sender_id,
-              name: msg.sender_name,
-              avatar: msg.sender_profile_picture
-            },
-            image: null,
-            isSystemMessage: false,
-            sharedEvent: null,
-            originalContent: null,
-            isEdited: false,
-            editedAt: null,
-            isDeleted: false,
-            deletedAt: null,
-            replyToMessageId: null,
-            replyToMessagePreview: null,
-            isDelivered: msg.is_delivered,
-            deliveredAt: msg.delivered_at ? new Date(msg.delivered_at) : null,
-            isSeen: Boolean(msg.is_seen),
-            seenAt: msg.seen_at ? new Date(msg.seen_at) : null,
-            seenBy: []
-          }));
-        }
-      } else {
-        const powerSyncMessages = groupMessagesResult.messages;
-        console.log(`🔍 PowerSync Debug - Group Messages:`, {
-          messages: powerSyncMessages,
-          length: powerSyncMessages?.length || 0,
-          loading: groupMessagesResult.loading,
-          error: groupMessagesResult.error
-        });
-        
-        if (powerSyncMessages && powerSyncMessages.length > 0) {
-          console.log(`🔍 PowerSync: Using ${powerSyncMessages.length} group messages from PowerSync`);
-          console.log(`🔍 PowerSync: Group messages details:`, powerSyncMessages.map(m => ({ id: m.id, sender_id: m.sender_id, content: m.content?.substring(0, 20) })));
-          return powerSyncMessages.map((msg: any) => ({
-            _id: msg.id,
-            text: msg.content,
-            createdAt: new Date(msg.created_at),
-            user: {
-              _id: msg.sender_id,
-              name: msg.sender_name,
-              avatar: msg.sender_profile_picture
-            },
-            image: null,
-            isSystemMessage: false,
-            sharedEvent: null,
-            originalContent: null,
-            isEdited: false,
-            editedAt: null,
-            isDeleted: false,
-            deletedAt: null,
-            replyToMessageId: null,
-            replyToMessagePreview: null,
-            isDelivered: msg.is_delivered,
-            deliveredAt: msg.delivered_at ? new Date(msg.delivered_at) : null,
-            isSeen: Boolean(msg.is_seen),
-            seenAt: msg.seen_at ? new Date(msg.seen_at) : null,
-            seenBy: msg.seen_by || []
-          }));
-        }
+      // Prefer decrypted PowerSync data when available
+      if (powerSyncMessages && powerSyncMessages.length > 0) {
+        return powerSyncMessages;
       }
-      // Fallback to Supabase if PowerSync has no data
-      console.log('🔍 PowerSync: No PowerSync data available, using Supabase fallback');
+      // Fallback to Supabase-mapped messages
+      console.log('🔍 PowerSync: No decrypted PowerSync data available, using Supabase fallback');
     }
     return messages;
-  }, [isMobile, isPowerSyncAvailable, chatType, individualMessagesResult.messages, groupMessagesResult.messages, messages]);
+  }, [isMobile, isPowerSyncAvailable, powerSyncMessages, messages]);
 
   const getIsLoading = useMemo(() => {
     if (isMobile && isPowerSyncAvailable) {

@@ -49,15 +49,35 @@ const LandingScreen = () => {
     ]).start();
   }, []);
 
+  // On web, allow the page to use full window as viewport (body scroll) instead of a fixed-height box
+  useEffect(() => {
+    if (!isWeb || typeof document === 'undefined') return;
+    document.documentElement.classList.add('landing-viewport');
+    document.body.classList.add('landing-viewport');
+    return () => {
+      document.documentElement.classList.remove('landing-viewport');
+      document.body.classList.remove('landing-viewport');
+    };
+  }, []);
+
   return (
-    <SafeAreaView style={authStyles.container}>
+    <SafeAreaView
+      style={[
+        authStyles.container,
+        isWeb && { flex: 0, minHeight: height },
+      ]}
+    >
       <LinearGradient
         colors={[
           `${APP_CONSTANTS.COLORS.PRIMARY}08`,
           `${APP_CONSTANTS.COLORS.PRIMARY}03`,
           'white'
         ]}
-        style={[authStyles.gradient, isPhoneWeb && { paddingHorizontal: 16 }]}
+        style={[
+          authStyles.gradient,
+          isPhoneWeb && { paddingHorizontal: 16 },
+          isWeb && { flex: 0, minHeight: height },
+        ]}
       >
         {/* Decorative background elements */}
         <View style={authStyles.decorativeCircle1} />
@@ -66,28 +86,19 @@ const LandingScreen = () => {
         {isWeb && <View style={authStyles.decorativeCircle4} />}
         {isWeb && <View style={authStyles.decorativeCircle5} />}
 
-        {/* Main content container - centered like login screen; scrollable on phone web */}
-        <ScrollView
-          style={{ flex: 1, maxWidth: '100%' }}
-          contentContainerStyle={
-            isPhoneWeb
-              ? {
-                  paddingHorizontal: contentPaddingHorizontal,
-                  paddingTop: 20,
-                  paddingBottom: 24,
-                  alignItems: 'center',
-                }
-              : {
-                  flexGrow: 1,
-                  justifyContent: 'center',
-                  paddingHorizontal: contentPaddingHorizontal,
-                  paddingVertical: isWeb ? 60 : 16,
-                  alignItems: 'center',
-                }
-          }
-          showsVerticalScrollIndicator={isPhoneWeb}
-        >
-          <Animated.View
+        {/* On web: use View so page height = content height and window scrolls. On native: use ScrollView. */}
+        {isWeb ? (
+          <View
+            style={{
+              paddingHorizontal: contentPaddingHorizontal,
+              paddingTop: isPhoneWeb ? 20 : 40,
+              paddingBottom: 24,
+              paddingVertical: isPhoneWeb ? undefined : 60,
+              alignItems: 'center',
+              alignSelf: 'stretch',
+            }}
+          >
+            <Animated.View
             style={[
               isPhoneWeb
                 ? {
@@ -98,11 +109,9 @@ const LandingScreen = () => {
                     transform: [{ translateY: slideAnim }],
                   }
                 : {
-                    flex: 1,
                     width: '100%',
                     maxWidth: '100%',
                     alignItems: 'center',
-                    justifyContent: 'center',
                     opacity: fadeAnim,
                     transform: [{ translateY: slideAnim }],
                   },
@@ -228,7 +237,87 @@ const LandingScreen = () => {
             </View>
           </View>
         </Animated.View>
-        </ScrollView>
+          </View>
+        ) : (
+          <ScrollView
+            style={{ flex: 1, maxWidth: '100%', alignSelf: 'stretch' }}
+            contentContainerStyle={{
+              paddingHorizontal: contentPaddingHorizontal,
+              paddingTop: 20,
+              paddingBottom: 24,
+              alignItems: 'center',
+            }}
+            showsVerticalScrollIndicator={true}
+          >
+            <Animated.View
+              style={{
+                width: '100%',
+                maxWidth: '100%',
+                alignItems: 'center',
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              }}
+            >
+              <Animated.View style={{ alignItems: 'center', marginBottom: 20, marginTop: 0, transform: [{ scale: scaleAnim }] }}>
+                <View style={authStyles.logoBackground}>
+                  <Text style={authStyles.logoText}>vybr</Text>
+                </View>
+                <Text style={authStyles.tagline}>Where music meets connection</Text>
+              </Animated.View>
+              <View style={{ width: '100%', maxWidth: '100%', alignItems: 'center', paddingHorizontal: 8 }}>
+                <Text style={[authStyles.description, { marginBottom: 16 }]}>
+                  Discover events, connect with music lovers, and experience unforgettable moments together
+                </Text>
+                <View style={{ width: '100%', alignItems: 'center', paddingHorizontal: buttonsPaddingHorizontal }}>
+                  <TouchableOpacity
+                    style={[authStyles.button, { backgroundColor: 'white', borderWidth: 1, borderColor: APP_CONSTANTS.COLORS.BORDER_LIGHT, marginBottom: 12 }]}
+                    onPress={() => navigation.navigate('MusicLoverLogin')}
+                    activeOpacity={0.8}
+                  >
+                    <View style={authStyles.buttonContent}>
+                      <View style={authStyles.buttonIconContainer}>
+                        <Feather name="music" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                      </View>
+                      <View style={[authStyles.buttonTextContainer, { flex: 1, minWidth: 0 }]}>
+                        <Text style={authStyles.buttonTitle} numberOfLines={1}>Music Lover</Text>
+                        <Text style={authStyles.buttonSubtitle} numberOfLines={2}>Login / Sign up with Google</Text>
+                      </View>
+                      <Feather name="chevron-right" size={20} color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} />
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[authStyles.button, { backgroundColor: 'white', borderWidth: 1, borderColor: APP_CONSTANTS.COLORS.BORDER_LIGHT, marginBottom: 0 }]}
+                    onPress={() => {
+                      if (FEATURE_FLAGS.PAYMENTS_AND_ORGANIZERS_ENABLED) navigation.navigate('OrganizerLogin');
+                      else setShowOrganizerHype(true);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <View style={authStyles.buttonContent}>
+                      <View style={authStyles.buttonIconContainer}>
+                        <Feather name="calendar" size={24} color={APP_CONSTANTS.COLORS.PRIMARY} />
+                      </View>
+                      <View style={[authStyles.buttonTextContainer, { flex: 1, minWidth: 0 }]}>
+                        <Text style={authStyles.buttonTitle} numberOfLines={1}>Event Organizer</Text>
+                        <Text style={authStyles.buttonSubtitle} numberOfLines={2}>
+                          {FEATURE_FLAGS.PAYMENTS_AND_ORGANIZERS_ENABLED ? 'Login / Sign up with Google' : "Coming soon - tap to see what's ahead"}
+                        </Text>
+                      </View>
+                      <Feather name="chevron-right" size={20} color={APP_CONSTANTS.COLORS.TEXT_SECONDARY} />
+                    </View>
+                  </TouchableOpacity>
+                  <ComingSoonHypeModal
+                    visible={showOrganizerHype}
+                    onDismiss={() => setShowOrganizerHype(false)}
+                    headline={ORGANIZER_HYPE_HEADLINE}
+                    message={ORGANIZER_HYPE_MESSAGE}
+                    buttonLabel="Can't wait!"
+                  />
+                </View>
+              </View>
+            </Animated.View>
+          </ScrollView>
+        )}
       </LinearGradient>
     </SafeAreaView>
   );
