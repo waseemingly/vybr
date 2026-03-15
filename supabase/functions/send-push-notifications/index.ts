@@ -230,6 +230,11 @@ serve(async (req) => {
     const successCount = results.filter(r => r.success).length;
     const totalCount = results.length;
 
+    // Ticket IDs can be used to check push receipts (POST https://exp.host/--/api/v2/push/getReceipts with body { ids: [...] }) after ~15s to see if APNs/FCM accepted delivery. Expo "ok" only means Expo received the request.
+    const ticketIds = results
+      .filter((r): r is { success: true; result: { data?: { id?: string } } } => r.success && !!r.result?.data?.id)
+      .map(r => r.result.data!.id);
+
     // Update notification status
     const { error: updateError } = await supabaseClient
       .from('notifications')
@@ -250,6 +255,7 @@ serve(async (req) => {
       message: `Push notifications sent: ${successCount}/${totalCount}`,
       sent: successCount > 0,
       results: results,
+      ticketIds: ticketIds.length ? ticketIds : undefined,
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -64,7 +64,7 @@ const LandingScreen = () => {
     <SafeAreaView
       style={[
         authStyles.container,
-        isWeb && { flex: 0, minHeight: height },
+        isWeb && { flex: 1, minHeight: height },
       ]}
     >
       <LinearGradient
@@ -76,7 +76,7 @@ const LandingScreen = () => {
         style={[
           authStyles.gradient,
           isPhoneWeb && { paddingHorizontal: 16 },
-          isWeb && { flex: 0, minHeight: height },
+          isWeb && { flex: 1, minHeight: height },
         ]}
       >
         {/* Decorative background elements */}
@@ -242,6 +242,8 @@ const LandingScreen = () => {
           <ScrollView
             style={{ flex: 1, maxWidth: '100%', alignSelf: 'stretch' }}
             contentContainerStyle={{
+              flexGrow: 1,
+              justifyContent: 'center',
               paddingHorizontal: contentPaddingHorizontal,
               paddingTop: 20,
               paddingBottom: 24,

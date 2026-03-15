@@ -572,7 +572,7 @@ const ProfileScreen: React.FC = () => {
             </View>
             <ScrollView style={styles.scrollViewContainer} contentContainerStyle={[
                 styles.scrollContent,
-                Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth < 768 && { paddingBottom: 100 }
+                { paddingBottom: 100 }
             ]} showsVerticalScrollIndicator={false} refreshControl={ <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[APP_CONSTANTS.COLORS.PRIMARY]} tintColor={APP_CONSTANTS.COLORS.PRIMARY} /> } >
                 <View style={styles.profileCard}>
                     <LinearGradient colors={[APP_CONSTANTS.COLORS.PRIMARY_LIGHT, APP_CONSTANTS.COLORS.PRIMARY]} style={styles.coverPhoto} />

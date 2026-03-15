@@ -133,7 +133,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, []);
 
-  // Handle new notification from real-time
+  // Handle new notification from Supabase Realtime (in-app toast). System push notifications on the device are sent separately by the backend and only show when the app is in background or killed.
   const handleNewNotification = useCallback(async (payload: any) => {
     devLog('[NotificationProvider] Received notification payload:', JSON.stringify(payload, null, 2));
     const notificationData = payload.new || payload;

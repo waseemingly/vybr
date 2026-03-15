@@ -361,7 +361,7 @@ const MatchesScreen: React.FC = () => {
                 <ScrollView
                 contentContainerStyle={[
                     styles.scrollContentContainer,
-                    Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth < 768 && { paddingBottom: 100 }
+                    { paddingBottom: 100 }
                 ]}
                     refreshControl={
                         <RefreshControl
