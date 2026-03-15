@@ -334,9 +334,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     ensureUserKeyPair(session.user.id).catch(() => {});
                 }
 
-                // Re-register push notifications when app comes to foreground
-                // This ensures tokens are always up to date
-                if (session.user?.id && (session.musicLoverProfile || session.organizerProfile)) {
+                // Re-register push notifications when app comes to foreground (native only)
+                if (Platform.OS !== 'web' && session.user?.id && (session.musicLoverProfile || session.organizerProfile)) {
                     devLog('[AuthProvider] Re-registering push notifications on app active...');
                     try {
                         const token = await NotificationService.registerForPushNotifications(session.user.id);
@@ -834,9 +833,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             devLog("[AuthProvider] Setting Organizer Mode OFF (no organizer profile).");
                         }
 
-                        // --- Register for push notifications after successful profile fetch ---
+                        // --- Register for push notifications after successful profile fetch (native only) ---
                         try {
-                            if (currentSession && (currentSession.musicLoverProfile || currentSession.organizerProfile)) {
+                            if (Platform.OS !== 'web' && currentSession && (currentSession.musicLoverProfile || currentSession.organizerProfile)) {
                                 devLog("[AuthProvider] Registering for push notifications...");
                                 // Use ensurePushTokenRegistered which checks if token exists first
                                 const token = await NotificationService.ensurePushTokenRegistered(userId);
@@ -1609,8 +1608,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         devLog('[AuthProvider] logout: Initiating logout...');
         setLoading(true);
         try {
-            // Remove push tokens before logging out
-            if (session?.user?.id) {
+            // Remove push tokens before logging out (native only; web doesn't store Expo tokens)
+            if (Platform.OS !== 'web' && session?.user?.id) {
                 try {
                     await NotificationService.removePushToken(session.user.id);
                     devLog('[AuthProvider] logout: Push tokens removed successfully');

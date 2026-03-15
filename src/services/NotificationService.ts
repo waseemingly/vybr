@@ -30,9 +30,14 @@ export class NotificationService {
   }
 
   /**
-   * Register for push notifications and store the token in the database
+   * Register for push notifications and store the token in the database.
+   * Only supported on native (iOS/Android). On web we skip; push is delivered when user opens the app on a device.
    */
   async registerForPushNotifications(userId: string): Promise<string | null> {
+    if (Platform.OS === 'web') {
+      devLog('[NotificationService] Skipping Expo push registration on web (no native token).');
+      return null;
+    }
     try {
       devLog('[NotificationService] Starting push notification registration for user:', userId);
       devLog('[NotificationService] Platform:', Platform.OS);
@@ -246,9 +251,11 @@ export class NotificationService {
   }
 
   /**
-   * Remove push token from database (on logout)
+   * Remove push token from database (on logout).
+   * No-op on web since we don't store Expo tokens for web.
    */
   async removePushToken(userId: string): Promise<void> {
+    if (Platform.OS === 'web') return;
     try {
       const { error } = await supabase
         .from('user_push_tokens')
@@ -267,9 +274,14 @@ export class NotificationService {
   }
 
   /**
-   * Check if push token exists for user and re-register if missing
+   * Check if push token exists for user and re-register if missing.
+   * No-op on web; only native app can register Expo push tokens.
    */
   async ensurePushTokenRegistered(userId: string): Promise<string | null> {
+    if (Platform.OS === 'web') {
+      devLog('[NotificationService] Skipping push token check on web.');
+      return null;
+    }
     try {
       devLog('[NotificationService] Ensuring push token is registered for user:', userId);
       
