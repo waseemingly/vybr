@@ -235,14 +235,18 @@ serve(async (req) => {
       .filter((r): r is { success: true; result: { data?: { id?: string } } } => r.success && !!r.result?.data?.id)
       .map(r => r.result.data!.id);
 
-    // Update notification status
+    // Update notification status and persist ticket IDs for receipt checking
+    const updatePayload: Record<string, any> = {
+      push_sent: successCount > 0,
+      push_sent_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    if (ticketIds.length > 0) {
+      updatePayload.data = { ...(data || {}), _ticket_ids: ticketIds };
+    }
     const { error: updateError } = await supabaseClient
       .from('notifications')
-      .update({
-        push_sent: successCount > 0,
-        push_sent_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', notification_id);
 
     if (updateError) {

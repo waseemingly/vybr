@@ -1,26 +1,66 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
-import { Platform } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { supabase } from '../lib/supabase';
 import { devLog, devWarn, devError } from '@/utils/logger';
 
-// Configure notification behavior
+const EXPO_TOKEN_REGEX = /^ExponentPushToken\[.+\]$/;
+const MAX_REGISTRATION_RETRIES = 3;
+const BASE_RETRY_DELAY_MS = 1000;
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
     shouldPlaySound: true,
-    shouldSetBadge: false,
+    shouldSetBadge: true,
     shouldShowBanner: true,
     shouldShowList: true,
   }),
 });
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class NotificationService {
   private static instance: NotificationService;
   private expoPushToken: string | null = null;
+  private registrationPromise: Promise<string | null> | null = null;
 
   private constructor() {}
+
+  private getDeviceContext(): string {
+    try {
+      const parts = [
+        `platform=${Platform.OS}`,
+        `isDevice=${Device.isDevice}`,
+        `osName=${Device.osName ?? 'unknown'}`,
+        `osVersion=${Device.osVersion ?? 'unknown'}`,
+        `brand=${Device.brand ?? 'unknown'}`,
+        `modelName=${Device.modelName ?? 'unknown'}`,
+      ];
+      return parts.join(' ');
+    } catch {
+      return `platform=${Platform.OS}`;
+    }
+  }
+
+  private async logPushFailure(userId: string, errorMessage: string): Promise<void> {
+    try {
+      const ctx = this.getDeviceContext();
+      const fullMessage = `${errorMessage} | ${ctx}`.slice(0, 2000);
+      const { error } = await supabase.from('push_registration_log').insert({
+        user_id: userId,
+        platform: Platform.OS,
+        error_message: fullMessage,
+      });
+      if (error) {
+        console.warn('[Vybr] push_registration_log insert failed:', error.message);
+      }
+    } catch (e: any) {
+      console.warn('[Vybr] push_registration_log insert error:', e?.message || e);
+    }
+  }
 
   public static getInstance(): NotificationService {
     if (!NotificationService.instance) {
@@ -30,17 +70,32 @@ export class NotificationService {
   }
 
   /**
-   * Register for push notifications and store the token in the database.
-   * Only supported on native (iOS/Android). On web we skip; push is delivered when user opens the app on a device.
+   * Concurrent callers share the in-flight registration via a promise-based lock.
    */
   async registerForPushNotifications(userId: string): Promise<string | null> {
     if (Platform.OS === 'web') {
-      devLog('[NotificationService] Skipping Expo push registration on web (no native token).');
+      devLog('[NotificationService] Skipping push registration on web.');
       return null;
     }
+    if (!Device.isDevice) {
+      devWarn('[NotificationService] Push notifications require a physical device. Skipping on simulator/emulator.');
+      return null;
+    }
+    if (this.registrationPromise) {
+      devLog('[NotificationService] Registration already in-flight, waiting...');
+      return this.registrationPromise;
+    }
+    this.registrationPromise = this._doRegister(userId);
     try {
-      devLog('[NotificationService] Starting push notification registration for user:', userId);
-      devLog('[NotificationService] Platform:', Platform.OS);
+      return await this.registrationPromise;
+    } finally {
+      this.registrationPromise = null;
+    }
+  }
+
+  private async _doRegister(userId: string): Promise<string | null> {
+    try {
+      devLog('[NotificationService] Starting push registration for user:', userId);
 
       if (Platform.OS === 'android') {
         await Notifications.setNotificationChannelAsync('default', {
@@ -49,113 +104,88 @@ export class NotificationService {
           vibrationPattern: [0, 250, 250, 250],
           lightColor: '#FF231F7C',
         });
-        devLog('[NotificationService] Android notification channel configured');
-      }
-
-      // Check if running on a physical device
-      const isPhysicalDevice = Device.isDevice;
-      devLog('[NotificationService] Device.isDevice:', isPhysicalDevice);
-      devLog('[NotificationService] Device info:', {
-        brand: Device.brand,
-        manufacturer: Device.manufacturer,
-        modelName: Device.modelName,
-        osName: Device.osName,
-        osVersion: Device.osVersion,
-      });
-
-      // Allow registration even on emulators for development/testing
-      // Push notifications won't work on emulators, but tokens can still be registered
-      // This helps with debugging and ensures tokens are registered on physical devices
-      if (!isPhysicalDevice) {
-        devWarn('[NotificationService] Running on emulator/simulator - push notifications may not work, but attempting registration anyway...');
-        // Continue with registration - the token might still be useful for testing
       }
 
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      devLog('[NotificationService] Existing permission status:', existingStatus);
       let finalStatus = existingStatus;
-      
-      if (existingStatus !== 'granted') {
-        devLog('[NotificationService] Requesting notification permissions...');
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-        devLog('[NotificationService] Permission request result:', finalStatus);
-      }
-      
-      if (finalStatus !== 'granted') {
-        devError('[NotificationService] Failed to get push token - permissions not granted!');
+
+      if (existingStatus === 'denied') {
+        await this.logPushFailure(userId, '[Permissions] status=denied — user must enable in Settings.');
+        Alert.alert(
+          'Enable Notifications',
+          'Push notifications are disabled. Please enable them in Settings to receive messages.',
+          [
+            { text: 'Not Now', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
+        );
         return null;
       }
 
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-      devLog('[NotificationService] EAS Project ID:', projectId);
-      
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (finalStatus !== 'granted') {
+        await this.logPushFailure(userId, `[Permissions] finalStatus=${finalStatus}`);
+        return null;
+      }
+
+      const projectId =
+        Constants?.expoConfig?.extra?.eas?.projectId ??
+        (Constants as any).easConfig?.projectId;
+
       if (!projectId) {
-        devError('[NotificationService] EAS Project ID is missing! Push notifications may not work.');
+        await this.logPushFailure(userId, '[EAS] projectId missing across all sources.');
+        return null;
       }
 
-      devLog('[NotificationService] Getting Expo push token...');
-      
-      // Check if Firebase is properly configured (Android only)
-      if (Platform.OS === 'android' && !isPhysicalDevice) {
-        // On emulator, Firebase may not be initialized
-        // This is expected and we should handle it gracefully
-        devWarn('[NotificationService] Running on Android emulator - Firebase may not be initialized.');
-        devWarn('[NotificationService] Attempting to get token anyway (may fail, but worth trying)...');
+      const token = await this._getTokenWithRetry(projectId, userId);
+      if (!token) return null;
+
+      if (!EXPO_TOKEN_REGEX.test(token)) {
+        await this.logPushFailure(userId, `[Validation] Token format invalid: ${token.slice(0, 30)}`);
+        return null;
       }
-      
-      try {
-        const token = await Notifications.getExpoPushTokenAsync({
-          projectId,
-        });
 
-        devLog('[NotificationService] ✅ Expo push token obtained:', token.data);
-        this.expoPushToken = token.data;
-
-        // Store the token in the database
-        devLog('[NotificationService] Storing push token in database...');
-        await this.storePushToken(userId, token.data);
-
-        devLog('[NotificationService] ✅ Push notification registration completed successfully');
-        if (!isPhysicalDevice) {
-          devWarn('[NotificationService] ⚠️ Note: Token registered but push notifications may not work on emulator.');
-        }
-        return token.data;
-      } catch (tokenError: any) {
-        // Check if this is a Firebase initialization error
-        if (tokenError.message && tokenError.message.includes('FirebaseApp is not initialized')) {
-          devWarn('[NotificationService] Firebase not initialized. This is expected on emulators or if FCM credentials are not configured.');
-          devWarn('[NotificationService] To fix: Configure FCM credentials in EAS dashboard or add google-services.json for local builds.');
-          
-          // On emulator, this is expected - but still log it clearly
-          if (!isPhysicalDevice) {
-            devWarn('[NotificationService] ⚠️ Cannot get push token on emulator due to Firebase initialization error.');
-            devWarn('[NotificationService] ⚠️ This is EXPECTED behavior - push notifications require a physical device.');
-            devWarn('[NotificationService] ⚠️ To test push notifications, build and run on a physical Android device.');
-            return null;
-          }
-          
-          // On physical device, this is a configuration issue
-          devError('[NotificationService] ❌ Firebase not initialized on physical device. Please configure FCM credentials.');
-          devError('[NotificationService] ❌ Check that google-services.json is properly configured.');
-          return null;
-        }
-        throw tokenError; // Re-throw if it's a different error
-      }
+      this.expoPushToken = token;
+      await this.storePushToken(userId, token);
+      devLog('[NotificationService] Push registration completed successfully');
+      return token;
     } catch (error: any) {
-      devError('[NotificationService] Error registering for push notifications:', error);
-      devError('[NotificationService] Error details:', error.message, error.stack);
+      const msg = error?.message ?? String(error);
+      await this.logPushFailure(userId, `[_doRegister] ${msg}`);
       return null;
     }
   }
 
   /**
-   * Store push token in the database
+   * Retry getExpoPushTokenAsync with exponential backoff (1s, 2s, 4s).
    */
+  private async _getTokenWithRetry(projectId: string, userId: string): Promise<string | null> {
+    let lastError: any;
+    for (let attempt = 0; attempt < MAX_REGISTRATION_RETRIES; attempt++) {
+      try {
+        devLog(`[NotificationService] getExpoPushTokenAsync attempt ${attempt + 1}/${MAX_REGISTRATION_RETRIES}`);
+        const { data: tokenData } = await Notifications.getExpoPushTokenAsync({ projectId });
+        return tokenData;
+      } catch (error: any) {
+        lastError = error;
+        const delayMs = BASE_RETRY_DELAY_MS * Math.pow(2, attempt);
+        devWarn(`[NotificationService] Token fetch failed (attempt ${attempt + 1}), retrying in ${delayMs}ms:`, error?.message);
+        if (attempt < MAX_REGISTRATION_RETRIES - 1) {
+          await sleep(delayMs);
+        }
+      }
+    }
+    const msg = lastError?.message ?? String(lastError);
+    await this.logPushFailure(userId, `[getExpoPushTokenAsync] All ${MAX_REGISTRATION_RETRIES} attempts failed: ${msg}`);
+    return null;
+  }
+
   private async storePushToken(userId: string, token: string): Promise<void> {
     try {
-      devLog('[NotificationService] Storing push token:', { userId, token: token.substring(0, 20) + '...', platform: Platform.OS });
-      
       const tokenData = {
         user_id: userId,
         push_token: token,
@@ -163,71 +193,48 @@ export class NotificationService {
         updated_at: new Date().toISOString(),
       };
 
-      devLog('[NotificationService] Token data to upsert:', { ...tokenData, push_token: tokenData.push_token.substring(0, 20) + '...' });
-
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('user_push_tokens')
-        .upsert(tokenData, {
-          onConflict: 'user_id,platform'
-        })
+        .upsert(tokenData, { onConflict: 'user_id,platform' })
         .select();
 
       if (error) {
         devError('[NotificationService] Error storing push token:', error);
-        devError('[NotificationService] Error details:', JSON.stringify(error, null, 2));
+        const detail = [
+          '[storePushToken] Supabase error',
+          `message=${error.message ?? ''}`,
+          error.code ? `code=${error.code}` : '',
+          error.hint ? `hint=${error.hint}` : '',
+        ].filter(Boolean).join(' ');
+        await this.logPushFailure(userId, detail);
       } else {
-        devLog('[NotificationService] Push token stored successfully:', data);
-        
-        // Verify the token was stored by querying it back
-        const { data: verifyData, error: verifyError } = await supabase
-          .from('user_push_tokens')
-          .select('*')
-          .eq('user_id', userId)
-          .eq('platform', Platform.OS);
-        
-        if (verifyError) {
-          devError('[NotificationService] Error verifying stored token:', verifyError);
-        } else {
-          devLog('[NotificationService] Verified stored token:', verifyData);
-          if (!verifyData || verifyData.length === 0) {
-            devError('[NotificationService] WARNING: Token was not found after storage!');
-          }
-        }
+        devLog('[NotificationService] Push token stored successfully');
       }
     } catch (error: any) {
       devError('[NotificationService] Exception storing push token:', error);
-      devError('[NotificationService] Exception details:', error.message, error.stack);
+      const detail = [
+        '[storePushToken] exception',
+        `message=${error?.message ?? String(error)}`,
+      ].filter(Boolean).join(' ');
+      await this.logPushFailure(userId, detail);
     }
   }
 
-  /**
-   * Send a local notification (for testing or immediate feedback)
-   */
   async sendLocalNotification(title: string, body: string, data?: any): Promise<void> {
     try {
       await Notifications.scheduleNotificationAsync({
-        content: {
-          title,
-          body,
-          data,
-        },
-        trigger: null, // Show immediately
+        content: { title, body, data },
+        trigger: { type: 'timeInterval', seconds: 1 } as any,
       });
     } catch (error) {
       devError('Error sending local notification:', error);
     }
   }
 
-  /**
-   * Get the current push token
-   */
   getExpoPushToken(): string | null {
     return this.expoPushToken;
   }
 
-  /**
-   * Clear notification badge
-   */
   async clearBadge(): Promise<void> {
     try {
       await Notifications.setBadgeCountAsync(0);
@@ -236,24 +243,14 @@ export class NotificationService {
     }
   }
 
-  /**
-   * Handle notification received while app is in foreground
-   */
   addNotificationReceivedListener(listener: (notification: Notifications.Notification) => void) {
     return Notifications.addNotificationReceivedListener(listener);
   }
 
-  /**
-   * Handle notification response when user taps on notification
-   */
   addNotificationResponseReceivedListener(listener: (response: Notifications.NotificationResponse) => void) {
     return Notifications.addNotificationResponseReceivedListener(listener);
   }
 
-  /**
-   * Remove push token from database (on logout).
-   * No-op on web since we don't store Expo tokens for web.
-   */
   async removePushToken(userId: string): Promise<void> {
     if (Platform.OS === 'web') return;
     try {
@@ -267,25 +264,25 @@ export class NotificationService {
         devError('[NotificationService] Error removing push token:', error);
       } else {
         devLog('[NotificationService] Push token removed successfully');
+        this.expoPushToken = null;
       }
     } catch (error) {
       devError('[NotificationService] Exception removing push token:', error);
     }
   }
 
-  /**
-   * Check if push token exists for user and re-register if missing.
-   * No-op on web; only native app can register Expo push tokens.
-   */
   async ensurePushTokenRegistered(userId: string): Promise<string | null> {
     if (Platform.OS === 'web') {
       devLog('[NotificationService] Skipping push token check on web.');
       return null;
     }
+    if (!Device.isDevice) {
+      devWarn('[NotificationService] Not a physical device, skipping push token check.');
+      return null;
+    }
     try {
-      devLog('[NotificationService] Ensuring push token is registered for user:', userId);
-      
-      // Check if token exists in database
+      devLog('[NotificationService] Ensuring push token registered for user:', userId);
+
       const { data: existingTokens, error: fetchError } = await supabase
         .from('user_push_tokens')
         .select('push_token')
@@ -294,30 +291,28 @@ export class NotificationService {
 
       if (fetchError) {
         devError('[NotificationService] Error checking existing token:', fetchError);
-        // Try to register anyway
+        await this.logPushFailure(userId, `[ensurePushTokenRegistered] fetch failed: ${fetchError.message}`);
         return await this.registerForPushNotifications(userId);
       }
 
       if (existingTokens && existingTokens.length > 0 && existingTokens[0].push_token) {
-        devLog('[NotificationService] ✅ Push token already exists in database:', existingTokens[0].push_token.substring(0, 20) + '...');
-        this.expoPushToken = existingTokens[0].push_token;
-        return existingTokens[0].push_token;
+        const stored = existingTokens[0].push_token;
+        if (EXPO_TOKEN_REGEX.test(stored)) {
+          devLog('[NotificationService] Push token already exists in DB');
+          this.expoPushToken = stored;
+          return stored;
+        }
+        devWarn('[NotificationService] Stored token has invalid format, re-registering');
       }
 
-      devLog('[NotificationService] ⚠️ No push token found in database for user:', userId, 'platform:', Platform.OS);
-      devLog('[NotificationService] Attempting to register new push token...');
-      const newToken = await this.registerForPushNotifications(userId);
-      if (newToken) {
-        devLog('[NotificationService] ✅ Successfully registered new push token');
-      } else {
-        devError('[NotificationService] ❌ Failed to register push token. User will not receive push notifications.');
-      }
-      return newToken;
+      devLog('[NotificationService] No valid push token found, registering...');
+      return await this.registerForPushNotifications(userId);
     } catch (error: any) {
       devError('[NotificationService] Error ensuring push token:', error);
+      await this.logPushFailure(userId, `[ensurePushTokenRegistered] exception: ${error?.message ?? String(error)}`);
       return null;
     }
   }
 }
 
-export default NotificationService.getInstance(); 
+export default NotificationService.getInstance();

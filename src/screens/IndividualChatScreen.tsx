@@ -595,19 +595,21 @@ const IndividualChatScreen: React.FC = () => {
     const { refreshUnreadCount } = useUnreadCount();
 
     const currentUserIdFromSession = session?.user?.id;
+    const params = route.params ?? ({} as IndividualChatScreenRouteProp['params']);
     const { 
         matchUserId: matchUserIdFromRoute,
         matchName,
         commonTags, 
         isFirstInteractionFromMatches, 
         sharedEventData: initialSharedEventData 
-    } = route.params;
+    } = params;
 
     const currentUserId = currentUserIdFromSession;
     const matchUserId = matchUserIdFromRoute;
 
     // --- All State Declarations (useState) ---
-    const [dynamicMatchName, setDynamicMatchName] = useState(route.params.matchName || 'Chat');
+    const [dynamicMatchName, setDynamicMatchName] = useState(params.matchName || 'Chat');
+    const [matchProfilePictureFromDb, setMatchProfilePictureFromDb] = useState<string | null>(null);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
     const [loading, setLoading] = useState(true);
@@ -1444,6 +1446,11 @@ const IndividualChatScreen: React.FC = () => {
     }, [currentUserId, matchUserId, isBlocked, checkMutualInitiation, markChatAsInitiatedInStorage, messages, replyingToMessage, dynamicMatchName, sendBroadcast]);
 
     const handleSendPress = () => {
+        // Guard: required for both paths; on iOS (new services) route/session can be briefly unready when opening from match screen
+        if (!currentUserId || !matchUserId) {
+            if (__DEV__) console.warn('[ChatScreen] handleSendPress skipped: missing currentUserId or matchUserId');
+            return;
+        }
         if (sharedEventMessage && initialSharedEventData?.eventId) {
             if (useNewServices) {
                 // NEW: Use new event sharing service
@@ -1469,7 +1476,7 @@ const IndividualChatScreen: React.FC = () => {
             console.log(`[ChatScreen] Focus effect running for user: ${matchUserId}`);
             fetchInteractionStatus();
             
-        }, [fetchInteractionStatus, matchUserId, route.params.matchName])
+        }, [fetchInteractionStatus, matchUserId, params.matchName])
     );
 
     // Clear errors when offline and messages are loaded (PowerSync is working)
@@ -1480,9 +1487,54 @@ const IndividualChatScreen: React.FC = () => {
         }
     }, [isOffline, messages.length, error]);
 
+    // If we don't have a name in params (e.g. opened from a push notification deep link),
+    // fetch the match's profile to derive a display name and profile picture.
+    useEffect(() => {
+        if (!matchUserId || params.matchName) {
+            return;
+        }
+
+        let isCancelled = false;
+
+        const fetchMatchProfile = async () => {
+            try {
+                console.log('[ChatScreen] Fetching match profile for header title:', matchUserId);
+                const { data, error } = await supabase
+                    .from('music_lover_profiles')
+                    .select('first_name, last_name, username, profile_picture')
+                    .eq('user_id', matchUserId)
+                    .maybeSingle();
+
+                if (error) {
+                    console.warn('[ChatScreen] Error fetching match profile for header:', error.message);
+                    return;
+                }
+                if (!data || isCancelled) {
+                    return;
+                }
+
+                const combinedName = `${data.first_name || ''} ${data.last_name || ''}`.trim();
+                const resolvedName = combinedName || data.username || 'Chat';
+
+                setDynamicMatchName(resolvedName);
+                setMatchProfilePictureFromDb(data.profile_picture || null);
+            } catch (e: any) {
+                if (!isCancelled) {
+                    console.warn('[ChatScreen] Exception fetching match profile for header:', e?.message || e);
+                }
+            }
+        };
+
+        fetchMatchProfile();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [matchUserId, params.matchName]);
+
     // Update header options when dynamic data changes
     useEffect(() => {
-        const currentName = route.params.matchName || 'Chat';
+        const currentName = params.matchName || 'Chat';
         setDynamicMatchName(currentName);
         
         
@@ -1495,8 +1547,8 @@ const IndividualChatScreen: React.FC = () => {
                  <TouchableOpacity 
                      onPress={() => {
                          // Check if we're in web chat panel mode
-                         if (Platform.OS === 'web' && route.params.onCloseChat) {
-                             route.params.onCloseChat();
+                         if (Platform.OS === 'web' && params.onCloseChat) {
+                             params.onCloseChat();
                          } else {
                              navigation.goBack();
                          }
@@ -1512,7 +1564,7 @@ const IndividualChatScreen: React.FC = () => {
                          if (isChatMutuallyInitiated) {
                              if (matchUserId) {
                                  // Check if we're in web chat panel mode and use appropriate navigation
-                                 if (Platform.OS === 'web' && route.params.onCloseChat) {
+                                 if (Platform.OS === 'web' && params.onCloseChat) {
                                      (navigation as any).navigate('OtherUserProfile', {
                                          userId: matchUserId,
                                          fromChat: true,
@@ -1537,10 +1589,18 @@ const IndividualChatScreen: React.FC = () => {
                              );
                          }
                      }}
-                     style={styles.headerTitleContainer}
+                    style={styles.headerTitleContainer}
                  >
                      <View>
-                          <StorageImage sourceUri={route.params?.matchProfilePicture || DEFAULT_PROFILE_PIC} style={styles.headerProfileImage} resizeMode="cover" />
+                         <StorageImage
+                             sourceUri={
+                                 params?.matchProfilePicture ||
+                                 matchProfilePictureFromDb ||
+                                 DEFAULT_PROFILE_PIC
+                             }
+                             style={styles.headerProfileImage}
+                             resizeMode="cover"
+                         />
                           {isMatchOnline && !isBlocked && <View style={styles.onlineIndicator} />}
                       </View>
                       <Text style={[styles.headerTitle, isBlocked && styles.blockedText]} numberOfLines={1}>
@@ -1554,7 +1614,7 @@ const IndividualChatScreen: React.FC = () => {
              headerRight: () => (isBlocked ? <View style={{width: 30}} /> : undefined),
              headerStyle: { backgroundColor: 'white' },
          });
-    }, [navigation, route.params.matchName, route.params.matchProfilePicture, matchUserId, isBlocked, isMatchMuted, isChatMutuallyInitiated, isMatchOnline, dynamicMatchName, messages, sendBroadcast]);
+    }, [navigation, params.matchName, params.matchProfilePicture, matchUserId, isBlocked, isMatchMuted, isChatMutuallyInitiated, isMatchOnline, dynamicMatchName, messages, sendBroadcast]);
 
 
 
@@ -1581,6 +1641,29 @@ const IndividualChatScreen: React.FC = () => {
             initialFetchCompleteRef.current = true;
         }
     }, [fetchMessages, isBlocked, currentUserId, matchUserId, useNewServices]); // Removed newMessages dependencies
+
+    // Simple, safe backup: periodically refresh messages while the chat is open.
+    // This ensures new messages appear even if realtime subscriptions are flaky,
+    // without removing or changing the existing realtime logic.
+    useEffect(() => {
+        if (!currentUserId || !matchUserId || isBlocked) {
+            return;
+        }
+
+        const intervalId = setInterval(() => {
+            if (isOffline) return;
+
+            if (useNewServices) {
+                // Use the new fetching hook when enabled
+                newRefreshMessages();
+            } else {
+                // Fallback to existing fetch logic
+                fetchMessages();
+            }
+        }, 4000); // Refresh every 4 seconds
+
+        return () => clearInterval(intervalId);
+    }, [currentUserId, matchUserId, isBlocked, isOffline, useNewServices, newRefreshMessages, fetchMessages]);
 
     // Sync new messages to old state when newMessages changes
     useEffect(() => {
@@ -3419,7 +3502,7 @@ const IndividualChatScreen: React.FC = () => {
             
             // Navigate immediately to the destination chat
             try {
-                if (Platform.OS === 'web' && route.params.onForwardToChat) {
+                if (Platform.OS === 'web' && params.onForwardToChat) {
                     // On web, use the forward callback to update the selected chat
                     console.log('[Forward] Using web forward callback for:', chatType, chatId, chatName);
                     
@@ -3450,7 +3533,7 @@ const IndividualChatScreen: React.FC = () => {
                     };
                     
                     // Call the forward callback to update the selected chat
-                    route.params.onForwardToChat(targetChatItem);
+                    params.onForwardToChat(targetChatItem);
                     
                     // Show success message
                     setTimeout(() => {
@@ -3511,8 +3594,8 @@ const IndividualChatScreen: React.FC = () => {
             <View style={styles.customHeader}>
                 <TouchableOpacity 
                     onPress={() => {
-                        if (Platform.OS === 'web' && route.params.onCloseChat) {
-                            route.params.onCloseChat();
+                        if (Platform.OS === 'web' && params.onCloseChat) {
+                            params.onCloseChat();
                         } else {
                             navigation.goBack();
                         }
@@ -3525,7 +3608,7 @@ const IndividualChatScreen: React.FC = () => {
                     onPress={() => {
                         if (isChatMutuallyInitiated) {
                             if (matchUserId) {
-                                if (Platform.OS === 'web' && route.params.onCloseChat) {
+                                if (Platform.OS === 'web' && params.onCloseChat) {
                                     (navigation as any).navigate('OtherUserProfile', {
                                         userId: matchUserId,
                                         fromChat: true,
@@ -3553,7 +3636,7 @@ const IndividualChatScreen: React.FC = () => {
                     style={styles.headerTitleContainer}
                 >
                     <View>
-                        <StorageImage sourceUri={route.params?.matchProfilePicture || DEFAULT_PROFILE_PIC} style={styles.headerProfileImage} resizeMode="cover" />
+                        <StorageImage sourceUri={params?.matchProfilePicture || DEFAULT_PROFILE_PIC} style={styles.headerProfileImage} resizeMode="cover" />
                         {isMatchOnline && !isBlocked && <View style={styles.onlineIndicator} />}
                     </View>
                     <Text style={[styles.headerTitle, isBlocked && styles.blockedText]} numberOfLines={1}>
@@ -3733,9 +3816,9 @@ const IndividualChatScreen: React.FC = () => {
                         editable={!isBlocked}
                     />
                     <TouchableOpacity
-                        style={[styles.sendButton, ((!inputText.trim() && !sharedEventMessage) || isBlocked) && styles.sendButtonDisabled]}
+                        style={[styles.sendButton, ((!inputText.trim() && !sharedEventMessage) || isBlocked || !currentUserId || !matchUserId) && styles.sendButtonDisabled]}
                         onPress={handleSendPress}
-                        disabled={(!inputText.trim() && !sharedEventMessage) || isBlocked}
+                        disabled={(!inputText.trim() && !sharedEventMessage) || isBlocked || !currentUserId || !matchUserId}
                     >
                         <Feather name="send" size={20} color="#FFFFFF" />
                     </TouchableOpacity>

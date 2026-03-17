@@ -217,7 +217,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
     
     // Flag to prevent auth state change listener from navigating during login/signup
     const isManualAuthInProgress = useRef(false);
-    
+    // Only attach notification listeners once per app session to avoid duplicate handlers
+    const notificationListenersRef = useRef(false);
+
     // Additional session persistence keys
     const SESSION_PERSISTENCE_KEY = '@vybr_session_persistence';
     const LAST_SESSION_KEY = '@vybr_last_session';
@@ -334,18 +336,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                     ensureUserKeyPair(session.user.id).catch(() => {});
                 }
 
-                // Re-register push notifications when app comes to foreground (native only)
-                if (Platform.OS !== 'web' && session.user?.id && (session.musicLoverProfile || session.organizerProfile)) {
-                    devLog('[AuthProvider] Re-registering push notifications on app active...');
+                // On any launch (app active): ensure push token exists; if not, generate one.
+                // Run for any signed-in user so existing accounts without a token get one when they open the app.
+                if (Platform.OS !== 'web' && session.user?.id) {
                     try {
-                        const token = await NotificationService.registerForPushNotifications(session.user.id);
+                        const token = await NotificationService.ensurePushTokenRegistered(session.user.id);
                         if (token) {
-                            devLog('[AuthProvider] Push notification re-registration successful');
+                            devLog('[AuthProvider] Push token confirmed on app active');
                         } else {
-                            devWarn('[AuthProvider] Push notification re-registration failed');
+                            devWarn('[AuthProvider] Push token missing or registration failed on app active');
                         }
                     } catch (error) {
-                        devError('[AuthProvider] Error re-registering push notifications:', error);
+                        devError('[AuthProvider] Error ensuring push token on app active:', error);
                     }
                 }
             }
@@ -354,6 +356,53 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         const subscription = AppState.addEventListener('change', handleAppStateChange);
         return () => subscription?.remove();
     }, [session]);
+
+    // Single source of truth for push registration: run whenever the app has a logged-in user with a profile (main app ready).
+    // This runs after setSession() in checkSession and after profile creation, so we never depend on checkSession inline timing.
+    useEffect(() => {
+        if (Platform.OS === 'web') return;
+        const uid = session?.user?.id;
+        const hasProfile = !!(session?.musicLoverProfile ?? session?.organizerProfile);
+        if (uid && hasProfile) {
+            NotificationService.ensurePushTokenRegistered(uid).catch(() => {});
+        }
+    }, [session?.user?.id, session?.musicLoverProfile, session?.organizerProfile]);
+
+    // Attach native push notification listeners once when a session is available.
+    useEffect(() => {
+        if (Platform.OS === 'web' || !session?.user?.id || notificationListenersRef.current) return;
+
+        notificationListenersRef.current = true;
+
+        const receivedSub = NotificationService.addNotificationReceivedListener((notification) => {
+            devLog('[AuthProvider] Notification received in foreground:', notification.request.content.title);
+        });
+
+        const responseSub = NotificationService.addNotificationResponseReceivedListener((response) => {
+            const data = response.notification.request.content.data as any;
+            const deepLink = data?.deep_link;
+            if (!deepLink) {
+                devWarn('[AuthProvider] Notification tapped but no deep_link in data');
+                return;
+            }
+            if (!navigationRef.current?.isReady()) {
+                devWarn('[AuthProvider] Navigation not ready, cannot handle deep link:', deepLink);
+                return;
+            }
+            const routeInfo = parseDeepLink(deepLink);
+            if (routeInfo) {
+                (navigationRef.current as any)?.navigate(routeInfo.routeName, routeInfo.params);
+            } else {
+                devWarn(`[AuthProvider] parseDeepLink returned null for: ${deepLink}`);
+            }
+        });
+
+        return () => {
+            receivedSub.remove();
+            responseSub.remove();
+            notificationListenersRef.current = false;
+        };
+    }, [session?.user?.id]);
 
     // Attempt to use service role key if environment provides it (bypass RLS)
     // WARNING: Only use this for specific admin functions, never expose in client code
@@ -833,67 +882,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             devLog("[AuthProvider] Setting Organizer Mode OFF (no organizer profile).");
                         }
 
-                        // --- Register for push notifications after successful profile fetch (native only) ---
-                        try {
-                            if (Platform.OS !== 'web' && currentSession && (currentSession.musicLoverProfile || currentSession.organizerProfile)) {
-                                devLog("[AuthProvider] Registering for push notifications...");
-                                // Use ensurePushTokenRegistered which checks if token exists first
-                                const token = await NotificationService.ensurePushTokenRegistered(userId);
-                                if (token) {
-                                    devLog("[AuthProvider] ✅ Push notification registration successful. Token:", token.substring(0, 20) + "...");
-                                } else {
-                                    devWarn("[AuthProvider] ⚠️ Push notification registration failed or not supported");
-                                    devWarn("[AuthProvider] This may be due to:");
-                                    devWarn("[AuthProvider] - Running on emulator (expected)");
-                                    devWarn("[AuthProvider] - Firebase not configured (check google-services.json)");
-                                    devWarn("[AuthProvider] - Permissions not granted");
-                                    // Retry after a delay (in case Firebase needs time to initialize)
-                                    setTimeout(async () => {
-                                        devLog("[AuthProvider] Retrying push notification registration...");
-                                        const retryToken = await NotificationService.ensurePushTokenRegistered(userId);
-                                        if (retryToken) {
-                                            devLog("[AuthProvider] ✅ Push notification registration successful on retry");
-                                        } else {
-                                            devWarn("[AuthProvider] ⚠️ Push notification registration still failed after retry");
-                                        }
-                                    }, 3000);
-                                }
-                                
-                                // Setup notification listeners
-                                NotificationService.addNotificationReceivedListener((notification) => {
-                                    devLog('[AuthProvider] Notification received while app is open:', notification);
-                                    // You can handle in-app notifications here if you have a UI for it
-                                    // For example, using the NotificationContext you might have created
-                                });
-
-                                NotificationService.addNotificationResponseReceivedListener((response) => {
-                                    devLog('[AuthProvider] Notification tapped:', response);
-                                    
-                                    // Handle navigation based on notification data
-                                    const data = response.notification.request.content.data as any;
-                                    const deepLink = data?.deep_link;
-
-                                    if (deepLink && navigationRef.current?.isReady()) {
-                                        devLog(`[AuthProvider] Handling deep link: ${deepLink}`);
-                                        const routeInfo = parseDeepLink(deepLink);
-                                        
-                                        if (routeInfo) {
-                                            devLog('[AuthProvider] Navigating to:', routeInfo);
-                                            // The `navigate` function can handle nested navigators if structured correctly
-                                            (navigationRef.current as any)?.navigate(routeInfo.routeName, routeInfo.params);
-                                        } else {
-                                            devWarn(`[AuthProvider] Could not parse deep link: ${deepLink}`);
-                                        }
-                                    } else {
-                                        devLog('[AuthProvider] No deep link found in notification or navigator not ready.');
-                                    }
-                                });
-                            }
-                        } catch (notificationError) {
-                            devError("[AuthProvider] Error setting up notifications:", notificationError);
-                            // Don't fail the whole login process if notifications fail
-                        }
-
                     } catch (e) {
                         devError("[AuthProvider] Error in checkSession process:", e);
                         setSession(null);
@@ -919,6 +907,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
             // Save session to storage for mobile persistence
             await saveSessionToStorage(currentSession);
+
+            // Push registration is handled by the useEffect that runs when session has user + profile (single source of truth).
 
             // IMPROVED: Add a small delay to ensure auth state is properly synchronized
             // Do NOT navigate here — root navigator chooses screen from state (session, isProfileComplete, requiresPaymentScreen, userType).
@@ -1179,9 +1169,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             }
             devLog('[AuthProvider] createMusicLoverProfile: Upsert SUCCESS.', upsertData);
 
-            // Success! Return success flag and the image URL (if any).
-            // The subsequent call to updatePremiumStatus will trigger checkSession and handle navigation.
             await checkSession();
+            // Defer push registration until after profile creation — avoids permission prompt mid-signup.
+            if (Platform.OS !== 'web') {
+                const { data: { session: liveSession } } = await supabase.auth.getSession();
+                const uid = liveSession?.user?.id;
+                if (uid) {
+                    NotificationService.ensurePushTokenRegistered(uid).catch(() => {});
+                }
+            }
             return { success: true, profilePictureUrl: publicImageUrl };
 
         } catch (error: any) {
@@ -1280,9 +1276,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 devWarn('[AuthProvider] createOrganizerProfile: Could not set user_type in metadata:', metaErr);
             }
 
-            // Refresh session state; do NOT navigate — root navigator will show PaymentRequired.
             await checkSession({ navigateToProfile: false });
-
+            // Defer push registration until after profile creation — avoids permission prompt mid-signup.
+            if (Platform.OS !== 'web') {
+                const { data: { session: liveSession } } = await supabase.auth.getSession();
+                const uid = liveSession?.user?.id;
+                if (uid) {
+                    NotificationService.ensurePushTokenRegistered(uid).catch(() => {});
+                }
+            }
             return { success: true, logoUrl: publicLogoUrl };
 
         } catch (error: any) {

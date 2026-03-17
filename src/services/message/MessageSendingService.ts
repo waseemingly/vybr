@@ -15,6 +15,15 @@ export class MessageSendingService {
     if (!content?.trim()) {
       return { success: false, error: 'Message content is required' };
     }
+    if (!senderId?.trim()) {
+      return { success: false, error: 'Sender is required' };
+    }
+    if (chatType === 'individual' && !receiverId?.trim()) {
+      return { success: false, error: 'Receiver is required' };
+    }
+    if (chatType === 'group' && !groupId?.trim()) {
+      return { success: false, error: 'Group is required' };
+    }
     
     const tempId = MessageUtils.generateTempId('text');
     const trimmedContent = content.trim();

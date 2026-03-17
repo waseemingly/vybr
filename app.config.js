@@ -19,7 +19,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.vybr.music",
-      buildNumber: "28",
+      buildNumber: "41",
       associatedDomains: ["applinks:vybr.app"],
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
@@ -31,11 +31,14 @@ export default {
       }
     },
     android: {
+      jsEngine: "hermes",
       adaptiveIcon: {
         foregroundImage: "./assets/icon.png",
         backgroundColor: "#ffffff"
       },
       package: "com.vybr.app",
+      // Required for FCM push: initializes Firebase so getExpoPushTokenAsync works. Add google-services.json at project root (download from Firebase Console).
+      googleServicesFile: "./google-services.json",
       intentFilters: [
         {
           action: "VIEW",
@@ -58,6 +61,12 @@ export default {
       jsEngine: "jsc" // Use JSC instead of Hermes for web (Hermes causes iOS Safari issues)
     },
     scheme: "vybr",
+    updates: {
+      url: "https://u.expo.dev/2e4e657f-20f5-468b-87ee-ebf78ca2a0cc"
+    },
+    runtimeVersion: {
+      policy: "appVersion"
+    },
     plugins: [
       "expo-dev-client",
       "expo-secure-store",
@@ -91,6 +100,7 @@ export default {
       EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: "830574548321-h59962oi42ok7tejuhkefud8tbooo18j.apps.googleusercontent.com",
       EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID: "830574548321-1tm2a4o9ibib5ss4qk3370ufc16vu4jr.apps.googleusercontent.com",
       POWERSYNC_URL: "https://68961d41fd729385fadb5576.powersync.journeyapps.com",
+      // Required for push notifications; fallback chain in NotificationService uses this.
       eas: {
         projectId: "2e4e657f-20f5-468b-87ee-ebf78ca2a0cc"
       }

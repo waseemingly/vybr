@@ -382,6 +382,16 @@ export const parseDeepLink = (url: string): { routeName: DeepLinkRootRouteName; 
           };
         }
       
+      // Legacy group-chat deep links (now emitted as /chat/group/:groupId)
+      case 'group-chat':
+        if (rest[0]) {
+          return {
+            routeName: 'GroupChatScreen',
+            params: { groupId: rest[0] },
+          };
+        }
+        break;
+
       // Chat Routes
       case 'chat':
         if (rest[0] === 'group') {

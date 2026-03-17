@@ -1,5 +1,4 @@
 import { supabase } from '../lib/supabase';
-import NotificationService from './NotificationService';
 import { devLog, devWarn, devError } from '../utils/logger';
 
 export interface CreateNotificationParams {
@@ -44,8 +43,9 @@ export class UnifiedNotificationService {
   }
 
   /**
-   * Create a notification in the database
-   * This will automatically trigger push notifications
+   * Create a notification record in the database.
+   * Does NOT trigger push delivery -- callers that need push must invoke
+   * send-push-notifications separately (sendImmediateNotification does this).
    */
   async createNotification(params: CreateNotificationParams): Promise<string | null> {
     try {
@@ -69,33 +69,6 @@ export class UnifiedNotificationService {
 
       const notificationId = data as string;
       devLog('Notification created successfully:', notificationId);
-
-      // Automatically send push notification after creating the notification
-      // This ensures push notifications are sent even when createNotification is called directly
-      try {
-        const pushResponse = await supabase.functions.invoke('send-push-notifications', {
-          body: {
-            notification_id: notificationId,
-            user_id: params.user_id,
-            type: params.type,
-            title: params.title,
-            body: params.body,
-            data: params.data,
-            image_url: params.image_url,
-            deep_link: params.deep_link,
-          },
-        });
-
-        if (pushResponse.error) {
-          devError('Error sending push notification:', pushResponse.error);
-        } else {
-          devLog('Push notification sent successfully for notification:', notificationId);
-        }
-      } catch (pushError) {
-        devError('Exception sending push notification:', pushError);
-        // Don't fail the notification creation if push fails
-      }
-
       return notificationId;
     } catch (error) {
       devError('Exception creating notification:', error);
@@ -215,7 +188,7 @@ export class UnifiedNotificationService {
     const body = 'You have a new message';
 
     const deep_link = isGroup
-      ? `/group-chat/${params.group_id}`
+      ? `/chat/group/${params.group_id}`
       : `/chat/${params.sender_id}`;
 
     return this.sendImmediateNotification({
@@ -421,7 +394,7 @@ export class UnifiedNotificationService {
         .from('notification_preferences')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (error && error.code !== 'PGRST116') {
         devError('Error fetching user preferences:', error);
