@@ -18,7 +18,7 @@
       },
       "ios": {
         "env": {
-          "EXPO_NO_CAPABILITY_SYNC": "1"
+          "IOS_APS_ENV": "development"
         }
       }
     },
@@ -36,14 +36,13 @@
         "env": {
           "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "830574548321-h59962oi42k7sjuhkefud8tbooo18j.apps.googleusercontent.com",
           "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr",
-          "EXPO_NO_CAPABILITY_SYNC": "1",
-          "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+          "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
+          "IOS_APS_ENV": "production"
         }
       }
     },
     "production": {
       "env": {
-        "EXPO_NO_CAPABILITY_SYNC": "1"
       },
       "android": {
         "buildType": "app-bundle",
@@ -59,8 +58,8 @@
           "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "830574548321-h59962oi42k7sjuhkefud8tbooo18j.apps.googleusercontent.com",
           "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr",
           "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN",
-          "EXPO_NO_CAPABILITY_SYNC": "1",
-          "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+          "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
+          "IOS_APS_ENV": "production"
         },
         "buildConfiguration": "Release"
       }
@@ -76,3 +75,6 @@
     }
   }
 }
+
+
+

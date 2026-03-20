@@ -148,7 +148,8 @@
     "web-streams-polyfill": "^4.1.0",
     "youtube-music-ts-api": "^1.8.3",
     "zod": "^3.22.4",
-    "zustand": "^5.0.6"
+    "zustand": "^5.0.6",
+    "vybr-push-diagnostics": "file:modules/vybr-push-diagnostics"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

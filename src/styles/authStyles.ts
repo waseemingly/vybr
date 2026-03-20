@@ -851,6 +851,8 @@ export const authStyles = StyleSheet.create({
     marginTop: isWeb ? 12 : 10,
     marginBottom: isWeb ? 24 : 20,
     gap: isWeb ? 20 : 16,
+    // Native cards use fixed width (320); center them. Web uses full-width cards — keep stretch (default) unchanged.
+    alignItems: isWeb ? 'stretch' : 'center',
   },
   signupSubscriptionCard: {
     backgroundColor: 'white',

@@ -394,8 +394,8 @@ export default function App() {
           >
             <OrganizerModeProvider>
               <AuthProvider navigationRef={navigationRef as React.RefObject<NavigationContainerRef<any>>}>
-                <RealtimeProvider>
-                  <NotificationProvider>
+                <NotificationProvider>
+                  <RealtimeProvider>
                     <SafeAreaProvider>
                       <NavigationContainer 
                         ref={navigationRef}
@@ -430,13 +430,13 @@ export default function App() {
                       >
                         <AppNavigator />
                         <StatusBar style="auto" />
-                        <WebNotificationContainer />
+                        {Platform.OS === 'web' && <WebNotificationContainer />}
                       </NavigationContainer>
                       <Toaster />
                       
                     </SafeAreaProvider>
-                  </NotificationProvider>
-                </RealtimeProvider>
+                  </RealtimeProvider>
+                </NotificationProvider>
               </AuthProvider>
             </OrganizerModeProvider>
           </CustomStripeProvider>

@@ -6,9 +6,22 @@
  * is stored so the same account on different devices can restore the key and decrypt
  * all messages. First device to use E2E uploads the backup; new devices restore from it.
  */
+import { Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import * as crypto from './crypto';
 import * as keyStorage from './keyStorage';
+
+/** iOS often fires session React state before the Supabase client attaches JWT to PostgREST; wait so RLS insert/update succeeds. */
+async function waitForAuthSessionUser(userId: string, maxMs = 10000): Promise<boolean> {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user?.id === userId) return true;
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  console.warn('[E2E] waitForAuthSessionUser: timed out — userId may not match session yet');
+  return false;
+}
 
 export const CONTENT_FORMAT_PLAIN = 'plain';
 export const CONTENT_FORMAT_E2E = 'e2e';
@@ -57,6 +70,10 @@ function tryRestoreFromBackup(
 
 export async function ensureUserKeyPair(userId: string): Promise<boolean> {
   try {
+    if (Platform.OS !== 'web') {
+      await waitForAuthSessionUser(userId);
+    }
+
     let stored = await keyStorage.getStoredKeyPair(userId);
 
     // Fetch row once for both "sync from server" and "upload backup" decisions.
@@ -106,29 +123,46 @@ export async function ensureUserKeyPair(userId: string): Promise<boolean> {
 
     const existing = row;
     const payload: Record<string, unknown> = { public_key: stored.publicKeyBase64, updated_at: new Date().toISOString() };
-    if (existing) {
-      const { error } = await supabase.from('user_public_keys').update(payload).eq('user_id', userId);
-      if (error) {
-        console.warn('[E2E] Failed to update public key:', error.message);
-        return false;
+
+    let upsertOk = false;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 280 * attempt));
+        await supabase.auth.refreshSession().catch(() => {});
+        await waitForAuthSessionUser(userId, 3000);
       }
-    } else {
-      let { error } = await supabase.from('user_public_keys').insert({ user_id: userId, ...payload });
-      if (error && (error.message.includes('key_fingerprint') || error.message.includes('null value'))) {
-        (payload as any).key_fingerprint = 'primary';
-        const res = await supabase.from('user_public_keys').insert({ user_id: userId, ...payload });
-        error = res.error;
-      }
-      if (error && (error.message.includes('duplicate key') || error.message.includes('unique constraint') || error.message.includes('user_public_keys_pkey'))) {
-        const { error: updateErr } = await supabase.from('user_public_keys').update(payload).eq('user_id', userId);
-        if (updateErr) {
-          console.warn('[E2E] Failed to update public key after duplicate:', updateErr.message);
-          return false;
+      if (existing) {
+        const { error } = await supabase.from('user_public_keys').update(payload).eq('user_id', userId);
+        if (!error) {
+          upsertOk = true;
+          break;
         }
-      } else if (error) {
-        console.warn('[E2E] Failed to insert public key:', error.message);
-        return false;
+        console.warn('[E2E] Failed to update public key (attempt', attempt + 1, '):', error.message);
+      } else {
+        let { error } = await supabase.from('user_public_keys').insert({ user_id: userId, ...payload });
+        if (error && (error.message.includes('key_fingerprint') || error.message.includes('null value'))) {
+          (payload as Record<string, unknown>).key_fingerprint = 'primary';
+          const res = await supabase.from('user_public_keys').insert({ user_id: userId, ...payload });
+          error = res.error;
+        }
+        if (error && (error.message.includes('duplicate key') || error.message.includes('unique constraint') || error.message.includes('user_public_keys_pkey'))) {
+          const { error: updateErr } = await supabase.from('user_public_keys').update(payload).eq('user_id', userId);
+          if (!updateErr) {
+            upsertOk = true;
+            break;
+          }
+          console.warn('[E2E] Failed to update public key after duplicate (attempt', attempt + 1, '):', updateErr.message);
+        } else if (!error) {
+          upsertOk = true;
+          break;
+        } else {
+          console.warn('[E2E] Failed to insert public key (attempt', attempt + 1, '):', error.message);
+        }
       }
+    }
+    if (!upsertOk) {
+      console.warn('[E2E] Public key upsert failed after retries');
+      return false;
     }
 
     // Upload encrypted key backup so other devices can restore. Also overwrite when our key differs (we become canonical).
@@ -174,25 +208,37 @@ export async function getOrCreateConversationKey(userId: string, peerId: string)
   }
   console.warn('[E2E SEND] STEP 1 OK: Sender has local key');
 
-  const { data: peerKeyRow, error: peerKeyError } = await supabase
-    .from('user_public_keys')
-    .select('public_key')
-    .eq('user_id', peerId)
-    .limit(1)
-    .maybeSingle();
+  let peerKeyRow: { public_key: string } | null = null;
+  let peerKeyError: { message: string } | null = null;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 400));
+    const res = await supabase
+      .from('user_public_keys')
+      .select('public_key')
+      .eq('user_id', peerId)
+      .limit(1)
+      .maybeSingle();
+    peerKeyError = res.error;
+    peerKeyRow = res.data as { public_key: string } | null;
+    if (peerKeyError) {
+      console.warn('[E2E SEND] STEP 2: Fetch peer key —', peerKeyError.message, `(attempt ${attempt + 1})`);
+      continue;
+    }
+    if (peerKeyRow?.public_key?.trim()) break;
+  }
 
-  if (peerKeyError) {
+  if (peerKeyError && !peerKeyRow?.public_key?.trim()) {
     console.warn('[E2E SEND] STEP 2 FAILED: Fetch peer key —', peerKeyError.message);
     return null;
   }
-  if (!peerKeyRow?.public_key) {
+  if (!peerKeyRow?.public_key?.trim()) {
     console.warn('[E2E SEND] STEP 2 FAILED: Peer has no key in DB — they need to open the app once.');
     return null;
   }
   console.warn('[E2E SEND] STEP 2 OK: Peer public key found');
 
   try {
-    const key = await crypto.deriveSharedAesKeyAsync(stored.privateKeyBase64, peerKeyRow.public_key);
+    const key = await crypto.deriveSharedAesKeyAsync(stored.privateKeyBase64, peerKeyRow.public_key.trim());
     keyStorage.setCachedKey(cacheKey, key);
     console.warn('[E2E SEND] STEP 3 OK: Derived shared key');
     return key;

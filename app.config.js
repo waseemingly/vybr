@@ -19,9 +19,13 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.vybr.music",
-      buildNumber: "41",
+      buildNumber: "51",
       associatedDomains: ["applinks:vybr.app"],
+      entitlements: {
+        "aps-environment": process.env.IOS_APS_ENV ?? "development",
+      },
       infoPlist: {
+        UIBackgroundModes: ["remote-notification"],
         ITSAppUsesNonExemptEncryption: false,
         NSPhotoLibraryUsageDescription: "This app needs access to your photo library to let you select and share profile pictures and event images.",
         NSPhotoLibraryAddUsageDescription: "This app needs access to save photos to your photo library.",
@@ -78,7 +82,10 @@ export default {
           icon: "./assets/icon.png",
           color: "#ffffff",
           sounds: [],
-          mode: "production"
+          // iOS-only: ensures `UIBackgroundModes` includes `remote-notification` for background pushes.
+          enableBackgroundRemoteNotifications: true,
+          // Must match the iOS `aps-environment` entitlement to avoid APNs registration hangs/timeouts.
+          mode: process.env.IOS_APS_ENV ?? "development",
         }
       ],
       [

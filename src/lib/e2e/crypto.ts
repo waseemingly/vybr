@@ -170,7 +170,7 @@ export async function generateKeyPairAsync(): Promise<{ privateKeyBase64: string
       publicKeyBase64: bytesToBase64(new Uint8Array(publicBytes)),
     };
   }
-  const rawPriv = p256.utils.randomPrivateKey();
+  const rawPriv = p256.utils.randomSecretKey();
   const rawPub = p256.getPublicKey(rawPriv, false); // uncompressed 65 bytes (04 || x || y)
   return {
     privateKeyBase64: bytesToBase64(rawToPkcs8(rawPriv, rawPub)),

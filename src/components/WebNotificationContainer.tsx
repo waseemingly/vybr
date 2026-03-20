@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { useNotifications } from '../context/NotificationContext';
+import { NotificationContext } from '../context/NotificationContext';
 import WebNotification from './WebNotification';
 
 const WebNotificationContainer: React.FC = () => {
-  const { webNotifications } = useNotifications();
+  const ctx = useContext(NotificationContext);
+  if (!ctx) return null;
+  const { webNotifications } = ctx;
 
   if (webNotifications.length === 0) {
     return null;
