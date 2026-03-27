@@ -546,6 +546,22 @@ const ProfileScreen: React.FC = () => {
         if (!value) return [];
         if (Array.isArray(value)) return value;
         if (typeof value === 'string') {
+            // Web can receive JSON-like serialized arrays (e.g. ["A","B"]).
+            if (Platform.OS === 'web') {
+                const trimmed = value.trim();
+                if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+                    try {
+                        const parsed = JSON.parse(trimmed);
+                        if (Array.isArray(parsed)) {
+                            return parsed
+                                .map(item => String(item).trim())
+                                .filter(Boolean);
+                        }
+                    } catch {
+                        // Fall back to CSV parsing below if JSON parsing fails.
+                    }
+                }
+            }
             return value.split(',').map(s => s.trim()).filter(Boolean);
         }
         return [];

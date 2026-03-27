@@ -36,9 +36,6 @@ const DEFAULT_DIRECT_EXPO_TOKEN_FETCH_TIMEOUT_MS = 20000;
 // Debug-only toggle: bypass timeout wrappers to check whether calls eventually resolve.
 // JS-only change (no rebuild required). Keep false for normal behavior.
 const PUSH_DEBUG_DISABLE_TIMEOUTS = false;
-// iOS can stall when APNs + Expo token APIs run concurrently.
-// Keep APNs diagnostics off the critical path unless explicitly needed.
-const ENABLE_PARALLEL_APNS_DIAG = false;
 const EXPO_GET_PUSH_TOKEN_URL = 'https://exp.host/--/api/v2/push/getExpoPushToken';
 
 Notifications.setNotificationHandler({
@@ -434,7 +431,17 @@ export class NotificationService {
           projectId
         );
 
-        const development = attempt % 2 === 0; // try sandbox+prod toggles (common during entitlements changes)
+        // Expo's getExpoPushToken expects `development` to match the APNs environment.
+        // For iOS we should derive it from the runtime entitlements we just set via `IOS_APS_ENV`.
+        // Fallback to the old attempt-based behavior if we can't determine it.
+        const apsEnvRaw =
+          (Constants as any)?.expoConfig?.ios?.entitlements?.['aps-environment'] ??
+          (Constants as any)?.expoConfig?.ios?.entitlements?.['apsEnvironment'];
+        const apsEnv = typeof apsEnvRaw === 'string' ? apsEnvRaw.toLowerCase() : '';
+        const development =
+          apsEnv
+            ? !apsEnv.includes('prod')
+            : attempt % 2 === 0; // fallback: preserve previous behavior when env is unknown
 
         // iOS: bypass SDK hanging logic by calling exp.host directly with the APNs device token.
         if (Platform.OS === 'ios') {
