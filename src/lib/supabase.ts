@@ -63,9 +63,9 @@ export const supabase = createClient(
     },
     global: {
       headers: {
+        // Do not set Content-Type globally: it can break Storage uploads by
+        // combining with per-request image content types.
         'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation',
         'apikey': supabaseKey as string,
       },
     },

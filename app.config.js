@@ -19,7 +19,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.vybr.music",
-      buildNumber: "52",
+      buildNumber: "53",
       associatedDomains: ["applinks:vybr.app"],
       entitlements: {
         "aps-environment": process.env.IOS_APS_ENV ?? "development",

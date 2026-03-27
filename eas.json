@@ -59,7 +59,8 @@
           "EXPO_APP_AUTH_REDIRECT_SCHEME": "vybr",
           "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51RDGZpDHMm6OC3yQwI460w1bESyWDQoSdNLBU9TOhciyc7NlbJ5upgCTJsP6OAuYt8cUeywcbkwQGCBI7VDCMNuz00qld2OSdN",
           "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
-          "IOS_APS_ENV": "production"
+          "IOS_APS_ENV": "production",
+          "EXPO_NO_CAPABILITY_SYNC": "1"
         },
         "buildConfiguration": "Release"
       }
