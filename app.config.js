@@ -20,6 +20,7 @@ export default {
       supportsTablet: true,
       bundleIdentifier: "com.vybr.music",
       buildNumber: "53",
+      usesAppleSignIn: true,
       associatedDomains: ["applinks:vybr.app"],
       entitlements: {
         "aps-environment": process.env.IOS_APS_ENV ?? "development",
@@ -76,6 +77,7 @@ export default {
       "expo-secure-store",
       "expo-font",
       "expo-image-picker",
+      "expo-apple-authentication",
       [
         "expo-notifications",
         {

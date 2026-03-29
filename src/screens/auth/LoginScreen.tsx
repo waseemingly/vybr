@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, Platform, useWindowDimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { useAuth } from '@/hooks/useAuth';
 import { APP_CONSTANTS } from '@/config/constants';
 import { authStyles } from '@/styles/authStyles';
@@ -15,11 +16,15 @@ interface LoginScreenProps {
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
   const navigation = useNavigation();
-  const { signInWithGoogle, updateUserMetadata } = useAuth();
+  const { width: windowWidth } = useWindowDimensions();
+  const { signInWithGoogle, signInWithApple, updateUserMetadata } = useAuth();
   
   // UI state
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Apple native button needs numeric width (not '100%') under centered flex — inset matches horizontal padding 20+20+12+12
+  const appleButtonWidth = Math.max(200, windowWidth - 64);
   
   // Handle Google Sign-In
   const handleGoogleSignIn = async () => {
@@ -54,6 +59,37 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
     }
   };
   
+  const handleAppleSignIn = async () => {
+    if (isLoading) return;
+    try {
+      setError('');
+      setIsLoading(true);
+      
+      console.log(`[LoginScreen] Starting Apple Sign-In for ${userType}...`);
+      const result = await signInWithApple();
+      
+      if ('error' in result) {
+        if ((result.error as any)?.cancelled) {
+          console.log('[LoginScreen] Apple Sign-In was cancelled by the user.');
+          return;
+        }
+        console.error('[LoginScreen] Apple Sign-In error:', result.error);
+        setError(result.error.message || 'Failed to sign in with Apple');
+        return;
+      }
+      
+      if ('user' in result && result.user) {
+        await updateUserMetadata(userType);
+        console.log(`[LoginScreen] Apple Sign-In successful, user type set to ${userType}`);
+      }
+    } catch (err) {
+      console.error('Apple login error:', err);
+      setError('An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const getTitle = () => {
     return userType === 'music_lover' ? 'Welcome Back' : 'Welcome Back';
   };
@@ -203,6 +239,20 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
                   />
                 </View>
               </TouchableOpacity>
+
+              {Platform.OS === 'ios' ? (
+                <AppleAuthentication.AppleAuthenticationButton
+                  buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                  buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                  cornerRadius={12}
+                  style={{
+                    width: appleButtonWidth,
+                    height: 56,
+                    marginBottom: 16,
+                  }}
+                  onPress={handleAppleSignIn}
+                />
+              ) : null}
               
               <Text style={{
                 color: APP_CONSTANTS.COLORS.TEXT_SECONDARY,
@@ -213,7 +263,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ userType }) => {
                 fontFamily: 'Inter, sans-serif',
                 fontWeight: '400',
               }}>
-                We use Google for secure authentication. Your email will be used to create your account and for important notifications.
+                We use Google{Platform.OS === 'ios' ? ' and Apple' : ''} for secure authentication. Your email will be used to create your account and for important notifications.
               </Text>
               
               {isLoading && (

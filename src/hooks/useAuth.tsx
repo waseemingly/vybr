@@ -19,6 +19,7 @@ import { requestMediaLibraryPermissionsAsync } from 'expo-image-picker';
 import { Buffer } from 'buffer'; // Import Buffer for robust Base64 handling
 import { createClient } from '@supabase/supabase-js';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as AuthSession from 'expo-auth-session';
@@ -164,6 +165,7 @@ const AuthContext = createContext<{
     checkEmailExists: (email: string) => Promise<{ exists: boolean, error?: string }>;
     verifyEmailIsReal: (email: string) => Promise<{ isValid: boolean, error?: string }>;
     signInWithGoogle: () => Promise<{ error: any } | { user: any }>;
+    signInWithApple: () => Promise<{ error: any } | { user: any }>;
     verifyGoogleAuthCompleted: () => Promise<boolean>;
     updateUserMetadata: (userType: UserTypes) => Promise<{ error: any } | { success: boolean }>;
     setSetupInProgress: (inProgress: boolean) => void;
@@ -191,6 +193,7 @@ const AuthContext = createContext<{
     checkEmailExists: async () => ({ exists: false, error: 'Not implemented' }),
     verifyEmailIsReal: async () => ({ isValid: false, error: 'Not implemented' }),
     signInWithGoogle: async () => ({ error: 'Not implemented' }),
+    signInWithApple: async () => ({ error: 'Not implemented' }),
     verifyGoogleAuthCompleted: async () => false,
     updateUserMetadata: async () => ({ error: 'Not implemented' }),
     setSetupInProgress: () => { },
@@ -2380,6 +2383,79 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         }
     };
 
+    const signInWithApple = async (): Promise<{ error: any } | { user: any }> => {
+        if (Platform.OS !== 'ios') {
+            return { error: { message: 'Sign in with Apple is only available on iOS' } };
+        }
+
+        setLoading(true);
+        isManualAuthInProgress.current = true;
+
+        try {
+            devLog('[useAuth] Starting Sign in with Apple...');
+
+            const credential = await AppleAuthentication.signInAsync({
+                requestedScopes: [
+                    AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+                    AppleAuthentication.AppleAuthenticationScope.EMAIL,
+                ],
+            });
+
+            if (!credential.identityToken) {
+                throw new Error('No identity token received from Apple.');
+            }
+
+            const { data, error } = await supabase.auth.signInWithIdToken({
+                provider: 'apple',
+                token: credential.identityToken,
+            });
+
+            if (error) {
+                devError('[useAuth] Supabase Apple sign-in error:', error);
+                setLoading(false);
+                isManualAuthInProgress.current = false;
+                return { error };
+            }
+
+            if (data.user) {
+                devLog('[useAuth] Apple sign-in successful, user:', data.user.id);
+
+                if (credential.fullName) {
+                    const givenName = credential.fullName.givenName;
+                    const familyName = credential.fullName.familyName;
+                    if (givenName || familyName) {
+                        const fullName = [givenName, familyName].filter(Boolean).join(' ');
+                        await supabase.auth.updateUser({
+                            data: {
+                                full_name: fullName,
+                                given_name: givenName,
+                                family_name: familyName,
+                            },
+                        });
+                        devLog('[useAuth] Saved Apple user name to metadata:', fullName);
+                    }
+                }
+
+                return { user: data.user };
+            }
+
+            setLoading(false);
+            isManualAuthInProgress.current = false;
+            return { error: { message: 'Apple sign-in completed but no user data returned' } };
+        } catch (err: any) {
+            if (err.code === 'ERR_REQUEST_CANCELED') {
+                devLog('[useAuth] Apple sign-in cancelled by user');
+                setLoading(false);
+                isManualAuthInProgress.current = false;
+                return { error: { message: 'Cancelled', cancelled: true } };
+            }
+            devError('[useAuth] Error in signInWithApple:', err);
+            setLoading(false);
+            isManualAuthInProgress.current = false;
+            return { error: err };
+        }
+    };
+
     // Function to update user metadata with userType (needed for Google OAuth users)
     const updateUserMetadata = async (userType: UserTypes): Promise<{ error: any } | { success: boolean }> => {
         try {
@@ -2459,6 +2535,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             checkEmailExists,
             verifyEmailIsReal,
             signInWithGoogle,
+            signInWithApple,
             verifyGoogleAuthCompleted,
             updateUserMetadata,
             setSetupInProgress,
