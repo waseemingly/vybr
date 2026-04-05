@@ -284,7 +284,7 @@ export class ChatListService {
       } else {
         // For group chats, we remove the user from the group
         const { error } = await supabase
-          .from('group_participants')
+          .from('group_chat_participants')
           .delete()
           .eq('group_id', chatId)
           .eq('user_id', userId);

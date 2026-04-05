@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Alert, Platform, Linking } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
+import Constants from 'expo-constants';
 import { useAuth } from './useAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
@@ -18,10 +19,17 @@ import * as AuthSession from 'expo-auth-session';
 import { MUSIC_MOODS, generateGeminiMoodAnalysisPrompt, SongForMoodAnalysis, GeminiMoodResponseItem } from '@/lib/moods';
 
 // --- SPOTIFY CONSTANTS ---
-// Constants for Spotify API
+// Public OAuth client id (must match Spotify app). Token exchange uses Edge Function + server secret.
 const SPOTIFY_API_URL = 'https://api.spotify.com/v1';
-// CLIENT_ID and CLIENT_SECRET will be fetched from Supabase
 const AUTH_CALLBACK_SCHEME = 'vybr';
+
+function resolveSpotifyClientId(): string {
+  const fromEnv = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID;
+  if (typeof fromEnv === 'string' && fromEnv.length > 0) return fromEnv;
+  const extra = Constants.expoConfig?.extra as Record<string, unknown> | undefined;
+  const id = extra?.SPOTIFY_CLIENT_ID;
+  return typeof id === 'string' && id.length > 0 ? id : '';
+}
 const REGISTERED_WEB_REDIRECT_URI = 'http://127.0.0.1:19006/callback';
 
 // For Web, use the explicit redirect URI. For native, AuthSession will generate one.
@@ -62,55 +70,32 @@ export const useSpotifyAuth = () => {
   const [userData, setUserData] = useState<any>(null);
   const [isUpdatingListeningData, setIsUpdatingListeningData] = useState(false);
 
-  // Spotify credentials state
-  const [spotifyClientId, setSpotifyClientId] = useState<string | null>(null);
-  const [spotifyClientSecret, setSpotifyClientSecret] = useState<string | null>(null);
-  const [credentialsLoaded, setCredentialsLoaded] = useState<boolean>(false);
+  const spotifyClientId = useMemo(() => resolveSpotifyClientId(), []);
 
-  // Function to fetch Spotify credentials from Supabase
-  const fetchSpotifyCredentials = async (): Promise<{ clientId: string; clientSecret: string } | null> => {
-    try {
-      console.log('[useSpotifyAuth] Fetching Spotify credentials from Supabase...');
-      
-      const [clientIdResponse, clientSecretResponse] = await Promise.all([
-        supabase.rpc('get_spotify_client_id'),
-        supabase.rpc('get_spotify_client_secret')
-      ]);
-
-      if (clientIdResponse.error) {
-        console.error('[useSpotifyAuth] Error fetching Spotify Client ID:', clientIdResponse.error);
-        return null;
-      }
-
-      if (clientSecretResponse.error) {
-        console.error('[useSpotifyAuth] Error fetching Spotify Client Secret:', clientSecretResponse.error);
-        return null;
-      }
-
-      const clientId = clientIdResponse.data as string;
-      const clientSecret = clientSecretResponse.data as string;
-
-      if (!clientId || !clientSecret) {
-        console.error('[useSpotifyAuth] Spotify credentials not found in Supabase Vault. Please ensure SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET are set.');
-        return null;
-      }
-
-      console.log('[useSpotifyAuth] Successfully fetched Spotify credentials from Supabase');
-      setSpotifyClientId(clientId);
-      setSpotifyClientSecret(clientSecret);
-      setCredentialsLoaded(true);
-      
-      return { clientId, clientSecret };
-    } catch (err: any) {
-      console.error('[useSpotifyAuth] Error fetching Spotify credentials:', err);
-      setError('Failed to fetch Spotify configuration. Please try again.');
+  const runGeminiMoodAnalysis = useCallback(async (
+    songsForMoodAnalysis: SongForMoodAnalysis[]
+  ): Promise<GeminiMoodResponseItem[] | null> => {
+    if (songsForMoodAnalysis.length === 0) return null;
+    const prompt = generateGeminiMoodAnalysisPrompt(songsForMoodAnalysis);
+    const { data, error } = await supabase.functions.invoke('gemini-mood-analysis', {
+      body: { prompt },
+    });
+    if (error) {
+      console.error('[useSpotifyAuth] gemini-mood-analysis invoke error:', error);
       return null;
     }
-  };
-
-  // Load credentials on mount
-  useEffect(() => {
-    fetchSpotifyCredentials();
+    const payload = data as {
+      ok?: boolean;
+      categorizedSongs?: GeminiMoodResponseItem[];
+      error?: string;
+    } | null;
+    if (!payload?.ok || !Array.isArray(payload.categorizedSongs)) {
+      if (payload?.error) {
+        console.error('[useSpotifyAuth] gemini-mood-analysis:', payload.error);
+      }
+      return null;
+    }
+    return payload.categorizedSongs;
   }, []);
 
   // Determine the redirect URI based on the platform
@@ -123,10 +108,10 @@ export const useSpotifyAuth = () => {
 
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
-      clientId: spotifyClientId || '', // Use dynamic client ID
+      clientId: spotifyClientId || '',
       scopes: SPOTIFY_SCOPES,
       redirectUri: redirectUri, // Use the platform-specific redirectUri
-      usePKCE: false, // Disable PKCE since we'll use client secret
+      usePKCE: false, // Spotify token exchange runs on Edge (client secret never in the app)
       extraParams: {
         show_dialog: 'true',
         scope: SPOTIFY_SCOPES.join(' ') // Explicitly include scopes as a space-separated string
@@ -202,45 +187,34 @@ export const useSpotifyAuth = () => {
   // Function to exchange authorization code for tokens
   const exchangeCodeForToken = async (code: string) => {
     try {
-      console.log('[useSpotifyAuth] Exchanging code for token using client credentials');
-      
-      // Ensure we have valid credentials before proceeding
-      let clientId = spotifyClientId;
-      let clientSecret = spotifyClientSecret;
-      
-      if (!clientId || !clientSecret) {
-        console.log('[useSpotifyAuth] Credentials not loaded, fetching from Supabase...');
-        const fetchedCredentials = await fetchSpotifyCredentials();
-        if (!fetchedCredentials) {
-          throw new Error('Failed to fetch Spotify credentials from Supabase');
-        }
-        clientId = fetchedCredentials.clientId;
-        clientSecret = fetchedCredentials.clientSecret;
-      }
-      
-      // Manually make the token request instead of using AuthSession.exchangeCodeAsync
-      const params = new URLSearchParams();
-      params.append('grant_type', 'authorization_code');
-      params.append('code', code);
-      params.append('redirect_uri', redirectUri);
-      params.append('client_id', clientId);
-      params.append('client_secret', clientSecret);
-      
-      const response = await fetch('https://accounts.spotify.com/api/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+      console.log('[useSpotifyAuth] Exchanging code for token via spotify-token-exchange Edge Function');
+
+      const { data, error: invokeError } = await supabase.functions.invoke('spotify-token-exchange', {
+        body: {
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: redirectUri,
         },
-        body: params.toString()
       });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('[useSpotifyAuth] Token exchange failed:', errorData);
-        throw new Error(errorData.error_description || 'Failed to exchange code for token');
+
+      if (invokeError) {
+        console.error('[useSpotifyAuth] Token exchange invoke error:', invokeError);
+        throw new Error(invokeError.message || 'Failed to exchange code for token');
       }
-      
-      const tokenResult = await response.json();
+
+      const tokenResult = data as {
+        ok?: boolean;
+        error?: string;
+        access_token?: string;
+        refresh_token?: string;
+        expires_in?: number;
+        scope?: string;
+      };
+
+      if (!tokenResult?.ok || !tokenResult.access_token) {
+        console.error('[useSpotifyAuth] Token exchange failed:', tokenResult);
+        throw new Error(tokenResult?.error || 'Failed to exchange code for token');
+      }
       console.log('[useSpotifyAuth] Token exchange result:', JSON.stringify({
         ...tokenResult,
         access_token: 'REDACTED',
@@ -261,9 +235,9 @@ export const useSpotifyAuth = () => {
 
       const newAccessToken = tokenResult.access_token;
       const newRefreshToken = tokenResult.refresh_token;
-      const expiresIn = tokenResult.expires_in;
+      const expiresInSec = tokenResult.expires_in ?? 3600;
       const now = Date.now();
-      const expiryTime = now + (expiresIn * 1000) - 60000; // Convert to ms, 60s buffer
+      const expiryTime = now + expiresInSec * 1000 - 60000; // Convert to ms, 60s buffer
 
       await AsyncStorage.setItem(SPOTIFY_ACCESS_TOKEN_KEY, newAccessToken);
       if (newRefreshToken) {
@@ -297,44 +271,32 @@ export const useSpotifyAuth = () => {
     setIsLoading(true);
     setError(null);
     try {
-      console.log('[useSpotifyAuth] Refreshing token with client credentials');
-      
-      // Ensure we have valid credentials before proceeding
-      let clientId = spotifyClientId;
-      let clientSecret = spotifyClientSecret;
-      
-      if (!clientId || !clientSecret) {
-        console.log('[useSpotifyAuth] Credentials not loaded during refresh, fetching from Supabase...');
-        const fetchedCredentials = await fetchSpotifyCredentials();
-        if (!fetchedCredentials) {
-          throw new Error('Failed to fetch Spotify credentials from Supabase');
-        }
-        clientId = fetchedCredentials.clientId;
-        clientSecret = fetchedCredentials.clientSecret;
-      }
-      
-      // Manually make the refresh token request
-      const params = new URLSearchParams();
-      params.append('grant_type', 'refresh_token');
-      params.append('refresh_token', currentRefreshToken);
-      params.append('client_id', clientId);
-      params.append('client_secret', clientSecret);
-      
-      const response = await fetch('https://accounts.spotify.com/api/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+      console.log('[useSpotifyAuth] Refreshing token via spotify-token-exchange Edge Function');
+
+      const { data, error: invokeError } = await supabase.functions.invoke('spotify-token-exchange', {
+        body: {
+          grant_type: 'refresh_token',
+          refresh_token: currentRefreshToken,
         },
-        body: params.toString()
       });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('[useSpotifyAuth] Token refresh failed:', errorData);
-        throw new Error(errorData.error_description || 'Failed to refresh token');
+
+      if (invokeError) {
+        console.error('[useSpotifyAuth] Token refresh invoke error:', invokeError);
+        throw new Error(invokeError.message || 'Failed to refresh token');
       }
-      
-      const tokenResult = await response.json();
+
+      const tokenResult = data as {
+        ok?: boolean;
+        error?: string;
+        access_token?: string;
+        refresh_token?: string;
+        expires_in?: number;
+      };
+
+      if (!tokenResult?.ok || !tokenResult.access_token) {
+        console.error('[useSpotifyAuth] Token refresh failed:', tokenResult);
+        throw new Error(tokenResult?.error || 'Failed to refresh token');
+      }
       console.log('[useSpotifyAuth] Token refresh result:', JSON.stringify({
         ...tokenResult,
         access_token: 'REDACTED',
@@ -343,9 +305,9 @@ export const useSpotifyAuth = () => {
 
       const newAccessToken = tokenResult.access_token;
       const newRefreshTokenFromRefresh = tokenResult.refresh_token; // Spotify might return a new one
-      const expiresIn = tokenResult.expires_in;
+      const expiresInSec = tokenResult.expires_in ?? 3600;
       const now = Date.now();
-      const newExpiryTime = now + (expiresIn * 1000) - 60000; // Convert to ms, 60s buffer
+      const newExpiryTime = now + expiresInSec * 1000 - 60000; // Convert to ms, 60s buffer
 
       await AsyncStorage.setItem(SPOTIFY_ACCESS_TOKEN_KEY, newAccessToken);
       const finalRefreshToken = newRefreshTokenFromRefresh || currentRefreshToken;
@@ -391,14 +353,9 @@ export const useSpotifyAuth = () => {
     setError(null);
     console.log('[useSpotifyAuth] Prompting Spotify login...');
     
-    // Ensure credentials are loaded before proceeding
-    if (!credentialsLoaded || !spotifyClientId) {
-      console.log('[useSpotifyAuth] Credentials not loaded, fetching from Supabase before login...');
-      const credentials = await fetchSpotifyCredentials();
-      if (!credentials) {
-        setError('Failed to load Spotify configuration. Please try again.');
-        return;
-      }
+    if (!spotifyClientId) {
+      setError('Spotify client ID is not configured (extra.SPOTIFY_CLIENT_ID or EXPO_PUBLIC_SPOTIFY_CLIENT_ID).');
+      return;
     }
     
     console.log(`[useSpotifyAuth] Requested scopes: ${SPOTIFY_SCOPES.join(', ')}`);
@@ -435,7 +392,7 @@ export const useSpotifyAuth = () => {
       setError(err.message || 'Failed to start Spotify authentication');
       setIsLoading(false);
     }
-  }, [request, promptAsync, credentialsLoaded, spotifyClientId]);
+  }, [request, promptAsync, spotifyClientId]);
 
   // Function to fetch user profile
   const fetchUserProfile = async (token: string) => {
@@ -786,78 +743,22 @@ export const useSpotifyAuth = () => {
             .map(track => ({ title: track.name, artist: track.artists[0]?.name || 'Unknown Artist', id: track.id }));
 
           if (songsForMoodAnalysis.length > 0) {
-            // Fetch Google API Key from Supabase
-            const { data: apiKeyData, error: apiKeyError } = await supabase.rpc('get_google_api_key');
-            if (apiKeyError) {
-              console.error('[useSpotifyAuth] Error response from get_google_api_key RPC:', apiKeyError);
-              // Optionally, don't fail the whole process, just skip mood analysis
-            } else if (!apiKeyData) {
-              console.error('[useSpotifyAuth] Google API key not found or is empty after calling get_google_api_key. Please ensure GOOGLE_GEMINI_API_KEY is correctly set in Supabase Vault (with the new name) and the function has permissions.');
+            console.log('[useSpotifyAuth] Calling gemini-mood-analysis Edge Function...');
+            const categorizedSongs = await runGeminiMoodAnalysis(songsForMoodAnalysis);
+            if (categorizedSongs && categorizedSongs.length > 0) {
+              const moodCounts: { [moodName: string]: number } = {};
+              categorizedSongs.forEach(song => {
+                if (song.determinedMood && MUSIC_MOODS.some(m => m.moodName === song.determinedMood)) {
+                  moodCounts[song.determinedMood] = (moodCounts[song.determinedMood] || 0) + 1;
+                }
+              });
+              const sortedMoods = Object.entries(moodCounts)
+                .map(([name, count]) => ({ name, count, score: count }))
+                .sort((a, b) => b.count - a.count);
+              topMoodsData = sortedMoods.slice(0, 3);
+              console.log('[useSpotifyAuth] Top moods calculated:', topMoodsData);
             } else {
-              const googleApiKey = apiKeyData as string;
-              const prompt = generateGeminiMoodAnalysisPrompt(songsForMoodAnalysis);
-              
-              console.log('[useSpotifyAuth] Calling Gemini API for mood analysis...');
-              const geminiResponse = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${googleApiKey}`,
-                {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    contents: [
-                      {
-                        parts: [
-                          { text: prompt }
-                        ]
-                      }
-                    ],
-                    generationConfig: { // Request JSON output
-                        responseMimeType: "application/json",
-                    }
-                  }),
-                }
-              );
-
-              if (!geminiResponse.ok) {
-                const errorText = await geminiResponse.text();
-                console.error('[useSpotifyAuth] Gemini API error:', geminiResponse.status, errorText);
-                // Optionally, don't fail, just skip mood analysis
-              } else {
-                const geminiResult = await geminiResponse.json();
-                // console.log('[useSpotifyAuth] Gemini API raw response:', JSON.stringify(geminiResult, null, 2));
-                
-                let categorizedSongs: GeminiMoodResponseItem[] = [];
-                if (geminiResult.candidates && geminiResult.candidates[0].content && geminiResult.candidates[0].content.parts && geminiResult.candidates[0].content.parts[0].text) {
-                    try {
-                        categorizedSongs = JSON.parse(geminiResult.candidates[0].content.parts[0].text);
-                    } catch (parseError) {
-                        console.error('[useSpotifyAuth] Error parsing Gemini JSON response:', parseError);
-                        console.error('[useSpotifyAuth] Gemini response text was:', geminiResult.candidates[0].content.parts[0].text);
-                    }
-                } else {
-                    console.warn('[useSpotifyAuth] Gemini response structure not as expected.', geminiResult);
-                }
-
-                if (Array.isArray(categorizedSongs) && categorizedSongs.length > 0) {
-                  const moodCounts: { [moodName: string]: number } = {};
-                  categorizedSongs.forEach(song => {
-                    if (song.determinedMood && MUSIC_MOODS.some(m => m.moodName === song.determinedMood)) {
-                      moodCounts[song.determinedMood] = (moodCounts[song.determinedMood] || 0) + 1;
-                    }
-                  });
-
-                  const sortedMoods = Object.entries(moodCounts)
-                    .map(([name, count]) => ({ name, count, score: count })) // score can be refined
-                    .sort((a, b) => b.count - a.count);
-                  
-                  topMoodsData = sortedMoods.slice(0, 3);
-                  console.log('[useSpotifyAuth] Top moods calculated:', topMoodsData);
-                } else {
-                    console.warn('[useSpotifyAuth] No valid categorized songs returned from Gemini or parsing failed.');
-                }
-              }
+              console.warn('[useSpotifyAuth] No valid categorized songs from gemini-mood-analysis.');
             }
           }
         } catch (moodError: any) {
@@ -1065,71 +966,22 @@ export const useSpotifyAuth = () => {
             .map(track => ({ title: track.name, artist: track.artists[0]?.name || 'Unknown Artist', id: track.id }));
 
           if (songsForMoodAnalysis.length > 0) {
-            const { data: apiKeyData, error: apiKeyError } = await supabase.rpc('get_google_api_key');
-            if (apiKeyError) {
-              console.error('[useSpotifyAuth] Error response from get_google_api_key RPC (force fetch):', apiKeyError);
-            } else if (!apiKeyData) {
-              console.error('[useSpotifyAuth] Google API key not found or is empty after calling get_google_api_key (force fetch). Please ensure GOOGLE_GEMINI_API_KEY is correctly set in Supabase Vault (with the new name) and the function has permissions.');
+            console.log('[useSpotifyAuth] Calling gemini-mood-analysis Edge Function (force fetch)...');
+            const categorizedSongs = await runGeminiMoodAnalysis(songsForMoodAnalysis);
+            if (categorizedSongs && categorizedSongs.length > 0) {
+              const moodCounts: { [moodName: string]: number } = {};
+              categorizedSongs.forEach(song => {
+                if (song.determinedMood && MUSIC_MOODS.some(m => m.moodName === song.determinedMood)) {
+                  moodCounts[song.determinedMood] = (moodCounts[song.determinedMood] || 0) + 1;
+                }
+              });
+              const sortedMoods = Object.entries(moodCounts)
+                .map(([name, count]) => ({ name, count, score: count }))
+                .sort((a, b) => b.count - a.count);
+              topMoodsData = sortedMoods.slice(0, 3);
+              console.log('[useSpotifyAuth] Top moods calculated (force fetch):', topMoodsData);
             } else {
-              const googleApiKey = apiKeyData as string;
-              const prompt = generateGeminiMoodAnalysisPrompt(songsForMoodAnalysis);
-              
-              console.log('[useSpotifyAuth] Calling Gemini API for mood analysis (force fetch)...');
-              const geminiResponse = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${googleApiKey}`,
-                {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    contents: [
-                      {
-                        parts: [
-                          { text: prompt }
-                        ]
-                      }
-                    ],
-                    generationConfig: { 
-                        responseMimeType: "application/json",
-                    }
-                  }),
-                }
-              );
-
-              if (!geminiResponse.ok) {
-                const errorText = await geminiResponse.text();
-                console.error('[useSpotifyAuth] Gemini API error (force fetch):', geminiResponse.status, errorText);
-              } else {
-                const geminiResult = await geminiResponse.json();
-                let categorizedSongs: GeminiMoodResponseItem[] = [];
-                if (geminiResult.candidates && geminiResult.candidates[0].content && geminiResult.candidates[0].content.parts && geminiResult.candidates[0].content.parts[0].text) {
-                    try {
-                        categorizedSongs = JSON.parse(geminiResult.candidates[0].content.parts[0].text);
-                    } catch (parseError) {
-                        console.error('[useSpotifyAuth] Error parsing Gemini JSON response (force fetch):', parseError);
-                        console.error('[useSpotifyAuth] Gemini response text was (force fetch):', geminiResult.candidates[0].content.parts[0].text);
-                    }
-                } else {
-                    console.warn('[useSpotifyAuth] Gemini response structure not as expected (force fetch).');
-                }
-
-                if (Array.isArray(categorizedSongs) && categorizedSongs.length > 0) {
-                  const moodCounts: { [moodName: string]: number } = {};
-                  categorizedSongs.forEach(song => {
-                    if (song.determinedMood && MUSIC_MOODS.some(m => m.moodName === song.determinedMood)) {
-                      moodCounts[song.determinedMood] = (moodCounts[song.determinedMood] || 0) + 1;
-                    }
-                  });
-                  const sortedMoods = Object.entries(moodCounts)
-                    .map(([name, count]) => ({ name, count, score: count }))
-                    .sort((a, b) => b.count - a.count);
-                  topMoodsData = sortedMoods.slice(0, 3);
-                  console.log('[useSpotifyAuth] Top moods calculated (force fetch):', topMoodsData);
-                } else {
-                    console.warn('[useSpotifyAuth] No valid categorized songs from Gemini or parsing failed (force fetch).');
-                }
-              }
+              console.warn('[useSpotifyAuth] No valid categorized songs from gemini-mood-analysis (force fetch).');
             }
           }
         } catch (moodError: any) {
@@ -1364,8 +1216,7 @@ export const useSpotifyAuth = () => {
     isUpdatingListeningData,
     verifyAuthorizationCompleted,
     debugSpotifyApiData,
-    // Add credentials state for debugging/monitoring
-    credentialsLoaded,
+    credentialsLoaded: Boolean(spotifyClientId),
     spotifyClientId: spotifyClientId || null,
   };
 }; 

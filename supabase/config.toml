@@ -13,3 +13,9 @@ entrypoint = "./functions/get-matches-v2/index.ts"
 # cron = "0 0 1 * *"  # Commented out - not supported in CLI v2.65.5
 verify_jwt = false
 import_map = "./functions/import_map.json"
+
+[functions.spotify-token-exchange]
+verify_jwt = true
+
+[functions.gemini-mood-analysis]
+verify_jwt = true

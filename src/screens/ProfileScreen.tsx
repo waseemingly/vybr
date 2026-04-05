@@ -12,6 +12,7 @@ import { useOrganizerMode } from "@/hooks/useOrganizerMode";
 import { useAuth, MusicLoverBio } from "@/hooks/useAuth";
 import { useStreamingData, TopArtist, TopTrack, TopGenre, TopMood } from '@/hooks/useStreamingData';
 import { useSpotifyAuth } from '@/hooks/useSpotifyAuth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // import { useYouTubeMusicAuth } from '@/hooks/useYouTubeMusicAuth';
 import { APP_CONSTANTS } from "@/config/constants";
 import { useNavigation, useFocusEffect, useRoute, useNavigationState } from "@react-navigation/native";
@@ -21,6 +22,8 @@ import { supabase } from "@/lib/supabase";
 import type { RootStackParamList, MainStackParamList, UserTabParamList, OrganizerTabParamList } from '@/navigation/AppNavigator';
 import PremiumSignupScreen from '@/screens/auth/PremiumSignupScreen';
 import PaymentSuccessScreen from '@/screens/auth/PaymentSuccessScreen';
+import { useUserGuide } from '@/hooks/useUserGuide';
+import { parseMusicFavoriteList } from '@/utils/musicFavoritesParse';
 
 // --- Navigation Type ---
 // Keep type broad to allow navigation to various stacks
@@ -42,6 +45,7 @@ type LinkMusicServicesScreenParams = {
 
 // --- Constants & Components ---
 const DEFAULT_PROFILE_PIC = APP_CONSTANTS?.DEFAULT_PROFILE_PIC || 'https://via.placeholder.com/150/CCCCCC/808080?text=No+Image';
+const PROFILE_NAME_NOTE_STORAGE_PREFIX = 'profile_name_missing_note_seen_v1_';
 interface SeparatorProps { vertical?: boolean; style?: object; }
 const Separator: React.FC<SeparatorProps> = ({ vertical = false, style = {} }) => ( <View style={[ styles.separator, vertical ? { height: '60%', width: 1 } : { height: 1, width: "100%" }, style ]} /> );
 
@@ -102,6 +106,7 @@ type ExpandedSections = {
 const ProfileScreen: React.FC = () => {
     const { session, loading: authLoading, logout, musicLoverProfile, refreshUserProfile } = useAuth();
     const { toggleOrganizerMode } = useOrganizerMode();
+    const { active: isTourActive } = useUserGuide();
     const navigation = useNavigation<ProfileScreenNavigationProp>();
     const route = useRoute();
     const userId = session?.user?.id;
@@ -137,6 +142,7 @@ const ProfileScreen: React.FC = () => {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [refreshingStreamingData, setRefreshingStreamingData] = useState(false);
     const [showSpotifyReconnectModal, setShowSpotifyReconnectModal] = useState(false);
+    const [hasCheckedMissingNameNote, setHasCheckedMissingNameNote] = useState(false);
 
     // Handle navigation to LinkMusicServicesScreen if requested via params
     useEffect(() => {
@@ -203,6 +209,52 @@ const ProfileScreen: React.FC = () => {
     }, [userId]);
 
     useFocusEffect(useCallback(() => { fetchCounts(); }, [fetchCounts]));
+
+    useFocusEffect(
+        useCallback(() => {
+            if (Platform.OS !== 'ios' || !userId || !musicLoverProfile) return;
+            if (isTourActive) return; // entering Profile via onboarding tour should not count
+            if (hasCheckedMissingNameNote) return;
+
+            const maybeShowMissingNameNote = async () => {
+                try {
+                    const seenKey = `${PROFILE_NAME_NOTE_STORAGE_PREFIX}${userId}`;
+                    const seen = await AsyncStorage.getItem(seenKey);
+                    if (seen === '1') {
+                        setHasCheckedMissingNameNote(true);
+                        return;
+                    }
+
+                    const first = (musicLoverProfile.firstName || '').trim();
+                    const last = (musicLoverProfile.lastName || '').trim();
+                    const username = (musicLoverProfile.username || '').trim();
+                    const fallbackFirst = username ? username.charAt(0).toUpperCase() + username.slice(1, 32) : 'Member';
+
+                    const email = session?.user?.email || '';
+                    const isApplePrivateRelay = /@privaterelay\.appleid\.com$/i.test(email);
+                    const looksLikeFallbackName =
+                        !!username &&
+                        first.toLowerCase() === fallbackFirst.toLowerCase() &&
+                        last.toLowerCase() === 'user';
+
+                    if (isApplePrivateRelay && looksLikeFallbackName) {
+                        Alert.alert(
+                            'Add your name anytime',
+                            'We could not retrieve your full name from Apple. You can update your first and last name later in Settings > Edit Profile.'
+                        );
+                    }
+
+                    await AsyncStorage.setItem(seenKey, '1');
+                    setHasCheckedMissingNameNote(true);
+                } catch (error) {
+                    console.warn('[ProfileScreen] Failed to check missing-name note state:', error);
+                    setHasCheckedMissingNameNote(true);
+                }
+            };
+
+            void maybeShowMissingNameNote();
+        }, [userId, musicLoverProfile, session?.user?.email, isTourActive, hasCheckedMissingNameNote])
+    );
 
     const onRefresh = useCallback(async () => {
         setIsRefreshing(true);
@@ -541,37 +593,11 @@ const ProfileScreen: React.FC = () => {
     const userName = `${musicLoverProfile.firstName ?? ''} ${musicLoverProfile.lastName ?? ''}`.trim() || "User";
     const userAge = musicLoverProfile.age; const userCity = musicLoverProfile.city; const userCountry = musicLoverProfile.country;
     const allBioDetails = musicLoverProfile.bio ? Object.entries(musicLoverProfile.bio).filter(([_, v]) => v && String(v).trim() !== '').map(([k, v]) => ({ label: bioDetailLabels[k as keyof MusicLoverBio] || k.replace(/([A-Z])/g, ' $1').trim(), value: String(v).trim() })) : [];
-    // Parse favorite music - handle both arrays (new format) and strings (old format)
-    const parseCsvString = (value: string | string[] | null | undefined): string[] => {
-        if (!value) return [];
-        if (Array.isArray(value)) return value;
-        if (typeof value === 'string') {
-            // Web can receive JSON-like serialized arrays (e.g. ["A","B"]).
-            if (Platform.OS === 'web') {
-                const trimmed = value.trim();
-                if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-                    try {
-                        const parsed = JSON.parse(trimmed);
-                        if (Array.isArray(parsed)) {
-                            return parsed
-                                .map(item => String(item).trim())
-                                .filter(Boolean);
-                        }
-                    } catch {
-                        // Fall back to CSV parsing below if JSON parsing fails.
-                    }
-                }
-            }
-            return value.split(',').map(s => s.trim()).filter(Boolean);
-        }
-        return [];
-    };
     const favoriteGenres = (musicLoverProfile.musicData?.genres as string[]) ?? []; // Keep if still used for Genre section
-    // Now using the updated MusicLoverProfile type from useAuth
-    const favArtistsList = parseCsvString(musicLoverProfile.favorite_artists);
-    const favSongsList = parseCsvString(musicLoverProfile.favorite_songs);
+    const favArtistsList = parseMusicFavoriteList(musicLoverProfile.favorite_artists);
+    const favSongsList = parseMusicFavoriteList(musicLoverProfile.favorite_songs);
     const genreAnalyticsData = (musicLoverProfile.musicData?.analytics?.genreDistribution as { name: string; value: number }[] | undefined) ?? [];
-    const favAlbumsList = parseCsvString(musicLoverProfile.favorite_albums); // Keep manual list
+    const favAlbumsList = parseMusicFavoriteList(musicLoverProfile.favorite_albums);
 
     return (
         <SafeAreaView edges={["top"]} style={styles.container}>

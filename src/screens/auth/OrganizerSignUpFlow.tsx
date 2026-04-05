@@ -69,6 +69,7 @@ const OrganizerSignUpFlow = () => {
   const [slideAnim] = useState(new Animated.Value(0));
   const [fadeAnim] = useState(new Animated.Value(1));
   const [isTermsModalVisible, setIsTermsModalVisible] = useState(false);
+  const [isOauthProviderSignup, setIsOauthProviderSignup] = useState(false);
 
   // Web cropping state
   const [showCropper, setShowCropper] = useState(false);
@@ -80,6 +81,21 @@ const OrganizerSignUpFlow = () => {
   useEffect(() => {
     requestMediaLibraryPermissions();
   }, [requestMediaLibraryPermissions]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      const user = data?.user;
+      if (!user || cancelled) return;
+      const ids = user.identities ?? [];
+      const oauth = ids.some((i: { provider: string }) => i.provider === 'apple' || i.provider === 'google');
+      if (oauth) setIsOauthProviderSignup(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // When returning from payment screen (back button), show the step before payment (profile-details)
   useFocusEffect(
@@ -360,7 +376,7 @@ const OrganizerSignUpFlow = () => {
           marginBottom: 4,
           fontFamily: 'Inter, sans-serif'
         }}>
-          Email Not Registered
+          {isOauthProviderSignup ? 'Almost there' : 'Email Not Registered'}
         </Text>
         <Text style={{
           fontSize: isWeb ? 13 : 12,
@@ -369,7 +385,9 @@ const OrganizerSignUpFlow = () => {
           lineHeight: isWeb ? 18 : 16,
           fontFamily: 'Inter, sans-serif'
         }}>
-          Your email address is not registered. Please complete your profile to create your organizer account.
+          {isOauthProviderSignup
+            ? 'Add your business details and accept the terms to finish creating your organizer profile.'
+            : 'Your email address is not registered. Please complete your profile to create your organizer account.'}
         </Text>
       </View>
 

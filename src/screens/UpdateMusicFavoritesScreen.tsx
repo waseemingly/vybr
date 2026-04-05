@@ -19,6 +19,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useStreamingData, TopArtist, TopTrack } from '../hooks/useStreamingData';
 import { supabase } from '../lib/supabase';
 import { APP_CONSTANTS } from '../config/constants';
+import { parseMusicFavoriteList } from '../utils/musicFavoritesParse';
 
 const UpdateMusicFavoritesScreen = () => {
   const { session, musicLoverProfile } = useAuth();
@@ -69,18 +70,8 @@ const UpdateMusicFavoritesScreen = () => {
         if (error) throw error;
         
         if (data) {
-          // Convert arrays to comma-separated strings for TextInput
-          const arrayToString = (arr: string[] | null | undefined): string => {
-            if (!arr) return '';
-            if (Array.isArray(arr)) {
-              return arr.join(', ');
-            }
-            // Fallback for old string format (backward compatibility)
-            if (typeof arr === 'string') {
-              return arr;
-            }
-            return '';
-          };
+          const arrayToString = (value: string | string[] | null | undefined): string =>
+            parseMusicFavoriteList(value).join(', ');
           
           setFavoriteArtists(arrayToString(data.favorite_artists));
           setFavoriteAlbums(arrayToString(data.favorite_albums));

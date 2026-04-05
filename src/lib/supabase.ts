@@ -72,8 +72,6 @@ export const supabase = createClient(
   }
 );
 
-console.log({ supabaseUrl, supabaseKey });
-
 export type UserTypes = 'music_lover' | 'organizer';
 
 export interface SignUpCredentials {

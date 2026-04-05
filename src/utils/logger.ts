@@ -9,3 +9,15 @@ const isDev =
 export const devLog = isDev ? (...args: unknown[]) => console.log(...args) : () => {};
 export const devWarn = isDev ? (...args: unknown[]) => console.warn(...args) : () => {};
 export const devError = isDev ? (...args: unknown[]) => console.error(...args) : () => {};
+
+/**
+ * OAuth / Supabase display-name debugging — always logs (not dev-only).
+ * Filter device / Metro logs with: `[OAuthProfile]`
+ */
+export function logOAuthProfile(source: string, payload: Record<string, unknown>): void {
+  try {
+    console.log('[OAuthProfile]', source, JSON.stringify(payload, null, 2));
+  } catch {
+    console.log('[OAuthProfile]', source, payload);
+  }
+}

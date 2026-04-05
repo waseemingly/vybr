@@ -137,3 +137,6 @@ export const APP_CONSTANTS: AppConstantsType = {
   // Layout dimensions
   NAVBAR_HEIGHT: 90,
 };
+
+/** AsyncStorage key: OAuth given names for signup prefill (covers delay before JWT reflects user_metadata). */
+export const OAUTH_PREFILL_NAMES_STORAGE_KEY = '@vybr_oauth_prefill_names';

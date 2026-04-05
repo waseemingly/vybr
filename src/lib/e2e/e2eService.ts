@@ -117,7 +117,7 @@ export async function ensureUserKeyPair(userId: string): Promise<boolean> {
         const pair = await crypto.generateKeyPairAsync();
         await keyStorage.setStoredKeyPair(userId, pair.privateKeyBase64, pair.publicKeyBase64);
         stored = { privateKeyBase64: pair.privateKeyBase64, publicKeyBase64: pair.publicKeyBase64 };
-        console.log('[E2E] Generated new key pair for user');
+        if (__DEV__) console.log('[E2E] Generated new key pair for user');
       }
     }
 

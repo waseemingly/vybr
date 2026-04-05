@@ -23,6 +23,7 @@ import { Calendar, DateData } from 'react-native-calendars';
 import { LinearGradient } from "expo-linear-gradient";
 import { getCurrencyForCountry, getCurrencySymbol, formatPriceWithCurrency } from '../utils/currencyUtils'; // Add currency utilities
 import { FEATURE_FLAGS } from '@/config/featureFlags';
+import { parseMusicFavoriteList } from '@/utils/musicFavoritesParse';
 
 // Define navigation prop using imported types
 // Add openEventId to EventsScreen params in RootStackParamList
@@ -718,9 +719,9 @@ const EventsScreen: React.FC = () => {
                 country: profileData.country,
                 city: profileData.city,
                 bio: profileData.bio ? (typeof profileData.bio === 'string' ? JSON.parse(profileData.bio) : profileData.bio) : null, 
-                favorite_artists: Array.isArray(profileData.favorite_artists) ? profileData.favorite_artists : [],
-                favorite_albums: Array.isArray(profileData.favorite_albums) ? profileData.favorite_albums : [],
-                favorite_songs: Array.isArray(profileData.favorite_songs) ? profileData.favorite_songs : [],
+                favorite_artists: parseMusicFavoriteList(profileData.favorite_artists as string | string[] | null | undefined),
+                favorite_albums: parseMusicFavoriteList(profileData.favorite_albums as string | string[] | null | undefined),
+                favorite_songs: parseMusicFavoriteList(profileData.favorite_songs as string | string[] | null | undefined),
                 music_data: profileData.music_data ? (typeof profileData.music_data === 'string' ? JSON.parse(profileData.music_data) : profileData.music_data) : { genres: [] }, 
                 top_genres: mapJsonArrayToNames(streamingData?.top_genres),
                 top_artists: mapJsonArrayToNames(streamingData?.top_artists),

@@ -17,7 +17,6 @@ import * as FileSystem from 'expo-file-system';
 // Import permission function from expo-image-picker (needed by context consumer)
 import { requestMediaLibraryPermissionsAsync } from 'expo-image-picker';
 import { Buffer } from 'buffer'; // Import Buffer for robust Base64 handling
-import { createClient } from '@supabase/supabase-js';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as WebBrowser from 'expo-web-browser';
@@ -29,7 +28,24 @@ import NotificationService from '../services/NotificationService';
 // Import the new deep link parser
 import { parseDeepLink } from '../utils/navigationUtils';
 import { ensureUserKeyPair, isKeyRegistered, clearE2ECache } from '../lib/e2e/e2eService';
-import { devLog, devWarn, devError } from '@/utils/logger';
+import { devLog, devWarn, devError, logOAuthProfile } from '@/utils/logger';
+import { OAUTH_PREFILL_NAMES_STORAGE_KEY } from '@/config/constants';
+import { splitOAuthFullNameIntoFirstLast } from '@/utils/oauthNameSplit';
+
+/**
+ * Apple sends fullName only in-process; signup may mount before AsyncStorage/JWT catch up.
+ * Same-JS-process buffer so MusicLoverSignUpFlow can always read names right after signInWithApple.
+ */
+let volatileAppleSignupNames: { userId: string; firstName: string; lastName: string } | null = null;
+
+export function consumeVolatileAppleSignupNames(userId: string): { firstName: string; lastName: string } | null {
+    if (volatileAppleSignupNames && volatileAppleSignupNames.userId === userId) {
+        const { firstName, lastName } = volatileAppleSignupNames;
+        volatileAppleSignupNames = null;
+        return { firstName, lastName };
+    }
+    return null;
+}
 
 // --- Exported Types ---
 export type MusicLoverBio = SupabaseMusicLoverBio;
@@ -406,19 +422,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             notificationListenersRef.current = false;
         };
     }, [session?.user?.id]);
-
-    // Attempt to use service role key if environment provides it (bypass RLS)
-    // WARNING: Only use this for specific admin functions, never expose in client code
-    const supabaseAdmin = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY ? 
-        createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-            process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || '',
-            {
-                auth: {
-                    persistSession: false
-                }
-            }
-        ) : null;
 
     // --- Permissions Function (Exposed via context) ---
     const requestMediaLibraryPermissions = async (): Promise<boolean> => {
@@ -960,6 +963,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         devLog("[AuthProvider] Setting up Supabase auth listener.");
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSupabaseSession) => {
             devLog(`[AuthProvider] onAuthStateChange triggered: Event ${_event}`);
+
+            const jwtLogEvents = new Set(['SIGNED_IN', 'TOKEN_REFRESHED', 'INITIAL_SESSION']);
+            if (jwtLogEvents.has(_event) && newSupabaseSession?.access_token) {
+                devWarn(
+                    '[CURL/API TEST] access_token (use as Bearer after "Authorization: "). Remove this block when finished testing.\n',
+                    newSupabaseSession.access_token
+                );
+            }
             
             // CRITICAL: Don't navigate during manual login/signup to prevent race conditions
             if (isManualAuthInProgress.current && _event === 'SIGNED_IN') {
@@ -1154,8 +1165,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             });
 
             // --- Upsert Profile in DB ---
-            const client = supabaseAdmin || supabase; // Use admin client if available to bypass RLS
-            const { data: upsertData, error: upsertError } = await client
+            const { data: upsertData, error: upsertError } = await supabase
                 .from('music_lover_profiles') // *** CHECK TABLE NAME ***
                 .upsert(profileToInsert, { onConflict: 'user_id' })
                 .select('id')
@@ -1257,8 +1267,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             devLog('[AuthProvider] createOrganizerProfile: Preparing to upsert profile data:', { ...profileToInsert, logo: profileToInsert.logo ? 'URL exists' : 'null' });
 
             // --- Upsert Profile in DB ---
-            const client = supabaseAdmin || supabase; // Use admin client if available to bypass RLS
-            const { data: upsertData, error: upsertError } = await client
+            const { data: upsertData, error: upsertError } = await supabase
                 .from('organizer_profiles') // *** CHECK TABLE NAME ***
                 .upsert(profileToInsert, { onConflict: 'user_id' })
                 .select('id')
@@ -1341,8 +1350,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             devLog('[AuthProvider] updateOrganizerProfile: Preparing to update profile data with:', profileToUpdate);
 
             // --- Update Profile in DB ---
-            const client = supabaseAdmin || supabase;
-            const { error: updateError } = await client
+            const { error: updateError } = await supabase
                 .from('organizer_profiles')
                 .update(profileToUpdate)
                 .eq('user_id', userId);
@@ -1373,9 +1381,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
         try {
             devLog('[AuthPremium] Updating \'is_premium\' flag in music_lover_profiles for ' + userId + '...');
             
-            // Use admin client if available to bypass RLS
-            const client = supabaseAdmin || supabase;
-            
             // Prepare update data
             const updateData: { 
                 is_premium: boolean; 
@@ -1394,7 +1399,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                 updateData.premium_selection_date = null;
             }
             
-            const { error: updateError } = await client
+            const { error: updateError } = await supabase
                 .from('music_lover_profiles') // *** CHECK TABLE NAME ***
                 .update(updateData)
                 .eq('user_id', userId); // Use user_id
@@ -1875,7 +1880,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
                             devLog('[useAuth] 👤 User ID:', session.user.id);
                             devLog('[useAuth] 📧 User email:', session.user.email);
                             devLog('[useAuth] 🔍 Full user object:', session.user);
-                            
+                            logOAuthProfile('SignInWithGoogle: web SIGNED_IN (session snapshot)', {
+                                userId: session.user.id,
+                                email: session.user.email,
+                                user_metadata: session.user.user_metadata ?? {},
+                                app_metadata: session.user.app_metadata ?? {},
+                                identityProviders: (session.user as { identities?: { provider?: string }[] }).identities?.map(
+                                    (i) => i.provider
+                                ),
+                            });
+
                             // CRITICAL: Verify the user actually exists in auth.users
                             devLog('[useAuth] 🔍 Verifying user exists in database...');
                             try {
@@ -2316,6 +2330,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
                             if (sessionData?.user) {
                                 devLog('[useAuth] Google OAuth authentication successful');
+                                try {
+                                    const { data: gu } = await supabase.auth.getUser();
+                                    logOAuthProfile('SignInWithGoogle: mobile after exchangeCodeForSession', {
+                                        userId: sessionData.user.id,
+                                        email: gu.user?.email ?? sessionData.user.email,
+                                        user_metadata: gu.user?.user_metadata ?? sessionData.user.user_metadata ?? {},
+                                        app_metadata: gu.user?.app_metadata ?? sessionData.user.app_metadata ?? {},
+                                        identityProviders: (gu.user as { identities?: { provider?: string }[] })?.identities?.map(
+                                            (i) => i.provider
+                                        ),
+                                    });
+                                } catch (e) {
+                                    devWarn('[useAuth] OAuth profile log after Google exchange:', e);
+                                }
                                 setLoading(false);
                                 // Clear the flag on success
                                 isManualAuthInProgress.current = false;
@@ -2340,6 +2368,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
 
                             if (sessionData?.user) {
                                 devLog('[useAuth] Google OAuth authentication successful');
+                                try {
+                                    const { data: gu } = await supabase.auth.getUser();
+                                    logOAuthProfile('SignInWithGoogle: mobile after setSession(access_token)', {
+                                        userId: sessionData.user.id,
+                                        email: gu.user?.email ?? sessionData.user.email,
+                                        user_metadata: gu.user?.user_metadata ?? sessionData.user.user_metadata ?? {},
+                                        app_metadata: gu.user?.app_metadata ?? sessionData.user.app_metadata ?? {},
+                                        identityProviders: (gu.user as { identities?: { provider?: string }[] })?.identities?.map(
+                                            (i) => i.provider
+                                        ),
+                                    });
+                                } catch (e) {
+                                    devWarn('[useAuth] OAuth profile log after Google setSession:', e);
+                                }
                                 setLoading(false);
                                 // Clear the flag on success
                                 isManualAuthInProgress.current = false;
@@ -2420,22 +2462,114 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, navigation
             if (data.user) {
                 devLog('[useAuth] Apple sign-in successful, user:', data.user.id);
 
-                if (credential.fullName) {
-                    const givenName = credential.fullName.givenName;
-                    const familyName = credential.fullName.familyName;
-                    if (givenName || familyName) {
-                        const fullName = [givenName, familyName].filter(Boolean).join(' ');
-                        await supabase.auth.updateUser({
-                            data: {
-                                full_name: fullName,
-                                given_name: givenName,
-                                family_name: familyName,
-                            },
-                        });
-                        devLog('[useAuth] Saved Apple user name to metadata:', fullName);
+                const fn = credential.fullName;
+                logOAuthProfile('SignInWithApple: native credential (before merge)', {
+                    userId: data.user.id,
+                    hasFullNameObject: !!fn,
+                    fullNameFields: fn
+                        ? {
+                              givenName: fn.givenName,
+                              familyName: fn.familyName,
+                              nickname: fn.nickname,
+                              middleName: fn.middleName,
+                              namePrefix: fn.namePrefix,
+                          }
+                        : null,
+                    emailDomain: credential.email?.includes('@') ? credential.email.split('@')[1] : null,
+                    emailLooksLikePrivateRelay: credential.email?.includes('privaterelay') ?? false,
+                    supabaseUser_metadataRightAfterIdToken: data.user.user_metadata ?? {},
+                    supabaseApp_metadataRightAfterIdToken: data.user.app_metadata ?? {},
+                    identityProviders: (data.user as { identities?: { provider?: string }[] }).identities?.map(
+                        (i) => i.provider
+                    ),
+                });
+
+                // Apple only sends fullName and email on the *first* authorization with this Apple ID for this app.
+                // Persist immediately; also stash in AsyncStorage so signup can read names before the session JWT
+                // always reflects updateUser() (avoids empty first/last on the next screen).
+                const nameMeta: Record<string, string> = {};
+                let rawDisplay = '';
+                const givenRaw = fn?.givenName?.trim() || fn?.nickname?.trim() || '';
+                const familyRaw = fn?.familyName?.trim() || '';
+
+                // Apple name is delivered via the native credential (not the identity token).
+                // In practice, expo may sometimes leave `givenName`/`familyName` partially filled,
+                // but `formatFullName()` still produces the best display string.
+                if (fn) {
+                    try {
+                        rawDisplay = AppleAuthentication.formatFullName(fn, 'default').trim();
+                    } catch {
+                        /* ignore and fall back to givenName/familyName */
                     }
                 }
+                if (!rawDisplay && (givenRaw || familyRaw)) {
+                    rawDisplay = [givenRaw, familyRaw].filter(Boolean).join(' ').trim();
+                }
+                const { firstName: appleFirst, lastName: appleLast } = splitOAuthFullNameIntoFirstLast(rawDisplay);
+                if (appleFirst || appleLast) {
+                    const fullName = [appleFirst, appleLast].filter(Boolean).join(' ');
+                    nameMeta.full_name = fullName;
+                    nameMeta.given_name = appleFirst;
+                    nameMeta.family_name = appleLast;
+                    nameMeta.first_name = appleFirst;
+                    nameMeta.last_name = appleLast;
+                    volatileAppleSignupNames = {
+                        userId: data.user.id,
+                        firstName: appleFirst,
+                        lastName: appleLast,
+                    };
+                } else {
+                    volatileAppleSignupNames = null;
+                }
+                if (Object.keys(nameMeta).length > 0) {
+                    try {
+                        await AsyncStorage.setItem(
+                            OAUTH_PREFILL_NAMES_STORAGE_KEY,
+                            JSON.stringify({
+                                userId: data.user.id,
+                                firstName: nameMeta.first_name,
+                                lastName: nameMeta.last_name,
+                            })
+                        );
+                    } catch (e) {
+                        devWarn('[useAuth] Could not stash OAuth prefill names:', e);
+                    }
+                    const { error: metaErr } = await supabase.auth.updateUser({ data: nameMeta });
+                    if (metaErr) {
+                        devError('[useAuth] Failed to save Apple profile metadata:', metaErr);
+                    } else {
+                        devLog('[useAuth] Saved Apple profile fields to user metadata');
+                    }
+                    try {
+                        await supabase.auth.refreshSession();
+                    } catch (e) {
+                        devWarn('[useAuth] refreshSession after Apple metadata:', e);
+                    }
+                    try {
+                        const { data: freshUser } = await supabase.auth.getUser();
+                        logOAuthProfile('SignInWithApple: getUser after updateUser + refreshSession', {
+                            userId: freshUser.user?.id,
+                            email: freshUser.user?.email,
+                            user_metadata: freshUser.user?.user_metadata ?? {},
+                            app_metadata: freshUser.user?.app_metadata ?? {},
+                            identityProviders: (freshUser.user as { identities?: { provider?: string }[] })?.identities?.map(
+                                (i) => i.provider
+                            ),
+                            note: 'If full_name/name are "-" or empty, provider may not send a display name for this account.',
+                        });
+                    } catch (e) {
+                        devWarn('[useAuth] getUser snapshot after Apple:', e);
+                    }
+                } else {
+                    await AsyncStorage.removeItem(OAUTH_PREFILL_NAMES_STORAGE_KEY).catch(() => {});
+                    logOAuthProfile('SignInWithApple: no given/family name from Apple', {
+                        userId: data.user.id,
+                        hint: 'Apple sends fullName only on the first sign-in for this app. Reset: Settings → Apple Account → Sign in with Apple → Stop using.',
+                    });
+                }
 
+                setLoading(false);
+                isManualAuthInProgress.current = false;
                 return { user: data.user };
             }
 

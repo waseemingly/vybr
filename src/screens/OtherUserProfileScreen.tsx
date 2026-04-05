@@ -17,6 +17,7 @@ import { useAuth, MusicLoverProfile, MusicLoverBio } from '@/hooks/useAuth';
 import { useStreamingData, TopMood } from '@/hooks/useStreamingData';
 import { APP_CONSTANTS } from '@/config/constants';
 import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNavigator';
+import { parseMusicFavoriteList } from '@/utils/musicFavoritesParse';
 
 // --- Reusable Components ---
 const DEFAULT_PROFILE_PIC = APP_CONSTANTS.DEFAULT_PROFILE_PIC;
@@ -965,18 +966,9 @@ const OtherUserProfileScreen: React.FC = () => {
     const allBioDetails = profileData.bio ? Object.entries(profileData.bio).filter(([_, v]) => v && String(v).trim() !== '').map(([k, v]) => ({ label: bioDetailLabels[k as keyof MusicLoverBio] || k, value: String(v).trim() })) : [];
     const favoriteGenres = (profileData.musicData?.genres as string[]) ?? [];
 
-    // Parse favorite music - handle both arrays (new format) and strings (old format)
-    const parseCsvString = (value: string | string[] | null | undefined): string[] => {
-        if (!value) return [];
-        if (Array.isArray(value)) return value;
-        if (typeof value === 'string') {
-            return value.split(',').map(s => s.trim()).filter(Boolean);
-        }
-        return [];
-    };
-    const favArtistsList = parseCsvString(profileData.favorite_artists);
-    const favAlbumsList = parseCsvString(profileData.favorite_albums);
-    const favSongsList = parseCsvString(profileData.favorite_songs);
+    const favArtistsList = parseMusicFavoriteList(profileData.favorite_artists);
+    const favAlbumsList = parseMusicFavoriteList(profileData.favorite_albums);
+    const favSongsList = parseMusicFavoriteList(profileData.favorite_songs);
 
     // --- Dynamic Action Buttons ---
     // renderFriendButton now calls handleUnfriend (which opens the modal)

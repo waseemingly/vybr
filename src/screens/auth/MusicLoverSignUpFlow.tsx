@@ -10,9 +10,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Feather } from '@expo/vector-icons'; // Keep Feather for other icons
 import { LinearGradient } from 'expo-linear-gradient';
-import { useAuth } from '@/hooks/useAuth'; // Adjust import path as needed
+import { useAuth, consumeVolatileAppleSignupNames } from '@/hooks/useAuth'; // Adjust import path as needed
 import { useSpotifyAuth } from '@/hooks/useSpotifyAuth'; // Spotify auth hook
-import { APP_CONSTANTS } from '@/config/constants'; // Assuming path is correct
+import { APP_CONSTANTS, OAUTH_PREFILL_NAMES_STORAGE_KEY } from '@/config/constants'; // Assuming path is correct
 import { supabase } from '@/lib/supabase'; // Add supabase import
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
@@ -53,10 +53,14 @@ import type { RootStackParamList, MainStackParamList } from '@/navigation/AppNav
 import { authStyles } from '@/styles/authStyles'; // Import authStyles
 import { ComingSoonHypeModal } from '@/components/ComingSoonOverlay';
 import { FEATURE_FLAGS } from '@/config/featureFlags';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { logOAuthProfile } from '@/utils/logger';
+import { splitOAuthFullNameIntoFirstLast } from '@/utils/oauthNameSplit';
 
 // Define window width for animations
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
+const isIos = Platform.OS === 'ios';
 
 // Step types
 type Step = 'username' | 'profile-details' | 'streaming-service' | 'subscription' | 'music-favorites';
@@ -116,6 +120,7 @@ const MusicLoverSignUpFlow = () => {
         updatePremiumStatus,
         requestMediaLibraryPermissions, // Use this before picking
         loading: authLoading, // Hook's loading state
+        session: authSession, // OAuth prefill when session is ready
         checkUsernameExists, // Use these real functions from useAuth
         checkEmailExists,     // Use these real functions from useAuth 
         // verifyEmailIsReal,    // Removed email verification function
@@ -322,67 +327,11 @@ const MusicLoverSignUpFlow = () => {
         }
     }, [googleUserId]);
 
-    // Comprehensive debugging function
-    const runFullDiagnostics = async () => {
-        console.log('[MusicLoverSignUpFlow] 🔍 Running full diagnostics...');
-        
-        // 1. Check current session
-        await debugAuthState();
-        
-        // 2. Check OAuth user creation
-        await diagnoseOAuthUserCreation();
-        
-        // 3. Check database connectivity
-        try {
-            const { data: testQuery, error: testError } = await supabase
-                .from('users')
-                .select('count')
-                .limit(1);
-            
-            console.log('[MusicLoverSignUpFlow] 📊 Database connectivity test:', {
-                success: !testError,
-                error: testError?.message
-            });
-        } catch (dbError) {
-            console.error('[MusicLoverSignUpFlow] ❌ Database connectivity test failed:', dbError);
-        }
-        
-        // 4. Check RLS policies
-        try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-                const { data: rlsTest, error: rlsError } = await supabase
-                    .from('users')
-                    .select('*')
-                    .eq('id', session.user.id);
-                
-                console.log('[MusicLoverSignUpFlow] 📊 RLS policy test:', {
-                    success: !rlsError,
-                    error: rlsError?.message,
-                    canReadOwnRecord: !!rlsTest
-                });
-            }
-        } catch (rlsError) {
-            console.error('[MusicLoverSignUpFlow] ❌ RLS policy test failed:', rlsError);
-        }
-        
-        // 5. Check foreign key constraints
-        try {
-            const { data: constraintCheck, error: constraintError } = await supabase
-                .rpc('get_foreign_key_constraints', { table_name: 'music_lover_profiles' });
-            
-            console.log('[MusicLoverSignUpFlow] 📊 Foreign key constraints check:', {
-                success: !constraintError,
-                error: constraintError?.message,
-                constraints: constraintCheck
-            });
-        } catch (constraintError) {
-            console.error('[MusicLoverSignUpFlow] ❌ Foreign key constraints check failed:', constraintError);
-        }
-        
-        console.log('[MusicLoverSignUpFlow] ✅ Full diagnostics completed');
-    };
     const [usernameFeedback, setUsernameFeedback] = useState('');
+
+    /** True when the logged-in user used Apple or Google — we pre-fill name/username so they are not asked to re-enter data Apple already provided (App Store Guideline 4). */
+    const [isOauthProviderSignup, setIsOauthProviderSignup] = useState(false);
+    const oauthSignupPrefilled = useRef(false);
 
     // Location data lists
     const [countries, setCountries] = useState<any[]>([]);
@@ -588,10 +537,11 @@ const MusicLoverSignUpFlow = () => {
     const validateUsernameStep = (): boolean => {
         console.log('[MusicLoverSignUpFlow] Validating Username Step...');
         
-        // First name check
-        if (!formData.firstName.trim()) return false;
-        // Last name check  
-        if (!formData.lastName.trim()) return false;
+        // First/last name: required on web and Android only (iOS uses username step without those fields)
+        if (!isIos) {
+            if (!formData.firstName.trim()) return false;
+            if (!formData.lastName.trim()) return false;
+        }
         // Username checks
         if (!formData.username.trim()) return false;
         if (/\s/.test(formData.username.trim())) return false;
@@ -605,8 +555,10 @@ const MusicLoverSignUpFlow = () => {
     
     // Get error message for username step
     const getUsernameError = (): string => {
-        if (!formData.firstName.trim()) return 'Please enter your first name';
-        if (!formData.lastName.trim()) return 'Please enter your last name';
+        if (!isIos) {
+            if (!formData.firstName.trim()) return 'Please enter your first name';
+            if (!formData.lastName.trim()) return 'Please enter your last name';
+        }
         if (!formData.username.trim()) return 'Please enter a username';
         if (/\s/.test(formData.username.trim())) return 'Username cannot contain spaces';
         if (formData.username.trim().length < 3) return 'Username must be at least 3 characters';
@@ -937,11 +889,51 @@ const MusicLoverSignUpFlow = () => {
             throw new Error('Could not retrieve email from your Google account.');
         }
 
+        let firstName = formData.firstName.trim();
+        let lastName = formData.lastName.trim();
+        if (isIos) {
+            // On iOS, Apple -> `updateUser()` -> refreshSession/getSession can race with
+            // signup UI mounting. Fetch a fresh snapshot right before we build profile data.
+            let meta = sessionData?.session?.user?.user_metadata ?? {};
+            try {
+                const { data: userData } = await supabase.auth.getUser();
+                meta = userData?.user?.user_metadata ?? meta;
+            } catch {
+                // If this fails, fall back to whatever we have in `getSession()`.
+            }
+            let display = String(meta.full_name || meta.name || '').trim();
+            if (!display || display === '-') {
+                display = [
+                    String(meta.first_name || meta.given_name || '').trim(),
+                    String(meta.last_name || meta.family_name || '').trim(),
+                ]
+                    .filter(Boolean)
+                    .join(' ')
+                    .trim();
+            }
+            if (display && display !== '-') {
+                const sp = splitOAuthFullNameIntoFirstLast(display);
+                firstName = firstName || sp.firstName;
+                lastName = lastName || sp.lastName;
+            }
+            if (!firstName) firstName = String(meta.first_name || meta.given_name || '').trim();
+            if (!lastName) lastName = String(meta.last_name || meta.family_name || '').trim();
+            if (!firstName && !lastName) {
+                const u = formData.username.trim();
+                const cap = u ? u.charAt(0).toUpperCase() + u.slice(1, 32) : 'Member';
+                firstName = cap;
+                lastName = 'User';
+            } else if (!firstName) {
+                const u = formData.username.trim();
+                firstName = u ? u.charAt(0).toUpperCase() + u.slice(1, 32) : 'Member';
+            }
+        }
+
         // Create a basic profile data object with known properties
         const profileData: any = {
             userId,
-            firstName: formData.firstName.trim(),
-            lastName: formData.lastName.trim(),
+            firstName,
+            lastName,
             username: formData.username.trim(),
             email: email,
             age,
@@ -1276,7 +1268,7 @@ const MusicLoverSignUpFlow = () => {
                         <Text style={[authStyles.signupStepDescription, !isWeb && { marginBottom: 0, textAlign: 'center' }]}>Let's start with your basic information</Text>
                     </View>
             
-            {/* Unregistered Email Notice */}
+            {/* Context notice: email/password users came from a failed login; OAuth users see copy that does not ask them to re-enter Apple-provided data */}
             <View style={{
                 backgroundColor: `${APP_CONSTANTS.COLORS.PRIMARY}10`,
                 borderWidth: 1,
@@ -1296,7 +1288,7 @@ const MusicLoverSignUpFlow = () => {
                     marginBottom: 4,
                     fontFamily: 'Inter, sans-serif'
                 }}>
-                    Email Not Registered
+                    {isOauthProviderSignup ? 'Almost there' : 'Email Not Registered'}
                 </Text>
                 <Text style={{
                     fontSize: isWeb ? 13 : 12,
@@ -1305,13 +1297,16 @@ const MusicLoverSignUpFlow = () => {
                     lineHeight: isWeb ? 18 : 16,
                     fontFamily: 'Inter, sans-serif'
                 }}>
-                    Your email address is not registered. Please complete your profile to create your account.
+                    {isOauthProviderSignup
+                        ? 'Confirm your details and accept the terms to finish creating your Vybr profile.'
+                        : 'Your email address is not registered. Please complete your profile to create your account.'}
                 </Text>
             </View>
             
             {/* Form Section */}
             <View style={[!isWeb && { width: '100%' }, isWeb && { width: '100%', alignItems: 'stretch' }]}>
-                {/* First/Last Name Row */}
+                {/* First/Last Name Row — web & Android only; iOS omits (Sign in with Apple / compact flow) */}
+                {!isIos ? (
                 <View style={[authStyles.signupRowContainer, !isWeb && { marginBottom: 24 }]}>
                     <View style={[authStyles.signupInputContainer, { 
                         width: isWeb ? '48%' : '48%', 
@@ -1349,9 +1344,10 @@ const MusicLoverSignUpFlow = () => {
                         />
                     </View>
                 </View>
+                ) : null}
                 
                 {/* Username */}
-                <View style={[authStyles.signupInputContainer, !isWeb && { marginBottom: 28 }, isWeb && { marginTop: 24 }]}>
+                <View style={[authStyles.signupInputContainer, !isWeb && { marginBottom: 28 }, isWeb && { marginTop: 24 }, isIos && !isWeb && { marginTop: 0 }]}>
                     <View style={authStyles.signupLabelRow}>
                         <Text style={authStyles.signupInputLabel}>Username *</Text>
                         {usernameStatus === 'checking' && <ActivityIndicator size="small" color={APP_CONSTANTS.COLORS.PRIMARY} style={authStyles.signupInlineLoader} />}
@@ -1990,6 +1986,191 @@ const MusicLoverSignUpFlow = () => {
         }
         return () => { isMounted = false; };
     }, [formData.countryCode, formData.stateCode]); // Only depend on countryCode and stateCode, not state (which is derived)
+
+    // Pre-fill first/last name from OAuth (Sign in with Apple / Google). User chooses their own username.
+    // IMPORTANT: Do not gate on `user.identities` — Supabase JS often omits or empties identities on getUser(),
+    // which previously skipped AsyncStorage and metadata entirely (names never appeared).
+    useEffect(() => {
+        if (oauthSignupPrefilled.current || !authSession?.user?.id) return;
+
+        let cancelled = false;
+
+        const prefillFromOAuth = async () => {
+            const sessionUserId = authSession.user!.id;
+            if (cancelled) return;
+
+            // iOS: no first/last fields on step 1 — skip name prefill into form; names resolved at profile create from session metadata
+            if (isIos) {
+                oauthSignupPrefilled.current = true;
+                try {
+                    const { data: userData } = await supabase.auth.getUser();
+                    const user = userData?.user;
+                    if (user && !cancelled) {
+                        const identities = user.identities ?? [];
+                        const meta: Record<string, unknown> = user.user_metadata ?? {};
+                        const iss = typeof meta.iss === 'string' ? meta.iss : '';
+                        const email = user.email ?? '';
+                        const isApple =
+                            identities.some((i: { provider: string }) => i.provider === 'apple') ||
+                            user.app_metadata?.provider === 'apple' ||
+                            (Array.isArray((user.app_metadata as { providers?: string[] })?.providers) &&
+                                (user.app_metadata as { providers?: string[] }).providers!.includes('apple')) ||
+                            iss.includes('appleid.apple.com') ||
+                            /@privaterelay\.appleid\.com$/i.test(email);
+                        const isGoogle =
+                            identities.some((i: { provider: string }) => i.provider === 'google') ||
+                            user.app_metadata?.provider === 'google' ||
+                            (Array.isArray((user.app_metadata as { providers?: string[] })?.providers) &&
+                                (user.app_metadata as { providers?: string[] }).providers!.includes('google')) ||
+                            iss.includes('google');
+                        if (isApple || isGoogle) setIsOauthProviderSignup(true);
+                    }
+                } catch {
+                    /* ignore */
+                }
+                return;
+            }
+
+            let firstName = '';
+            let lastName = '';
+
+            // Apply volatile names synchronously (before any await). React 18 Strict Mode can cancel
+            // the effect after an await and discard names if we only setState after getUser().
+            const volatileNames = consumeVolatileAppleSignupNames(sessionUserId);
+            if (volatileNames && (volatileNames.firstName.trim() || volatileNames.lastName.trim())) {
+                firstName = volatileNames.firstName.trim();
+                lastName = volatileNames.lastName.trim();
+                setFormData((prev) => ({
+                    ...prev,
+                    firstName: firstName || prev.firstName,
+                    lastName: lastName || prev.lastName,
+                }));
+                setIsOauthProviderSignup(true);
+                logOAuthProfile('MusicLoverSignUpFlow: applied volatile Apple/Google handoff', {
+                    userId: sessionUserId,
+                    firstName,
+                    lastName,
+                });
+                void AsyncStorage.removeItem(OAUTH_PREFILL_NAMES_STORAGE_KEY);
+            }
+
+            try {
+                const raw = await AsyncStorage.getItem(OAUTH_PREFILL_NAMES_STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw) as { userId?: string; firstName?: string; lastName?: string };
+                    if (parsed.userId === sessionUserId) {
+                        const fn = (parsed.firstName ?? '').trim();
+                        const ln = (parsed.lastName ?? '').trim();
+                        if (fn || ln) {
+                            firstName = fn || firstName;
+                            lastName = ln || lastName;
+                            setFormData((prev) => ({
+                                ...prev,
+                                firstName: firstName || prev.firstName,
+                                lastName: lastName || prev.lastName,
+                            }));
+                            setIsOauthProviderSignup(true);
+                            logOAuthProfile('MusicLoverSignUpFlow: applied AsyncStorage OAuth names', {
+                                userId: sessionUserId,
+                                firstName,
+                                lastName,
+                            });
+                        }
+                        await AsyncStorage.removeItem(OAUTH_PREFILL_NAMES_STORAGE_KEY);
+                    }
+                }
+            } catch {
+                await AsyncStorage.removeItem(OAUTH_PREFILL_NAMES_STORAGE_KEY).catch(() => {});
+            }
+
+            if (cancelled) {
+                oauthSignupPrefilled.current = true;
+                return;
+            }
+
+            const { data: userData } = await supabase.auth.getUser();
+            const user = userData?.user;
+            if (!user) {
+                oauthSignupPrefilled.current = true;
+                return;
+            }
+
+            const identities = user.identities ?? [];
+            const meta: Record<string, unknown> = user.user_metadata ?? {};
+            const iss = typeof meta.iss === 'string' ? meta.iss : '';
+            const email = user.email ?? '';
+
+            const isApple =
+                identities.some((i: { provider: string }) => i.provider === 'apple') ||
+                user.app_metadata?.provider === 'apple' ||
+                (Array.isArray((user.app_metadata as { providers?: string[] })?.providers) &&
+                    (user.app_metadata as { providers?: string[] }).providers!.includes('apple')) ||
+                iss.includes('appleid.apple.com') ||
+                /@privaterelay\.appleid\.com$/i.test(email);
+
+            const isGoogle =
+                identities.some((i: { provider: string }) => i.provider === 'google') ||
+                user.app_metadata?.provider === 'google' ||
+                (Array.isArray((user.app_metadata as { providers?: string[] })?.providers) &&
+                    (user.app_metadata as { providers?: string[] }).providers!.includes('google')) ||
+                iss.includes('google');
+
+            const isOauthSignup = isApple || isGoogle;
+
+            if (!firstName && !lastName) {
+                let display = String(meta.full_name || meta.name || '').trim();
+                if (!display || display === '-') {
+                    display = [
+                        String(meta.first_name || meta.given_name || '').trim(),
+                        String(meta.last_name || meta.family_name || '').trim(),
+                    ]
+                        .filter(Boolean)
+                        .join(' ')
+                        .trim();
+                }
+                if (display && display !== '-') {
+                    const sp = splitOAuthFullNameIntoFirstLast(display);
+                    firstName = sp.firstName;
+                    lastName = sp.lastName;
+                }
+            }
+
+            if (isOauthSignup) {
+                setIsOauthProviderSignup(true);
+            }
+
+            if (firstName || lastName) {
+                setFormData((prev) => ({
+                    ...prev,
+                    firstName: firstName || prev.firstName,
+                    lastName: lastName || prev.lastName,
+                }));
+            }
+
+            logOAuthProfile('MusicLoverSignUpFlow: Supabase getUser merge (final)', {
+                userId: user.id,
+                email: user.email,
+                isApple,
+                isGoogle,
+                user_metadata: meta,
+                app_metadata: user.app_metadata ?? {},
+                identityProviders: identities.map((i) => i.provider),
+                mergedFirstName: firstName,
+                mergedLastName: lastName,
+                displayNameHint:
+                    meta.full_name === '-' || meta.name === '-'
+                        ? 'Supabase metadata shows "-" or empty; use native Apple credential log above or reset Sign in with Apple for this app.'
+                        : undefined,
+            });
+
+            oauthSignupPrefilled.current = true;
+        };
+
+        prefillFromOAuth();
+        return () => {
+            cancelled = true;
+        };
+    }, [authSession?.user?.id]);
 
     // --- Username and Email Blur Handlers ---
     const handleUsernameBlur = async () => {
